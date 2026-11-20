@@ -68,6 +68,7 @@ function useAutonomousTurnEvents({
           sessionId,
           assistantMessageId: ev.launchMessageId,
           streamStartedAt: Date.now(),
+          background: true,
         });
         return;
       }

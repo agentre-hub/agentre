@@ -66,6 +66,11 @@ export type LiveStream = {
   // 起手)。手上没有这条消息的旧副本时(tab 首次挂载),库里正文与 liveBlocks 是同一段,
   // 正文据此冻在空上(见 use-chat-session 的 retainLiveMessageBlocks)。
   startsEmpty?: boolean;
+  // background:这条流不是一轮在跑,而是后台 subagent 在一条**早已收尾**的发起消息上
+  // 继续干活(subagent_activity_started 开的流)。它只负责把内层工具调用实时画进派遣卡;
+  // 「这个会话此刻有轮次在跑」的会话级读数(typing 指示器 / 停止 / 回车排队)与那条消息
+  // 的实时页脚都不认它(sess-4932)。同一条消息上再开用户轮的流会整条覆盖掉这个标记。
+  background?: boolean;
   liveDelta: string;
   liveThinking: string;
   liveBlocks: ChatBlockData[];

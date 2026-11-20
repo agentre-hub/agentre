@@ -88,19 +88,24 @@ function liveContentByMessageId(
       liveThinkingStartedAt: s.streamStartedAt,
       liveBlocks: s.liveBlocks,
       liveRetry: s.liveRetry,
-      liveTurn: {
-        startedAt: s.streamStartedAt,
-        firstTokenAt: s.firstTokenAt,
-        generationMs: s.generationMs,
-        burstStartedAt: s.burstStartedAt,
-        promptTokens: s.liveUsage?.promptTokens ?? 0,
-        completionTokens: s.turnCompletionTokens,
-        cachedTokens: s.liveUsage?.cachedTokens ?? 0,
-        cacheCreationTokens: s.liveUsage?.cacheCreationTokens ?? 0,
-        reasoningTokens: s.turnReasoningTokens,
-        model: "",
-        liveText: s.liveDelta,
-      },
+      // 后台 subagent 活动流:内层块照样实时画进派遣卡,但发起消息那一轮早已收尾 ——
+      // 没有在跑的计时 / 用量,页脚留在落库的终值(token / 复制)。
+      background: s.background,
+      liveTurn: s.background
+        ? null
+        : {
+            startedAt: s.streamStartedAt,
+            firstTokenAt: s.firstTokenAt,
+            generationMs: s.generationMs,
+            burstStartedAt: s.burstStartedAt,
+            promptTokens: s.liveUsage?.promptTokens ?? 0,
+            completionTokens: s.turnCompletionTokens,
+            cachedTokens: s.liveUsage?.cachedTokens ?? 0,
+            cacheCreationTokens: s.liveUsage?.cacheCreationTokens ?? 0,
+            reasoningTokens: s.turnReasoningTokens,
+            model: "",
+            liveText: s.liveDelta,
+          },
     });
   }
   return out;

@@ -2447,6 +2447,76 @@ describe("ChatTranscript message meta", () => {
   });
 });
 
+// 后台 subagent 在一条早已收尾的消息上继续干活时,桌面端为它开一条活动流把内层块
+// 画进派遣卡。那条消息并没有一轮在跑:末尾的活动块不能按「正在跑」自动展开(sess-4932)。
+describe("ChatTranscript background subagent activity stream", () => {
+  function finishedWithTrailingTool(): chat_svc.ChatMessage {
+    return {
+      blocks: [
+        {
+          type: "tool_use",
+          toolUseId: "call_ls",
+          toolName: "Bash",
+          toolInput: { command: "ls" },
+        } as ChatBlockData,
+        {
+          type: "tool_result",
+          toolUseId: "call_ls",
+          text: "a",
+        } as ChatBlockData,
+        {
+          type: "tool_use",
+          toolUseId: "call_pwd",
+          toolName: "Bash",
+          toolInput: { command: "pwd" },
+        } as ChatBlockData,
+        {
+          type: "tool_result",
+          toolUseId: "call_pwd",
+          text: "/",
+        } as ChatBlockData,
+      ],
+      completionTokens: 50,
+      createtime: 0,
+      durationMs: 1200,
+      errorText: "",
+      id: 2,
+      model: "claude-opus-5-5",
+      promptTokens: 100,
+      role: "assistant",
+      seq: 1,
+      sessionId: 1,
+    } as chat_svc.ChatMessage;
+  }
+
+  it("Given a background activity stream on a finished message, When it renders, Then the trailing activity is not treated as running", () => {
+    render(
+      <ChatTranscript
+        agentColor="agent-1"
+        agentName="CEO 助手"
+        messages={[finishedWithTrailingTool()]}
+        liveByMessageId={new Map([[2, { liveBlocks: [], background: true }]])}
+      />,
+    );
+
+    expect(screen.queryAllByTestId("activity-row")).toHaveLength(0);
+  });
+
+  it("Given a running turn's stream on the message, When it renders, Then the trailing activity auto-expands", () => {
+    render(
+      <ChatTranscript
+        agentColor="agent-1"
+        agentName="CEO 助手"
+        messages={[finishedWithTrailingTool()]}
+        liveByMessageId={new Map([[2, { liveBlocks: [] }]])}
+        streaming
+      />,
+    );
+
+    expect(screen.getAllByTestId("activity-row")).toHaveLength(2);
+  });
+});
+
 describe("ChatTranscript typing indicator", () => {
   function userMessage(id: number, text: string): chat_svc.ChatMessage {
     return {

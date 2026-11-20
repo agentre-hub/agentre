@@ -462,6 +462,61 @@ describe("assistant message meta, compact density", () => {
   });
 });
 
+// 复制取的是「最后一段正文」= 末个非文字块之后的文字。后台子代理的内层块
+// (parentToolUseId) 收进派遣卡里画,不在消息正文流里;子代理在主轮收尾后继续
+// 干活时,它们会被追加到发起消息的末尾 —— 不能把它们当成正文之后的工具块(sess-4932)。
+describe("assistant copy output with background subagent children", () => {
+  const spawnThenAnswer = [
+    { type: "tool_use", toolCallId: "toolu_agent", toolName: "Agent" },
+    { type: "text", text: "final answer" },
+  ];
+  const childBlocks = [
+    {
+      type: "tool_use",
+      toolCallId: "toolu_child",
+      toolName: "Bash",
+      parentToolUseId: "toolu_agent",
+    },
+    {
+      type: "tool_result",
+      toolCallId: "toolu_child",
+      text: "ok",
+      parentToolUseId: "toolu_agent",
+    },
+  ];
+
+  it("Given subagent child blocks persisted after the final text, When the message renders, Then copy is offered", () => {
+    renderRow(assistantRow({ blocks: [...spawnThenAnswer, ...childBlocks] }));
+
+    expect(
+      screen.getByRole("button", { name: "Copy AI output" }),
+    ).toBeDefined();
+  });
+
+  it("Given subagent child blocks still streaming in after the final text, When the message renders, Then copy is offered", () => {
+    renderRow(assistantRow({ blocks: spawnThenAnswer }), {
+      liveBlocks: childBlocks as never,
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Copy AI output" }),
+    ).toBeDefined();
+  });
+
+  it("Given a top-level tool call after the last text, When the message renders, Then there is no final section to copy", () => {
+    renderRow(
+      assistantRow({
+        blocks: [
+          { type: "text", text: "looking" },
+          { type: "tool_use", toolCallId: "toolu_top", toolName: "Bash" },
+        ],
+      }),
+    );
+
+    expect(screen.queryByRole("button", { name: "Copy AI output" })).toBeNull();
+  });
+});
+
 describe("user message alignment", () => {
   function userRow(isFirstOfMessage = true): TranscriptRow {
     const row = assistantRow({ role: "user", durationMs: 0 });

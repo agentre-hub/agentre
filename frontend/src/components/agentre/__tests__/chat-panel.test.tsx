@@ -5005,6 +5005,89 @@ describe("ChatPanel · T29 subagent_activity_started 旁路订阅", () => {
       "toolu_running",
     ]);
   });
+
+  // 主轮早已收尾、只剩后台 subagent 在发起消息上继续干活:这条活动流只是把内层工具
+  // 调用实时画进派遣卡,不是一轮在跑 —— 不能挂「正在输出」指示器、不能把那条消息的
+  // 页脚换成实时计时(token / 复制都没了)、也不能让回车走排队(sess-4932)。
+  async function openBackgroundActivity() {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 1, agentStatus: "idle" });
+    render(<ChatPanel sessionId={1} />);
+    await waitFor(() =>
+      expect(runtimeMocks.EventsOn).toHaveBeenCalledWith(
+        "chat:autonomous:1",
+        expect.any(Function),
+      ),
+    );
+    const handler = getAutonomousHandler(1);
+    act(() => {
+      handler!({
+        kind: "subagent_activity_started",
+        stream: "chat:event:1:42",
+        sessionId: 1,
+        launchMessageId: 42,
+        toolUseId: "toolu_agent",
+      } as import("@/hooks/use-chat-stream").ChatStreamEvent);
+    });
+  }
+
+  it("Given only a background subagent activity stream, When the transcript renders, Then it is not streaming and the launch message carries no live turn", async () => {
+    await openBackgroundActivity();
+
+    const props = componentMocks.chatTranscriptProps.at(-1) as {
+      streaming?: boolean;
+      liveByMessageId?: ReadonlyMap<
+        number,
+        { background?: boolean; liveTurn?: unknown; liveBlocks: unknown[] }
+      >;
+    };
+    expect(props.streaming).toBe(false);
+    const live = props.liveByMessageId?.get(42);
+    // 内层块仍要实时画进派遣卡。
+    expect(live?.liveBlocks).toEqual([]);
+    expect(live?.background).toBe(true);
+    expect(live?.liveTurn ?? null).toBeNull();
+  });
+
+  it("Given only a background subagent activity stream, When the user submits, Then the message is sent rather than queued", async () => {
+    appMocks.SendChatMessage.mockResolvedValue({
+      assistantMessageId: 43,
+      sessionId: 1,
+      stream: "chat:event:1:43",
+      userMessageId: 44,
+    });
+    await openBackgroundActivity();
+
+    const submit = componentMocks.chatComposerProps.at(-1)?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    act(() => submit?.("next"));
+
+    await waitFor(() =>
+      expect(appMocks.SendChatMessage).toHaveBeenCalledOnce(),
+    );
+    expect(appMocks.EnqueueChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("Given a user turn opened after a background activity stream, When the transcript renders, Then it is streaming again", async () => {
+    await openBackgroundActivity();
+
+    act(() => {
+      useChatStreamsStore.getState().openStream({
+        name: "chat:event:1:43",
+        sessionId: 1,
+        assistantMessageId: 43,
+        streamStartedAt: Date.now() + 1,
+      });
+    });
+
+    const props = componentMocks.chatTranscriptProps.at(-1) as {
+      streaming?: boolean;
+      liveByMessageId?: ReadonlyMap<number, { liveTurn?: unknown }>;
+    };
+    expect(props.streaming).toBe(true);
+    expect(props.liveByMessageId?.get(43)?.liveTurn).not.toBeNull();
+  });
 });
 
 // ─── T30: 后台任务完成翻转 ────────────────────────────────────────────────────
