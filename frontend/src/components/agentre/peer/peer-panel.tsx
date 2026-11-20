@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import {
   Button,
   FailureDetail,
+  SessionLocationProvider,
   TranscriptPortsProvider,
   cn,
   isAskExpiredError,
@@ -264,18 +265,21 @@ export function PeerPanel({
         </div>
       ) : (
         <div className="min-h-0 flex-1">
-          <TranscriptPortsProvider ports={ports}>
-            <ChatTranscript
-              agentName={title || deviceName}
-              agentColor="agent-3"
-              cwd={undefined}
-              sessionId={PEER_CARD_SESSION_ID}
-              active={active}
-              messages={messages}
-              // 生成中指示只在对端那一轮真的在跑、且不是停下来等我的时候出现。
-              streaming={turnRunning && !session?.transcript.waitingForInput}
-            />
-          </TranscriptPortsProvider>
+          {/* 这条对话跑在对端桌面上,它提到的文件在那台机器上。 */}
+          <SessionLocationProvider location="remote">
+            <TranscriptPortsProvider ports={ports}>
+              <ChatTranscript
+                agentName={title || deviceName}
+                agentColor="agent-3"
+                cwd={undefined}
+                sessionId={PEER_CARD_SESSION_ID}
+                active={active}
+                messages={messages}
+                // 生成中指示只在对端那一轮真的在跑、且不是停下来等我的时候出现。
+                streaming={turnRunning && !session?.transcript.waitingForInput}
+              />
+            </TranscriptPortsProvider>
+          </SessionLocationProvider>
         </div>
       )}
 

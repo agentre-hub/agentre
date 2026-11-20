@@ -5,6 +5,7 @@ import { useUiTranslation } from "../i18n";
 import { previewKind, toRelPath } from "../lib/previewable";
 import { toastOpenPathFailure } from "./open-path-failure";
 import { useTranscriptPorts } from "./ports-context";
+import { useSessionLocation } from "./session-location";
 
 const ABS_POSIX = /^\//;
 const ABS_WINDOWS = /^[A-Za-z]:[\\/]/;
@@ -273,6 +274,7 @@ function FallbackChip({
       ? t("markdownImage.tooLarge")
       : t("markdownImage.cannotPreview");
   const { openPath } = useTranscriptPorts();
+  const location = useSessionLocation();
 
   const content = (
     <>
@@ -291,7 +293,7 @@ function FallbackChip({
         className="inline-flex max-w-full items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-meta text-muted-foreground outline-none transition-colors hover:bg-accent/60 hover:on-accent focus-visible:focus-outline"
         onClick={() =>
           openPath(absolutePath).catch((err: unknown) =>
-            toastOpenPathFailure(err, t),
+            toastOpenPathFailure(err, t, { location }),
           )
         }
       >

@@ -7,6 +7,7 @@ import {
   MachineOfflineBanner,
   PermissionModePill,
   QueuedMessagesBar,
+  SessionLocationProvider,
   TooltipProvider,
   TranscriptJumpControl,
   TranscriptSkeleton,
@@ -1033,7 +1034,7 @@ function ChatPanel({
       ? providerPill.resolvedModelLabel || newSessionAgent.backendType
       : "";
 
-  return (
+  const panel = (
     <TooltipProvider delayDuration={200}>
       {/* Wails 事件订阅器现在挂在 App 顶层的 <ChatStreamsHost />,跨路由长存,
           ChatPanel 这里只读 store 状态、不再自己订阅。 */}
@@ -1318,6 +1319,21 @@ function ChatPanel({
         onConfirmRename={() => void confirmRename()}
       />
     </TooltipProvider>
+  );
+
+  // 转录 / 预览面板里点文件链接「文件不在本机」时,原因取决于会话在哪台机器上。
+  // 判据与文件侧栏的 remote 同一个(LoadSession 出口已把本机指纹收敛成空串);
+  // 新会话还没落库时不知道,不猜。
+  const sessionLocation = session
+    ? session.deviceID
+      ? "remote"
+      : "local"
+    : undefined;
+
+  return (
+    <SessionLocationProvider location={sessionLocation}>
+      {panel}
+    </SessionLocationProvider>
   );
 }
 

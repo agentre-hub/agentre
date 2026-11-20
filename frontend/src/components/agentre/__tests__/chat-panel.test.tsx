@@ -99,6 +99,8 @@ vi.mock("@/../wailsjs/go/app/App", () => appMocks);
 const componentMocks = vi.hoisted(() => ({
   chatComposerProps: [] as Array<Record<string, unknown>>,
   chatTranscriptProps: [] as Array<Record<string, unknown>>,
+  // ChatPanel 提供给转录子树的会话位置(SessionLocationProvider 的 location)。
+  sessionLocations: [] as Array<string | undefined>,
   // ChatTranscript 桩要不要渲染 [data-message-id] 行。默认不渲染 —— 只有需要
   // 「视口下沿落在哪条消息上」的用例才打开,免得别的用例凭空多出锚点行。
   transcriptRowMessageIds: [] as number[],
@@ -309,6 +311,12 @@ vi.mock("@agentre-hub/agentre-ui", async (importOriginal) => {
   const React = await import("react");
   return {
     ...actual,
+    SessionLocationProvider: (
+      props: React.ComponentProps<typeof actual.SessionLocationProvider>,
+    ) => {
+      componentMocks.sessionLocations.push(props.location);
+      return React.createElement(actual.SessionLocationProvider, props);
+    },
     PermissionModePill: (props: Record<string, unknown>) => {
       componentMocks.permissionModePillProps.push(props);
       return React.createElement("button", {
@@ -488,6 +496,7 @@ function resetStore() {
   reloadSpy.mockClear();
   componentMocks.chatComposerProps.length = 0;
   componentMocks.chatTranscriptProps.length = 0;
+  componentMocks.sessionLocations.length = 0;
   componentMocks.permissionModePillProps.length = 0;
   componentMocks.composerHandle.restoreDraft.mockClear();
   componentMocks.composerHandle.clearDraft.mockClear();
@@ -1042,6 +1051,29 @@ describe("ChatPanel · transcript cwd", () => {
     expect(componentMocks.chatTranscriptProps.at(-1)?.cwd).toBe(
       "/Users/codfrm/Code/agentre/agentre",
     );
+  });
+});
+
+// 「文件不在本机」提示的原因取决于会话在哪台机器上:本机会话说「可能已被移动或
+// 删除」,远端会话说「可能在远端机器上」。判据与文件侧栏的 remote 同一个
+// (LoadSession 出口已把本机指纹收敛成空串)。
+describe("ChatPanel · 会话位置", () => {
+  it("Given a local session (no device), When the panel renders, Then its subtree is told the session is local", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, deviceID: "" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(componentMocks.sessionLocations.at(-1)).toBe("local");
+  });
+
+  it("Given a session on a remote device, When the panel renders, Then its subtree is told the session is remote", () => {
+    resetStore();
+    mockSessionStore.session = makeSession({ id: 42, deviceID: "remote-7" });
+
+    render(<ChatPanel sessionId={42} />);
+
+    expect(componentMocks.sessionLocations.at(-1)).toBe("remote");
   });
 });
 

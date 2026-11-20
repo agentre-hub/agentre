@@ -11,11 +11,22 @@ vi.mock("../../../../../wailsjs/go/app/App", () => ({
   PeerSubmitAnswer: vi.fn(),
   PeerSubmitToolPermission: vi.fn(),
   PeerDetach: vi.fn().mockResolvedValue(undefined),
+  // 转录里的文件链接「系统打开」走桌面端那份端口。
+  OpenPath: vi.fn(),
   RemoteDeviceFingerprint: vi.fn().mockResolvedValue(""),
   // 输入框的 @ 菜单要一份设备清单(device-list-store)。
   RemoteDeviceList: vi.fn().mockResolvedValue([]),
   ServerListDevices: vi.fn().mockRejectedValue(new Error("not logged in")),
 }));
+
+const sonnerMocks = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock("sonner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("sonner")>();
+  return {
+    ...actual,
+    toast: Object.assign(actual.toast, { error: sonnerMocks.toastError }),
+  };
+});
 
 vi.mock("../../../../../wailsjs/runtime/runtime", () => ({
   EventsOn: vi.fn(() => vi.fn()),
@@ -25,6 +36,7 @@ vi.mock("../../../../../wailsjs/runtime/runtime", () => ({
 }));
 
 import {
+  OpenPath,
   PeerAttach,
   PeerPull,
   PeerRun,
@@ -421,6 +433,31 @@ describe("PeerPanel", () => {
   // 喂给 ChatTranscript;Then 转录**真的画得出来**。此前那些块渲染成一行
   // `(debug) unimplemented block type: raw`,载荷不可见 —— 光看归约结果看不出这件事,
   // 所以这条断言落在渲染出来的文字上。
+  // 对端桌面上的会话,文件在那台机器上:本机打不开时原因就是「在远端」,
+  // 不能说成「被移动或删除」。
+  it("Given the peer's transcript links a file this machine doesn't have, When it is opened with the system app, Then the toast says it may be on a remote machine", async () => {
+    (OpenPath as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      unavailable: "not-found",
+    });
+    readySession(
+      "idle",
+      transcriptOf([
+        { kind: "text_delta", text: "see [main.go](/srv/app/main.go)" },
+      ]),
+    );
+
+    renderPanel();
+    await userEvent.click(
+      await screen.findByRole("link", { name: /main\.go/ }),
+    );
+
+    await waitFor(() => expect(sonnerMocks.toastError).toHaveBeenCalled());
+    expect(sonnerMocks.toastError).toHaveBeenCalledWith(
+      "This file isn't on this machine",
+      expect.objectContaining({ description: "It may be on a remote machine" }),
+    );
+  });
+
   it("renders the block kinds the peer tab previously downgraded to raw", async () => {
     const key = peerKeyOf("sha256:peer-desktop", conv(7));
     let transcript = createPeerTranscript();

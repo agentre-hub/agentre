@@ -571,6 +571,9 @@ export { CtlChangeList } from "./transcript/tool-approval/ctl-approval-card";
 export type { CtlChangeListProps } from "./transcript/tool-approval/ctl-approval-card";
 export { TranscriptUIStateProvider } from "./transcript/transcript-ui-state";
 export { TranscriptPortsProvider } from "./transcript/ports-context";
+// 会话在哪台机器上:宿主提供,决定「文件不在本机」提示给的原因。
+export { SessionLocationProvider } from "./transcript/session-location";
+export type { SessionLocation } from "./transcript/session-location";
 export { TranscriptLiveStateProvider } from "./transcript/live-state";
 export type { TranscriptLiveState } from "./transcript/live-state";
 // 本地 `!command` 卡片 + 它与宿主状态之间的接缝(反应式投影 / 输出订阅 / 写动作)。

@@ -25,6 +25,7 @@ import {
   restoreClipboardEnv,
 } from "../lib/__testing__/clipboard";
 import { RichLink } from "./rich-link";
+import { SessionLocationProvider } from "./session-location";
 
 // RichLink 的副作用全部走 TranscriptPorts(不再直接 import Wails 绑定),断言打在端口上。
 const openPathMock = vi.fn<(path: string) => Promise<void>>();
@@ -524,13 +525,15 @@ describe("RichLink", () => {
     const notFound = () =>
       Object.assign(new Error("not-found"), { kind: "notFound" });
 
-    it("Given the link click goes to the system app and the file is not on this machine, Then the toast states the fact and offers Preview, which forces the preview at the link's line", async () => {
+    it("Given a remote session whose file is not on this machine, When the link is opened with the system app, Then the toast states the fact, says it may be on a remote machine and offers Preview, which forces the preview at the link's line", async () => {
       openPathMock.mockRejectedValue(notFound());
       previewFileMock.mockReturnValue(false);
       render(
-        <RichLink href="/Users/me/proj/src/foo.go:9" cwd={CWD} sessionId={7}>
-          foo
-        </RichLink>,
+        <SessionLocationProvider location="remote">
+          <RichLink href="/Users/me/proj/src/foo.go:9" cwd={CWD} sessionId={7}>
+            foo
+          </RichLink>
+        </SessionLocationProvider>,
       );
       fireEvent.click(screen.getByRole("link", { name: /foo/ }));
 
@@ -557,6 +560,47 @@ describe("RichLink", () => {
         { line: 9 },
         { force: true },
       );
+    });
+
+    // 本机会话的文件不在本机，只可能是被移走 / 删掉了（或 agent 写错了路径）：
+    // 「它可能在远端机器上」在这里是错话。
+    it("Given a local session whose file is not on this machine, When the link is opened with the system app, Then the toast says it may have been moved or deleted, not that it may be remote", async () => {
+      openPathMock.mockRejectedValue(notFound());
+      render(
+        <SessionLocationProvider location="local">
+          <RichLink href="/Users/me/proj/src/foo.go" cwd={CWD} sessionId={7}>
+            foo
+          </RichLink>
+        </SessionLocationProvider>,
+      );
+      fireEvent.click(screen.getByRole("link", { name: /foo/ }));
+
+      await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+      const [title, opts] = sonnerMocks.toast.error.mock.calls[0] as [
+        string,
+        { description?: string },
+      ];
+      expect(title).toBe("This file isn't on this machine");
+      expect(opts.description).toBe("It may have been moved or deleted");
+    });
+
+    // 宿主没告诉会话在哪台机器上（例如文件预览面板之外的树）：不猜原因，只说事实。
+    it("Given no session location is provided, When the file is not on this machine, Then the toast states the fact with no guessed reason", async () => {
+      openPathMock.mockRejectedValue(notFound());
+      render(
+        <RichLink href="/Users/me/proj/src/foo.go" cwd={CWD} sessionId={7}>
+          foo
+        </RichLink>,
+      );
+      fireEvent.click(screen.getByRole("link", { name: /foo/ }));
+
+      await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+      const [title, opts] = sonnerMocks.toast.error.mock.calls[0] as [
+        string,
+        { description?: string },
+      ];
+      expect(title).toBe("This file isn't on this machine");
+      expect(opts.description).toBeUndefined();
     });
 
     it("Given a non-previewable file that is not on this machine, Then the toast states the fact without a Preview action", async () => {

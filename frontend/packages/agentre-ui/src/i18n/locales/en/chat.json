@@ -195,6 +195,7 @@
   "richLink": {
     "copyLink": "Copy link",
     "copyPath": "Copy full path",
+    "maybeMovedOrDeleted": "It may have been moved or deleted",
     "maybeRemote": "It may be on a remote machine",
     "notOnThisMachine": "This file isn't on this machine",
     "openExternal": "System app",

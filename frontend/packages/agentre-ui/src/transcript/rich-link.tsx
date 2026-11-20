@@ -22,6 +22,7 @@ import { classifyLink, type LinkClass } from "../lib/link-classify";
 import { previewKind } from "../lib/previewable";
 import { toastOpenPathFailure } from "./open-path-failure";
 import { useTranscriptPorts } from "./ports-context";
+import { type SessionLocation, useSessionLocation } from "./session-location";
 import type { TranscriptPorts } from "./ports";
 
 const HOVER_OPEN_DELAY_MS = 200;
@@ -175,16 +176,16 @@ function openWithExternalApp(
   t: TFunction,
   ports: TranscriptPorts,
   sessionId: number | undefined,
+  location: SessionLocation | undefined,
 ) {
   ports.openPath?.(fullTarget(kind))?.catch((err: unknown) => {
     // 能预览时，「本机没有这个文件」的提示附上「预览」出口。
-    toastOpenPathFailure(
-      err,
-      t,
-      canPreviewLink(kind, ports, sessionId)
+    toastOpenPathFailure(err, t, {
+      location,
+      preview: canPreviewLink(kind, ports, sessionId)
         ? () => forcePreview(kind, ports, sessionId)
         : undefined,
-    );
+    });
   });
 }
 
@@ -193,6 +194,7 @@ function dispatchClick(
   t: TFunction,
   ports: TranscriptPorts,
   sessionId: number | undefined,
+  location: SessionLocation | undefined,
 ) {
   switch (kind.kind) {
     case "url":
@@ -213,11 +215,11 @@ function dispatchClick(
           ? (ports.previewFile?.(sessionId, relPath) ?? false)
           : (ports.previewFile?.(sessionId, relPath, anchor) ?? false));
       if (tookOver) return;
-      openWithExternalApp(kind, t, ports, sessionId);
+      openWithExternalApp(kind, t, ports, sessionId, location);
       return;
     }
     case "local-external":
-      openWithExternalApp(kind, t, ports, sessionId);
+      openWithExternalApp(kind, t, ports, sessionId, location);
       return;
     case "unknown":
       // 不拦截，让浏览器走默认行为（target=_blank fallback）。
@@ -353,6 +355,7 @@ export function RichLink({
 }: RichLinkProps) {
   const { t } = useUiTranslation();
   const ports = useTranscriptPorts();
+  const location = useSessionLocation();
   const kind = React.useMemo(() => classifyLink(href, cwd), [href, cwd]);
   const [open, setOpen] = React.useState(false);
 
@@ -392,7 +395,7 @@ export function RichLink({
 
   const onClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    dispatchClick(kind, t, ports, sessionId);
+    dispatchClick(kind, t, ports, sessionId, location);
   };
 
   // 相反打开方式：两条路都在（能预览 + 宿主有系统打开）且宿主告知了默认方式。
@@ -408,7 +411,8 @@ export function RichLink({
         : null;
   const onOpposite = () => {
     setOpen(false);
-    if (opposite === "external") openWithExternalApp(kind, t, ports, sessionId);
+    if (opposite === "external")
+      openWithExternalApp(kind, t, ports, sessionId, location);
     else forcePreview(kind, ports, sessionId);
   };
 

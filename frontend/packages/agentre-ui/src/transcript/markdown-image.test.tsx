@@ -16,6 +16,7 @@ const sonnerMocks = vi.hoisted(() => ({
 vi.mock("sonner", () => sonnerMocks);
 
 import { classifyMarkdownImage, MarkdownImage } from "./markdown-image";
+import { SessionLocationProvider } from "./session-location";
 
 // 组件的副作用全部走 TranscriptPorts(不再直接 import Wails 绑定),所以这里注入
 // 端口 mock,断言打在端口上。
@@ -484,7 +485,11 @@ describe("MarkdownImage", () => {
     portMocks.openPath.mockRejectedValueOnce(
       Object.assign(new Error("not-found"), { kind: "notFound" }),
     );
-    render(<MarkdownImage src="notes.txt" cwd="/proj" sessionId={7} alt="A" />);
+    render(
+      <SessionLocationProvider location="remote">
+        <MarkdownImage src="notes.txt" cwd="/proj" sessionId={7} alt="A" />
+      </SessionLocationProvider>,
+    );
 
     fireEvent.click(screen.getByRole("button"));
 
@@ -498,6 +503,27 @@ describe("MarkdownImage", () => {
     expect(JSON.stringify(sonnerMocks.toast.error.mock.calls)).not.toContain(
       "not-found",
     );
+  });
+
+  // 本机会话:文件不在本机只可能是被移走 / 删掉了,不能说它可能在远端。
+  it("says the file may have been moved or deleted when a local session's file is not on this machine", async () => {
+    portMocks.openPath.mockRejectedValueOnce(
+      Object.assign(new Error("not-found"), { kind: "notFound" }),
+    );
+    render(
+      <SessionLocationProvider location="local">
+        <MarkdownImage src="notes.txt" cwd="/proj" sessionId={7} alt="A" />
+      </SessionLocationProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button"));
+
+    await waitFor(() => expect(sonnerMocks.toast.error).toHaveBeenCalled());
+    const [, opts] = sonnerMocks.toast.error.mock.calls[0] as [
+      string,
+      { description?: string },
+    ];
+    expect(opts.description).toBe("It may have been moved or deleted");
   });
 
   // 宿主**有** openPath 能力,不可点的原因只在路径本身:越界的路径没有 absolutePath。

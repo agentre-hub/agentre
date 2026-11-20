@@ -195,6 +195,7 @@
   "richLink": {
     "copyLink": "复制链接",
     "copyPath": "复制完整路径",
+    "maybeMovedOrDeleted": "它可能已被移动或删除",
     "maybeRemote": "它可能在远端机器上",
     "notOnThisMachine": "本机上没有这个文件",
     "openExternal": "系统打开",
