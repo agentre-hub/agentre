@@ -43,6 +43,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo/mock_workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
@@ -314,6 +316,7 @@ func TestInbound_GivenAuthorizedPeer_WhenDeletingASession_ThenRemovesThisCompute
 	chat.frameSeq.EXPECT().DeleteBySession(gomock.Any(), int64(1)).Return(int64(0), nil).Times(2)
 	chat.messages.EXPECT().DeleteFromSeq(gomock.Any(), int64(1), 0).Return(int64(0), nil).Times(2)
 	chat.replacementRecovery.EXPECT().DeleteReplacementRecovery(gomock.Any(), int64(1)).Return(int64(0), nil).Times(2)
+	chat.workRoots.EXPECT().DeleteBySession(gomock.Any(), int64(1)).Return(nil).Times(2)
 
 	deleted := relayRequest(t, ws, "desktop-peer", relayTestFrame{
 		ID: json.RawMessage(`3`), Method: wire.MethodSessionDelete,
@@ -430,6 +433,8 @@ func registerInboundPeerChatForDelete(t *testing.T) inboundDeleteChatMocks {
 	frameSeq := mock_transcript_repo.NewMockFrameSeqRepo(ctrl)
 	messages := mock_transcript_repo.NewMockMessageRepo(ctrl)
 	replacementRecovery := mock_chat_repo.NewMockReplacementRecoveryCleanupRepo(ctrl)
+	workRoots := mock_workspace_fs_repo.NewMockWorkRootRepo(ctrl)
+	prevWorkRoots := workspace_fs_repo.WorkRoot()
 	prevChat := chat_svc.Chat()
 	prevSessions := chat_repo.Session()
 	prevDevice := remote_device_svc.Default()
@@ -441,8 +446,10 @@ func registerInboundPeerChatForDelete(t *testing.T) inboundDeleteChatMocks {
 	transcript_repo.RegisterFrameSeq(frameSeq)
 	transcript_repo.RegisterMessage(messages)
 	chat_repo.RegisterReplacementRecoveryCleanup(replacementRecovery)
+	workspace_fs_repo.RegisterWorkRoot(workRoots)
 	chat_svc.RegisterChat(chat_svc.NewChat(chat_svc.NoopEmitter{}))
 	t.Cleanup(func() {
+		workspace_fs_repo.RegisterWorkRoot(prevWorkRoots)
 		chat_svc.RegisterChat(prevChat)
 		chat_repo.RegisterSession(prevSessions)
 		remote_device_svc.SetDefault(prevDevice)
@@ -469,6 +476,7 @@ func registerInboundPeerChatForDelete(t *testing.T) inboundDeleteChatMocks {
 		frameSeq:            frameSeq,
 		messages:            messages,
 		replacementRecovery: replacementRecovery,
+		workRoots:           workRoots,
 	}
 }
 
@@ -479,6 +487,7 @@ type inboundDeleteChatMocks struct {
 	frameSeq            *mock_transcript_repo.MockFrameSeqRepo
 	messages            *mock_transcript_repo.MockMessageRepo
 	replacementRecovery *mock_chat_repo.MockReplacementRecoveryCleanupRepo
+	workRoots           *mock_workspace_fs_repo.MockWorkRootRepo
 }
 
 func registerInboundPeerChat(t *testing.T) {
