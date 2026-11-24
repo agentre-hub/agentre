@@ -16,6 +16,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/shellloc"
 	pkgpi "github.com/agentre-hub/agentre/pkg/piagent"
 )
 
@@ -59,6 +60,10 @@ type Runtime struct {
 	modelFailures sync.Map
 	cliModelMu    sync.Mutex
 	cliRecords    map[int64]*piCLIRecord
+
+	// locations 按会话跟踪 AI 当前位置(Pi 没有结构化位置信号,从 bash 命令文本识别),
+	// 让 cd 跨工具调用、跨轮保持。
+	locations shellloc.Registry
 }
 
 type PreparedRun interface {
@@ -366,7 +371,7 @@ func (p *preparedRun) Start(ctx context.Context) (<-chan agentruntime.Event, *ag
 		defer close(out)
 		defer p.runtime.unregister(p.req.SessionID, active)
 		defer func() { p.release(result, active) }()
-		drainStream(ctx, p.req, p.cwd, s, out, result, active)
+		drainStream(ctx, p.req, p.runtime.locations.For(p.req.SessionID, p.cwd), s, out, result, active)
 	}()
 	return out, result, nil
 }
@@ -629,13 +634,13 @@ func (a *activeSession) consumePendingSteer(text string) (agentruntime.ConsumedS
 	return agentruntime.ConsumedSteer{}, false
 }
 
-func drainStream(ctx context.Context, req agentruntime.RunRequest, _ string, s stream, out chan<- agentruntime.Event, result *agentruntime.RunResult, active *activeSession) {
+func drainStream(ctx context.Context, req agentruntime.RunRequest, loc *shellloc.Tracker, s stream, out chan<- agentruntime.Event, result *agentruntime.RunResult, active *activeSession) {
 	var usage *provider.Usage
 	var stopErr error
 	trackers := make(map[string]*subagentTracker)
 	// 实时流这一侧的 sink 就是"塞进 out";通道由 runtime 的读方并发消费,阻塞发送
 	// 在这里是背压而不是死锁。闭包提到循环外,免得每条事件各造一个。
-	emitEvent := func(ev agentruntime.Event) { out <- ev }
+	emitEvent := func(ev agentruntime.Event) { out <- stampLocation(loc, ev) }
 	for s.Next() {
 		raw := s.Event()
 		if raw.Kind == pkgpi.EventUserMessage {
@@ -681,7 +686,7 @@ func drainStream(ctx context.Context, req agentruntime.RunRequest, _ string, s s
 		}
 		events, u, err := translate(raw)
 		for _, ev := range events {
-			out <- ev
+			out <- stampLocation(loc, ev)
 		}
 		if u != nil {
 			usage = u

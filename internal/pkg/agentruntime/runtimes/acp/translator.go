@@ -35,6 +35,8 @@ type usageSnapshot struct {
 type toolCallState struct {
 	name   string
 	status acpsdk.ToolCallStatus
+	// shell 标记 execute 类工具:命令文本参与 AI 当前位置识别(见 location.go)。
+	shell bool
 }
 
 // translate is the pure v1 session/update translator: one union in, 0/1/n
@@ -107,7 +109,7 @@ func translateToolCall(c *acpsdk.SessionUpdateToolCall) (agentruntime.ToolCall, 
 		Name:      name,
 		Input:     input,
 		Canonical: canonicalTool,
-	}, toolCallState{name: name, status: c.Status}
+	}, toolCallState{name: name, status: c.Status, shell: c.Kind == acpsdk.ToolKindExecute}
 }
 
 // translateToolCallAggregate 返回 (事件, 聚合态指针),供 drain 循环直接存表。

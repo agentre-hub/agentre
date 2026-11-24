@@ -9,6 +9,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/diff"
+	"github.com/agentre-hub/agentre/internal/pkg/shellloc"
 	"github.com/agentre-hub/agentre/pkg/codex"
 )
 
@@ -36,6 +37,7 @@ func translate(ev codex.Event) (events []agentruntime.Event, usage *provider.Usa
 				Name:      ev.Tool.Name,
 				Input:     ev.Tool.Input,
 				Canonical: recognizeCanonical(ev.Tool.Name, ev.Tool.Input),
+				Cwd:       commandCwd(ev.Tool.Name, ev.Tool.Input),
 			})
 		}
 	case codex.EventPostToolUse:
@@ -44,6 +46,7 @@ func translate(ev codex.Event) (events []agentruntime.Event, usage *provider.Usa
 				ToolCallID: ev.Tool.ID,
 				Content:    string(ev.Tool.Response),
 				IsError:    ev.Tool.Err != nil,
+				Cwd:        commandCwd(ev.Tool.Name, ev.Tool.Input),
 			})
 		}
 	case codex.EventRequestUserInput:
@@ -148,6 +151,21 @@ func codexPlanActions() []canonical.PlanAction {
 		{ID: canonical.PlanActionIDExecute, Kind: canonical.PlanActionApprove},
 		{ID: canonical.PlanActionIDRefine, Kind: canonical.PlanActionRefine, RequiresFeedback: true},
 	}
+}
+
+// commandCwd 取 command_execution 入参里 codex 报告的命令目录(每条命令开始时的 cwd),
+// 作为这次调用时 AI 所在位置;缺失 / 非绝对 / 其它工具 → ""(未知)。
+func commandCwd(name string, rawInput json.RawMessage) string {
+	if name != "command_execution" {
+		return ""
+	}
+	var in struct {
+		Cwd string `json:"cwd"`
+	}
+	if json.Unmarshal(rawInput, &in) != nil {
+		return ""
+	}
+	return shellloc.AbsDir(in.Cwd)
 }
 
 // recognizeCanonical 按工具名 + raw input JSON 识别 codex 已知 canonical 形状。

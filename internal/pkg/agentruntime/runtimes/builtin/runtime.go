@@ -23,6 +23,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentprovider"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/shellloc"
 )
 
 var defaultRuntime = New()
@@ -79,6 +80,9 @@ type builtinActive struct {
 type Runtime struct {
 	mu     sync.Mutex
 	active map[int64]*builtinActive
+	// locations 按会话跟踪 AI 当前位置(builtin 没有结构化位置信号,从 bash 命令文本
+	// 识别),让 cd 跨工具调用、跨轮保持。
+	locations shellloc.Registry
 }
 
 // New 构造一个新 Runtime。
@@ -308,9 +312,11 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 			steerBatch = nil
 		}
 
+		loc := r.locations.For(req.SessionID, cwd)
 		for ev := range events {
 			translated := translate(ev)
 			for _, t := range translated {
+				t = stampLocation(loc, t)
 				if sc, ok := t.(agentruntime.SteerConsumed); ok {
 					steerBatch = append(steerBatch, sc.Steers...)
 					continue

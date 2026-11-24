@@ -20,6 +20,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/internal/pkg/shellloc"
 )
 
 // EventKind is one gateway event `params.type` (or a synthetic kind for unit
@@ -187,6 +188,7 @@ func translate(ev Event) (events []agentruntime.Event, usage *provider.Usage, st
 			Name:      strings.TrimSpace(p.Name),
 			Input:     cloneRaw(p.Args),
 			Canonical: recognizeCanonical(p.Name, p.Args),
+			Cwd:       terminalWorkdir(p.Name, p.Args),
 		}
 		return []agentruntime.Event{call}, nil, nil
 
@@ -204,6 +206,7 @@ func translate(ev Event) (events []agentruntime.Event, usage *provider.Usage, st
 			ToolCallID: strings.TrimSpace(p.ToolID),
 			Content:    toolResultContent(p.Result),
 			IsError:    toolResultIsError(p.Result),
+			Cwd:        terminalResultCwd(p),
 		}}, nil, nil
 
 	case EventTodoUpdated:
@@ -276,6 +279,38 @@ func translate(ev Event) (events []agentruntime.Event, usage *provider.Usage, st
 	// can never wedge the turn. Server requests and request.cancel are turn
 	// state and handled by the drain loop, never here.
 	return nil, nil, nil
+}
+
+// terminalWorkdir is the `workdir` a terminal call ran in; other tools, a missing
+// or non-absolute workdir → "" (unknown).
+func terminalWorkdir(name string, args json.RawMessage) string {
+	if strings.TrimSpace(name) != "terminal" {
+		return ""
+	}
+	var in struct {
+		Workdir string `json:"workdir"`
+	}
+	if json.Unmarshal(args, &in) != nil {
+		return ""
+	}
+	return shellloc.AbsDir(in.Workdir)
+}
+
+// terminalResultCwd prefers the `cwd` the terminal result reports, falling back
+// to the call's workdir.
+func terminalResultCwd(p toolCompletePayload) string {
+	if strings.TrimSpace(p.Name) != "terminal" {
+		return ""
+	}
+	var res struct {
+		Cwd string `json:"cwd"`
+	}
+	if json.Unmarshal(p.Result, &res) == nil {
+		if cwd := shellloc.AbsDir(res.Cwd); cwd != "" {
+			return cwd
+		}
+	}
+	return terminalWorkdir(p.Name, p.Args)
 }
 
 func cloneRaw(b json.RawMessage) json.RawMessage {
