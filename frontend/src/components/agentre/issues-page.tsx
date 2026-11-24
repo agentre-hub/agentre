@@ -1,6 +1,8 @@
 import * as React from "react";
 import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 
 import {
   BOARD_STAGES,
@@ -29,13 +31,17 @@ import {
 import { useBoard } from "@/hooks/use-board";
 import { useChatAgents, type AgentSlim } from "@/hooks/use-chat-agents";
 import { useProjectList } from "@/hooks/use-project-list";
+import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import { readLastAgentId } from "@/stores/last-agent-persistence";
 
 import { FailureBody } from "./failure-body";
 import { scopeShowsGlyphs } from "./board/board-wire";
 import { BoardJoinNotice } from "./board/board-join-notice";
 import { BoardExecTargetPill } from "./board/exec-target-pill";
 import { BoardModelPill } from "./board/model-pill";
+import { planStartSession } from "./board/start-session";
 import { useBoardDrag } from "./board/use-board-drag";
+import { useIssueSessions } from "./board/use-issue-sessions";
 
 /** 任务表单里那三个执行字段：共享包的端口只画 pill，值留在宿主这一层。 */
 type ExecSelection = {
@@ -59,6 +65,12 @@ function IssuesPage() {
 
   const { projects } = useProjectList();
   const { agents } = useChatAgents();
+  const navigate = useNavigate();
+  // 关联窗点任务跳来 `/issues?issue=<id>`：看板把那张卡滚进视野并短暂高亮。
+  const [searchParams] = useSearchParams();
+  const focusParam = Number(searchParams.get("issue"));
+  const focusCardId =
+    Number.isInteger(focusParam) && focusParam > 0 ? focusParam : null;
 
   const projectByID = React.useMemo(
     () => new Map(projects.map((project) => [project.id, project])),
@@ -133,6 +145,62 @@ function IssuesPage() {
       if (task) setEditing(task);
     },
     [board],
+  );
+
+  const startSession = React.useCallback(
+    (cardId: number) => {
+      const task = board.taskOf(cardId);
+      if (!task) return;
+      const plan = planStartSession(task, agents, readLastAgentId());
+      if (!plan) {
+        toast.error(t("issues.errors.noAgent"));
+        return;
+      }
+      useChatTabsStore
+        .getState()
+        .openNewSession(plan.projectId, plan.agentId, "", plan.seed);
+      navigate("/chat");
+    },
+    [agents, board, navigate, t],
+  );
+
+  const openLinkedSession = React.useCallback(
+    (sessionId: number) => {
+      useChatTabsStore.getState().openSession(sessionId);
+      navigate("/chat");
+    },
+    [navigate],
+  );
+
+  const sessionsOf = useIssueSessions(
+    React.useMemo(
+      () =>
+        BOARD_STAGES.flatMap((stage) =>
+          (board.viewModel.columns[stage]?.cards ?? []).map((card) => card.id),
+        ),
+      [board.viewModel.columns],
+    ),
+  );
+  const viewModel = React.useMemo(
+    () => ({
+      ...board.viewModel,
+      columns: Object.fromEntries(
+        BOARD_STAGES.map((stage) => {
+          const column = board.viewModel.columns[stage];
+          return [
+            stage,
+            column && {
+              ...column,
+              cards: column.cards.map((card) => {
+                const sessions = sessionsOf(card.id);
+                return sessions ? { ...card, sessions } : card;
+              }),
+            },
+          ];
+        }),
+      ),
+    }),
+    [board.viewModel, sessionsOf],
   );
 
   const totals = board.viewModel.columns;
@@ -225,9 +293,12 @@ function IssuesPage() {
       ) : null}
 
       <IssueBoard
-        viewModel={board.viewModel}
+        viewModel={viewModel}
         drag={bindings}
+        focusCardId={focusCardId}
         ports={{
+          onStartSession: startSession,
+          onOpenSession: openLinkedSession,
           onEdit: openTask,
           onDelete: (cardId) => void board.deleteTask(cardId),
           onMove: (cardId, stage) => void board.moveIssue(cardId, stage, 0),

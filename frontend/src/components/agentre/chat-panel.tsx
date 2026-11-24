@@ -40,7 +40,10 @@ import {
   useSessionLiveBlocks,
   type LiveStream,
 } from "@/stores/chat-streams-store";
-import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import {
+  useChatTabsStore,
+  type NewSessionSeed,
+} from "@/stores/chat-tabs-store";
 import {
   useQueuedMessagesStore,
   type QueuedMessage,
@@ -197,6 +200,8 @@ type ChatPanelProps = {
   newSessionAgent?: ChatAgentItem | null;
   /** 新建会话时附加的项目上下文。仅 sessionId=0 路径生效。*/
   newSessionContext?: NewSessionContext;
+  /** 新建会话的预填 / 预选（看板任务「开始会话」）；缺省 = 全部走新建会话的默认。*/
+  newSessionSeed?: NewSessionSeed;
   /** 新会话首发成功后回调，父级用来同步 selectedSessionId/agentId。*/
   onSessionCreated?: (sessionId: number, agentId: number) => void;
   /** 新建会话派到一台远端桌面端（R18）成功后回调，父级关掉新建 Tab 并打开 Peer Tab。*/
@@ -225,6 +230,7 @@ function ChatPanel({
   sessionId,
   newSessionAgent,
   newSessionContext,
+  newSessionSeed,
   onSessionCreated,
   onPeerSessionCreated,
   onSessionDeleted,
@@ -267,7 +273,14 @@ function ChatPanel({
   // 按 agent/session 手动重置。
   const [execTargetOverride, setExecTargetOverride] = React.useState<
     number | null
-  >(null);
+  >(
+    // 种子点名的执行后端；与 Agent 自己的后端相同就不算覆盖。不可用时由
+    // NewSessionExecTargetLine 照常回落到自动挑选。
+    newSessionSeed?.backendId &&
+      newSessionSeed.backendId !== newSessionAgent?.agentBackendId
+      ? newSessionSeed.backendId
+      : null,
+  );
   // 改选后生效档的 backend type（由 NewSessionExecTargetLine 报上来）。新建会话且
   // 手动指定了执行目标时，permission mode 的 allowed 集合/默认值是 runtime 维度的，
   // 必须跟随实际后端而不是 agent 主后端 —— 否则从 claudecode 主后端改到 codex 后端
@@ -847,6 +860,45 @@ function ChatPanel({
     if (draft) composerRef.current?.appendDraft(draft);
   });
   const composerEditing = activeEditing !== null;
+  // 看板「开始会话」的种子：输入框预填一次（不发送），模型目标在生效后端落定后预选
+  // 一次——后端落定前预选会被 pill 随后端类型变化的重置抹掉。
+  const seedTextAppliedRef = React.useRef<NewSessionSeed | null>(null);
+  const seedModelAppliedRef = React.useRef<NewSessionSeed | null>(null);
+  const setProviderTarget = providerPill.setTarget;
+  React.useEffect(() => {
+    if (!newSessionSeed || sessionId > 0) return;
+    if (seedTextAppliedRef.current !== newSessionSeed) {
+      seedTextAppliedRef.current = newSessionSeed;
+      if (newSessionSeed.text)
+        composerRef.current?.appendDraft(newSessionSeed.text);
+    }
+    if (seedModelAppliedRef.current === newSessionSeed) return;
+    if (!newSessionSeed.providerKey) {
+      seedModelAppliedRef.current = newSessionSeed;
+      return;
+    }
+    if (!effectiveTarget) return;
+    seedModelAppliedRef.current = newSessionSeed;
+    // 点名的执行后端不可用而被回落时，模型属于那个后端，不再套到默认后端上。
+    if (
+      newSessionSeed.backendId &&
+      newSessionSeed.backendId !== newSessionAgent?.agentBackendId &&
+      !execTargetOverride
+    ) {
+      return;
+    }
+    setProviderTarget({
+      providerKey: newSessionSeed.providerKey,
+      modelKey: newSessionSeed.modelKey ?? "",
+    });
+  }, [
+    newSessionSeed,
+    sessionId,
+    effectiveTarget,
+    execTargetOverride,
+    newSessionAgent?.agentBackendId,
+    setProviderTarget,
+  ]);
   const stableProviderPill = useShallowStable(providerPill);
   const stableReasoningEffortPill = useShallowStable(reasoningEffortPill);
   const queuedItems = currentQueued ?? EMPTY_QUEUED;

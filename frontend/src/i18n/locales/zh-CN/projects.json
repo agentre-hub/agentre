@@ -25,7 +25,9 @@
       "writeFailed": "这次改动没保存",
       "offline": "连不上服务，这次改动没保存，稍后再试",
       "notFound": "这个任务已经不在了，刷新后看板会和最新数据一致",
-      "refresh": "刷新看板"
+      "refresh": "刷新看板",
+      "noAgent": "没有可对话的 Agent，先在 Agent 页面创建或配置一个",
+      "linkFailed": "会话已创建，但没能关联到这个任务"
     },
     "deleted": "已删除「{{title}}」",
     "undo": "撤销"

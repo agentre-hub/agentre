@@ -5,6 +5,7 @@ import { useUiTranslation } from "../i18n";
 import { formatRelativeTime } from "../lib/relative-time";
 import { cn } from "../lib/utils";
 import { ProjectGlyph } from "../session-index/project-glyph";
+import { StatusDot } from "../ui/status-dot";
 
 import { BoardCardLabels } from "./card-labels";
 import { BoardCardMenu } from "./card-menu";
@@ -23,7 +24,12 @@ export interface BoardCardProps {
   nowMs?: number;
   /** 触屏档：菜单常显、换底部弹层，长按卡片同样打开。不传时与桌面一致。 */
   touch?: boolean;
+  /** 被「定位到这张」点名：滚到可视区并短暂高亮。 */
+  focused?: boolean;
 }
+
+/** 定位高亮停留多久。 */
+const FOCUS_FLASH_MS = 2000;
 
 /** 长按多久算「长按」。 */
 const LONG_PRESS_MS = 500;
@@ -41,8 +47,23 @@ export function BoardCard({
   drag,
   nowMs,
   touch = false,
+  focused = false,
 }: BoardCardProps) {
   const { t } = useUiTranslation();
+  const articleRef = React.useRef<HTMLElement | null>(null);
+  // 高亮是「被点名」的瞬时态：点名那一刻亮起，FOCUS_FLASH_MS 后自己熄灭。
+  const [flash, setFlash] = React.useState(focused);
+  const [seenFocused, setSeenFocused] = React.useState(focused);
+  if (focused !== seenFocused) {
+    setSeenFocused(focused);
+    setFlash(focused);
+  }
+  React.useEffect(() => {
+    if (!focused) return;
+    articleRef.current?.scrollIntoView?.({ block: "center" });
+    const timer = setTimeout(() => setFlash(false), FOCUS_FLASH_MS);
+    return () => clearTimeout(timer);
+  }, [focused]);
   const [menuOpen, setMenuOpen] = React.useState(false);
   const pressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // 长按触发后，随后那一下 click 不该再当成「点开编辑」。
@@ -63,11 +84,18 @@ export function BoardCard({
 
   return (
     <article
-      ref={drag?.setNodeRef}
+      ref={(node) => {
+        articleRef.current = node;
+        drag?.setNodeRef?.(node);
+      }}
       style={drag?.style}
       data-testid={`board-card-${card.id}`}
       data-drag-state={dragState}
-      className="group/card relative"
+      data-focused={flash ? "true" : undefined}
+      className={cn(
+        "group/card relative rounded-md",
+        flash && "ring-2 ring-primary",
+      )}
     >
       <button
         {...drag?.attributes}
@@ -167,6 +195,33 @@ export function BoardCard({
           </span>
         ) : null}
       </button>
+      {card.sessions && card.sessions.length > 0 ? (
+        <ul
+          data-testid={`board-card-sessions-${card.id}`}
+          className="mt-1 flex flex-col gap-0.5 rounded-md bg-field-fill px-1 py-1"
+        >
+          {card.sessions.map((session) => (
+            <li key={session.id}>
+              <button
+                type="button"
+                onClick={() => ports.onOpenSession?.(session.id)}
+                className={cn(
+                  "flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-left text-2xs",
+                  "hover:bg-field-fill-hover focus-visible:focus-outline",
+                )}
+              >
+                <StatusDot status={session.status} size="xs" />
+                <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                {session.agentName ? (
+                  <span className="max-w-[40%] shrink-0 truncate text-muted-foreground">
+                    {session.agentName}
+                  </span>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <BoardCardMenu
         cardId={card.id}
         stage={card.stage}

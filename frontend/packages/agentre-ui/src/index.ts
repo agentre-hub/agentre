@@ -750,6 +750,7 @@ export type {
   BoardColumnView,
   BoardDragBindings,
   BoardEmptyScope,
+  BoardLinkedSession,
   BoardStage,
   BoardViewModel,
   IssueTone,

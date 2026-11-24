@@ -27,6 +27,7 @@ import { useOptionalShortcutsContext } from "../shortcuts/shortcuts-provider";
 import type { KeyChord } from "../shortcuts/types";
 import { openAgentGaps } from "@/lib/agent-setup-link";
 import { detectBrowserPlatform } from "@/lib/platform";
+import { linkSessionToIssue } from "@/stores/issue-links-store";
 import { reloadSidebarSources } from "@/stores/sidebar-reload";
 import type { ChatTab, TabKind } from "@/stores/chat-tabs-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
@@ -488,6 +489,7 @@ const HostedPanel = React.memo(function HostedPanel({
   const isNewTab = tab.meta.kind === "new";
   const newAgentId = tab.meta.kind === "new" ? tab.meta.agentId : 0;
   const newProjectId = tab.meta.kind === "new" ? tab.meta.projectId : 0;
+  const newSeed = tab.meta.kind === "new" ? tab.meta.seed : undefined;
   const agents = useChatAgentsStore((s) => s.agents);
   const agentsLoading = useChatAgentsStore((s) => s.loading);
   const agentsError = useChatAgentsStore((s) => s.error);
@@ -503,9 +505,14 @@ const HostedPanel = React.memo(function HostedPanel({
     () => (isNewTab ? { projectId: newProjectId } : undefined),
     [isNewTab, newProjectId],
   );
+  const seedIssueId = newSeed?.issueId;
   const handleSessionCreated = React.useCallback(
-    (newSid: number) => resolveNewTab(tab.id, newSid),
-    [resolveNewTab, tab.id],
+    (newSid: number) => {
+      resolveNewTab(tab.id, newSid);
+      // 看板任务「开始会话」：会话在首条消息发出时才建成，关联也在此刻才建立。
+      if (seedIssueId) void linkSessionToIssue(newSid, seedIssueId);
+    },
+    [resolveNewTab, seedIssueId, tab.id],
   );
   // R18 桌面派发：新建会话派到另一台桌面端成功后，关掉新建 Tab 并打开 Peer Tab。
   const handlePeerSessionCreated = React.useCallback(
@@ -595,6 +602,7 @@ const HostedPanel = React.memo(function HostedPanel({
             sessionId={sid}
             newSessionAgent={isNewTab ? agent : null}
             newSessionContext={newSessionContext}
+            newSessionSeed={newSeed}
             onSessionCreated={handleSessionCreated}
             onPeerSessionCreated={handlePeerSessionCreated}
             onSessionDeleted={handleSessionDeleted}

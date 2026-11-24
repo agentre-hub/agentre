@@ -7412,3 +7412,136 @@ describe("ChatPanel · 会话进程与端口", () => {
     );
   });
 });
+
+// 看板「开始会话」：新建会话标签带一份「种子」——输入框预填、执行后端 / 模型预选。
+// 预填不自动发送；预选只在种子点名了才覆盖，没点名的维持新建会话的默认。
+describe("新建会话种子（看板「开始会话」）", () => {
+  function renderSeeded(seed?: Record<string, unknown>) {
+    resetStore();
+    mockSessionStore.session = null;
+    componentMocks.effectiveExecTarget = {
+      kind: "local",
+      deviceId: "",
+      deviceName: "",
+      backendType: "claudecode",
+    };
+    appMocks.SendChatMessage.mockResolvedValue({
+      assistantMessageId: 1001,
+      sessionId: 42,
+      stream: "chat:event:42:1001",
+      userMessageId: 1000,
+    });
+    appMocks.ListLLMProviders.mockResolvedValue({
+      items: [
+        {
+          id: 11,
+          providerKey: "acme-anthropic",
+          name: "Acme Claude",
+          type: "anthropic",
+          enabled: true,
+          defaultModelKey: "",
+          model: "claude-sonnet-4-5",
+        },
+      ],
+    });
+    return render(
+      <ChatPanel
+        sessionId={0}
+        newSessionAgent={
+          {
+            id: 7,
+            name: "Eng",
+            agentBackendId: 1,
+            backendType: "claudecode",
+            llmProviderKey: "",
+          } as never
+        }
+        newSessionSeed={seed as never}
+      />,
+    );
+  }
+
+  function submitHello() {
+    const submit = componentMocks.chatComposerProps.at(-1)?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    act(() => submit?.("hello"));
+  }
+
+  it("Given a seed with text, When the panel opens, Then the composer is prefilled once and nothing is sent", async () => {
+    renderSeeded({ text: "标题\n\n正文", issueId: 5 });
+
+    await waitFor(() =>
+      expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalledWith(
+        "标题\n\n正文",
+      ),
+    );
+    expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalledTimes(1);
+    expect(appMocks.SendChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("Given a seed naming backend and model, When the first message is sent, Then the send carries them", async () => {
+    renderSeeded({
+      text: "t",
+      issueId: 5,
+      backendId: 9,
+      providerKey: "acme-anthropic",
+      modelKey: "claude-sonnet-4-5",
+    });
+    await waitFor(() =>
+      expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalled(),
+    );
+
+    submitHello();
+
+    await waitFor(() =>
+      expect(appMocks.SendChatMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 0,
+          agentId: 7,
+          execTargetOverride: 9,
+          providerKey: "acme-anthropic",
+          modelKey: "claude-sonnet-4-5",
+        }),
+      ),
+    );
+  });
+
+  it("Given a seed that names nothing but text, When the first message is sent, Then the new-session defaults apply", async () => {
+    renderSeeded({ text: "t", issueId: 5 });
+    await waitFor(() =>
+      expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalled(),
+    );
+
+    submitHello();
+
+    await waitFor(() => expect(appMocks.SendChatMessage).toHaveBeenCalled());
+    const payload = appMocks.SendChatMessage.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.execTargetOverride).toBeUndefined();
+    expect(payload.providerKey ?? "").toBe("");
+  });
+
+  it("Given a seed naming the agent's own backend, When sent, Then no override is carried", async () => {
+    renderSeeded({ text: "t", issueId: 5, backendId: 1 });
+    await waitFor(() =>
+      expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalled(),
+    );
+
+    submitHello();
+
+    await waitFor(() => expect(appMocks.SendChatMessage).toHaveBeenCalled());
+    expect(
+      (appMocks.SendChatMessage.mock.calls[0][0] as Record<string, unknown>)
+        .execTargetOverride,
+    ).toBeUndefined();
+  });
+
+  it("Given no seed, When the panel opens, Then the composer is untouched", async () => {
+    renderSeeded();
+    await screen.findByTestId("provider-pill");
+    expect(componentMocks.composerHandle.appendDraft).not.toHaveBeenCalled();
+  });
+});

@@ -1,5 +1,11 @@
 import * as React from "react";
-import { Check, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import {
+  Check,
+  MessageSquarePlus,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
@@ -118,6 +124,19 @@ export function BoardCardMenu({
                 ))}
               </div>
               <div className="flex flex-col overflow-hidden rounded-xl bg-field-fill">
+                {ports.onStartSession ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSheetOpen(false);
+                      ports.onStartSession?.(cardId);
+                    }}
+                    className={sheetItem}
+                  >
+                    <MessageSquarePlus className="size-4" aria-hidden="true" />
+                    {t("board.startSession")}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => {
@@ -167,6 +186,11 @@ export function BoardCardMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-[9rem]">
+        {ports.onStartSession ? (
+          <DropdownMenuItem onSelect={() => ports.onStartSession?.(cardId)}>
+            {t("board.startSession")}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem onSelect={() => ports.onEdit(cardId)}>
           {t("board.edit")}
         </DropdownMenuItem>

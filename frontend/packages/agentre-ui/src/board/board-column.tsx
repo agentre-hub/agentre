@@ -25,6 +25,8 @@ export interface BoardColumnProps {
   nowMs?: number;
   /** 阶段档：本列独占整屏宽，卡片走触屏档。不传时与桌面一致。 */
   layout?: "columns" | "stage";
+  /** 被点名定位的那张卡。 */
+  focusCardId?: number | null;
 }
 
 /**
@@ -43,6 +45,7 @@ export function BoardColumn({
   onExpand,
   nowMs,
   layout = "columns",
+  focusCardId,
 }: BoardColumnProps) {
   const stageLayout = layout === "stage";
   const { t } = useUiTranslation();
@@ -118,6 +121,7 @@ export function BoardColumn({
             drag={cardDrag?.(card.id)}
             nowMs={nowMs}
             touch={stageLayout}
+            focused={focusCardId === card.id}
           />
         ))}
         {state.hiddenCount > 0 ? (
