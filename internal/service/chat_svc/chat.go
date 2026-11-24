@@ -64,6 +64,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/workspace_fs_svc"
 )
 
 const (
@@ -94,6 +95,9 @@ type ChatSvc interface {
 	GetSessionGitState(ctx context.Context, req *GetSessionGitStateRequest) (*GetSessionGitStateResponse, error)
 	Send(ctx context.Context, req *SendRequest) (*SendResponse, error)
 	Compact(ctx context.Context, req *CompactRequest) (*CompactResponse, error)
+	// ListSessionsSharingRoot 汇总与本会话在同一执行设备同一工作根上运行的其它会话
+	// (本桌面端拥有、正在运行含后台活动),并标出与本会话写过同一文件的重叠。
+	ListSessionsSharingRoot(ctx context.Context, sessionID int64) ([]*SharingRootSession, error)
 	GetGoal(ctx context.Context, req *GoalRequest) (*GoalResponse, error)
 	SetGoal(ctx context.Context, req *SetGoalRequest) (*GoalResponse, error)
 	StartGoal(ctx context.Context, req *StartGoalRequest) (*StartGoalResponse, error)
@@ -358,6 +362,8 @@ type chatSvc struct {
 	workRoots       WorkRootsPort
 	workRootsRunner func(func())
 	aiLocations     aiLocationBook
+	// writtenPaths 取会话写过的路径(「同一份代码上在跑」的重叠判定);nil 时走 SessionWrittenPaths。
+	writtenPaths func(ctx context.Context, sessionID int64) ([]workspace_fs_svc.WrittenPath, error)
 }
 
 // ── ListAgents ───────────────────────────────────────────────────────────────

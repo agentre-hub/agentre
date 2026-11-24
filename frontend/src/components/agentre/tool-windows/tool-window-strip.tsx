@@ -251,11 +251,18 @@ function StripButton({ window: w }: { window: ToolWindowDefinition }) {
   const buttonId = React.useId();
   const badgeId = React.useId();
   const Icon = w.icon;
-  const badge = w.count != null && w.count > 0 ? w.count : null;
+  const badge =
+    w.countBadge !== false && w.count != null && w.count > 0 ? w.count : null;
   const runningId = React.useId();
   const running = w.running === true;
+  const alertId = React.useId();
+  const alerting = w.alert === true;
   const describedBy =
-    [badge !== null ? badgeId : null, running ? runningId : null]
+    [
+      badge !== null ? badgeId : null,
+      running ? runningId : null,
+      alerting ? alertId : null,
+    ]
       .filter(Boolean)
       .join(" ") || undefined;
   const dragging = dragApi?.drag?.id === w.id;
@@ -310,6 +317,18 @@ function StripButton({ window: w }: { window: ToolWindowDefinition }) {
                 />
                 <span id={runningId} className="sr-only">
                   {t("toolWindows.running")}
+                </span>
+              </>
+            ) : null}
+            {alerting ? (
+              <>
+                <span
+                  aria-hidden="true"
+                  data-testid="tool-window-alert-dot"
+                  className="absolute top-0.5 right-0.5 size-2 rounded-full bg-status-waiting"
+                />
+                <span id={alertId} className="sr-only">
+                  {t("toolWindows.alert")}
                 </span>
               </>
             ) : null}

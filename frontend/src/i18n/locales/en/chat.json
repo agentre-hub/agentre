@@ -510,7 +510,8 @@
       "bottomSplit": "Resize bottom left and right"
     },
     "dropTo": "Drop in {{slot}}",
-    "running": "Running"
+    "running": "Running",
+    "alert": "Overlapping edits"
   },
   "terminalToolWindow": {
     "label": "Terminal",
@@ -527,5 +528,33 @@
     "rail": {
       "title": "Chat"
     }
+  },
+  "relationsToolWindow": {
+    "label": "Relations",
+    "empty": "Nothing related yet",
+    "groups": {
+      "tasks": "Tasks",
+      "dispatchedBy": "Dispatched by",
+      "dispatched": "I dispatched",
+      "sharing": "Running on the same code"
+    },
+    "otherSessions_one": "{{count}} other session",
+    "otherSessions_other": "{{count}} other sessions",
+    "openTask": "Open task #{{id}} on the board",
+    "linkTask": "Link task",
+    "newTask": "New task",
+    "searchTasks": "Search tasks",
+    "noMatch": "No matching tasks",
+    "createNamed": "New task “{{term}}”",
+    "failed": "Action failed",
+    "method": {
+      "agrctl_send": "agrctl send",
+      "agent_call": "agent dispatch"
+    },
+    "isolated": "Isolated",
+    "lastReply": "Last reply",
+    "noReply": "No reply yet",
+    "overlapOne": "Also edited {{file}}",
+    "overlapMany": "Also edited {{file}} and {{count}} files in all"
   }
 }

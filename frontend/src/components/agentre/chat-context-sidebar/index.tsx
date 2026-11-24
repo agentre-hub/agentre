@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   FolderTree,
   GitCompareArrows,
+  Link2,
   ListTree,
   SquareTerminal,
 } from "lucide-react";
@@ -24,12 +25,14 @@ import type { chat_svc } from "../../../../wailsjs/go/models";
 
 import { ToolWindowLayout } from "../tool-windows/tool-window-layout";
 import type { ToolWindowDefinition } from "../tool-windows/types";
+import { useSessionRelations } from "../tool-windows/use-session-relations";
 
 import {
   ChangesToolWindow,
   ChatContextDataContext,
   DirectoryToolWindow,
   OutlineToolWindow,
+  RelationsToolWindowEntry,
   TerminalToolWindowEntry,
   WorkRootChangeCountsContext,
   type ChatContextData,
@@ -213,6 +216,9 @@ function ChatContextToolWindowsImpl({
     [turnToMessageId, onJumpToMessage],
   );
 
+  // 「关联」四组数据在这一层取一次：窗口收起时图标条也要它的提醒圆点与标题数量。
+  const relations = useSessionRelations({ sessionId, enabled: !hidden });
+
   const data = React.useMemo<ChatContextData>(
     () => ({
       sessionId,
@@ -234,6 +240,7 @@ function ChatContextToolWindowsImpl({
       uncommittedAvailable,
       git,
       gitState,
+      relations,
     }),
     [
       sessionId,
@@ -255,6 +262,7 @@ function ChatContextToolWindowsImpl({
       uncommittedAvailable,
       git,
       gitState,
+      relations,
     ],
   );
 
@@ -285,6 +293,15 @@ function ChatContextToolWindowsImpl({
         content: <DirectoryToolWindow />,
       },
       {
+        id: "relations",
+        label: t("relationsToolWindow.label"),
+        icon: Link2,
+        count: relations.count,
+        countBadge: false,
+        alert: relations.overlapAlert,
+        content: <RelationsToolWindowEntry />,
+      },
+      {
         id: "terminal",
         label: t("terminalToolWindow.label"),
         icon: SquareTerminal,
@@ -292,7 +309,7 @@ function ChatContextToolWindowsImpl({
         content: <TerminalToolWindowEntry />,
       },
     ],
-    [t, changesCount, terminalRunning],
+    [t, changesCount, terminalRunning, relations.count, relations.overlapAlert],
   );
 
   return (

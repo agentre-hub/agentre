@@ -177,6 +177,21 @@ func (mr *MockSessionRepoMockRecorder) FindByConversationID(ctx, conversationID 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByConversationID", reflect.TypeOf((*MockSessionRepo)(nil).FindByConversationID), ctx, conversationID)
 }
 
+// ListActive mocks base method.
+func (m *MockSessionRepo) ListActive(ctx context.Context, agentStatuses []string) ([]*chat_entity.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListActive", ctx, agentStatuses)
+	ret0, _ := ret[0].([]*chat_entity.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListActive indicates an expected call of ListActive.
+func (mr *MockSessionRepoMockRecorder) ListActive(ctx, agentStatuses any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActive", reflect.TypeOf((*MockSessionRepo)(nil).ListActive), ctx, agentStatuses)
+}
+
 // ListAttentionByAgents mocks base method.
 func (m *MockSessionRepo) ListAttentionByAgents(ctx context.Context, agentIDs []int64, perAgent int) (map[int64][]*chat_entity.Session, error) {
 	m.ctrl.T.Helper()

@@ -415,10 +415,12 @@ describe("ChatContextToolWindows · three tool windows", () => {
       "Outline",
       "Changes",
       "Directory",
+      "Relations",
       "Terminal",
     ]);
     expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual([
       "true",
+      "false",
       "false",
       "false",
       "false",

@@ -2,7 +2,9 @@ import * as React from "react";
 
 import type { ChangesScope } from "@/stores/chat-sidebar-store";
 
+import { RelationsToolWindow } from "../tool-windows/relations-tool-window";
 import { TerminalToolWindow } from "../tool-windows/terminal-tool-window";
+import type { SessionRelations } from "../tool-windows/use-session-relations";
 
 import type { ChangeRow, OutlineItem } from "./derive";
 import { ChangesPanel } from "./views/changes-panel";
@@ -42,6 +44,8 @@ export type ChatContextData = {
   uncommittedAvailable: boolean;
   git: GitChanges;
   gitState: GitState | null;
+  /** 「关联」工具窗的四组数据：图标条上的提醒圆点、标题栏数量与窗口读同一份。 */
+  relations: SessionRelations;
 };
 
 export const ChatContextDataContext =
@@ -133,4 +137,10 @@ export function DirectoryToolWindow() {
 export function TerminalToolWindowEntry() {
   const { sessionId } = useChatContextData();
   return <TerminalToolWindow sessionId={sessionId} />;
+}
+
+/** 「关联」工具窗：关联任务、派发我的、我派发的、同一份代码上在跑。 */
+export function RelationsToolWindowEntry() {
+  const { sessionId, relations } = useChatContextData();
+  return <RelationsToolWindow sessionId={sessionId} relations={relations} />;
 }

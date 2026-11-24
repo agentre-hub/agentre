@@ -510,7 +510,8 @@
       "bottomSplit": "调整底部左与底部右的分配"
     },
     "dropTo": "放到{{slot}}",
-    "running": "运行中"
+    "running": "运行中",
+    "alert": "有文件重叠"
   },
   "terminalToolWindow": {
     "label": "终端",
@@ -527,5 +528,33 @@
     "rail": {
       "title": "对话"
     }
+  },
+  "relationsToolWindow": {
+    "label": "关联",
+    "empty": "暂无关联",
+    "groups": {
+      "tasks": "任务",
+      "dispatchedBy": "派发我的",
+      "dispatched": "我派发的",
+      "sharing": "同一份代码上在跑"
+    },
+    "otherSessions_one": "另有 {{count}} 个会话",
+    "otherSessions_other": "另有 {{count}} 个会话",
+    "openTask": "打开看板中的任务 #{{id}}",
+    "linkTask": "关联任务",
+    "newTask": "新建任务",
+    "searchTasks": "搜索任务",
+    "noMatch": "没有匹配的任务",
+    "createNamed": "新建任务「{{term}}」",
+    "failed": "操作失败",
+    "method": {
+      "agrctl_send": "agrctl send",
+      "agent_call": "agent 派发"
+    },
+    "isolated": "隔离",
+    "lastReply": "最后一条回复",
+    "noReply": "还没有回复",
+    "overlapOne": "也改了 {{file}}",
+    "overlapMany": "也改了 {{file}} 等 {{count}} 个文件"
   }
 }

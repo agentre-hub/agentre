@@ -79,6 +79,9 @@ type SessionRepo interface {
 	CountRunningByAgents(ctx context.Context, agentIDs []int64) (map[int64]int, error)
 	CountActiveByProject(ctx context.Context, projectID int64, agentStatuses []string) (int64, error)
 	CountActive(ctx context.Context, agentStatuses []string) (int64, error)
+	// ListActive 列出 status=ACTIVE 且 agent_status 在指定集合内的顶层会话(与 CountActive
+	// 同一判据,排除子 agent 委派会话)。
+	ListActive(ctx context.Context, agentStatuses []string) ([]*chat_entity.Session, error)
 	Create(ctx context.Context, s *chat_entity.Session) error
 	Update(ctx context.Context, s *chat_entity.Session) error
 	UpdatePermissionMode(ctx context.Context, sessionID int64, mode string) error
@@ -581,6 +584,18 @@ func (r *sessionRepo) CountActive(ctx context.Context, agentStatuses []string) (
 		Scopes(nonSubagentScope).
 		Count(&n).Error
 	return n, err
+}
+
+// ListActive 列出 status=ACTIVE 且 agent_status 在指定集合内的顶层会话(跨所有 agent/项目)。
+// 与 CountActive 同一判据,给「同一份代码上在跑」找候选用。
+func (r *sessionRepo) ListActive(ctx context.Context, agentStatuses []string) ([]*chat_entity.Session, error) {
+	var rows []*chat_entity.Session
+	err := db.Ctx(ctx).
+		Where("status = ? AND agent_status IN ?", consts.ACTIVE, agentStatuses).
+		Scopes(nonSubagentScope).
+		Find(&rows).Error
+	applySessionDerivedFields(rows)
+	return rows, err
 }
 
 func (r *sessionRepo) Create(ctx context.Context, s *chat_entity.Session) error {

@@ -411,6 +411,21 @@ func TestSessionRepo_CountActive(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestSessionRepo_ListActive(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE \\(status = \\? AND agent_status IN \\(\\?,\\?\\)\\) AND purpose <> \\?").
+		WithArgs(consts.ACTIVE, "running", "waiting", chat_entity.SessionPurposeSubagent).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_status"}).AddRow(7, "running").AddRow(9, "waiting"))
+
+	rows, err := chat_repo.NewSession().ListActive(ctx, []string{"running", "waiting"})
+	assert.NoError(t, err)
+	if assert.Len(t, rows, 2) {
+		assert.EqualValues(t, 7, rows[0].ID)
+		assert.True(t, rows[1].NeedsAttention, "derived fields are applied like every other session list")
+	}
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestSessionRepo_MarkRead(t *testing.T) {
 	t.Run("ts > current last_read_at 时正常 UPDATE 1 行", func(t *testing.T) {
 		ctx, _, mock := testutils.Database(t)
