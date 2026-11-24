@@ -281,6 +281,12 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 				return
 			}
 		}
+		// 进入 worktree 接缝(见 enterworktree.go):工具事件带新目录,随后保持轮次进行中。
+		if path, found := parseEnterWorktreeDirective(req.UserText); found {
+			if !runEnterWorktree(ctx, out, req.SessionID, path) {
+				return
+			}
+		}
 		// 子会话慢速步骤接缝:e2e-child-steps:<n> 产出 n 对嵌套可见的 Bash 步骤。
 		if raw, found := parseOnePartDirective(req.UserText, ChildStepsDirectivePrefix); found {
 			count, label, _ := strings.Cut(raw, " ")
