@@ -23,6 +23,7 @@ type stubPortForwardSvc struct {
 	gotInsecure  bool
 	gotEnabled   bool
 	gotPort      int
+	gotScheme    string
 
 	mappings []port_forward_svc.MappingView
 	mapping  *port_forward_svc.MappingView
@@ -51,8 +52,8 @@ func (s *stubPortForwardSvc) Delete(_ context.Context, deviceID, mappingID strin
 	return s.err
 }
 
-func (s *stubPortForwardSvc) EnsureForPort(_ context.Context, deviceID string, port int) (*port_forward_svc.MappingView, error) {
-	s.gotDeviceID, s.gotPort = deviceID, port
+func (s *stubPortForwardSvc) EnsureForPort(_ context.Context, deviceID, scheme string, port int) (*port_forward_svc.MappingView, error) {
+	s.gotDeviceID, s.gotScheme, s.gotPort = deviceID, scheme, port
 	return s.mapping, s.err
 }
 

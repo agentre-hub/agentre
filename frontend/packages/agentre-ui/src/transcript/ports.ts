@@ -136,8 +136,15 @@ export interface TranscriptPorts {
    * 提供时浮窗不出相反按钮，点击按今天的 previewFile 握手分流。
    */
   fileOpenDefault?(): "preview" | "external";
-  /** 在外部浏览器打开 URL。桌面端走 Wails runtime，浏览器端就是 window.open。 */
-  openExternalURL?(url: string): void;
+  /**
+   * 在外部浏览器打开 URL。桌面端走 Wails runtime，浏览器端就是 window.open。
+   * 带 sessionId 时宿主可按会话改写目标（远端会话里的 localhost 链接要经端口转发
+   * 才够得到执行设备上的服务）；宿主不认这个参数时照旧直接打开。
+   */
+  openExternalURL?(
+    url: string,
+    opts?: { sessionId?: number },
+  ): void | Promise<void>;
   /** 读工作区文件（转录里内联图片需要）。 */
   readWorkspaceFile?(sessionId: number, path: string): Promise<ReadFileResult>;
   /** 把一条本地命令挂到终端标签上。纯桌面能力。 */

@@ -27,6 +27,7 @@ import {
   OpenPath,
   ResolveExecApproval,
   ResolvePlanAction,
+  ResolveSessionURL,
   WorkspaceFsReadFile,
 } from "../../../wailsjs/go/app/App";
 import { chat_svc, type memory_svc } from "../../../wailsjs/go/models";
@@ -97,8 +98,15 @@ export const desktopTranscriptPorts = {
     return useFileSettingsStore.getState().settings.openAction;
   },
 
-  openExternalURL(url) {
-    BrowserOpenURL(url);
+  // 远端会话里的 localhost 链接指向执行设备上的服务，直接交给本机浏览器会打开桌面
+  // 本机的同端口。带会话号时先让后端换成经端口转发的本机地址（本机会话与非
+  // localhost 链接后端原样交回）；解析失败照实抛出，不退回打开原始链接。
+  async openExternalURL(url, opts) {
+    const target =
+      opts?.sessionId === undefined
+        ? url
+        : await ResolveSessionURL(opts.sessionId, url);
+    BrowserOpenURL(target);
   },
 
   async readWorkspaceFile(sessionId, path) {

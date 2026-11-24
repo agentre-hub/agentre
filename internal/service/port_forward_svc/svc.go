@@ -50,8 +50,9 @@ type PortForwardSvc interface {
 	Delete(ctx context.Context, deviceID, mappingID string) error
 	// EnsureForPort 保证这台设备上有一条启用着的、指向其环回 port 的声明并交回它:
 	// 已有就复用(停用的先启用),没有才新建。「打开会话进程的端口」靠它免去用户
-	// 先去手动声明一次。
-	EnsureForPort(ctx context.Context, deviceID string, port int) (*MappingView, error)
+	// 先去手动声明一次。scheme 是 "http" 或 "https":https 的链接要转发到 https 目标,
+	// 且新建时不自动忽略证书错误(那是用户对一条声明的显式选择)。
+	EnsureForPort(ctx context.Context, deviceID, scheme string, port int) (*MappingView, error)
 }
 
 // MappingView 是一条映射在界面上的那一行。字段与共享包的
@@ -164,13 +165,13 @@ func (s *portForwardImpl) Delete(ctx context.Context, deviceID, mappingID string
 	return err
 }
 
-func (s *portForwardImpl) EnsureForPort(ctx context.Context, deviceID string, port int) (*MappingView, error) {
+func (s *portForwardImpl) EnsureForPort(ctx context.Context, deviceID, scheme string, port int) (*MappingView, error) {
 	views, err := s.List(ctx, deviceID)
 	if err != nil {
 		return nil, err
 	}
 	for _, v := range views {
-		if !targetsLoopbackPort(v.Target, port) {
+		if !targetsLoopbackPort(v.Target, scheme, port) {
 			continue
 		}
 		if v.Enabled {
@@ -180,15 +181,20 @@ func (s *portForwardImpl) EnsureForPort(ctx context.Context, deviceID string, po
 		// 声明还在只是被停用:启用它,不要再建一条(同一目标设备侧会拒成「已占用」)。
 		return s.SetEnabled(ctx, deviceID, v.ID, true)
 	}
-	// 纯端口写法由设备侧规范化成环回目标;名字用端口号,列表里一眼认得出。
-	return s.Create(ctx, deviceID, strconv.Itoa(port), strconv.Itoa(port), false)
+	// http 用纯端口写法,由设备侧规范化成环回目标;https 要把协议写出来。名字用端口号,
+	// 列表里一眼认得出。insecure 恒为 false:忽略证书错误是用户对一条声明的显式选择。
+	target := strconv.Itoa(port)
+	if scheme == "https" {
+		target = "https://127.0.0.1:" + target
+	}
+	return s.Create(ctx, deviceID, target, strconv.Itoa(port), false)
 }
 
-// targetsLoopbackPort 判断设备规范化后的 target(形如 http(s)://host:port)是否指向
-// 设备自己环回上的 port。host 只认 127.0.0.1 / localhost / ::1。
-func targetsLoopbackPort(target string, port int) bool {
+// targetsLoopbackPort 判断设备规范化后的 target(形如 http(s)://host:port)是否以 scheme
+// 指向设备自己环回上的 port。host 只认 127.0.0.1 / localhost / ::1。
+func targetsLoopbackPort(target, scheme string, port int) bool {
 	u, err := url.Parse(target)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.Scheme != scheme {
 		return false
 	}
 	switch u.Hostname() {
