@@ -509,7 +509,15 @@
       "rightSplit": "Resize right top and bottom",
       "bottomSplit": "Resize bottom left and right"
     },
-    "dropTo": "Drop in {{slot}}"
+    "dropTo": "Drop in {{slot}}",
+    "running": "Running"
+  },
+  "terminalToolWindow": {
+    "label": "Terminal",
+    "tabTitle": "Terminal {{n}}",
+    "withRoot": "{{title}} · {{root}}",
+    "new": "New terminal",
+    "close": "Close {{name}}"
   },
   "editorSplit": {
     "divider": "Resize chat and file",

@@ -32,6 +32,8 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
 import { useSessionRootStore } from "@/stores/session-root-store";
+import { useSessionTerminalsStore } from "@/stores/session-terminals-store";
+import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
 import {
   toLinkRoots,
   useDesktopTranscriptPorts,
@@ -195,6 +197,57 @@ describe("useDesktopTranscriptPorts 的 claimPath", () => {
     await expect(result.current.claimPath?.(42, "/tmp/x.ts")).rejects.toThrow(
       "not a repo",
     );
+  });
+});
+
+describe("useDesktopTranscriptPorts 的 attachTerminal", () => {
+  beforeEach(() => {
+    useSessionTerminalsStore.setState({ bySession: {}, viewing: {} });
+    useToolWindowLayout.getState().hide("terminal");
+  });
+
+  it("Given a session tab is in front, When a card attaches a running process, Then it opens as a tab of that session's terminal window and the window is revealed", () => {
+    useChatTabsStore.getState().openSession(42);
+    const { result } = renderHook(() => useDesktopTranscriptPorts());
+
+    result.current.attachTerminal?.({
+      terminalId: "cmd-1",
+      command: "npm test",
+    });
+
+    const entry = useSessionTerminalsStore.getState().bySession[42];
+    expect(entry.tabs).toEqual([
+      expect.objectContaining({
+        id: "cmd-1",
+        attach: true,
+        command: "npm test",
+      }),
+    ]);
+    expect(entry.activeId).toBe("cmd-1");
+    const layout = useToolWindowLayout.getState();
+    expect(layout.shown[layout.slotOf.terminal]).toBe("terminal");
+    // 不再另开一个对话标签页。
+    expect(
+      useChatTabsStore
+        .getState()
+        .tabs.filter((t) => t.meta.kind === "terminal"),
+    ).toEqual([]);
+  });
+
+  it("Given no session tab is in front, When a card attaches, Then it falls back to a standalone terminal chat tab", () => {
+    const { result } = renderHook(() => useDesktopTranscriptPorts());
+
+    result.current.attachTerminal?.({
+      terminalId: "cmd-1",
+      command: "npm test",
+    });
+
+    expect(useSessionTerminalsStore.getState().bySession).toEqual({});
+    expect(
+      useChatTabsStore
+        .getState()
+        .tabs.filter((t) => t.meta.kind === "terminal"),
+    ).toHaveLength(1);
   });
 });
 

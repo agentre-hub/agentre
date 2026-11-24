@@ -1,11 +1,20 @@
 import * as React from "react";
-import { FolderTree, GitCompareArrows, ListTree } from "lucide-react";
+import {
+  FolderTree,
+  GitCompareArrows,
+  ListTree,
+  SquareTerminal,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useSessionLiveBlocks } from "@/stores/chat-streams-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
 import { useSessionRoot } from "@/stores/session-root-store";
+import {
+  hasLiveSessionTerminal,
+  useSessionTerminalsStore,
+} from "@/stores/session-terminals-store";
 import {
   selectIsToolWindowShown,
   useToolWindowLayout,
@@ -21,6 +30,7 @@ import {
   ChatContextDataContext,
   DirectoryToolWindow,
   OutlineToolWindow,
+  TerminalToolWindowEntry,
   WorkRootChangeCountsContext,
   type ChatContextData,
 } from "./context-windows";
@@ -248,6 +258,11 @@ function ChatContextToolWindowsImpl({
     ],
   );
 
+  // 图标条上终端图标的运行中圆点：本会话有存活的终端进程。
+  const terminalRunning = useSessionTerminalsStore((s) =>
+    hasLiveSessionTerminal(s.bySession[sessionId]),
+  );
+
   const windows = React.useMemo<ToolWindowDefinition[]>(
     () => [
       {
@@ -269,8 +284,15 @@ function ChatContextToolWindowsImpl({
         icon: FolderTree,
         content: <DirectoryToolWindow />,
       },
+      {
+        id: "terminal",
+        label: t("terminalToolWindow.label"),
+        icon: SquareTerminal,
+        running: terminalRunning,
+        content: <TerminalToolWindowEntry />,
+      },
     ],
-    [t, changesCount],
+    [t, changesCount, terminalRunning],
   );
 
   return (

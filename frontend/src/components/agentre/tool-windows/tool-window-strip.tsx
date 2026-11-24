@@ -241,6 +241,7 @@ function StripGroup({
 }
 
 function StripButton({ window: w }: { window: ToolWindowDefinition }) {
+  const { t } = useTranslation();
   const shown = useToolWindowLayout((s) => s.shown[s.slotOf[w.id]] === w.id);
   const toggle = useToolWindowLayout((s) => s.toggle);
   const dragApi = React.useContext(DragContext);
@@ -251,6 +252,12 @@ function StripButton({ window: w }: { window: ToolWindowDefinition }) {
   const badgeId = React.useId();
   const Icon = w.icon;
   const badge = w.count != null && w.count > 0 ? w.count : null;
+  const runningId = React.useId();
+  const running = w.running === true;
+  const describedBy =
+    [badge !== null ? badgeId : null, running ? runningId : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
   const dragging = dragApi?.drag?.id === w.id;
 
   return (
@@ -265,7 +272,7 @@ function StripButton({ window: w }: { window: ToolWindowDefinition }) {
             size="icon-sm"
             aria-label={w.label}
             aria-pressed={shown}
-            aria-describedby={badge !== null ? badgeId : undefined}
+            aria-describedby={describedBy}
             data-tool-window-button={w.id}
             onPointerDown={(e) => dragApi?.begin(w.id, e)}
             onClick={() => {
@@ -293,6 +300,18 @@ function StripButton({ window: w }: { window: ToolWindowDefinition }) {
               >
                 {badge}
               </span>
+            ) : null}
+            {running ? (
+              <>
+                <span
+                  aria-hidden="true"
+                  data-testid="tool-window-running-dot"
+                  className="absolute top-0.5 right-0.5 size-2 rounded-full bg-status-running"
+                />
+                <span id={runningId} className="sr-only">
+                  {t("toolWindows.running")}
+                </span>
+              </>
             ) : null}
           </Button>
         </TooltipTrigger>

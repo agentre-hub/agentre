@@ -509,7 +509,15 @@
       "rightSplit": "调整右上与右下的分配",
       "bottomSplit": "调整底部左与底部右的分配"
     },
-    "dropTo": "放到{{slot}}"
+    "dropTo": "放到{{slot}}",
+    "running": "运行中"
+  },
+  "terminalToolWindow": {
+    "label": "终端",
+    "tabTitle": "终端 {{n}}",
+    "withRoot": "{{title}} · {{root}}",
+    "new": "新建终端",
+    "close": "关闭{{name}}"
   },
   "editorSplit": {
     "divider": "调整对话与文件宽度",

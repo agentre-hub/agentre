@@ -399,7 +399,7 @@ describe("ChatContextToolWindows · three tool windows", () => {
     vi.restoreAllMocks();
   });
 
-  it("registers 大纲 / 变更 / 目录 as tool windows on the strip; only the outline window is open", () => {
+  it("registers 大纲 / 变更 / 目录 / 终端 as tool windows on the strip; only the outline window is open", () => {
     render(
       <ChatContextToolWindows
         sessionId={1}
@@ -415,9 +415,11 @@ describe("ChatContextToolWindows · three tool windows", () => {
       "Outline",
       "Changes",
       "Directory",
+      "Terminal",
     ]);
     expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual([
       "true",
+      "false",
       "false",
       "false",
     ]);

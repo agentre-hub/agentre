@@ -197,7 +197,7 @@ beforeEach(() => {
 });
 
 describe("「变更」工具窗 · 图标条", () => {
-  it("图标条上是大纲 / 变更 / 目录三个工具窗，Git 不是其中之一；变更带当前档的文件数", () => {
+  it("图标条上是大纲 / 变更 / 目录 / 终端四个工具窗，Git 不是其中之一；变更带当前档的文件数", () => {
     renderSidebar();
 
     const toolbar = screen.getByRole("toolbar", { name: "Tool windows" });
@@ -205,7 +205,7 @@ describe("「变更」工具窗 · 图标条", () => {
       within(toolbar)
         .getAllByRole("button")
         .map((b) => b.getAttribute("aria-label")),
-    ).toEqual(["Outline", "Changes", "Directory"]);
+    ).toEqual(["Outline", "Changes", "Directory", "Terminal"]);
     expect(within(toolbar).queryByRole("button", { name: /^git/i })).toBeNull();
 
     expect(stripButton("Changes")).toHaveAttribute("aria-pressed", "true");
@@ -226,13 +226,15 @@ describe("「变更」工具窗 · 图标条", () => {
     await user.keyboard("{ArrowDown}");
     expect(stripButton("Directory")).toHaveFocus();
     await user.keyboard("{ArrowDown}");
+    expect(stripButton("Terminal")).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
     expect(stripButton("Outline")).toHaveFocus();
     await user.keyboard("{ArrowUp}");
-    expect(stripButton("Directory")).toHaveFocus();
+    expect(stripButton("Terminal")).toHaveFocus();
     await user.keyboard("{Home}");
     expect(stripButton("Outline")).toHaveFocus();
     await user.keyboard("{End}");
-    expect(stripButton("Directory")).toHaveFocus();
+    expect(stripButton("Terminal")).toHaveFocus();
 
     expect(isToolWindowShown("changes")).toBe(true);
     expect(isToolWindowShown("directory")).toBe(false);

@@ -18,6 +18,8 @@ export type ToolWindowDefinition = {
    * 不带数量或数据未就绪；为 0 时图标条不显示角标。
    */
   count?: number | null;
+  /** 工具窗里有进程在跑（终端）：图标条上的图标显示运行中圆点。缺省 = 无此概念。 */
+  running?: boolean;
   /** 工具窗的内容；标题栏由外壳画，内容超出可视高度时在外壳内滚动。 */
   content: React.ReactNode;
 };

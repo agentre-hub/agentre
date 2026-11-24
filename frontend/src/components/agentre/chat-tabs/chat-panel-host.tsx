@@ -33,6 +33,7 @@ import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
 import { useChatStreamsStore } from "@/stores/chat-streams-store";
 import { openSettings } from "@/stores/settings-dialog-store";
+import { SessionTerminalsHost } from "../tool-windows/session-terminals-host";
 
 type PanelHostState = {
   tabs: ChatTab[];
@@ -125,12 +126,20 @@ export function ChatPanelHost({
     pruneChatPanelScrollState(new Set(tabs.map((tab) => tab.id)));
   }, [tabs]);
 
+  // 会话终端的面板常驻在这里（不随任何会话标签卸载）：终端只在用户关标签或进程自己
+  // 退出时才结束，隐藏终端工具窗、关掉 / 替换会话标签都不该杀进程。
   if (tabs.length === 0) {
-    return <ChatEmptyState />;
+    return (
+      <>
+        <ChatEmptyState />
+        <SessionTerminalsHost />
+      </>
+    );
   }
 
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <SessionTerminalsHost />
       {panelTabs.map((t) =>
         t.meta.kind === "terminal" ? (
           <HostedTerminalPanel

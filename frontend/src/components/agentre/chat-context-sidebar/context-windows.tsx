@@ -2,6 +2,8 @@ import * as React from "react";
 
 import type { ChangesScope } from "@/stores/chat-sidebar-store";
 
+import { TerminalToolWindow } from "../tool-windows/terminal-tool-window";
+
 import type { ChangeRow, OutlineItem } from "./derive";
 import { ChangesPanel } from "./views/changes-panel";
 import { DirectoryPanel } from "./views/directory-panel";
@@ -125,4 +127,10 @@ export function DirectoryToolWindow() {
       onCwdSpecified={d.onCwdSpecified}
     />
   );
+}
+
+/** 「终端」工具窗：本会话的终端标签；面板由常驻的 SessionTerminalsHost 持有。 */
+export function TerminalToolWindowEntry() {
+  const { sessionId } = useChatContextData();
+  return <TerminalToolWindow sessionId={sessionId} />;
 }

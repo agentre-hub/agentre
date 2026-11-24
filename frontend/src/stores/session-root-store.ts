@@ -223,6 +223,22 @@ function rootArgOf(entry: SessionRootEntry): string {
   return root && !root.isPrimary ? root.path : "";
 }
 
+/**
+ * 非渲染场景（事件回调、store 动作）一次性读会话当前根：`arg` 是规范标识（主根为
+ * 空串），`path` 是绝对路径（还没有集合时是会话 cwd，没记录过的会话为空串）。
+ */
+export function readSessionRoot(sessionId: number): {
+  arg: string;
+  path: string;
+} {
+  const entry = useSessionRootStore.getState().bySession[sessionId];
+  if (!entry) return { arg: "", path: "" };
+  return {
+    arg: rootArgOf(entry),
+    path: currentRootOf(entry)?.path ?? entry.cwd,
+  };
+}
+
 /** 只要当前根的规范标识时用它：列表的每一行都订阅，不该为别的字段变化重渲染。 */
 export function useSessionRootArg(sessionId: number): string {
   return useSessionRootStore((s) =>

@@ -13,7 +13,9 @@ import {
   type WorkRoot,
   useSessionRootStore,
 } from "@/stores/session-root-store";
+import { useSessionTerminalsStore } from "@/stores/session-terminals-store";
 import { openSettings } from "@/stores/settings-dialog-store";
+import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
 
 import {
   memoryWriteFailure,
@@ -158,8 +160,18 @@ export const desktopTranscriptPorts = {
     };
   },
 
+  // 接入进程是在转录卡片上点的，而端口不带会话号：落在此刻最前面的会话标签上——
+  // 作为那个会话终端工具窗里的新标签打开并显示该窗。前面不是会话标签（没有终端
+  // 工具窗可依附）时退回独立的终端对话标签页。
   attachTerminal(input) {
-    useChatTabsStore.getState().attachTerminal(input);
+    const { tabs, activeTabId } = useChatTabsStore.getState();
+    const active = tabs.find((t) => t.id === activeTabId);
+    if (active?.meta.kind !== "session") {
+      useChatTabsStore.getState().attachTerminal(input);
+      return;
+    }
+    useSessionTerminalsStore.getState().attach(active.meta.sessionId, input);
+    useToolWindowLayout.getState().show("terminal");
   },
 
   // 设置读取留在这里(ports.ts 已经写明这是宿主的产品决策,包内不知道也不该知道
