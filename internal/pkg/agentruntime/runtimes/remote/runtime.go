@@ -41,6 +41,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/orderedpipe"
+	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
@@ -752,13 +753,29 @@ func encodeHistory(in []agentruntime.HistoryMessage) ([]wire.HistoryMessageWire,
 	}
 	out := make([]wire.HistoryMessageWire, 0, len(in))
 	for _, m := range in {
-		sbs, err := blocks.EncodeAll(m.Blocks)
+		sbs, err := blocks.EncodeAll(withoutToolCwd(m.Blocks))
 		if err != nil {
 			return nil, fmt.Errorf("encode history blocks: %w", err)
 		}
 		out = append(out, wire.HistoryMessageWire{Role: m.Role, Blocks: sbs})
 	}
 	return out, nil
+}
+
+// withoutToolCwd 去掉历史里的目录记录(transcriptblocks.ToolCwdBlock)。它只给界面
+// 看,执行侧用不上;而早于它构建的 agentred 不认识这个块类型,blocks.DecodeAll 会让
+// 整轮拒跑(spec 2026-11-24-chat-right-toolwindows 决策 18:新字段对旧端无害)。
+// 这里是落库历史编给 agentred 的唯一出口,所以只在这里滤一次。
+func withoutToolCwd(in []blocks.ContentBlock) []blocks.ContentBlock {
+	out := make([]blocks.ContentBlock, 0, len(in))
+	for _, b := range in {
+		switch b.(type) {
+		case transcriptblocks.ToolCwdBlock, *transcriptblocks.ToolCwdBlock:
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 func usageFromWire(u *wire.UsageWire) *provider.Usage {
