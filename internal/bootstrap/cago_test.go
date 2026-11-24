@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/workspace_fs_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
@@ -546,6 +547,26 @@ func TestInitLetsAWorkRootBeClaimed(t *testing.T) {
 	}
 	if rows, _ := repo.ListBySession(ctx, 43); len(rows) != 0 {
 		t.Fatalf("ListBySession(43) after DeleteBySession = %+v, want empty", rows)
+	}
+}
+
+// TestInitWiresTheClaudecodeHookLocations 钉死桌面端的 hook 位置簿接线:漏了它,本机
+// Claude Code 会话的 PostToolUse hook 照常上报 cwd,却没人把它盖到工具事件上(agentred
+// 那一侧由 internal/daemon 的同名回归盯着)。
+func TestInitWiresTheClaudecodeHookLocations(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+	t.Setenv("AGENTRE_PROXY_PORT", "0")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	if !claudecode.Default().HookLocationsConfigured() {
+		t.Fatal("claudecode runtime has no hook location book after Init; bootstrap forgot SetHookLocations")
 	}
 }
 

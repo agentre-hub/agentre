@@ -119,6 +119,9 @@ type rawFrame struct {
 	// 用于 subagent 内部帧的 EventSubagentModel）是两个独立字段。
 	Model string `json:"model,omitempty"`
 
+	// system.init 帧上的 cwd:CLI 启动 / 恢复时所在目录,即 AI 当前位置的初值。
+	Cwd string `json:"cwd,omitempty"`
+
 	// subagent 内部的 assistant / user 帧顶层会带 parent_tool_use_id，
 	// 指向外层 Agent.tool_use_id；主 agent 自己的帧此字段为 null（→ ""）。
 	ParentToolUseID string `json:"parent_tool_use_id,omitempty"`
@@ -436,7 +439,9 @@ func (d *frameDecoder) decodeLine(line []byte) ([]Event, bool) {
 			}
 			if f.Model != "" {
 				d.model = f.Model
-				return []Event{{Kind: EventInit, SessionID: d.sessionID, Model: f.Model}}, true
+			}
+			if f.Model != "" || f.Cwd != "" {
+				return []Event{{Kind: EventInit, SessionID: d.sessionID, Model: f.Model, Cwd: f.Cwd}}, true
 			}
 		}
 		if ev, ok := d.decodeSystemTask(f); ok {

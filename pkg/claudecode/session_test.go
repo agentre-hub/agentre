@@ -880,6 +880,26 @@ func TestSession_DoesNotEmitEventInitWhenModelMissing(t *testing.T) {
 	}
 }
 
+// TestSession_InitFrameCarriesCwd —— 长 Session 路径同 frameDecoder:init 帧的 cwd
+// 进 EventInit.Cwd(带不带 model 都发);老 CLI 不报 cwd 时 Cwd 为空。
+func TestSession_InitFrameCarriesCwd(t *testing.T) {
+	s := &Session{}
+	evs, _ := s.parseLine([]byte(`{"type":"system","subtype":"init","session_id":"sx","cwd":"/repo/app","model":"m"}`))
+	require.Len(t, evs, 1)
+	assert.Equal(t, EventInit, evs[0].Kind)
+	assert.Equal(t, "/repo/app", evs[0].Cwd)
+	assert.Equal(t, "m", evs[0].Model)
+
+	evs, _ = s.parseLine([]byte(`{"type":"system","subtype":"init","session_id":"sx","cwd":"/repo/app/.claude/worktrees/x"}`))
+	require.Len(t, evs, 1, "只带 cwd 的 init 帧也要发 EventInit,位置初值不能丢")
+	assert.Equal(t, "/repo/app/.claude/worktrees/x", evs[0].Cwd)
+	assert.Equal(t, "m", s.model, "没报 model 的 init 帧不覆盖已知模型")
+
+	evs, _ = s.parseLine([]byte(`{"type":"system","subtype":"init","session_id":"sx","model":"m2"}`))
+	require.Len(t, evs, 1)
+	assert.Empty(t, evs[0].Cwd, "老 CLI 不报 cwd → 空")
+}
+
 // TestSession_ReplayRealRawLog 端到端回放:如果 AGENTRE_REPLAY_CC_RAW 指向一份
 // 真实 /tmp/cc-raw.log,把每一行喂给 parseLine,断言最终 EventDone.Usage 非零。
 // 默认 env 未设跳过(CI / 其它开发机上没这个文件)。给 GLM repro 用,排查时打开。

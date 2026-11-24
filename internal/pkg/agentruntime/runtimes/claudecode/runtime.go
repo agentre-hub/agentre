@@ -68,6 +68,7 @@ type Runtime struct {
 	spawnLocks sync.Map // key(string) → *sync.Mutex
 	cache      *agentruntime.CLISessionPool
 	steer      *httpgateway.SteerInbox
+	hookLocs   *httpgateway.HookLocations
 	// hookCLIPath 是注册进 PostToolUse hook 的可执行文件路径;bootstrap 注入
 	// <AppDataDir>/bin/agrctl。为空时回落 os.Executable()(供 agentred 守护进程——它自带
 	// claudecode 子命令)。见 hookBin。
@@ -732,6 +733,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 		sessionUUID:    inboxKey,
 		handle:         handle,
 		steer:          r.steer,
+		hookLocs:       r.hookLocs,
 		pool:           r.cache,
 		poolKey:        key,
 		permissionMode: runtimeMode,
@@ -842,6 +844,9 @@ func drainStream(stream ccStream, out chan<- agentruntime.Event, result *agentru
 			active.setPermissionModeSnapshot(ev.PermissionMode)
 		}
 		translated, usage, stopErr := translate(ev)
+		if active != nil {
+			translated = active.stampLocation(ev, translated)
+		}
 		if ev.Kind == claudecode.EventInit && active != nil && active.contextWindow > 0 {
 			// 启动时下发了 CLAUDE_CODE_MAX_CONTEXT_TOKENS:CLI 按这个窗口压缩,
 			// 展示也报它,不再用 catalog 按模型名猜(glm-5.3 会被前缀匹配成 glm-5)。

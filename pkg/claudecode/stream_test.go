@@ -551,6 +551,32 @@ func TestStream_DoesNotEmitEventInitWhenModelMissing(t *testing.T) {
 	assert.False(t, sawInit, "model 缺省时不应当 emit EventInit")
 }
 
+// TestStream_InitFrameCarriesCwd —— Given system.init 帧报告 cwd(启动 / 恢复时 CLI
+// 所在目录),When 解码,Then EventInit 带上这个目录:它是 AI 当前位置的初值。
+// 没有 model 只有 cwd 的 init 帧同样要发,否则位置初值丢了。
+func TestStream_InitFrameCarriesCwd(t *testing.T) {
+	cases := []struct{ name, line, cwd, model string }{
+		{"with model", `{"type":"system","subtype":"init","session_id":"sx","cwd":"/repo/app","model":"claude-sonnet-4-6"}`, "/repo/app", "claude-sonnet-4-6"},
+		{"cwd only", `{"type":"system","subtype":"init","session_id":"sx","cwd":"/repo/app"}`, "/repo/app", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newFrameDecoder(strings.NewReader(tc.line + "\n" +
+				`{"type":"result","subtype":"success","session_id":"sx"}` + "\n"))
+			var init *Event
+			for d.Next() {
+				if e := d.Event(); e.Kind == EventInit {
+					init = &e
+				}
+			}
+			require.NoError(t, d.Err())
+			require.NotNil(t, init, "init 帧带 cwd 时应 emit EventInit")
+			assert.Equal(t, tc.cwd, init.Cwd)
+			assert.Equal(t, tc.model, init.Model)
+		})
+	}
+}
+
 func TestStream_UnknownSystemSubtypeFailsSchemaCheck(t *testing.T) {
 	d := newFrameDecoder(strings.NewReader(
 		`{"type":"system","subtype":"init","session_id":"x","schema_version":"future-9.9"}` + "\n",

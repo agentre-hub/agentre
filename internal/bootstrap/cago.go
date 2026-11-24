@@ -258,6 +258,9 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// 之后 PostToolUse hook 子进程会 GET /hook/v1/inbox 拉走，turn 结束时
 	// chat_svc 还会调 runner.DrainPending 把残留转成下一轮的 user msg。
 	claudecode.Default().SetSteerInbox(gw.Steer())
+	// hook 同一次收件箱请求还报工具跑完之后的目录(Bash `cd` 之后),runtime 据此把
+	// 位置盖到工具事件上(spec 2026-11-24-chat-right-toolwindows 决策 15/17)。
+	claudecode.Default().SetHookLocations(gw.HookLocations())
 
 	// 安装 agrctl 伴随 CLI 并把 PostToolUse hook 指向它（<AppDataDir>/bin/agrctl）。hook 每次
 	// 工具调用都会 exec，用小二进制而非整个桌面 app。从随 app 打进 bundle 的源拷到可写的

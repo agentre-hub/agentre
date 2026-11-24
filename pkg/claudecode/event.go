@@ -66,8 +66,9 @@ const (
 	// 紧接着才发 compact_boundary 帧。我们刻意只 emit 非空状态;清理信号留给 compact_boundary
 	// / done / error 路径 —— 这样无法识别的未来 status:null 帧仍能保持前向兼容地被静默忽略。
 	EventStatus EventKind = "status"
-	// EventInit 来自 CLI 的 system{subtype:"init"} 帧。仅在该帧带 model 字段时 emit
-	// (老 CLI 不报 model → 不发,上层走 EventDone.Model 兜底)。携带 SessionID + Model,
+	// EventInit 来自 CLI 的 system{subtype:"init"} 帧。仅在该帧带 model 或 cwd 字段时 emit
+	// (老 CLI 不报 model → Model 为空,上层走 EventDone.Model 兜底)。携带 SessionID + Model
+	// + Cwd(CLI 所在目录,AI 当前位置的初值),
 	// 让 agentruntime/claudecode translator 在 turn 开始时就能查 cago llmcatalog
 	// 兜底 context window 大小,而不是等 EventDone 才知道窗口——前端进度条因此能在
 	// turn 内实时显示用量占比,不必"等一轮跑完才出条"。
@@ -221,6 +222,10 @@ type Event struct {
 	// model 名查 cago catalog 兜底。保留此字段是为了让 agentruntime adapter 在两个
 	// 后端之间不做 backend 分支判断，统一读 ev.ContextWindow。
 	ContextWindow int
+
+	// EventInit 时填写 init 帧报告的 CLI 所在目录(启动 / 恢复时的 AI 当前位置);
+	// 老 CLI 不报 cwd → 留空。
+	Cwd string
 
 	// EventRetry 携带：CLI system.api_retry 帧的结构化字段。
 	Retry *RetryEvent

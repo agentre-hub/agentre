@@ -46,6 +46,7 @@ type Gateway struct {
 	tokens    *TokenRegistry
 	forwarder *Forwarder
 	steer     *SteerInbox
+	hookLocs  *HookLocations
 
 	mcpMu sync.RWMutex
 	mcps  map[string]http.Handler
@@ -59,12 +60,13 @@ type Gateway struct {
 // lookup 通常传 llm_provider_repo.LLMProvider() 的单例；测试可以 inject fake。
 func New(host string, port int, lookup ProviderLookup) *Gateway {
 	g := &Gateway{
-		host:   host,
-		port:   port,
-		state:  stateStopped,
-		tokens: NewTokenRegistry(),
-		steer:  NewSteerInbox(),
-		mcps:   make(map[string]http.Handler),
+		host:     host,
+		port:     port,
+		state:    stateStopped,
+		tokens:   NewTokenRegistry(),
+		steer:    NewSteerInbox(),
+		hookLocs: NewHookLocations(),
+		mcps:     make(map[string]http.Handler),
 	}
 	g.forwarder = NewForwarder(g.tokens, lookup)
 	g.mux = g.buildMux()
@@ -253,11 +255,20 @@ func (g *Gateway) URL() string {
 // it; the /hook/v1/inbox handler drains on hook GET.
 func (g *Gateway) Steer() *SteerInbox { return g.steer }
 
+// HookLocations returns the book of per-tool directories the PostToolUse hook
+// reports on /hook/v1/inbox; the claudecode runtime takes from it.
+func (g *Gateway) HookLocations() *HookLocations { return g.hookLocs }
+
 // serveHookInbox is the GET /hook/v1/inbox?session_id=<uuid> handler that the
 // agrctl claudecode hook subcommand calls. Returns the pending Steer message
 // queue for the given uuid (and clears it). Token-guarded by the same
 // TokenRegistry that LLM forwarding uses, so any token issued for the
 // active backend is sufficient.
+//
+// The hook also reports where the tool left the AI: tool_use_id + cwd (+ agent_id
+// when a subagent ran the tool) are recorded in HookLocations. A request carrying
+// agent_id is a location report only — it never drains, so the main
+// conversation's steer is not injected into a subagent.
 func (g *Gateway) serveHookInbox(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -281,7 +292,13 @@ func (g *Gateway) serveHookInbox(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing session_id", http.StatusBadRequest)
 		return
 	}
-	items := g.steer.Drain(sid)
+	q := r.URL.Query()
+	agentID := q.Get("agent_id")
+	g.hookLocs.Record(sid, q.Get("tool_use_id"), q.Get("cwd"), agentID)
+	var items []SteerItem
+	if agentID == "" {
+		items = g.steer.Drain(sid)
+	}
 	// 诊断关键点: hook 在 PostToolUse 边界拉取 inbox 的实况。count>0 = mid-turn 投递
 	// 成功; count==0 但用户确实排了消息 = drain key(sid)与 push key(a.sessionUUID)
 	// 不一致,或消息已被先前边界拉走。sid 与 claudecode runtime "steer enqueued"

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -127,6 +128,85 @@ func TestRunPostTool_SkipsDuringSubagent(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"hookEventName":"PostToolUse"`) {
 		t.Fatalf("must still emit PostToolUse no-op envelope: %s", out.String())
+	}
+}
+
+// recordingGateway answers every inbox request with msgs and records the query of
+// each request it saw.
+func recordingGateway(t *testing.T, msgs []string) (string, *[]url.Values) {
+	t.Helper()
+	var seen []url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.Query())
+		_ = json.NewEncoder(w).Encode(struct {
+			Messages []string `json:"messages"`
+		}{Messages: msgs})
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, &seen
+}
+
+// Given 主 agent 的 Bash 跑了 `cd sub`,PostToolUse hook 输入带着命令之后的 cwd;
+// When  hook 去收件箱;
+// Then  请求带上 cwd 与 tool_use_id(不带 agent_id),插话照常注入。
+func TestRunPostTool_ReportsPostCommandCwd(t *testing.T) {
+	base, seen := recordingGateway(t, []string{"steer"})
+	var out bytes.Buffer
+	in := strings.NewReader(`{"session_id":"sid-1","cwd":"/repo/sub","tool_use_id":"toolu_1","tool_name":"Bash","tool_input":{"command":"cd sub"}}`)
+	RunPostTool(base, "tok-xyz", in, &out)
+
+	if len(*seen) != 1 {
+		t.Fatalf("requests = %d, want 1", len(*seen))
+	}
+	q := (*seen)[0]
+	if q.Get("session_id") != "sid-1" || q.Get("cwd") != "/repo/sub" || q.Get("tool_use_id") != "toolu_1" {
+		t.Fatalf("query = %v, want session_id/cwd/tool_use_id", q)
+	}
+	if q.Has("agent_id") {
+		t.Fatalf("main-agent hook must not send agent_id: %v", q)
+	}
+	if !strings.Contains(out.String(), "steer") {
+		t.Fatalf("main-agent boundary still delivers steer: %s", out.String())
+	}
+}
+
+// Given 子代理里的工具触发 hook(带 agent_id)且带 cwd;
+// When  hook 上报;
+// Then  请求带上 agent_id 让收件箱只记位置不 drain,且就算对端仍回了消息也不注入子代理。
+func TestRunPostTool_SubagentReportsLocationWithoutTakingSteer(t *testing.T) {
+	base, seen := recordingGateway(t, []string{"queued-msg"})
+	var out bytes.Buffer
+	in := strings.NewReader(`{"session_id":"sid-1","agent_id":"a1","agent_type":"general-purpose","cwd":"/repo/.claude/worktrees/x","tool_use_id":"toolu_2"}`)
+	RunPostTool(base, "tok-xyz", in, &out)
+
+	if len(*seen) != 1 {
+		t.Fatalf("requests = %d, want 1 location report", len(*seen))
+	}
+	q := (*seen)[0]
+	if q.Get("agent_id") != "a1" || q.Get("cwd") != "/repo/.claude/worktrees/x" || q.Get("tool_use_id") != "toolu_2" {
+		t.Fatalf("query = %v, want agent_id/cwd/tool_use_id", q)
+	}
+	if strings.Contains(out.String(), "queued-msg") || strings.Contains(out.String(), "additionalContext") {
+		t.Fatalf("subagent hook must not inject steer: %s", out.String())
+	}
+}
+
+// Given 老 CLI 的 hook 输入不带 cwd;
+// When  hook 去收件箱;
+// Then  请求不带 cwd、不报错,插话照常注入。
+func TestRunPostTool_OldCLIWithoutCwd(t *testing.T) {
+	base, seen := recordingGateway(t, []string{"steer"})
+	var out bytes.Buffer
+	RunPostTool(base, "tok-xyz", strings.NewReader(`{"session_id":"sid-1"}`), &out)
+
+	if len(*seen) != 1 {
+		t.Fatalf("requests = %d, want 1", len(*seen))
+	}
+	if q := (*seen)[0]; q.Has("cwd") || q.Has("tool_use_id") || q.Has("agent_id") {
+		t.Fatalf("old payload must not invent location params: %v", q)
+	}
+	if !strings.Contains(out.String(), "steer") {
+		t.Fatalf("steer must still be delivered: %s", out.String())
 	}
 }
 

@@ -34,15 +34,24 @@ func RunPostTool(baseURL, token string, in io.Reader, out io.Writer) {
 	// 头响应 —— 与"subagent 是被主 agent 委派的子任务,不该接收主对话层指令"
 	// 的语义冲突,同时 chat_svc 会在 subagent 中间错误切分 turn。
 	// 主 agent 的 hook payload 不带 agent_id, 等下一次主 agent tool 收尾再 drain.
-	if payload.AgentID != "" {
+	//
+	// 子代理的工具仍要报它跑完之后的目录(只参与认领,不移动主位置):请求带上
+	// agent_id,gateway 据此只记位置、不 drain;应答里就算有消息也不注入。没有目录
+	// 可报(老 CLI)时一次请求都不发。
+	query := inboxQuery{SessionID: payload.SessionID, ToolUseID: payload.ToolUseID, Cwd: payload.Cwd, AgentID: payload.AgentID}
+	if payload.AgentID != "" && (payload.Cwd == "" || payload.ToolUseID == "") {
 		emitPostToolContext(out, "")
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	messages, err := fetchInbox(ctx, baseURL, token, payload.SessionID)
+	messages, err := fetchInbox(ctx, baseURL, token, query)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claudecodehook post-tool: fetch inbox: %v\n", err)
+		emitPostToolContext(out, "")
+		return
+	}
+	if payload.AgentID != "" {
 		emitPostToolContext(out, "")
 		return
 	}

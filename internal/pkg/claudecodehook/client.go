@@ -23,10 +23,24 @@ import (
 // AgentID 仅在 hook 被 subagent (Task tool) 内层工具触发时非空 —— 主 agent
 // 自己的工具(含调 Task tool 本身)payload 里都没这两个字段。用它把 drain
 // 限制到主 agent 边界:见 RunPostTool 的早退判断。
+//
+// Cwd 是工具跑完之后 CLI 所在的目录(Bash `cd` 之后就是新目录),ToolUseID 是这次
+// 调用的 id;两者随收件箱请求报给 gateway,盖到这次调用的工具事件上。老 CLI 不报
+// 时为空,请求不带它们。
 type hookPayload struct {
 	SessionID string `json:"session_id"`
 	AgentID   string `json:"agent_id"`
 	AgentType string `json:"agent_type"`
+	Cwd       string `json:"cwd"`
+	ToolUseID string `json:"tool_use_id"`
+}
+
+// inboxQuery 是收件箱请求的查询参数。AgentID 非空时 gateway 只记位置、不 drain。
+type inboxQuery struct {
+	SessionID string
+	ToolUseID string
+	Cwd       string
+	AgentID   string
 }
 
 func parsePayload(r io.Reader) (hookPayload, error) {
@@ -39,15 +53,21 @@ func parsePayload(r io.Reader) (hookPayload, error) {
 	return p, nil
 }
 
-// fetchInbox calls GET <base>/hook/v1/inbox?session_id=<sid> with bearer
-// auth. Returns the message slice (possibly empty) or an error.
-func fetchInbox(ctx context.Context, base, token, sid string) ([]string, error) {
+// fetchInbox calls GET <base>/hook/v1/inbox?session_id=<sid>[&tool_use_id=…&cwd=…&agent_id=…]
+// with bearer auth. Empty optional fields are omitted. Returns the message slice
+// (possibly empty) or an error.
+func fetchInbox(ctx context.Context, base, token string, in inboxQuery) ([]string, error) {
 	u, err := url.Parse(strings.TrimRight(base, "/") + "/hook/v1/inbox")
 	if err != nil {
 		return nil, fmt.Errorf("claudecodehook: parse base url: %w", err)
 	}
 	q := u.Query()
-	q.Set("session_id", sid)
+	q.Set("session_id", in.SessionID)
+	for k, v := range map[string]string{"tool_use_id": in.ToolUseID, "cwd": in.Cwd, "agent_id": in.AgentID} {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
 	u.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)

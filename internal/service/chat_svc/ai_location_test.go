@@ -240,6 +240,49 @@ func TestObserveAILocation_RevokeRootRevokesAndPushes(t *testing.T) {
 	assert.Equal(t, after, rec.events[0].Roots)
 }
 
+// Given AI 在 worktree 里, When 一条工具结果(ExitWorktree 选择删除)带着回到的目录与
+// Meta 里的撤销标记到达(本机或经 wire 从 agentred 来都一样), Then 撤销那个根、位置回到
+// 恢复目录,并推一发。
+func TestObserveToolEvent_ResultRevokeMarkerRevokesTheRoot(t *testing.T) {
+	svc, port, rec := newLocationSvc(t, cwdMsg(t, 1, "c0", locWT, ""))
+	ctx := context.Background()
+	port.EXPECT().Revoke(gomock.Any(), int64(7), locWT).Return(true, nil)
+	port.EXPECT().Claim(gomock.Any(), int64(7), []string{locRepo}).Return(nil, nil)
+	after := []workspace_fs_svc.WorkRootView{withAIHere(primaryRoot)}
+	port.EXPECT().WorkRoots(gomock.Any(), int64(7)).Return(after, nil)
+
+	meta := json.RawMessage(`{"action":"remove","worktreePath":"` + locWT + `","` + agentruntime.RevokeRootMetaKey + `":"` + locWT + `"}`)
+	svc.observeToolEvent(ctx, 7, agentruntime.ToolResult{ToolCallID: "x1", Meta: meta, Cwd: locRepo})
+
+	assert.Equal(t, locRepo, location(t, svc))
+	require.Len(t, rec.events, 1)
+	assert.Equal(t, after, rec.events[0].Roots)
+}
+
+// Given 子代理删掉了它的 worktree, When 它的结果带撤销标记、不带目录, Then 照样撤销并推一发
+// (撤销改的是认领集合),主位置不动。
+func TestObserveToolEvent_SubagentResultRevokeMarkerRevokesWithoutMoving(t *testing.T) {
+	svc, port, rec := newLocationSvc(t)
+	ctx := context.Background()
+	port.EXPECT().Revoke(gomock.Any(), int64(7), locWT2).Return(true, nil)
+	after := []workspace_fs_svc.WorkRootView{withAIHere(primaryRoot)}
+	port.EXPECT().WorkRoots(gomock.Any(), int64(7)).Return(after, nil)
+
+	meta := json.RawMessage(`{"` + agentruntime.RevokeRootMetaKey + `":"` + locWT2 + `"}`)
+	svc.observeToolEvent(ctx, 7, agentruntime.ToolResult{ToolCallID: "n1", ParentToolCallID: "agent-1", Meta: meta})
+
+	assert.Equal(t, "", location(t, svc))
+	require.Len(t, rec.events, 1)
+}
+
+// Given 结果 Meta 不带撤销标记(普通工具 / 旧 agentred), Then 不撤销任何根。
+func TestObserveToolEvent_ResultWithoutRevokeMarkerRevokesNothing(t *testing.T) {
+	svc, _, rec := newLocationSvc(t)
+	svc.observeToolEvent(context.Background(), 7, agentruntime.ToolResult{ToolCallID: "r1", Meta: json.RawMessage(`{"action":"keep","worktreePath":"` + locWT + `"}`)})
+	svc.observeToolEvent(context.Background(), 7, agentruntime.ToolResult{ToolCallID: "r2", Meta: json.RawMessage(`not json ` + agentruntime.RevokeRootMetaKey)})
+	assert.Empty(t, rec.events)
+}
+
 // 入口同样承接 init 帧目录与 PostToolUse hook 的 cwd:子代理 hook 只认领。
 func TestObserveAILocation_SubagentHookOnlyClaims(t *testing.T) {
 	svc, port, rec := newLocationSvc(t)

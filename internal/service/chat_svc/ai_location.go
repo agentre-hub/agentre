@@ -298,8 +298,9 @@ func (s *chatSvc) settleWorkRoots(sessionID int64, job workRootsJob) {
 }
 
 // observeToolEvent 把一条工具调用 / 工具结果事件翻成位置信号:事件上的 Cwd 是位置,写入
-// 目标(相对路径按这次调用的目录补全)与 `git worktree add` 的路径是候选。嵌套在子代理里
-// 的事件只参与认领。其余事件什么都不做。
+// 目标(相对路径按这次调用的目录补全)与 `git worktree add` 的路径是候选,结果 Meta 里的
+// agentruntime.RevokeRootMetaKey 是要撤销的根(主代理、子代理一样:撤销改的是认领集合)。
+// 嵌套在子代理里的事件只参与认领。其余事件什么都不做。
 func (s *chatSvc) observeToolEvent(ctx context.Context, sessionID int64, ev agentruntime.Event) {
 	var sig AILocationSignal
 	switch e := ev.(type) {
@@ -308,13 +309,31 @@ func (s *chatSvc) observeToolEvent(ctx context.Context, sessionID int64, ev agen
 		sig.Candidates = toolCallCandidates(e, func() string { return s.anchorFor(ctx, sessionID, e.Cwd, sig.FromSubagent) })
 	case agentruntime.ToolResult:
 		sig.Dir, sig.FromSubagent = e.Cwd, e.ParentToolCallID != "" || e.SubagentRunID != ""
+		sig.RevokeRoot = revokeRootOf(e.Meta)
 	default:
 		return
 	}
-	if sig.Dir == "" && len(sig.Candidates) == 0 {
+	if sig.Dir == "" && len(sig.Candidates) == 0 && sig.RevokeRoot == "" {
 		return
 	}
 	s.ObserveAILocation(ctx, sessionID, sig)
+}
+
+// revokeRootOf 取工具结果 Meta 里执行侧标出的要撤销的根;没有标记或解不开时为空。
+func revokeRootOf(meta json.RawMessage) string {
+	// 同 toolCallCandidates:先字节级预筛,普通结果的 Meta 不整份解析。
+	if !bytes.Contains(meta, []byte(agentruntime.RevokeRootMetaKey)) {
+		return ""
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(meta, &m) != nil {
+		return ""
+	}
+	var root string
+	if raw, ok := m[agentruntime.RevokeRootMetaKey]; !ok || json.Unmarshal(raw, &root) != nil {
+		return ""
+	}
+	return root
 }
 
 // anchorFor 交回补全这次调用里相对写入路径的目录:调用自己报的目录优先;主会话的调用没报
