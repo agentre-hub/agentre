@@ -506,5 +506,14 @@
       "bottomSplit": "调整底部左与底部右的分配"
     },
     "dropTo": "放到{{slot}}"
+  },
+  "editorSplit": {
+    "divider": "调整对话与文件宽度",
+    "fill": "占满编辑区",
+    "restore": "还原",
+    "closeAll": "关闭全部文件",
+    "rail": {
+      "title": "对话"
+    }
   }
 }

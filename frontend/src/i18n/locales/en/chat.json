@@ -506,5 +506,14 @@
       "bottomSplit": "Resize bottom left and right"
     },
     "dropTo": "Drop in {{slot}}"
+  },
+  "editorSplit": {
+    "divider": "Resize chat and file",
+    "fill": "Fill editor",
+    "restore": "Restore",
+    "closeAll": "Close all files",
+    "rail": {
+      "title": "Chat"
+    }
   }
 }

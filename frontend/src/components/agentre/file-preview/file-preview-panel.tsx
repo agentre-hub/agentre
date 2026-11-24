@@ -2,7 +2,6 @@ import * as React from "react";
 
 import {
   FilePreviewPanel as SharedFilePreviewPanel,
-  ResizableSidebar,
   cn,
   previewNeedsMonaco,
   useUiTranslation,
@@ -41,6 +40,12 @@ type Props = {
    * 主根），**不**跟随侧栏当前选中的根。
    */
   cwd?: string;
+  /**
+   * 面板第一行右端的宿主动作（编辑区分屏的「占满 / 还原」「关闭全部」）。共享面板
+   * 没有动作槽，这几颗按钮叠在它第一行的右端——两个以上标签时是标签条（34px），
+   * 只有一个标签时标签条不画、第一行是 header（40px）——第一行为它们让出右侧空间。
+   */
+  actions?: React.ReactNode;
 };
 
 /** 路径最后一段，作为没有登记名的根的显示名。 */
@@ -99,8 +104,8 @@ function renderFileIcon(path: string, slot: "tab" | "overflow" | "header") {
  *      的会话 + 工作根实参在闭包里带着，包那侧只认 relPath）；
  *   2. 把 `file-preview-tabs-store` 的这一会话的标签与动作映射成 props；
  *   3. 装载 Monaco（装载器用 Vite 的 `?worker`，进不了纯 tsc 构建的包）并注进去；
- *   4. **给它一个容器**：桌面端这一栏是右侧栏里那条可拖宽的 ResizableSidebar
- *      （独立 persistenceKey），关掉最后一个标签时先播 200ms 出场动画再收起。
+ *   4. **给它一个容器**：桌面端是编辑区分屏的文件一侧（editor-split，宽度与
+ *      比例由分屏决定），关掉最后一个标签时先播 200ms 出场动画再收起。
  *      「开在哪、多宽、能不能拖」是宿主的布局问题（spec 决策 3），控制台那侧的
  *      容器是详情列里一条定宽 420、不可拖的分栏。
  *
@@ -110,7 +115,12 @@ function renderFileIcon(path: string, slot: "tab" | "overflow" | "header") {
  * 对话记录显示。轮次结束（doneTick）是「文件可能变了」的唯一强信号，接成包那侧的
  * `refreshToken`。
  */
-export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
+export function FilePreviewPanel({
+  sessionId,
+  messages,
+  cwd = "",
+  actions,
+}: Props) {
   const { t: uiT } = useUiTranslation();
   const entry = useFilePreviewTabsStore(
     (s) => s.previewTabsBySession[sessionId],
@@ -259,13 +269,10 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
   if (!activeTab) return null;
 
   return (
-    <ResizableSidebar
-      persistenceKey="file-preview"
-      ariaLabel={uiT("filePreview.panelAria")}
-      edge="left"
-      defaultWidth={440}
+    <aside
+      aria-label={uiT("filePreview.panelAria")}
       className={cn(
-        "overflow-hidden",
+        "content-sheet relative flex min-h-0 min-w-0 flex-1 flex-col",
         closing
           ? "animate-out slide-out-to-right-6 duration-200 ease-out motion-reduce:animate-none"
           : "animate-in slide-in-from-right-6 duration-200 ease-out motion-reduce:animate-none",
@@ -303,7 +310,18 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
           closeOtherPreviewTabs(sessionId, { root: tabRoot, path })
         }
         onCloseAll={() => closeAllPreviewTabs(sessionId)}
+        className={actions ? "[&>:first-child]:pr-14" : undefined}
       />
-    </ResizableSidebar>
+      {actions ? (
+        <div
+          className={cn(
+            "absolute top-0 right-0 flex items-center gap-0.5 px-1",
+            tabCount > 1 ? "h-[34px]" : "h-10",
+          )}
+        >
+          {actions}
+        </div>
+      ) : null}
+    </aside>
   );
 }
