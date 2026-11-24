@@ -44,7 +44,7 @@ vi.mock("@/lib/file-preview/monaco-loader", () => ({
 }));
 
 import { TooltipProvider } from "@agentre-hub/agentre-ui";
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
+import { useSessionRootStore } from "@/stores/session-root-store";
 import {
   DEFAULT_FILE_RATIO,
   EDITOR_SPLIT_KEY,
@@ -73,7 +73,7 @@ beforeEach(() => {
     fileRatio: DEFAULT_FILE_RATIO,
     fileFullBySession: {},
   });
-  useChatSidebarStore.setState({ workRootBySession: {} });
+  useSessionRootStore.setState({ bySession: {} });
   useFileSettingsStore.setState({ settings: { ...DEFAULT_FILE_SETTINGS } });
   useSessionStatusStore.getState().__reset();
   appMocks.readFile.mockReset();

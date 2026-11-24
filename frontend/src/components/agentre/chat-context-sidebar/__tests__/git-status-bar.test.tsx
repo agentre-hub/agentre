@@ -12,6 +12,13 @@ const listDirMock = vi.fn();
 const gitChangesMock = vi.fn();
 const workRootsMock = vi.fn();
 const gitStateMock = vi.fn();
+// 工具窗骨架订阅会话的 chat:workroots 推送（useSessionRootSync）；happy-dom 下没有
+// window.runtime，事件订阅桩成 no-op，其余 runtime 函数照旧。
+vi.mock("@/../wailsjs/runtime/runtime", async () => ({
+  ...(await vi.importActual("@/../wailsjs/runtime/runtime")),
+  EventsOn: vi.fn(() => () => {}),
+}));
+
 vi.mock("@/../wailsjs/go/app/App", () => ({
   OpenPath: vi.fn(),
   RevealPath: vi.fn(),

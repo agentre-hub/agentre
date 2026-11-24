@@ -139,10 +139,14 @@
     "workRoots": {
       "mainRepo": "主仓库",
       "worktree": "worktree",
-      "pinned": "已固定",
-      "followed": "已切到 AI 正在改的 worktree：{{name}}",
-      "followedRepo": "已切到 AI 正在改的仓库：{{name}}",
-      "stayInMain": "留在主仓库"
+      "menuTitle": "工作根",
+      "aiHere": "AI 在这里",
+      "follow": "跟随 AI 切换",
+      "followed": "已跟随 AI 切到 worktree {{name}}",
+      "followedRepo": "已跟随 AI 切到主仓库 {{name}}",
+      "stay": "留在 {{name}}",
+      "removed": "worktree {{name}} 已被移除，回到 {{main}}",
+      "removedGroup": "{{name}}（已移除）"
     },
     "gitStatus": {
       "ahead": "领先上游 {{count}} 个提交",

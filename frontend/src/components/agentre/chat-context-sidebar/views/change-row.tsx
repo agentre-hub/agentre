@@ -24,6 +24,12 @@ type Props = {
   plus: number;
   minus: number;
   title?: string;
+  /**
+   * 行属于一个已被移除的工作根（spec「worktree 被移除」）：名称与目录划掉；预览
+   * 标签绑这个根（`previewRoot`），而磁盘上已没有它，本机动作一律不提供——单击
+   * 只开预览，Diff 来自对话记录。
+   */
+  removedRoot?: string;
   /** 仅「本次会话」档：跳到该文件最后被改动的轮次。 */
   onJumpToTurn?: () => void;
   testId: string;
@@ -51,15 +57,19 @@ export function ChangeRowView({
   plus,
   minus,
   title,
+  removedRoot,
   onJumpToTurn,
   testId,
   rowData,
 }: Props) {
+  const removed = removedRoot !== undefined;
   return (
     <SidebarRow
       sessionId={sessionId}
-      cwd={cwd}
-      remote={remote}
+      cwd={removed ? removedRoot : cwd}
+      remote={remote || removed}
+      previewRoot={removedRoot}
+      nameClassName={removed ? "line-through opacity-70" : undefined}
       sourceMode={sourceMode}
       kind="file"
       path={path}
@@ -93,7 +103,10 @@ export function ChangeRowView({
           */}
           <span
             dir="rtl"
-            className="min-w-0 flex-1 shrink-[9999] truncate text-left font-mono text-3xs opacity-55"
+            className={cn(
+              "min-w-0 flex-1 shrink-[9999] truncate text-left font-mono text-3xs opacity-55",
+              removed && "line-through",
+            )}
           >
             {dir}
           </span>

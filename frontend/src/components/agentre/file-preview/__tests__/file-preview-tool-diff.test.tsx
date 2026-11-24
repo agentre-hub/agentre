@@ -32,6 +32,7 @@ vi.mock("@/lib/file-preview/monaco-loader", () => loaderMocks);
 import type { chat_svc } from "@/../wailsjs/go/models";
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
+import { useSessionRootStore } from "@/stores/session-root-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { FilePreviewPanel } from "../file-preview-panel";
@@ -116,10 +117,10 @@ beforeEach(() => {
   useChatSidebarStore.setState({
     changesScope: "session",
     showIgnored: false,
-    // 工作根是每会话一条的运行期状态:不在这里清掉,上一个用例设过的根会跟着
-    // 进下一个用例,把它的重放归属判到别的根上。
-    workRootBySession: {},
   });
+  // 工作根是每会话一条的运行期状态:不在这里清掉,上一个用例设过的根会跟着
+  // 进下一个用例,把它的重放归属判到别的根上。
+  useSessionRootStore.setState({ bySession: {} });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   // 给两个后端读取一个可用的默认返回:「本次会话」档本就不该调它们,失败要落在
@@ -186,7 +187,23 @@ describe("FilePreviewPanel · 「本次会话」的工具 diff", () => {
   //      而不是退回会话 cwd 去收另一个文件的调用。
   it("collects the calls of the tab's own work root, not of the session cwd", async () => {
     const WT = "/w-ia";
-    useChatSidebarStore.getState().setWorkRoot(7, "/w-other");
+    useSessionRootStore.getState().applyRoots(7, CWD, [
+      {
+        path: CWD,
+        name: "w",
+        isPrimary: true,
+        isWorktree: false,
+        aiHere: false,
+      },
+      {
+        path: "/w-other",
+        name: "w-other",
+        isPrimary: false,
+        isWorktree: true,
+        aiHere: false,
+      },
+    ]);
+    useSessionRootStore.getState().select(7, "/w-other");
 
     renderToolDiff(
       [

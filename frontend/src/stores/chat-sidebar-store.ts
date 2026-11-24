@@ -13,19 +13,8 @@ export type ChangesScope = "session" | "uncommitted";
 type ChatSidebarState = {
   changesScope: ChangesScope;
   showIgnored: boolean;
-  /**
-   * 每个会话当前的工作根绝对路径（spec「工作根 · 切换与跟随」）。侧栏是它唯一
-   * 的持有者与写入者，这里只是转发给**兄弟节点**预览面板——两者由 chat-panel
-   * 并排渲染，没有共同的父组件能把这个值当 prop 传下去。
-   *
-   * 刻意不进持久化（`merge` 不读它）：工作根是运行期认领出来的，重启后那个
-   * worktree 可能已经不存在，读回一个失效的根只会让预览读到别处的同名文件。
-   */
-  workRootBySession: Record<number, string>;
   setChangesScope: (scope: ChangesScope) => void;
   setShowIgnored: (showIgnored: boolean) => void;
-  /** 侧栏切换工作根时写入当前根的绝对路径；空串 = 这个会话没有工作目录。 */
-  setWorkRoot: (sessionId: number, root: string) => void;
 };
 
 const VALID_CHANGES_SCOPES: ReadonlySet<ChangesScope> = new Set([
@@ -56,23 +45,11 @@ export const useChatSidebarStore = create<ChatSidebarState>()(
     (set) => ({
       changesScope: "session",
       showIgnored: false,
-      workRootBySession: {},
       setChangesScope: (scope) => {
         if (!VALID_CHANGES_SCOPES.has(scope)) return;
         set({ changesScope: scope });
       },
       setShowIgnored: (showIgnored) => set({ showIgnored }),
-      setWorkRoot: (sessionId, root) =>
-        set((state) =>
-          state.workRootBySession[sessionId] === root
-            ? state
-            : {
-                workRootBySession: {
-                  ...state.workRootBySession,
-                  [sessionId]: root,
-                },
-              },
-        ),
     }),
     {
       name: "chat-sidebar-state",

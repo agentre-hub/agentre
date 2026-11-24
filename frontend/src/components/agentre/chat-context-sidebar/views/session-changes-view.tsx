@@ -1,6 +1,8 @@
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
+import type { WorkRoot } from "@/stores/session-root-store";
+
 import type { ChangeRow, ChangeStatus } from "../derive";
 import { GIT_STATUS_META, type GitStatusMeta } from "../git-rows";
 
@@ -37,9 +39,13 @@ function statusLabel(t: TFunction, status: ChangeStatus): string {
   }
 }
 
+/** 一个已被移除的工作根，以及本次会话在它里面改过的文件（路径相对该根）。 */
+export type RemovedRootGroup = { root: WorkRoot; rows: ChangeRow[] };
+
 type Props = {
   sessionId: number;
   rows: ChangeRow[];
+  removedGroups?: RemovedRootGroup[];
   cwd: string;
   remote: boolean;
   onJumpToTurn: (turn: number) => void;
@@ -55,41 +61,81 @@ type Props = {
 export function SessionChangesView({
   sessionId,
   rows,
+  removedGroups = [],
   cwd,
   remote,
   onJumpToTurn,
 }: Props) {
   const { t } = useTranslation();
 
-  if (rows.length === 0) {
+  if (rows.length === 0 && removedGroups.length === 0) {
     return <PanelNotice text={t("chatContext.changes.empty")} />;
   }
 
+  const renderRows = (list: ChangeRow[], removedRoot?: string) =>
+    list.map((row) => (
+      <ChangeRowView
+        key={row.path}
+        sessionId={sessionId}
+        cwd={cwd}
+        remote={remote}
+        removedRoot={removedRoot}
+        sourceMode="session"
+        path={row.path}
+        name={row.name}
+        dir={row.dir}
+        meta={STATUS_META[row.status]}
+        statusLabel={statusLabel(t, row.status)}
+        plus={row.plus}
+        minus={row.minus}
+        onJumpToTurn={() => onJumpToTurn(row.lastTurn)}
+        testId="change-row"
+        rowData={{ "data-path": row.path, "data-status": row.status }}
+      />
+    ));
+
   return (
-    <SidebarList
-      variant="list"
-      label={t("chatContext.changes.listAria")}
-      className="flex flex-col gap-0.5 px-2 py-2.5"
-    >
-      {rows.map((row) => (
-        <ChangeRowView
-          key={row.path}
-          sessionId={sessionId}
-          cwd={cwd}
-          remote={remote}
-          sourceMode="session"
-          path={row.path}
-          name={row.name}
-          dir={row.dir}
-          meta={STATUS_META[row.status]}
-          statusLabel={statusLabel(t, row.status)}
-          plus={row.plus}
-          minus={row.minus}
-          onJumpToTurn={() => onJumpToTurn(row.lastTurn)}
-          testId="change-row"
-          rowData={{ "data-path": row.path, "data-status": row.status }}
-        />
-      ))}
-    </SidebarList>
+    <>
+      {rows.length > 0 ? (
+        <SidebarList
+          variant="list"
+          label={t("chatContext.changes.listAria")}
+          className="flex flex-col gap-0.5 px-2 py-2.5"
+        >
+          {renderRows(rows)}
+        </SidebarList>
+      ) : null}
+      {/*
+        已被移除的工作根各成一组（spec「worktree 被移除」）：组名标「（已移除）」，
+        行划掉但仍可点开——磁盘上没了，Diff 来自对话记录。每组一份独立的列表：
+        同一相对路径可能也在当前根里改过，行标识不能混进同一个列表。
+      */}
+      {removedGroups.map((group) => {
+        const label = t("chatContext.workRoots.removedGroup", {
+          name: group.root.name,
+        });
+        return (
+          <section
+            key={group.root.path}
+            data-testid="removed-root-group"
+            data-root={group.root.path}
+            title={group.root.path}
+            className="px-2 pb-2.5 first:pt-2.5"
+          >
+            <h4 className="flex items-center gap-1.5 px-1.5 pb-1 text-3xs text-muted-foreground">
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <span className="shrink-0 font-mono">{group.rows.length}</span>
+            </h4>
+            <SidebarList
+              variant="list"
+              label={label}
+              className="flex flex-col gap-0.5"
+            >
+              {renderRows(group.rows, group.root.path)}
+            </SidebarList>
+          </section>
+        );
+      })}
+    </>
   );
 }

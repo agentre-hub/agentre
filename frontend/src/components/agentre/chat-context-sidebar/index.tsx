@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useSessionLiveBlocks } from "@/stores/chat-streams-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
+import { useSessionRoot } from "@/stores/session-root-store";
 import {
   selectIsToolWindowShown,
   useToolWindowLayout,
@@ -20,12 +21,14 @@ import {
   ChatContextDataContext,
   DirectoryToolWindow,
   OutlineToolWindow,
+  WorkRootChangeCountsContext,
   type ChatContextData,
 } from "./context-windows";
 import { deriveOutline, deriveSessionChanges } from "./derive";
 import { useGitChanges } from "./views/use-git-changes";
 import { useGitState } from "./views/use-git-state";
-import { useWorkRoots } from "./views/use-work-roots";
+import type { RemovedRootGroup } from "./views/session-changes-view";
+import { useSessionRootSync } from "./views/use-session-root-sync";
 
 type Msg = chat_svc.ChatMessage;
 
@@ -52,9 +55,11 @@ type Props = {
  * ChatContextToolWindows 把对话上下文的三个视图——大纲 / 变更 / 目录——作为工具窗
  * 挂进对话页的工具窗骨架（spec「工具窗布局」）。
  *
- * 三个工具窗共享的会话级事实（工作根、会话变更、git 快照……）在这一层算一次，
- * 经 context 交给各工具窗：「变更」与「目录」看的是同一个工作根，图标条上的
- * 变更角标与「变更」工具窗的列表是同一份数字。
+ * 三个工具窗共享的会话级事实（会话变更、git 快照……）在这一层算一次，经 context
+ * 交给各工具窗：图标条上的变更角标与「变更」工具窗的列表是同一份数字。
+ *
+ * 会话当前工作根是会话级的（useSessionRoot，标题栏胶囊是唯一切换点）：这一层
+ * 挂着它的取数与推送订阅（useSessionRootSync），「变更」「目录」都按它取数。
  */
 function ChatContextToolWindowsImpl({
   sessionId,
@@ -72,7 +77,6 @@ function ChatContextToolWindowsImpl({
   const { t } = useTranslation();
   const changesScope = useChatSidebarStore((s) => s.changesScope);
   const setChangesScope = useChatSidebarStore((s) => s.setChangesScope);
-  const setWorkRoot = useChatSidebarStore((s) => s.setWorkRoot);
   const changesShown = useToolWindowLayout(selectIsToolWindowShown("changes"));
   const directoryShown = useToolWindowLayout(
     selectIsToolWindowShown("directory"),
@@ -86,17 +90,12 @@ function ChatContextToolWindowsImpl({
     void loadFileSettings();
   }, [loadFileSettings]);
 
-  // 工作根由这一层持有：「变更」与「目录」两个工具窗共享它（spec「工作根」）。
-  // root 是给绑定用的实参，workRoot 是拼绝对路径用的全路径。
-  const workRoots = useWorkRoots({ sessionId, cwd, messages });
-  const workRoot = workRoots.current;
-  const root = workRoots.rootArg;
-
-  // 预览面板是工具窗的**兄弟节点**（chat-panel 并排渲染），没有共同父级能把
-  // 工作根当 prop 传过去，所以经 store 转发一份——这一层仍是唯一的写入者。
-  React.useEffect(() => {
-    setWorkRoot(sessionId, workRoot);
-  }, [setWorkRoot, sessionId, workRoot]);
+  // 会话当前工作根（spec「会话级当前工作根」）：root 是给绑定用的实参（主根 =
+  // 空串），workRoot 是拼绝对路径用的全路径。
+  useSessionRootSync({ sessionId, cwd });
+  const sessionRoot = useSessionRoot(sessionId);
+  const workRoot = sessionRoot.current;
+  const root = sessionRoot.rootArg;
 
   // 正在跑的那一轮的块还没进 messages（发送时插的 assistant 是空占位，落定才被
   // 真正的消息替换），它们住在 chat-streams-store。「变更」读的是**会话级**
@@ -113,18 +112,33 @@ function ChatContextToolWindowsImpl({
     [messages, workRoot, liveBlocks],
   );
 
-  // 根切换器上每个根各自的变更数（spec「呈现」）：与行用的是同一个派生函数，
-  // 数字因此和切过去之后看到的行数一致。
+  // 标题栏胶囊下拉里每个根各自的变更数：与行用的是同一个派生函数，数字因此和
+  // 切过去之后看到的行数一致。
+  const roots = sessionRoot.roots;
   const changeCounts = React.useMemo(() => {
     const counts = new Map<string, number>();
-    for (const r of workRoots.roots) {
+    for (const r of roots) {
       counts.set(
         r.path,
         deriveSessionChanges(messages, r.path, liveBlocks).length,
       );
     }
     return counts;
-  }, [messages, workRoots.roots, liveBlocks]);
+  }, [messages, roots, liveBlocks]);
+
+  // 已被移除的根（spec「worktree 被移除」）：它们「本次会话」改过的文件仍列出来，
+  // 划掉显示、可点开看对话记录里的 diff；没有改动的根不占一个空分组。
+  const removedRoots = sessionRoot.removed;
+  const removedGroups = React.useMemo<RemovedRootGroup[]>(
+    () =>
+      removedRoots
+        .map((r) => ({
+          root: r,
+          rows: deriveSessionChanges(messages, r.path, liveBlocks),
+        }))
+        .filter((g) => g.rows.length > 0),
+    [messages, removedRoots, liveBlocks],
+  );
 
   const turnToMessageId = React.useMemo(() => {
     const m = new Map<number, number>();
@@ -201,9 +215,10 @@ function ChatContextToolWindowsImpl({
       activeOutlineId: resolvedActiveId,
       onJumpToMessage,
       onJumpToTurn,
-      workRoots,
-      changeCounts,
+      workRoot,
+      root,
       sessionChanges,
+      removedGroups,
       scope,
       onScopeChange: setChangesScope,
       uncommittedAvailable,
@@ -221,9 +236,10 @@ function ChatContextToolWindowsImpl({
       resolvedActiveId,
       onJumpToMessage,
       onJumpToTurn,
-      workRoots,
-      changeCounts,
+      workRoot,
+      root,
       sessionChanges,
+      removedGroups,
       scope,
       setChangesScope,
       uncommittedAvailable,
@@ -259,9 +275,11 @@ function ChatContextToolWindowsImpl({
 
   return (
     <ChatContextDataContext.Provider value={data}>
-      <ToolWindowLayout windows={windows} hidden={hidden}>
-        {children}
-      </ToolWindowLayout>
+      <WorkRootChangeCountsContext.Provider value={changeCounts}>
+        <ToolWindowLayout windows={windows} hidden={hidden}>
+          {children}
+        </ToolWindowLayout>
+      </WorkRootChangeCountsContext.Provider>
     </ChatContextDataContext.Provider>
   );
 }

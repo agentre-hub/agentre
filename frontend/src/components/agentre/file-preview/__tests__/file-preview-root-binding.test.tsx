@@ -29,8 +29,8 @@ vi.mock("@/lib/file-preview/monaco-loader", () => ({
 }));
 
 import type { chat_svc } from "@/../wailsjs/go/models";
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
+import { useSessionRootStore } from "@/stores/session-root-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { FilePreviewPanel } from "../file-preview-panel";
@@ -40,12 +40,23 @@ const WT = "/repo-wt";
 const OTHER = "/repo-other";
 
 function rootView(path: string, name: string, isPrimary = false) {
-  return { path, name, isWorktree: !isPrimary, isPrimary };
+  return { path, name, isWorktree: !isPrimary, isPrimary, aiHere: false };
+}
+
+/** 把会话当前工作根（标题栏胶囊的那一个）切到 path。 */
+function selectSessionRoot(path: string) {
+  const store = useSessionRootStore.getState();
+  store.applyRoots(7, CWD, [
+    rootView(CWD, "repo", true),
+    rootView(WT, "repo-wt"),
+    rootView(OTHER, "repo-other"),
+  ]);
+  store.select(7, path);
 }
 
 beforeEach(() => {
   localStorage.clear();
-  useChatSidebarStore.setState({ workRootBySession: {} });
+  useSessionRootStore.setState({ bySession: {} });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   appMocks.readFile.mockReset();
@@ -80,7 +91,7 @@ describe("FilePreviewPanel · 标签绑定工作根", () => {
   // When 侧栏把会话当前工作根切到 OTHER,
   // Then 这个标签仍然从 WT 取数——内容不会悄悄换成 OTHER 下的同名文件。
   it("keeps reading an open tab from its own root when the sidebar root switches", async () => {
-    useChatSidebarStore.getState().setWorkRoot(7, WT);
+    selectSessionRoot(WT);
     open(WT, "a.ts");
     render(<FilePreviewPanel sessionId={7} cwd={CWD} />);
     await waitFor(() =>
@@ -88,7 +99,7 @@ describe("FilePreviewPanel · 标签绑定工作根", () => {
     );
 
     appMocks.readFile.mockClear();
-    act(() => useChatSidebarStore.getState().setWorkRoot(7, OTHER));
+    act(() => selectSessionRoot(OTHER));
     await act(async () => {
       await Promise.resolve();
     });

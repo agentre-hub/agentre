@@ -9,13 +9,18 @@ import { handleTablistKeyDown } from "./tablist-keydown";
 import type { ChangeRow } from "../derive";
 
 import { GitView } from "./git-view";
-import { SessionChangesView } from "./session-changes-view";
+import {
+  SessionChangesView,
+  type RemovedRootGroup,
+} from "./session-changes-view";
 import type { GitChangesState } from "./use-git-changes";
 
 type Props = {
   sessionId: number;
   /** 「本次会话」档的行，由消息派生（零后端调用）。 */
   rows: ChangeRow[];
+  /** 已被移除的工作根里「本次会话」改过的文件（「本次会话」档末尾的划掉分组）。 */
+  removedGroups?: RemovedRootGroup[];
   cwd: string;
   remote: boolean;
   /** 已生效的档位：非 git 仓库 / 无工作目录时调用方已把它钳到「本次会话」。 */
@@ -39,6 +44,7 @@ type Props = {
 export function ChangesPanel({
   sessionId,
   rows,
+  removedGroups,
   cwd,
   remote,
   scope,
@@ -81,6 +87,7 @@ export function ChangesPanel({
           <SessionChangesView
             sessionId={sessionId}
             rows={rows}
+            removedGroups={removedGroups}
             cwd={cwd}
             remote={remote}
             onJumpToTurn={onJumpToTurn}

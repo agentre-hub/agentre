@@ -15,9 +15,9 @@ import {
 
 import { resolveRowOpenAction } from "@/lib/file-open-action";
 import { cn } from "@agentre-hub/agentre-ui";
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
+import { useSessionRootArg } from "@/stores/session-root-store";
 
 import type {
   FilePreviewTab,
@@ -44,6 +44,11 @@ type Props = {
   kind: "file" | "dir";
   /** 行的路径：相对当前工作根；没有工作根时是工具调用给的原始路径。 */
   path: string;
+  /**
+   * 预览标签绑定的工作根；缺省 = 会话当前工作根（useSessionRoot 的规范形，主根为
+   * 空串）。只有不属于当前根的行（已移除分组）才需要显式给出。
+   */
+  previewRoot?: string;
   /** 显示名（basename、目录名，或链压缩行的末段）。 */
   name: string;
   /**
@@ -109,6 +114,7 @@ export function SidebarRow({
   sourceMode,
   kind,
   path,
+  previewRoot: previewRootProp,
   name,
   nameChildren,
   nameClassName,
@@ -143,11 +149,10 @@ export function SidebarRow({
   const activePreviewRoot = useFilePreviewTabsStore(
     (s) => s.previewTabsBySession[sessionId]?.activeRoot,
   );
-  // 行的路径相对侧栏当前工作根（cwd 即它）：预览标签绑定打开时的这个根，之后
-  // 侧栏再切根也不改变它。侧栏还没写过（空串）时就是会话主根。
-  const previewRoot = useChatSidebarStore(
-    (s) => s.workRootBySession[sessionId] ?? "",
-  );
+  // 行的路径相对会话当前工作根（cwd 即它）：预览标签绑定打开时的这个根，之后
+  // 再切根也不改变它。主根以规范形（空串）绑定，与转录链接打开的是同一个标签。
+  const sessionRootArg = useSessionRootArg(sessionId);
+  const previewRoot = previewRootProp ?? sessionRootArg;
   const openAction = useFileSettingsStore((s) => s.settings.openAction);
   const openFile = useOpenFile(cwd);
   const revealFile = useRevealFile(cwd);

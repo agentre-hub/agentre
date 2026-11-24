@@ -139,10 +139,14 @@
     "workRoots": {
       "mainRepo": "Main repo",
       "worktree": "worktree",
-      "pinned": "Pinned",
-      "followed": "Switched to the worktree the agent is editing: {{name}}",
-      "followedRepo": "Switched to the repo the agent is editing: {{name}}",
-      "stayInMain": "Stay in the main repo"
+      "menuTitle": "Work roots",
+      "aiHere": "Agent is here",
+      "follow": "Follow the agent",
+      "followed": "Followed the agent to worktree {{name}}",
+      "followedRepo": "Followed the agent to the main repo {{name}}",
+      "stay": "Stay in {{name}}",
+      "removed": "Worktree {{name}} was removed; back to {{main}}",
+      "removedGroup": "{{name}} (removed)"
     },
     "gitStatus": {
       "ahead": "{{count}} commit ahead of upstream",

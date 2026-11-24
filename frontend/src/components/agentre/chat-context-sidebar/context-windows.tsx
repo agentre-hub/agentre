@@ -3,14 +3,12 @@ import * as React from "react";
 import type { ChangesScope } from "@/stores/chat-sidebar-store";
 
 import type { ChangeRow, OutlineItem } from "./derive";
-import { RootFollowNotice } from "./root-follow-notice";
-import { RootSwitcher } from "./root-switcher";
 import { ChangesPanel } from "./views/changes-panel";
 import { DirectoryPanel } from "./views/directory-panel";
 import { OutlineView } from "./views/outline-view";
 import type { GitChanges } from "./views/use-git-changes";
 import type { GitState } from "./views/use-git-state";
-import type { WorkRoots } from "./views/use-work-roots";
+import type { RemovedRootGroup } from "./views/session-changes-view";
 
 /**
  * 大纲 / 变更 / 目录三个工具窗共享的会话级事实，由 ChatContextToolWindows 算一次。
@@ -29,10 +27,13 @@ export type ChatContextData = {
   activeOutlineId: number | null;
   onJumpToMessage: (messageId: number) => void;
   onJumpToTurn: (turn: number) => void;
-  workRoots: WorkRoots;
-  /** 每个工作根下「本次会话」的变更数，根切换器用。 */
-  changeCounts: Map<string, number>;
+  /** 会话当前工作根的绝对路径（没有工作目录时为空串）。 */
+  workRoot: string;
+  /** 当前工作根的绑定实参（主根 = 空串，见 useSessionRoot）。 */
+  root: string;
   sessionChanges: ChangeRow[];
+  /** 已被移除的工作根里「本次会话」改过的文件，按根分组。 */
+  removedGroups: RemovedRootGroup[];
   /** 已生效的「变更」档位（非 git 仓库时已钳到「本次会话」）。 */
   scope: ChangesScope;
   onScopeChange: (scope: ChangesScope) => void;
@@ -43,6 +44,15 @@ export type ChatContextData = {
 
 export const ChatContextDataContext =
   React.createContext<ChatContextData | null>(null);
+
+/**
+ * 每个工作根下「本次会话」的变更数（按根的绝对路径查），给标题栏工作根胶囊的下拉
+ * 用。它与「变更」工具窗的行出自同一个派生函数，由 ChatContextToolWindows 算一次；
+ * 标题栏在它的子树里（编辑区），因此经 context 取，不再算第二遍。
+ */
+export const WorkRootChangeCountsContext = React.createContext<
+  ReadonlyMap<string, number>
+>(new Map());
 
 function useChatContextData(): ChatContextData {
   const data = React.useContext(ChatContextDataContext);
@@ -79,50 +89,23 @@ export function OutlineToolWindow() {
   );
 }
 
-/**
- * 工作根切换器与自动跟随提示行：「变更」与「目录」都按当前工作根取数，因此两个
- * 工具窗各自顶上带一份（同一个状态）。工作根切换挪到对话标题栏之前，它就留在这里。
- */
-function WorkRootBar() {
-  const { workRoots, changeCounts } = useChatContextData();
-  return (
-    <>
-      <RootSwitcher
-        roots={workRoots.roots}
-        current={workRoots.current}
-        pinned={workRoots.pinned}
-        changeCounts={changeCounts}
-        onSelect={workRoots.select}
-      />
-      {workRoots.followedTo ? (
-        <RootFollowNotice
-          root={workRoots.followedTo}
-          onUndo={workRoots.stayInMain}
-        />
-      ) : null}
-    </>
-  );
-}
-
 /** 「变更」工具窗：本次会话 / 未提交两档。 */
 export function ChangesToolWindow() {
   const d = useChatContextData();
   return (
-    <>
-      <WorkRootBar />
-      <ChangesPanel
-        sessionId={d.sessionId}
-        rows={d.sessionChanges}
-        cwd={d.workRoots.current}
-        remote={d.remote}
-        scope={d.scope}
-        onScopeChange={d.onScopeChange}
-        uncommittedAvailable={d.uncommittedAvailable}
-        git={d.git.state}
-        onRetry={d.git.reload}
-        onJumpToTurn={d.onJumpToTurn}
-      />
-    </>
+    <ChangesPanel
+      sessionId={d.sessionId}
+      rows={d.sessionChanges}
+      removedGroups={d.removedGroups}
+      cwd={d.workRoot}
+      remote={d.remote}
+      scope={d.scope}
+      onScopeChange={d.onScopeChange}
+      uncommittedAvailable={d.uncommittedAvailable}
+      git={d.git.state}
+      onRetry={d.git.reload}
+      onJumpToTurn={d.onJumpToTurn}
+    />
   );
 }
 
@@ -130,19 +113,16 @@ export function ChangesToolWindow() {
 export function DirectoryToolWindow() {
   const d = useChatContextData();
   return (
-    <>
-      <WorkRootBar />
-      <DirectoryPanel
-        sessionId={d.sessionId}
-        cwd={d.workRoots.current}
-        root={d.workRoots.rootArg}
-        remote={d.remote}
-        gitState={d.gitState}
-        gitChanges={d.git.overlayChanges}
-        cwdUnavailableReason={d.cwdUnavailableReason}
-        projectId={d.projectId}
-        onCwdSpecified={d.onCwdSpecified}
-      />
-    </>
+    <DirectoryPanel
+      sessionId={d.sessionId}
+      cwd={d.workRoot}
+      root={d.root}
+      remote={d.remote}
+      gitState={d.gitState}
+      gitChanges={d.git.overlayChanges}
+      cwdUnavailableReason={d.cwdUnavailableReason}
+      projectId={d.projectId}
+      onCwdSpecified={d.onCwdSpecified}
+    />
   );
 }
