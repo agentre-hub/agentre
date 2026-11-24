@@ -18,6 +18,7 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
   WorkspaceFsReadFile: (...args: unknown[]) => appMocks.readFile(...args),
   WorkspaceFsGitFileContent: (...args: unknown[]) =>
     appMocks.gitFileContent(...args),
+  WorkspaceFsWorkRoots: () => Promise.resolve([]),
   OpenPath: (...args: unknown[]) => appMocks.openPath(...args),
   RevealPath: vi.fn(),
 }));

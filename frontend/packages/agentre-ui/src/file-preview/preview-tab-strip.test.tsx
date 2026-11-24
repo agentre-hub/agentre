@@ -260,4 +260,47 @@ describe("PreviewTabStrip", () => {
       HTMLElement.prototype.scrollIntoView = original;
     }
   });
+
+  describe("work-root-bound tabs", () => {
+    // 同一相对路径在两个根下是两个标签：只有 activeRoot 匹配的那个是活动态,
+    // 回调把标签自己的根作为第二个实参带出来。
+    it("tells apart the same path under two roots and reports the tab's root", async () => {
+      const handlers = renderStrip({
+        tabs: [
+          tab("a.ts", { root: "" }),
+          tab("a.ts", { root: "/wt", rootLabel: "wt" }),
+        ],
+        activePath: "a.ts",
+        activeRoot: "/wt",
+      });
+
+      const tabs = screen.getAllByRole("tab");
+      expect(tabs[0]).toHaveAttribute("aria-selected", "false");
+      expect(tabs[1]).toHaveAttribute("aria-selected", "true");
+
+      await userEvent.click(tabs[0]);
+      expect(handlers.onActivate).toHaveBeenCalledWith("a.ts", "");
+    });
+
+    // 非主根标签显示根名；已移除的标签划掉并标「已移除」。
+    it("shows the root name and strikes a removed tab", () => {
+      renderStrip({
+        tabs: [
+          tab("a.ts"),
+          tab("b.ts", { root: "/wt", rootLabel: "wt", removed: true }),
+        ],
+        activePath: "a.ts",
+      });
+
+      const tabs = screen.getAllByRole("tab");
+      expect(within(tabs[0]).queryByTestId("preview-tab-root")).toBeNull();
+      expect(within(tabs[1]).getByTestId("preview-tab-root")).toHaveTextContent(
+        "wt",
+      );
+      expect(
+        within(tabs[1]).getByTestId("preview-tab-removed"),
+      ).toHaveTextContent("Removed");
+      expect(within(tabs[1]).getByText("b.ts")).toHaveClass("line-through");
+    });
+  });
 });

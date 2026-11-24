@@ -2,6 +2,7 @@
   "filePreview": {
     "tabsAria": "预览标签",
     "closeTab": "关闭 Tab",
+    "rootRemoved": "已移除",
     "openTabMenu": "打开 Tab 菜单",
     "pin": "置顶",
     "unpin": "取消置顶",

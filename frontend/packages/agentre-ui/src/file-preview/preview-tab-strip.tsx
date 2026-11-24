@@ -36,25 +36,64 @@ import { basename } from "./file-meta";
  * 不必知道 store 长什么样。
  */
 export type FilePreviewTab = {
-  /** 会话级 relPath，也是标签在会话内的唯一键。 */
+  /** 工作根下的相对路径；与 `root` 合起来是标签在会话内的唯一键。 */
   path: string;
+  /**
+   * 标签绑定的工作根（宿主自定的不透明标识，只用来和 `path` 一起区分标签）。
+   * 缺席 = 只有一个根的宿主（控制台），键就是 `path`，行为与加这个字段之前一致。
+   */
+  root?: string;
+  /**
+   * 非主根的标签显示的根名；缺席（主根或只有一个根）不显示。宿主决定「哪个是
+   * 主根」，包不去猜。
+   */
+  rootLabel?: string;
+  /** 这个标签的根已不在会话的工作根里：标签划掉并标「已移除」。 */
+  removed?: boolean;
   /** 临时标签（单击开出来的、会被下一次单击原地替换）。 */
   isPreview: boolean;
   /** 固定标签。 */
   isPinned: boolean;
 };
 
+/**
+ * 标签动作的回调形状：第二个实参是标签的 `root`（缺席的标签不传）。只关心 path
+ * 的宿主照旧只收第一个实参即可。
+ */
+export type PreviewTabAction = (path: string, root?: string) => void;
+
+/** 同一相对路径在不同根下是不同标签：身份 = root + path。 */
+export function isSamePreviewTab(
+  tab: Pick<FilePreviewTab, "root" | "path">,
+  path: string | null,
+  root: string | undefined,
+): boolean {
+  return tab.path === path && (tab.root ?? "") === (root ?? "");
+}
+
+// 只有带根的标签才传第二个实参：单根宿主（控制台）的回调形状与加根之前逐字一致。
+function callTabAction(
+  action: PreviewTabAction,
+  path: string,
+  root: string | undefined,
+) {
+  if (root === undefined) action(path);
+  else action(path, root);
+}
+
 export type PreviewTabStripProps = {
   tabs: FilePreviewTab[];
   activePath: string | null;
+  /** 活动标签的根；缺席 = 与不带根的标签匹配。 */
+  activeRoot?: string;
   /** 单击标签 / 从溢出菜单选中一条：切到这个标签。 */
-  onActivate: (path: string) => void;
+  onActivate: PreviewTabAction;
   /** 双击标签：把临时标签转成常驻标签。 */
-  onPromote: (path: string) => void;
+  onPromote: PreviewTabAction;
   /** 右键菜单的固定 / 取消固定。 */
-  onPin: (path: string) => void;
-  onClose: (path: string) => void;
-  onCloseOthers: (path: string) => void;
+  onPin: PreviewTabAction;
+  onClose: PreviewTabAction;
+  onCloseOthers: PreviewTabAction;
   onCloseAll: () => void;
   /**
    * 文件身份图标由宿主注入：图标目录（扩展名 → 图标 + 色调）是宿主自己的资产，
@@ -80,6 +119,7 @@ export type PreviewTabStripProps = {
 export function PreviewTabStrip({
   tabs,
   activePath,
+  activeRoot,
   onActivate,
   onPromote,
   onPin,
@@ -113,7 +153,8 @@ export function PreviewTabStrip({
     const next = items[index + step];
     if (!next) return;
     const path = next.dataset.tabPath;
-    if (path !== undefined) onActivate(path);
+    if (path !== undefined)
+      callTabAction(onActivate, path, next.dataset.tabRoot);
     next.focus();
   };
 
@@ -130,15 +171,17 @@ export function PreviewTabStrip({
       <div className="scrollbar-none flex h-full min-h-0 min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden">
         {tabs.map((tab) => (
           <PreviewTab
-            key={tab.path}
+            key={`${tab.root ?? ""}\n${tab.path}`}
             tab={tab}
-            active={tab.path === activePath}
+            active={isSamePreviewTab(tab, activePath, activeRoot)}
             renderFileIcon={renderFileIcon}
-            onActivate={() => onActivate(tab.path)}
-            onDoublePromote={() => onPromote(tab.path)}
-            onTogglePin={() => onPin(tab.path)}
-            onClose={() => onClose(tab.path)}
-            onCloseOthers={() => onCloseOthers(tab.path)}
+            onActivate={() => callTabAction(onActivate, tab.path, tab.root)}
+            onDoublePromote={() => callTabAction(onPromote, tab.path, tab.root)}
+            onTogglePin={() => callTabAction(onPin, tab.path, tab.root)}
+            onClose={() => callTabAction(onClose, tab.path, tab.root)}
+            onCloseOthers={() =>
+              callTabAction(onCloseOthers, tab.path, tab.root)
+            }
             onCloseAll={() => onCloseAll()}
           />
         ))}
@@ -147,6 +190,7 @@ export function PreviewTabStrip({
         <PreviewTabOverflowMenu
           tabs={tabs}
           activePath={activePath}
+          activeRoot={activeRoot}
           renderFileIcon={renderFileIcon}
           onSelect={onActivate}
         />
@@ -201,7 +245,9 @@ function PreviewTab({
           data-active={active}
           data-preview={tab.isPreview}
           data-tab-path={tab.path}
-          title={tab.path}
+          data-tab-root={tab.root}
+          data-removed={tab.removed ? "true" : undefined}
+          title={tab.rootLabel ? `${tab.rootLabel}: ${tab.path}` : tab.path}
           onClick={onActivate}
           onDoubleClick={onDoublePromote}
           className={cn(
@@ -231,10 +277,27 @@ function PreviewTab({
               active && "font-semibold",
               // 临时标签用斜体区分（颜色已被主色与状态色占满）。
               tab.isPreview && "italic",
+              tab.removed && "line-through",
             )}
           >
             {basename(tab.path)}
           </span>
+          {tab.rootLabel ? (
+            <span
+              data-testid="preview-tab-root"
+              className="max-w-[56px] shrink-0 truncate text-3xs text-muted-foreground"
+            >
+              {tab.rootLabel}
+            </span>
+          ) : null}
+          {tab.removed ? (
+            <span
+              data-testid="preview-tab-removed"
+              className="shrink-0 text-3xs text-muted-foreground"
+            >
+              {t("filePreview.rootRemoved")}
+            </span>
+          ) : null}
           <button
             type="button"
             aria-label={t("filePreview.closeTab")}
@@ -289,13 +352,15 @@ function PreviewTab({
 function PreviewTabOverflowMenu({
   tabs,
   activePath,
+  activeRoot,
   renderFileIcon,
   onSelect,
 }: {
   tabs: FilePreviewTab[];
   activePath: string | null;
+  activeRoot?: string;
   renderFileIcon?: PreviewTabStripProps["renderFileIcon"];
-  onSelect: (path: string) => void;
+  onSelect: PreviewTabAction;
 }) {
   const { t } = useUiTranslation();
   return (
@@ -313,10 +378,10 @@ function PreviewTabOverflowMenu({
         <div className="flex flex-col py-1">
           {tabs.map((tab) => (
             <DropdownMenuItem
-              key={tab.path}
-              data-active={tab.path === activePath}
-              current={tab.path === activePath}
-              onSelect={() => onSelect(tab.path)}
+              key={`${tab.root ?? ""}\n${tab.path}`}
+              data-active={isSamePreviewTab(tab, activePath, activeRoot)}
+              current={isSamePreviewTab(tab, activePath, activeRoot)}
+              onSelect={() => callTabAction(onSelect, tab.path, tab.root)}
               className="h-7 gap-2 rounded-none px-3 text-xs"
             >
               {renderFileIcon?.(tab.path, "overflow")}
@@ -324,10 +389,16 @@ function PreviewTabOverflowMenu({
                 className={cn(
                   "shrink-0 truncate font-mono",
                   tab.isPreview && "italic",
+                  tab.removed && "line-through",
                 )}
               >
                 {basename(tab.path)}
               </span>
+              {tab.rootLabel ? (
+                <span className="shrink-0 text-3xs text-muted-foreground">
+                  {tab.rootLabel}
+                </span>
+              ) : null}
               <span
                 dir="rtl"
                 className="min-w-0 flex-1 truncate text-left font-mono text-3xs text-muted-foreground"

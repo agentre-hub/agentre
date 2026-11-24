@@ -431,6 +431,7 @@ describe("file-preview-tabs-store", () => {
               tabs: [
                 {
                   path: "a.go",
+                  root: "",
                   segment: null,
                   sourceMode: "changes",
                   isPreview: false,
@@ -439,6 +440,7 @@ describe("file-preview-tabs-store", () => {
                 },
               ],
               activePath: "a.go",
+              activeRoot: "",
             },
           },
         },
@@ -473,6 +475,7 @@ describe("file-preview-tabs-store", () => {
               tabs: [
                 {
                   path: "README.md",
+                  root: "",
                   segment: "split",
                   sourceMode: "directory",
                   isPreview: false,
@@ -481,11 +484,13 @@ describe("file-preview-tabs-store", () => {
                 },
               ],
               activePath: "README.md",
+              activeRoot: "",
             },
             8: {
               tabs: [
                 {
                   path: "a.go",
+                  root: "",
                   segment: null,
                   sourceMode: "git",
                   isPreview: true,
@@ -494,12 +499,14 @@ describe("file-preview-tabs-store", () => {
                 },
               ],
               activePath: "a.go",
+              activeRoot: "",
             },
             // segment 字段缺失。
             13: {
               tabs: [
                 {
                   path: "d.md",
+                  root: "",
                   sourceMode: "git",
                   isPreview: false,
                   isPinned: false,
@@ -507,12 +514,14 @@ describe("file-preview-tabs-store", () => {
                 },
               ],
               activePath: "d.md",
+              activeRoot: "",
             },
             // sourceMode 非法。
             9: {
               tabs: [
                 {
                   path: "b.md",
+                  root: "",
                   segment: null,
                   sourceMode: "bogus",
                   isPreview: false,
@@ -521,12 +530,14 @@ describe("file-preview-tabs-store", () => {
                 },
               ],
               activePath: "b.md",
+              activeRoot: "",
             },
             // activePath 不在标签集合里。
             10: {
               tabs: [
                 {
                   path: "c.md",
+                  root: "",
                   segment: null,
                   sourceMode: "git",
                   isPreview: false,
@@ -535,11 +546,13 @@ describe("file-preview-tabs-store", () => {
                 },
               ],
               activePath: "gone.md",
+              activeRoot: "",
             },
             // 标签数超过每会话上限。
             11: {
               tabs: Array.from({ length: 9 }, (_, i) => ({
                 path: `f${i}.md`,
+                root: "",
                 segment: null,
                 sourceMode: "directory",
                 isPreview: false,
@@ -547,12 +560,14 @@ describe("file-preview-tabs-store", () => {
                 activatedAt: i,
               })),
               activePath: "f0.md",
+              activeRoot: "",
             },
             // 不是会话 id。
             notAnId: {
               tabs: [
                 {
                   path: "x.md",
+                  root: "",
                   segment: null,
                   sourceMode: "git",
                   isPreview: false,
@@ -561,6 +576,7 @@ describe("file-preview-tabs-store", () => {
                 },
               ],
               activePath: "x.md",
+              activeRoot: "",
             },
             // 空标签集合。
             12: { tabs: [], activePath: null },
@@ -589,5 +605,114 @@ describe("file-preview-tabs-store", () => {
     await useFilePreviewTabsStore.persist.rehydrate();
 
     expect(store().previewTabsBySession).toEqual({});
+  });
+
+  describe("tabs are keyed by work root + relative path", () => {
+    // Given 同一个相对路径在两个工作根下各开一次,
+    // Then 是两个互不替代的标签,各自记着自己的根。
+    it("keeps the same relative path under two roots as two distinct tabs", () => {
+      store().openPreviewInNewTab(
+        7,
+        { root: "/wt-a", path: "a.ts" },
+        "directory",
+      );
+      store().openPreviewInNewTab(
+        7,
+        { root: "/wt-b", path: "a.ts" },
+        "directory",
+      );
+
+      expect(entry(7).tabs.map((t) => [t.root, t.path])).toEqual([
+        ["/wt-a", "a.ts"],
+        ["/wt-b", "a.ts"],
+      ]);
+      expect(entry(7).activeRoot).toBe("/wt-b");
+    });
+
+    // Given 同路径两个根都开着, When 激活其中一个,
+    // Then 活动标签是那个根的,而不是先匹配到的那个。
+    it("activates and selects the tab of the requested root", () => {
+      store().openPreviewInNewTab(
+        7,
+        { root: "/wt-a", path: "a.ts" },
+        "directory",
+      );
+      store().openPreviewInNewTab(
+        7,
+        { root: "/wt-b", path: "a.ts" },
+        "directory",
+      );
+      store().activatePreviewTab(7, { root: "/wt-a", path: "a.ts" });
+
+      expect(selectActivePreviewTab(store(), 7)?.root).toBe("/wt-a");
+    });
+
+    // Given 重复单击同一个根下的同一文件, Then 只激活既有标签;换个根则新开。
+    it("re-opening the same root+path reuses the tab while another root opens a new one", () => {
+      store().openPreview(7, { root: "/wt-a", path: "a.ts" }, "directory");
+      store().openPreview(7, { root: "/wt-a", path: "a.ts" }, "directory");
+      expect(entry(7).tabs).toHaveLength(1);
+
+      store().openPreviewInNewTab(
+        7,
+        { root: "/wt-b", path: "a.ts" },
+        "directory",
+      );
+      expect(entry(7).tabs).toHaveLength(2);
+    });
+
+    // Given 同路径两个根, When 关掉其中一个, Then 另一个留下并成为活动标签。
+    it("closes only the tab of the given root", () => {
+      store().openPreviewInNewTab(
+        7,
+        { root: "/wt-a", path: "a.ts" },
+        "directory",
+      );
+      store().openPreviewInNewTab(
+        7,
+        { root: "/wt-b", path: "a.ts" },
+        "directory",
+      );
+      store().closePreviewTab(7, { root: "/wt-b", path: "a.ts" });
+
+      expect(entry(7).tabs.map((t) => t.root)).toEqual(["/wt-a"]);
+      expect(selectActivePreviewTab(store(), 7)?.root).toBe("/wt-a");
+    });
+
+    // 没有显式传根的调用方回落到会话主根（""）。
+    it("treats a bare path as a tab under the session primary root", () => {
+      store().openPreview(7, "a.ts", "directory");
+      expect(entry(7).tabs[0].root).toBe("");
+      expect(entry(7).activeRoot).toBe("");
+    });
+
+    // 绑定根之前持久化的标签没有 root：不兼容旧形态,整条丢弃。
+    it("drops persisted entries written before tabs carried a root", async () => {
+      localStorage.setItem(
+        "file-preview-tabs-state",
+        JSON.stringify({
+          state: {
+            previewTabsBySession: {
+              7: {
+                tabs: [
+                  {
+                    path: "a.ts",
+                    segment: null,
+                    sourceMode: "directory",
+                    isPreview: false,
+                    isPinned: false,
+                    activatedAt: 1,
+                  },
+                ],
+                activePath: "a.ts",
+              },
+            },
+          },
+          version: 0,
+        }),
+      );
+      await useFilePreviewTabsStore.persist.rehydrate();
+      expect(store().previewTabsBySession).toEqual({});
+    });
   });
 });
