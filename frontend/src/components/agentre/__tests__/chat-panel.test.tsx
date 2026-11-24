@@ -444,7 +444,9 @@ import {
 } from "@/stores/chat-streams-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import {
+  DEFAULT_DIVIDER_RATIOS,
   DEFAULT_TOOL_WINDOW_SLOTS,
+  TOOL_WINDOW_LAYOUT_KEY,
   useToolWindowLayout,
 } from "@/stores/tool-window-layout-store";
 import { useQueuedMessagesStore } from "@/stores/queued-messages-store";
@@ -7020,8 +7022,6 @@ describe("ChatPanel · 会话级思考力度控件（trailing 侧，决策 6/9�
 // ─── 2026-11-24 右侧栏换成工具窗骨架（图标条 + 槽位），标题栏的侧栏开关移除 ─────
 
 describe("ChatPanel · 工具窗渲染在聊天内容页之外", () => {
-  const WIDTH_KEY = "agentre.sidebarWidth.chat-context";
-
   function showOutlineOnly() {
     const prev = useToolWindowLayout.getState();
     useToolWindowLayout.setState({
@@ -7040,7 +7040,6 @@ describe("ChatPanel · 工具窗渲染在聊天内容页之外", () => {
         shown: prev.shown,
         focusRequest: null,
       });
-      localStorage.removeItem(WIDTH_KEY);
     });
   }
 
@@ -7110,10 +7109,31 @@ describe("ChatPanel · 工具窗渲染在聊天内容页之外", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("Given 已存的右侧栏宽度, When 渲染并拖拽调宽, Then 右侧工具窗沿用 agentre.sidebarWidth.chat-context 读写", () => {
+  it("Given 布局里右侧比例为 0.3, When 渲染并拖动编辑区与右侧之间的分隔条, Then 右侧列按布局比例占宽，新比例写回全局布局", () => {
     resetStore();
     showOutlineOnly();
-    localStorage.setItem(WIDTH_KEY, "300");
+    const prevRatios = useToolWindowLayout.getState().ratios;
+    useToolWindowLayout.setState({
+      ratios: { ...DEFAULT_DIVIDER_RATIOS, right: 0.3 },
+    });
+    onTestFinished(() => {
+      useToolWindowLayout.setState({ ratios: prevRatios });
+    });
+    // 工具窗区域宽 1600px（够宽，不触发窄窗口浮动），比例按它换算。
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        width: 1600,
+        height: 800,
+        right: 1600,
+        bottom: 800,
+        toJSON: () => ({}),
+      } as DOMRect);
+    onTestFinished(() => rect.mockRestore());
     mockSessionStore.session = makeSession({ id: 42 });
 
     render(<ChatPanel sessionId={42} />);
@@ -7121,16 +7141,22 @@ describe("ChatPanel · 工具窗渲染在聊天内容页之外", () => {
     const aside = screen.getByRole("complementary", {
       name: "Right tool windows",
     });
-    expect(aside).toHaveStyle({ width: "300px" });
+    expect(aside).toHaveStyle({ flexBasis: "30%" });
 
-    // 手柄在左边缘：往左拖 40px，宽度 +40。
-    const handle = within(aside).getByRole("separator");
-    fireEvent.pointerDown(handle, { button: 0, clientX: 500 });
-    fireEvent.pointerMove(document, { clientX: 460 });
-    fireEvent.pointerUp(document, { clientX: 460 });
+    // 分隔条压在右侧列左边缘：拖到 x=1200，右侧占 (1600-1200)/1600 = 25%。
+    const handle = within(aside).getByRole("separator", {
+      name: "Resize right tool windows",
+    });
+    fireEvent.pointerDown(handle, { button: 0, clientX: 1120 });
+    fireEvent.pointerMove(document, { clientX: 1200 });
+    fireEvent.pointerUp(document, { clientX: 1200 });
 
-    expect(aside).toHaveStyle({ width: "340px" });
-    expect(localStorage.getItem(WIDTH_KEY)).toBe("340");
+    expect(useToolWindowLayout.getState().ratios.right).toBeCloseTo(0.25);
+    expect(aside).toHaveStyle({ flexBasis: "25%" });
+    const saved = JSON.parse(
+      localStorage.getItem(TOOL_WINDOW_LAYOUT_KEY) ?? "{}",
+    ) as { state?: { ratios?: { right?: number } } };
+    expect(saved.state?.ratios?.right).toBeCloseTo(0.25);
   });
 
   it("Given 新建会话尚未首发, When 渲染, Then 内容页照样在位、没有图标条也没有工具窗", () => {
