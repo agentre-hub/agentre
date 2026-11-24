@@ -14,6 +14,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo/mock_workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
@@ -59,6 +61,7 @@ type deletePropMocks struct {
 	frame   *mock_transcript_repo.MockFrameSeqRepo
 	message *mock_transcript_repo.MockMessageRepo
 	recov   *mock_chat_repo.MockReplacementRecoveryCleanupRepo
+	roots   *mock_workspace_fs_repo.MockWorkRootRepo
 	pool    *mock_remote_device_svc.MockConnPool
 	server  *fakeDeleteServer
 	svc     *chatSvc
@@ -74,17 +77,20 @@ func setupDeletePropagationTest(t *testing.T) *deletePropMocks {
 		frame:   mock_transcript_repo.NewMockFrameSeqRepo(ctrl),
 		message: mock_transcript_repo.NewMockMessageRepo(ctrl),
 		recov:   mock_chat_repo.NewMockReplacementRecoveryCleanupRepo(ctrl),
+		roots:   mock_workspace_fs_repo.NewMockWorkRootRepo(ctrl),
 		pool:    mock_remote_device_svc.NewMockConnPool(ctrl),
 		server:  &fakeDeleteServer{},
 	}
 	prevSession, prevPending := chat_repo.Session(), chat_repo.PendingDelete()
 	prevFrame, prevMessage := transcript_repo.FrameSeq(), transcript_repo.Message()
 	prevRecov, prevServer := chat_repo.ReplacementRecoveryCleanup(), server_svc.Server()
+	prevRoots := workspace_fs_repo.WorkRoot()
 	chat_repo.RegisterSession(m.session)
 	chat_repo.RegisterPendingDelete(m.pending)
 	transcript_repo.RegisterFrameSeq(m.frame)
 	transcript_repo.RegisterMessage(m.message)
 	chat_repo.RegisterReplacementRecoveryCleanup(m.recov)
+	workspace_fs_repo.RegisterWorkRoot(m.roots)
 	server_svc.SetDefault(m.server)
 	t.Cleanup(func() {
 		chat_repo.RegisterSession(prevSession)
@@ -92,6 +98,7 @@ func setupDeletePropagationTest(t *testing.T) *deletePropMocks {
 		transcript_repo.RegisterFrameSeq(prevFrame)
 		transcript_repo.RegisterMessage(prevMessage)
 		chat_repo.RegisterReplacementRecoveryCleanup(prevRecov)
+		workspace_fs_repo.RegisterWorkRoot(prevRoots)
 		server_svc.SetDefault(prevServer)
 	})
 	m.svc = NewChat(nil).(*chatSvc)
@@ -104,6 +111,7 @@ func (m *deletePropMocks) expectLocalDelete(id int64) {
 	m.frame.EXPECT().DeleteBySession(gomock.Any(), id).Return(int64(0), nil)
 	m.message.EXPECT().DeleteFromSeq(gomock.Any(), id, 0).Return(int64(0), nil)
 	m.recov.EXPECT().DeleteReplacementRecovery(gomock.Any(), id).Return(int64(0), nil)
+	m.roots.EXPECT().DeleteBySession(gomock.Any(), id).Return(nil)
 }
 
 func remoteSession() *chat_entity.Session {
