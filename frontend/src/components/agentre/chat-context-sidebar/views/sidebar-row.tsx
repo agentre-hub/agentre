@@ -15,6 +15,7 @@ import {
 
 import { resolveRowOpenAction } from "@/lib/file-open-action";
 import { cn } from "@agentre-hub/agentre-ui";
+import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
 
@@ -139,6 +140,14 @@ export function SidebarRow({
   const activePreviewPath = useFilePreviewTabsStore(
     (s) => s.previewTabsBySession[sessionId]?.activePath,
   );
+  const activePreviewRoot = useFilePreviewTabsStore(
+    (s) => s.previewTabsBySession[sessionId]?.activeRoot,
+  );
+  // 行的路径相对侧栏当前工作根（cwd 即它）：预览标签绑定打开时的这个根，之后
+  // 侧栏再切根也不改变它。侧栏还没写过（空串）时就是会话主根。
+  const previewRoot = useChatSidebarStore(
+    (s) => s.workRootBySession[sessionId] ?? "",
+  );
   const openAction = useFileSettingsStore((s) => s.settings.openAction);
   const openFile = useOpenFile(cwd);
   const revealFile = useRevealFile(cwd);
@@ -167,7 +176,10 @@ export function SidebarRow({
 
   const interactive = kind === "dir" || rowAction !== "none";
   // 选中态仍只表达「这一行正开在预览面板里」——外部打开不产生选中态。
-  const active = previewPath !== null && previewPath === activePreviewPath;
+  const active =
+    previewPath !== null &&
+    previewPath === activePreviewPath &&
+    previewRoot === activePreviewRoot;
 
   // openPreviewFromRow 打开预览，并按「这是手势里的第几次 click」维护
   // clobberedTempRef。clickCount 取 MouseEvent.detail —— 浏览器按系统双击间隔判定
@@ -180,7 +192,11 @@ export function SidebarRow({
   //     之后再双击同一行转常驻」会把它当成刚被这次双击吞掉的标签复活出来。
   const openPreviewFromRow = (clickCount: number) => {
     if (previewPath === null) return;
-    const clobbered = openPreview(sessionId, previewPath, sourceMode);
+    const clobbered = openPreview(
+      sessionId,
+      { root: previewRoot, path: previewPath },
+      sourceMode,
+    );
     if (clickCount < 2) clobberedTempRef.current = clobbered;
   };
 
@@ -203,7 +219,11 @@ export function SidebarRow({
     onPreview: () => openPreviewFromRow(1),
     onPreviewInNewTab: () => {
       if (previewPath !== null) {
-        openPreviewInNewTab(sessionId, previewPath, sourceMode);
+        openPreviewInNewTab(
+          sessionId,
+          { root: previewRoot, path: previewPath },
+          sourceMode,
+        );
       }
     },
     onJumpToTurn: onJumpToTurn ?? null,

@@ -140,7 +140,10 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
   const workRoots = useSessionWorkRoots(sessionId, cwd, doneTick);
 
   // 活动标签自己的根——不看侧栏当前选的是哪个根。
-  const rootArg = activeTab?.root ?? "";
+  // 侧栏打开的标签绑的是绝对路径形式的主根：后端约定主根传空串，在这一个边界
+  // 归一，其余一律照标签自己的根。
+  const tabRoot = activeTab?.root ?? "";
+  const rootArg = tabRoot === cwd ? "" : tabRoot;
   const root = rootArg === "" ? cwd : rootArg;
 
   // 标签条要的根信息：非主根显示根名；根集合已知且不含它 = 已移除。空集合是「还没
@@ -160,7 +163,7 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
   }, [entry?.tabs, workRoots, cwd]);
   const activeRemoved =
     sharedTabs.find(
-      (tab) => tab.root === rootArg && tab.path === activeTab?.path,
+      (tab) => tab.root === tabRoot && tab.path === activeTab?.path,
     )?.removed === true;
 
   // 工具 diff 与图片两档永远不碰 Monaco，不为它们把那个懒加载 chunk 拉下来。
