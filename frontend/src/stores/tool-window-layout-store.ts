@@ -164,13 +164,29 @@ type ToolWindowLayoutState = PersistedLayout & {
   focusSnapshot: Record<SlotId, ToolWindowId | null> | null;
   /** 被最大化的工具窗（⇧⌘'）；瞬时、不持久化。 */
   maximized: ToolWindowId | null;
-  /** 图标条点击：未显示 → 显示（替换同槽位的那个）并请求焦点；已显示 → 隐藏。 */
+  /**
+   * 窄窗口下被收起的工具窗：保存的布局里它仍然显示，只是此刻不盖在对话上方
+   * （spec「窄窗口」：停靠的工具窗改为「浮动 + 失焦自动收起」，这一切换不改写用户
+   * 保存的布局）。瞬时、不持久化；窗口恢复宽度后清空，它们回到停靠并显示。
+   */
+  narrowCollapsed: Partial<Record<ToolWindowId, true>>;
+  /**
+   * 图标条点击：未显示（或窄窗口下被收起）→ 显示（替换同槽位的那个）并请求焦点；
+   * 已显示 → 隐藏。
+   */
   toggle: (id: ToolWindowId) => void;
-  /** 显示（替换同槽位当前的工具窗），不抢焦点。 */
+  /**
+   * 显示（替换同槽位当前的工具窗），不抢焦点；窄窗口下被收起的工具窗重新盖上来，
+   * 这时它拿焦点（否则它会在焦点不在它身上时盖住对话）。
+   */
   show: (id: ToolWindowId) => void;
   /** 隐藏；它本来就没显示时什么都不做。 */
   hide: (id: ToolWindowId) => void;
   clearFocusRequest: () => void;
+  /** 窄窗口下收起一个正在显示的工具窗，不改写保存的显示状态。 */
+  collapseNarrow: (id: ToolWindowId) => void;
+  /** 窗口恢复宽度：窄窗口下收起的工具窗全部回到显示。 */
+  expandNarrow: () => void;
   setMode: (id: ToolWindowId, mode: ToolWindowMode) => void;
   /** 移到另一个槽位并显示（替换那里当前的工具窗）、请求焦点；移回原槽位不变。 */
   moveTo: (id: ToolWindowId, slot: SlotId) => void;
@@ -365,28 +381,40 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
       focusRequest: null,
       focusSnapshot: null,
       maximized: null,
+      narrowCollapsed: {},
       toggle: (id) =>
         set((s) => {
           const slot = s.slotOf[id];
-          if (s.shown[slot] === id) {
+          const narrowCollapsed = withoutCollapsed(s.narrowCollapsed, id);
+          if (s.shown[slot] === id && s.narrowCollapsed[id] !== true) {
             return {
               shown: { ...s.shown, [slot]: null },
               focusRequest: s.focusRequest === id ? null : s.focusRequest,
               maximized: s.maximized === id ? null : s.maximized,
+              narrowCollapsed,
             };
           }
           return {
             shown: { ...s.shown, [slot]: id },
             focusRequest: id,
             focusSnapshot: null,
+            narrowCollapsed,
           };
         }),
       show: (id) =>
         set((s) => {
           const slot = s.slotOf[id];
-          return s.shown[slot] === id
+          const narrowCollapsed = withoutCollapsed(s.narrowCollapsed, id);
+          if (s.shown[slot] !== id) {
+            return {
+              shown: { ...s.shown, [slot]: id },
+              focusSnapshot: null,
+              narrowCollapsed,
+            };
+          }
+          return narrowCollapsed === s.narrowCollapsed
             ? s
-            : { shown: { ...s.shown, [slot]: id }, focusSnapshot: null };
+            : { narrowCollapsed, focusRequest: id, focusSnapshot: null };
         }),
       hide: (id) =>
         set((s) => {
@@ -395,10 +423,26 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
             ? {
                 shown: { ...s.shown, [slot]: null },
                 maximized: s.maximized === id ? null : s.maximized,
+                narrowCollapsed: withoutCollapsed(s.narrowCollapsed, id),
               }
             : s;
         }),
       clearFocusRequest: () => set({ focusRequest: null }),
+      collapseNarrow: (id) =>
+        set((s) =>
+          s.shown[s.slotOf[id]] !== id || s.narrowCollapsed[id] === true
+            ? s
+            : {
+                narrowCollapsed: { ...s.narrowCollapsed, [id]: true },
+                focusRequest: s.focusRequest === id ? null : s.focusRequest,
+              },
+        ),
+      expandNarrow: () =>
+        set((s) =>
+          Object.keys(s.narrowCollapsed).length === 0
+            ? s
+            : { narrowCollapsed: {} },
+        ),
       setMode: (id, mode) =>
         set((s) =>
           s.mode[id] === mode ? s : { mode: { ...s.mode, [id]: mode } },
@@ -414,6 +458,7 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
             shown,
             focusRequest: id,
             focusSnapshot: null,
+            narrowCollapsed: withoutCollapsed(s.narrowCollapsed, id),
           };
         }),
       setFloatRect: (id, rect) =>
@@ -457,12 +502,20 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
             : s;
         }),
       requestFocus: (id) =>
-        set((s) => (s.shown[s.slotOf[id]] === id ? { focusRequest: id } : s)),
+        set((s) =>
+          s.shown[s.slotOf[id]] === id
+            ? {
+                focusRequest: id,
+                narrowCollapsed: withoutCollapsed(s.narrowCollapsed, id),
+              }
+            : s,
+        ),
       restoreDefaults: () =>
         set({
           ...defaultLayoutParts(),
           focusSnapshot: null,
           maximized: null,
+          narrowCollapsed: {},
         }),
       toggleSessionList: () =>
         set((s) => ({ sessionListCollapsed: !s.sessionListCollapsed })),
@@ -486,6 +539,16 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
     },
   ),
 );
+
+function withoutCollapsed(
+  collapsed: Partial<Record<ToolWindowId, true>>,
+  id: ToolWindowId,
+): Partial<Record<ToolWindowId, true>> {
+  if (collapsed[id] !== true) return collapsed;
+  const next = { ...collapsed };
+  delete next[id];
+  return next;
+}
 
 /** 这个工具窗此刻是否显示。 */
 export function selectIsToolWindowShown(id: ToolWindowId) {

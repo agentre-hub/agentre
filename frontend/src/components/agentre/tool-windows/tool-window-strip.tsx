@@ -242,7 +242,10 @@ function StripGroup({
 
 function StripButton({ window: w }: { window: ToolWindowDefinition }) {
   const { t } = useTranslation();
-  const shown = useToolWindowLayout((s) => s.shown[s.slotOf[w.id]] === w.id);
+  // 窄窗口下收起的工具窗此刻没盖在对话上方，图标不显示「已打开」。
+  const shown = useToolWindowLayout(
+    (s) => s.shown[s.slotOf[w.id]] === w.id && s.narrowCollapsed[w.id] !== true,
+  );
   const toggle = useToolWindowLayout((s) => s.toggle);
   const dragApi = React.useContext(DragContext);
   const platform = useOptionalShortcutsContext()?.platform;

@@ -43,12 +43,12 @@ const WINDOWS: ToolWindowDefinition[] = [
   },
 ];
 
-function renderLayout() {
-  return render(
+function layoutTree({ hidden = false }: { hidden?: boolean } = {}) {
+  return (
     <MemoryRouter>
       <ShortcutsProvider platform="darwin">
         <TooltipProvider>
-          <ToolWindowLayout windows={WINDOWS}>
+          <ToolWindowLayout windows={WINDOWS} hidden={hidden}>
             <main>
               <div
                 role="textbox"
@@ -62,8 +62,12 @@ function renderLayout() {
           </ToolWindowLayout>
         </TooltipProvider>
       </ShortcutsProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+}
+
+function renderLayout(options?: { hidden?: boolean }) {
+  return render(layoutTree(options));
 }
 
 function layout() {
@@ -115,6 +119,7 @@ describe("工具窗行为", () => {
       sessionListCollapsed: false,
       focusSnapshot: null,
       maximized: null,
+      narrowCollapsed: {},
     });
   });
 
@@ -366,19 +371,119 @@ describe("工具窗行为", () => {
   });
 
   describe("窄窗口", () => {
-    it("Given 可用宽度 1000px, When 右上的大纲是停靠模式, Then 它以浮动 + 失焦自动收起盖在对话上方，保存的模式不变", async () => {
+    it("Given 可用宽度 1000px 且右上的大纲停靠显示、焦点在输入框里, When 工具窗区域出现（新建会话发出首条消息）, Then 没有工具窗盖在编辑区上方", () => {
+      stubWidth(1000);
+      const { rerender } = renderLayout({ hidden: true });
+      act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+
+      rerender(layoutTree());
+
+      expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
+
+      expect(
+        within(screen.getByTestId("tool-window-overlay-layer")).queryByRole(
+          "region",
+        ),
+      ).toBeNull();
+      expect(screen.queryByRole("region", { name: "Outline" })).toBeNull();
+    });
+
+    it("Given 可用宽度 1000px, When 启动时右上的大纲是停靠显示, Then 它收起而不盖住对话，保存的显示状态与模式不变", () => {
+      stubWidth(1000);
+      renderLayout();
+
+      expect(screen.queryByRole("region", { name: "Outline" })).toBeNull();
+      expect(stripButton("Outline")).toHaveAttribute("aria-pressed", "false");
+      expect(layout().shown.rightTop).toBe("outline");
+      expect(layout().mode.outline).toBe("pinned");
+    });
+
+    it("Given 可用宽度 1000px 且大纲已收起, When 点图标条上的大纲, Then 它以浮动 + 失焦自动收起盖在对话上方并获得焦点", async () => {
       const user = userEvent.setup();
       stubWidth(1000);
       renderLayout();
 
+      await user.click(stripButton("Outline"));
+
       const outline = region("Outline");
+      expect(outline).toHaveFocus();
       expect(outline).toHaveAttribute("data-floating", "true");
       expect(outline).toHaveAttribute("data-auto-hide", "true");
+      expect(stripButton("Outline")).toHaveAttribute("aria-pressed", "true");
       expect(layout().mode.outline).toBe("pinned");
+    });
+
+    it("Given 可用宽度 1000px 且大纲已收起, When 按 ⌃1, Then 它盖上来并获得焦点", () => {
+      stubWidth(1000);
+      renderLayout();
+
+      fireEvent.keyDown(window, { key: "1", code: "Digit1", ctrlKey: true });
+
+      expect(region("Outline")).toHaveFocus();
+    });
+
+    it("Given 窄窗口下大纲盖在对话上方且有焦点, When 焦点移到编辑区, Then 它收起，保存的显示状态与模式不变", async () => {
+      const user = userEvent.setup();
+      stubWidth(1000);
+      renderLayout();
+      await user.click(stripButton("Outline"));
 
       await user.click(screen.getByRole("button", { name: "editor action" }));
+
       expect(screen.queryByRole("region", { name: "Outline" })).toBeNull();
+      expect(stripButton("Outline")).toHaveAttribute("aria-pressed", "false");
+      expect(layout().shown.rightTop).toBe("outline");
       expect(layout().mode.outline).toBe("pinned");
+    });
+
+    it("Given 窄窗口下大纲盖在对话上方且有焦点, When 按 Esc, Then 焦点回到输入框、大纲随之收起", async () => {
+      const user = userEvent.setup();
+      stubWidth(1000);
+      renderLayout();
+      await user.click(stripButton("Outline"));
+
+      await user.keyboard("{Escape}");
+
+      expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus();
+      expect(screen.queryByRole("region", { name: "Outline" })).toBeNull();
+    });
+
+    it("Given 窄窗口下大纲被收起, When 窗口恢复到 1400px, Then 它照用户原来的样子停靠并显示", async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal("ResizeObserver", undefined);
+      try {
+        stubWidth(1000);
+        renderLayout();
+        await user.click(stripButton("Outline"));
+        await user.click(screen.getByRole("button", { name: "editor action" }));
+        expect(screen.queryByRole("region", { name: "Outline" })).toBeNull();
+
+        stubWidth(1400);
+        act(() => {
+          window.dispatchEvent(new Event("resize"));
+        });
+
+        const outline = region("Outline");
+        expect(outline).toHaveAttribute("data-floating", "false");
+        expect(stripButton("Outline")).toHaveAttribute("aria-pressed", "true");
+        expect(layout().mode.outline).toBe("pinned");
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("Given 可用宽度 1000px 且大纲是用户选的浮动, When 焦点移到编辑区, Then 浮动窗不收起", async () => {
+      const user = userEvent.setup();
+      stubWidth(1000);
+      act(() => layout().setMode("outline", "float"));
+      renderLayout();
+
+      expect(region("Outline")).toHaveAttribute("data-auto-hide", "false");
+      await user.click(screen.getByRole("button", { name: "outline item" }));
+      await user.click(screen.getByRole("button", { name: "editor action" }));
+
+      expect(region("Outline")).toBeInTheDocument();
+      expect(layout().mode.outline).toBe("float");
     });
 
     it("Given 可用宽度 1400px, Then 大纲照常停靠", () => {

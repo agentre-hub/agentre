@@ -7,6 +7,7 @@ import {
   resolvePresentation,
   useToolWindowLayout,
   type SlotId,
+  type ToolWindowId,
 } from "@/stores/tool-window-layout-store";
 
 import { ToolWindowLayoutContext } from "./layout-context";
@@ -63,6 +64,11 @@ export function ToolWindowLayout({ windows, hidden = false, children }: Props) {
   const placed = usePlacedWindows(windows, narrow);
 
   useAutoHide(rootRef, editorRef, narrow, !hidden);
+  useNarrowOverlayFocus(
+    placed,
+    width === 0 ? "unmeasured" : narrow ? "narrow" : "wide",
+    hidden,
+  );
 
   const context = React.useMemo(
     () => ({
@@ -181,6 +187,7 @@ function usePlacedWindows(
   const shown = useToolWindowLayout((s) => s.shown);
   const mode = useToolWindowLayout((s) => s.mode);
   const maximized = useToolWindowLayout((s) => s.maximized);
+  const narrowCollapsed = useToolWindowLayout((s) => s.narrowCollapsed);
   return React.useMemo(() => {
     const out: Placed[] = [];
     for (const slot of SLOT_IDS) {
@@ -200,10 +207,65 @@ function usePlacedWindows(
             : mode[def.id] === "float"
               ? "float"
               : "overlay";
+      // 窄窗口下收起的工具窗在保存的布局里仍然显示，只是此刻不画。
+      if (presentation === "overlay" && narrowCollapsed[def.id] === true) {
+        continue;
+      }
       out.push({ window: def, slot, presentation, autoHide });
     }
     return out;
-  }, [windows, narrow, shown, mode, maximized]);
+  }, [windows, narrow, shown, mode, maximized, narrowCollapsed]);
+}
+
+/**
+ * 窄窗口下盖在对话上方的工具窗只在焦点在它身上时出现（spec「窄窗口」：停靠的
+ * 工具窗改为「浮动 + 失焦自动收起」）：
+ * - 进入窄窗口、或工具窗区域刚出现（启动、新建会话发出首条消息）时，焦点不在
+ *   它身上的收起；
+ * - 之后新盖上来的（例如从转录里的链接打开）拿焦点；
+ * - 窗口恢复宽度后收起的全部回到停靠并显示。
+ * 收起只记在瞬时状态里，保存的显示状态与模式不变。各标签页各有一份布局、共用
+ * 同一份 store，「焦点在它身上」按整个文档里同名的工具窗判断。
+ */
+function useNarrowOverlayFocus(
+  placed: Placed[],
+  width: "unmeasured" | "narrow" | "wide",
+  hidden: boolean,
+) {
+  const overlayKey = placed
+    .filter((p) => p.presentation === "overlay")
+    .map((p) => p.window.id)
+    .join(" ");
+  const seenRef = React.useRef<Set<string> | null>(null);
+  React.useEffect(() => {
+    if (width === "wide") {
+      seenRef.current = null;
+      useToolWindowLayout.getState().expandNarrow();
+      return;
+    }
+    if (width === "unmeasured" || hidden) {
+      seenRef.current = null;
+      return;
+    }
+    const ids =
+      overlayKey === "" ? [] : (overlayKey.split(" ") as ToolWindowId[]);
+    const seen = seenRef.current;
+    seenRef.current = new Set(ids);
+    const s = useToolWindowLayout.getState();
+    for (const id of ids) {
+      if (s.focusRequest === id || holdsFocus(id)) continue;
+      if (seen === null) s.collapseNarrow(id);
+      else if (!seen.has(id)) s.requestFocus(id);
+    }
+  }, [overlayKey, width, hidden]);
+}
+
+function holdsFocus(id: ToolWindowId): boolean {
+  const active = document.activeElement;
+  return (
+    active instanceof Element &&
+    active.closest(`[data-tool-window="${id}"]`) !== null
+  );
 }
 
 /**
@@ -386,9 +448,15 @@ function useAutoHide(
       for (const slot of SLOT_IDS) {
         const id = s.shown[slot];
         if (id === null || id === into) continue;
-        if (resolvePresentation(s.mode[id], slot, narrowRef.current).autoHide) {
-          s.hide(id);
+        if (
+          !resolvePresentation(s.mode[id], slot, narrowRef.current).autoHide
+        ) {
+          continue;
         }
+        // 只因窗口窄才自动收起的停靠工具窗只是收起，保存的显示状态不变，窗口
+        // 恢复宽度后它照用户原来的样子停靠显示。
+        if (s.mode[id] === "autoHide") s.hide(id);
+        else s.collapseNarrow(id);
       }
     };
     document.addEventListener("focusin", onEnter);
