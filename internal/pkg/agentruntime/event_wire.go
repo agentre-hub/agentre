@@ -100,6 +100,7 @@ func (e ToolCall) MarshalJSON() ([]byte, error) {
 		Canonical        json.RawMessage `json:"canonical,omitempty"`
 		ParentToolCallID string          `json:"parentToolCallId,omitempty"`
 		SubagentRunID    string          `json:"subagentRunId,omitempty"`
+		Cwd              string          `json:"cwd,omitempty"`
 	}{
 		Kind:             EventToolUseStart,
 		ID:               e.ID,
@@ -107,6 +108,7 @@ func (e ToolCall) MarshalJSON() ([]byte, error) {
 		Input:            e.Input,
 		ParentToolCallID: e.ParentToolCallID,
 		SubagentRunID:    e.SubagentRunID,
+		Cwd:              e.Cwd,
 	}
 	if string(canonicalBytes) != "null" {
 		out.Canonical = canonicalBytes
@@ -123,7 +125,8 @@ func (e ToolResult) MarshalJSON() ([]byte, error) {
 		ParentToolCallID string          `json:"parentToolCallId,omitempty"`
 		SubagentRunID    string          `json:"subagentRunId,omitempty"`
 		Meta             json.RawMessage `json:"meta,omitempty"`
-	}{EventToolResult, e.ToolCallID, e.Content, e.IsError, e.ParentToolCallID, e.SubagentRunID, e.Meta})
+		Cwd              string          `json:"cwd,omitempty"`
+	}{EventToolResult, e.ToolCallID, e.Content, e.IsError, e.ParentToolCallID, e.SubagentRunID, e.Meta, e.Cwd})
 }
 
 func (e SteerConsumed) MarshalJSON() ([]byte, error) {
@@ -443,6 +446,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			Canonical        json.RawMessage `json:"canonical"`
 			ParentToolCallID string          `json:"parentToolCallId"`
 			SubagentRunID    string          `json:"subagentRunId"`
+			Cwd              string          `json:"cwd"`
 		}
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
@@ -462,6 +466,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			Canonical:        c,
 			ParentToolCallID: w.ParentToolCallID,
 			SubagentRunID:    w.SubagentRunID,
+			Cwd:              w.Cwd,
 		}, nil
 	case EventToolResult:
 		var w struct {
@@ -471,6 +476,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			ParentToolCallID string          `json:"parentToolCallId"`
 			SubagentRunID    string          `json:"subagentRunId"`
 			Meta             json.RawMessage `json:"meta"`
+			Cwd              string          `json:"cwd"`
 		}
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
@@ -482,6 +488,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			ParentToolCallID: w.ParentToolCallID,
 			SubagentRunID:    w.SubagentRunID,
 			Meta:             w.Meta,
+			Cwd:              w.Cwd,
 		}, nil
 	case EventSteerConsumed:
 		var w struct {

@@ -429,6 +429,7 @@ describe("protobuf rpc envelope", () => {
       canonical: new Uint8Array(),
       parentToolCallId: "",
       subagentRunId: "",
+      cwd: "/repo/.claude/worktrees/feat",
     },
     {
       case: "toolResult",
@@ -438,6 +439,7 @@ describe("protobuf rpc envelope", () => {
       parentToolCallId: "",
       subagentRunId: "",
       meta: new Uint8Array([3]),
+      cwd: "/repo/.claude/worktrees/feat",
     },
     {
       case: "steerConsumed",

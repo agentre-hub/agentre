@@ -153,6 +153,10 @@ type ChatStreamEvent struct {
 	// 用它把系统分配的 task id 喂给前端做 task-progress 关联。无 meta 时留 nil。
 	ToolResultMeta map[string]any `json:"toolResultMeta,omitempty"`
 
+	// tool_use / tool_result 共用:产生它时 AI 所在的目录,与重新加载后
+	// ChatBlock.Cwd 同一口径;空 = 未知。
+	Cwd string `json:"cwd,omitempty"`
+
 	// StreamConnectionState 事件填充。ConnectionState 是通道状态取值;
 	// CaughtUpCount / PendingDecisions 只在补齐落定(connected)那一发有意义,
 	// 分别是本次补齐重放了多少条通知、补完后还有多少个待决策没回答。
@@ -345,6 +349,10 @@ type ChatBlock struct {
 	ParentToolCallID string `json:"parentToolUseId,omitempty"`
 	// SubagentRunID 可选；空值表示 runtime/remote peer 未提供，仍作为父卡 fallback step 下行。
 	SubagentRunID string `json:"subagentRunId,omitempty"`
+	// Cwd 仅工具卡(tool_use / tool_result)上填:产生它时 AI 所在的目录,由执行侧
+	// 产生、随工具事件传来并落库(spec 2026-11-24-chat-right-toolwindows 决策 17)。
+	// 空 = 没有这项记录(旧消息 / 旧 agentred),消费方回落到会话工作目录。
+	Cwd string `json:"cwd,omitempty"`
 
 	// 仅外层 Agent / Task 工具的 tool_use block 上填，缓存 subagent 元数据快照
 	// （subagent_type / 累计 token / last_tool_name / status 等）。

@@ -253,6 +253,7 @@ func nestedToolUseToChatBlock(b *chatblocks.NestedToolUseBlock) ChatBlock {
 		ToolName:         b.Name,
 		ParentToolCallID: b.ParentToolCallID,
 		SubagentRunID:    b.SubagentRunID,
+		Cwd:              b.Cwd,
 	}
 	if len(b.Input) > 0 {
 		cb.ToolInput = b.Input
@@ -273,6 +274,7 @@ func nestedToolResultToChatBlock(b *chatblocks.NestedToolResultBlock) ChatBlock 
 		IsError:          b.IsError,
 		ParentToolCallID: b.ParentToolCallID,
 		SubagentRunID:    b.SubagentRunID,
+		Cwd:              b.Cwd,
 	}
 }
 

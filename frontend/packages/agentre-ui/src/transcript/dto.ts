@@ -319,6 +319,10 @@ export interface TranscriptBlock {
   toolResultMeta?: Record<string, unknown>;
   parentToolUseId?: string;
   subagentRunId?: string;
+  // 工具卡（tool_use / tool_result）上产生它时 AI 所在的目录（spec
+  // 2026-11-24-chat-right-toolwindows 决策 17）。缺省 = 没有这项记录（旧消息 /
+  // 旧 agentred），消费方回落到会话工作目录。
+  cwd?: string;
   subagent?: TranscriptBlockSubagent;
   askUserQuestion?: TranscriptBlockAskUserQuestion;
   toolPermission?: TranscriptBlockToolPermission;

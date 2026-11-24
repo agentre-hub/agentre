@@ -57,7 +57,16 @@ func ProjectMessages(conversationID string, messages []*transcript_entity.Messag
 		if err := json.Unmarshal([]byte(message.BlocksJSON), &stored); err != nil {
 			return nil, nil, fmt.Errorf("message %d blocks: %w", message.ID, err)
 		}
+		toolCwds, err := toolCwdsOf(message, stored)
+		if err != nil {
+			return nil, nil, err
+		}
 		for _, block := range stored {
+			if message.Role == "assistant" && block.Type == toolCwdBlockType {
+				// 目录记录不是独立的转录内容:它已随下面对应的 ToolCall / ToolResult 帧
+				// 送出。落成 UnrecognizedBlock 会被对端丢掉,目录也就丢了。
+				continue
+			}
 			if message.Role == "assistant" && block.Type == "user_ask" {
 				var data transcriptblocks.UserAskBlock
 				if err := json.Unmarshal(block.Data, &data); err != nil {
@@ -162,7 +171,7 @@ func ProjectMessages(conversationID string, messages []*transcript_entity.Messag
 			if event, ok, err := EventForStoredBlock(message, block); err != nil {
 				return nil, nil, err
 			} else if ok {
-				if err := appendEvent(event); err != nil {
+				if err := appendEvent(withToolCwd(event, toolCwds)); err != nil {
 					return nil, nil, err
 				}
 				// 投射不出来的块原样往下送(R8)。它是一等的密封事件,所以既过得了
@@ -291,13 +300,13 @@ func EventForStoredBlock(message *transcript_entity.Message, block cagoblocks.St
 			}
 			input = raw
 		}
-		return agentruntime.ToolCall{ID: data.ID, Name: data.Name, Input: input, ParentToolCallID: data.ParentToolCallID, SubagentRunID: data.SubagentRunID}, true, nil
+		return agentruntime.ToolCall{ID: data.ID, Name: data.Name, Input: input, ParentToolCallID: data.ParentToolCallID, SubagentRunID: data.SubagentRunID, Cwd: data.Cwd}, true, nil
 	case "nested_tool_result":
 		var data transcriptblocks.NestedToolResultBlock
 		if err := json.Unmarshal(block.Data, &data); err != nil {
 			return nil, false, err
 		}
-		return agentruntime.ToolResult{ToolCallID: data.ToolCallID, Content: data.Content, IsError: data.IsError, ParentToolCallID: data.ParentToolCallID, SubagentRunID: data.SubagentRunID}, true, nil
+		return agentruntime.ToolResult{ToolCallID: data.ToolCallID, Content: data.Content, IsError: data.IsError, ParentToolCallID: data.ParentToolCallID, SubagentRunID: data.SubagentRunID, Cwd: data.Cwd}, true, nil
 	case "permission_mode_change":
 		var data transcriptblocks.PermissionModeChangeBlock
 		if err := json.Unmarshal(block.Data, &data); err != nil {
@@ -344,6 +353,50 @@ func EventForStoredBlock(message *transcript_entity.Message, block cagoblocks.St
 	default:
 		return nil, false, nil
 	}
+}
+
+// toolCwdBlockType 是外层工具调用旁那块目录记录的判别值(transcriptblocks.ToolCwdBlock)。
+var toolCwdBlockType = transcriptblocks.ToolCwdBlock{}.Type()
+
+// toolCwdsOf 预扫一条 assistant 消息里的目录记录,按工具调用 id 索引。记录可能落在
+// 对应 tool_result 之后(只有结果报了目录时),所以必须先扫完整条消息。
+func toolCwdsOf(message *transcript_entity.Message, stored []cagoblocks.StoredBlock) (map[string]transcriptblocks.ToolCwdBlock, error) {
+	if message.Role != "assistant" {
+		return nil, nil
+	}
+	var out map[string]transcriptblocks.ToolCwdBlock
+	for _, block := range stored {
+		if block.Type != toolCwdBlockType {
+			continue
+		}
+		var data transcriptblocks.ToolCwdBlock
+		if err := json.Unmarshal(block.Data, &data); err != nil {
+			return nil, err
+		}
+		if out == nil {
+			out = map[string]transcriptblocks.ToolCwdBlock{}
+		}
+		out[data.ToolCallID] = data
+	}
+	return out, nil
+}
+
+// withToolCwd 把外层工具调用 / 结果帧补上它旁边那块记录里的目录;嵌套调用的目录
+// 在嵌套块自己身上,EventForStoredBlock 已经读出,这里不动。
+func withToolCwd(event agentruntime.Event, cwds map[string]transcriptblocks.ToolCwdBlock) agentruntime.Event {
+	switch ev := event.(type) {
+	case agentruntime.ToolCall:
+		if rec, ok := cwds[ev.ID]; ok && ev.ParentToolCallID == "" {
+			ev.Cwd = rec.Cwd
+			return ev
+		}
+	case agentruntime.ToolResult:
+		if rec, ok := cwds[ev.ToolCallID]; ok && ev.ParentToolCallID == "" {
+			ev.Cwd = rec.ResultCwd
+			return ev
+		}
+	}
+	return event
 }
 
 func approvalRequestFromBlock(data transcriptblocks.ExecApprovalBlock) agentruntime.ExecApprovalRequested {

@@ -51,6 +51,7 @@ func (d *dispatcherEmitter) Emit(ctx context.Context, stream string, raw any) {
 		ev.ToolInput = mapOf(m, "toolInput")
 		ev.ParentToolCallID = stringOf(m, "parentToolCallId")
 		ev.SubagentRunID = stringOf(m, "subagentRunId")
+		ev.Cwd = stringOf(m, "cwd")
 		// Canonical: runtime translator 算出的统一识别;handler 走 raw_tool.go 透传
 		// (m["canonical"] = tc2.Canonical, 类型 canonical.CanonicalTool)。
 		if c, ok := m["canonical"].(canonical.CanonicalTool); ok {
@@ -64,6 +65,7 @@ func (d *dispatcherEmitter) Emit(ctx context.Context, stream string, raw any) {
 		ev.ParentToolCallID = stringOf(m, "parentToolCallId")
 		ev.SubagentRunID = stringOf(m, "subagentRunId")
 		ev.ToolResultMeta = mapOf(m, "toolResultMeta")
+		ev.Cwd = stringOf(m, "cwd")
 
 	case string(StreamAskUserQuestion):
 		ev.AskUserQuestion = askUserQuestionFromMap(m)

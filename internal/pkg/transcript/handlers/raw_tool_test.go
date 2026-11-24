@@ -211,3 +211,79 @@ func TestNestedToolEvents_DedupeByID(t *testing.T) {
 		})
 	})
 }
+
+func TestToolHandlers_RecordTheCwdOfEachToolCall(t *testing.T) {
+	Convey("外层 ToolCall 带 Cwd → 紧随 tool_use 落一块 ToolCwdBlock,并随 tool_use 流事件下发", t, func() {
+		acc := turn.New()
+		emit := &fakeEmit{}
+		err := ToolCallHandler{}.Apply(context.Background(),
+			agentruntime.ToolCall{ID: "tu-1", Name: "Bash", Cwd: "/repo/wt"}, acc, emit, nil)
+		So(err, ShouldBeNil)
+		final := acc.Finalize()
+		So(final, ShouldHaveLength, 2)
+		_, isUse := final[0].(*cagoblocks.ToolUseBlock)
+		So(isUse, ShouldBeTrue)
+		So(final[1], ShouldResemble, &blocks.ToolCwdBlock{ToolCallID: "tu-1", Cwd: "/repo/wt"})
+		So(emit.events[0].payload.(map[string]any)["cwd"], ShouldEqual, "/repo/wt")
+	})
+
+	Convey("外层 ToolResult 带 Cwd → 记进同一调用的 ToolCwdBlock.ResultCwd,不另起一块", t, func() {
+		acc := turn.New()
+		emit := &fakeEmit{}
+		_ = ToolCallHandler{}.Apply(context.Background(),
+			agentruntime.ToolCall{ID: "tu-1", Name: "Bash", Cwd: "/repo"}, acc, emit, nil)
+		err := ToolResultHandler{}.Apply(context.Background(),
+			agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok", Cwd: "/repo/wt"}, acc, emit, nil)
+		So(err, ShouldBeNil)
+		final := acc.Finalize()
+		So(final, ShouldHaveLength, 3)
+		So(final[1], ShouldResemble, &blocks.ToolCwdBlock{ToolCallID: "tu-1", Cwd: "/repo", ResultCwd: "/repo/wt"})
+		_, isResult := final[2].(*cagoblocks.ToolResultBlock)
+		So(isResult, ShouldBeTrue)
+		So(emit.events[1].payload.(map[string]any)["cwd"], ShouldEqual, "/repo/wt")
+	})
+
+	Convey("只有 ToolResult 带 Cwd → 补一块只含 ResultCwd 的 ToolCwdBlock", t, func() {
+		acc := turn.New()
+		_ = ToolCallHandler{}.Apply(context.Background(),
+			agentruntime.ToolCall{ID: "tu-1", Name: "Bash"}, acc, nil, nil)
+		err := ToolResultHandler{}.Apply(context.Background(),
+			agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok", Cwd: "/repo/wt"}, acc, nil, nil)
+		So(err, ShouldBeNil)
+		final := acc.Finalize()
+		So(final, ShouldHaveLength, 3)
+		So(final[2], ShouldResemble, &blocks.ToolCwdBlock{ToolCallID: "tu-1", ResultCwd: "/repo/wt"})
+	})
+
+	Convey("没有 Cwd(旧 agentred / 尚未产出目录的后端)→ 块序列与今天逐块相同", t, func() {
+		acc := turn.New()
+		_ = ToolCallHandler{}.Apply(context.Background(),
+			agentruntime.ToolCall{ID: "tu-1", Name: "Bash"}, acc, nil, nil)
+		_ = ToolResultHandler{}.Apply(context.Background(),
+			agentruntime.ToolResult{ToolCallID: "tu-1", Content: "ok"}, acc, nil, nil)
+		So(acc.Finalize(), ShouldHaveLength, 2)
+	})
+
+	Convey("孤儿 ToolResult 即使带 Cwd 也整条丢弃", t, func() {
+		acc := turn.New()
+		err := ToolResultHandler{}.Apply(context.Background(),
+			agentruntime.ToolResult{ToolCallID: "ghost", Content: "x", Cwd: "/repo"}, acc, nil, nil)
+		So(err, ShouldBeNil)
+		So(acc.Empty(), ShouldBeTrue)
+	})
+
+	Convey("嵌套调用 / 结果的 Cwd 直接落在嵌套块上", t, func() {
+		acc := turn.New()
+		emit := &fakeEmit{}
+		_ = ToolCallHandler{}.Apply(context.Background(),
+			agentruntime.ToolCall{ID: "n-1", Name: "Read", ParentToolCallID: "task-1", Cwd: "/repo/a"}, acc, emit, nil)
+		_ = ToolResultHandler{}.Apply(context.Background(),
+			agentruntime.ToolResult{ToolCallID: "n-1", Content: "ok", ParentToolCallID: "task-1", Cwd: "/repo/b"}, acc, emit, nil)
+		final := acc.Finalize()
+		So(final, ShouldHaveLength, 2)
+		So(final[0].(*blocks.NestedToolUseBlock).Cwd, ShouldEqual, "/repo/a")
+		So(final[1].(*blocks.NestedToolResultBlock).Cwd, ShouldEqual, "/repo/b")
+		So(emit.events[0].payload.(map[string]any)["cwd"], ShouldEqual, "/repo/a")
+		So(emit.events[1].payload.(map[string]any)["cwd"], ShouldEqual, "/repo/b")
+	})
+}

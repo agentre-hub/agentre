@@ -33,10 +33,12 @@ func (ToolCallHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *tu
 		acc.AddToolUse(&blocks.NestedToolUseBlock{
 			ID: tc2.ID, Name: tc2.Name, Input: input,
 			ParentToolCallID: tc2.ParentToolCallID, SubagentRunID: tc2.SubagentRunID,
+			Cwd: tc2.Cwd,
 		}, "tool_use:"+tc2.ID)
 	} else {
 		// 外层 cago.ToolUseBlock (ToAll)
 		acc.AddToolUse(&cagoblocks.ToolUseBlock{ID: tc2.ID, Name: tc2.Name, Input: input}, "tool_use:"+tc2.ID)
+		recordToolCwd(acc, tc2.ID, tc2.Cwd, func(b *blocks.ToolCwdBlock) { b.Cwd = tc2.Cwd })
 	}
 
 	// claudecode v2.1.x:ExitPlanMode 的 input={},plan markdown 走前一个 Write 落
@@ -57,6 +59,7 @@ func (ToolCallHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *tu
 			"subagentRunId":    tc2.SubagentRunID,
 			"canonicalKind":    string(canonical.KindOf(tc2.Canonical)),
 			"canonical":        tc2.Canonical,
+			"cwd":              tc2.Cwd,
 		})
 	}
 	return nil
@@ -93,6 +96,7 @@ func (ToolResultHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *
 			IsError:          tr.IsError,
 			ParentToolCallID: tr.ParentToolCallID,
 			SubagentRunID:    tr.SubagentRunID,
+			Cwd:              tr.Cwd,
 		})
 	} else {
 		acc.AddToolResult(&cagoblocks.ToolResultBlock{
@@ -100,6 +104,7 @@ func (ToolResultHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *
 			Content:   []cagoblocks.ContentBlock{cagoblocks.TextBlock{Text: tr.Content}},
 			IsError:   tr.IsError,
 		})
+		recordToolCwd(acc, tr.ToolCallID, tr.Cwd, func(b *blocks.ToolCwdBlock) { b.ResultCwd = tr.Cwd })
 	}
 
 	if emit != nil {
@@ -115,9 +120,26 @@ func (ToolResultHandler) Apply(ctx context.Context, ev agentruntime.Event, acc *
 			"parentToolCallId": tr.ParentToolCallID,
 			"subagentRunId":    tr.SubagentRunID,
 			"toolResultMeta":   meta,
+			"cwd":              tr.Cwd,
 		})
 	}
 	return nil
+}
+
+// recordToolCwd 把外层调用 toolCallID 的「AI 当时所在目录」记进它旁边那块
+// ToolCwdBlock:已有就就地改,没有就新落一块。cwd 为空(执行侧没报)时什么都不落 ——
+// 没有目录的轮次块序列与从前逐块相同,读回时按会话工作目录回落。
+func recordToolCwd(acc *turn.Accumulator, toolCallID, cwd string, set func(*blocks.ToolCwdBlock)) {
+	if cwd == "" {
+		return
+	}
+	key := "tool_cwd:" + toolCallID
+	if turn.Mutate(acc, key, set) {
+		return
+	}
+	b := &blocks.ToolCwdBlock{ToolCallID: toolCallID}
+	set(b)
+	acc.AddBlock(b, key)
 }
 
 // hasNestedToolUse / hasNestedToolResult:嵌套事件按 ID 去重 —— 同一条嵌套调用或结果

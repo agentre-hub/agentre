@@ -13886,8 +13886,13 @@ type ToolCall struct {
 	Canonical        []byte                 `protobuf:"bytes,4,opt,name=canonical,proto3" json:"canonical,omitempty"`
 	ParentToolCallId string                 `protobuf:"bytes,5,opt,name=parent_tool_call_id,json=parentToolCallId,proto3" json:"parent_tool_call_id,omitempty"`
 	SubagentRunId    string                 `protobuf:"bytes,6,opt,name=subagent_run_id,json=subagentRunId,proto3" json:"subagent_run_id,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The directory the AI was in when the executing side (local process or
+	// agentred) produced this call. Empty means the producer did not know it
+	// (older agentred, or a backend that does not report it yet); consumers fall
+	// back to the session's working directory.
+	Cwd           string `protobuf:"bytes,7,opt,name=cwd,proto3" json:"cwd,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ToolCall) Reset() {
@@ -13962,6 +13967,13 @@ func (x *ToolCall) GetSubagentRunId() string {
 	return ""
 }
 
+func (x *ToolCall) GetCwd() string {
+	if x != nil {
+		return x.Cwd
+	}
+	return ""
+}
+
 type ToolResult struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	ToolCallId       string                 `protobuf:"bytes,1,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
@@ -13970,8 +13982,10 @@ type ToolResult struct {
 	ParentToolCallId string                 `protobuf:"bytes,4,opt,name=parent_tool_call_id,json=parentToolCallId,proto3" json:"parent_tool_call_id,omitempty"`
 	SubagentRunId    string                 `protobuf:"bytes,5,opt,name=subagent_run_id,json=subagentRunId,proto3" json:"subagent_run_id,omitempty"`
 	Meta             []byte                 `protobuf:"bytes,6,opt,name=meta,proto3" json:"meta,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Same meaning as ToolCall.cwd, at the time this result was produced.
+	Cwd           string `protobuf:"bytes,7,opt,name=cwd,proto3" json:"cwd,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ToolResult) Reset() {
@@ -14044,6 +14058,13 @@ func (x *ToolResult) GetMeta() []byte {
 		return x.Meta
 	}
 	return nil
+}
+
+func (x *ToolResult) GetCwd() string {
+	if x != nil {
+		return x.Cwd
+	}
+	return ""
 }
 
 type ConsumedSteer struct {
@@ -21174,14 +21195,15 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"turn_token\x18\x04 \x01(\x04R\tturnToken\"T\n" +
 	"\x17TurnStartedNotification\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x10\n" +
-	"\x03seq\x18\x02 \x01(\x03R\x03seq\"\xb9\x01\n" +
+	"\x03seq\x18\x02 \x01(\x03R\x03seq\"\xcb\x01\n" +
 	"\bToolCall\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05input\x18\x03 \x01(\fR\x05input\x12\x1c\n" +
 	"\tcanonical\x18\x04 \x01(\fR\tcanonical\x12-\n" +
 	"\x13parent_tool_call_id\x18\x05 \x01(\tR\x10parentToolCallId\x12&\n" +
-	"\x0fsubagent_run_id\x18\x06 \x01(\tR\rsubagentRunId\"\xce\x01\n" +
+	"\x0fsubagent_run_id\x18\x06 \x01(\tR\rsubagentRunId\x12\x10\n" +
+	"\x03cwd\x18\a \x01(\tR\x03cwd\"\xe0\x01\n" +
 	"\n" +
 	"ToolResult\x12 \n" +
 	"\ftool_call_id\x18\x01 \x01(\tR\n" +
@@ -21190,7 +21212,8 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\bis_error\x18\x03 \x01(\bR\aisError\x12-\n" +
 	"\x13parent_tool_call_id\x18\x04 \x01(\tR\x10parentToolCallId\x12&\n" +
 	"\x0fsubagent_run_id\x18\x05 \x01(\tR\rsubagentRunId\x12\x12\n" +
-	"\x04meta\x18\x06 \x01(\fR\x04meta\"\x82\x01\n" +
+	"\x04meta\x18\x06 \x01(\fR\x04meta\x12\x10\n" +
+	"\x03cwd\x18\a \x01(\tR\x03cwd\"\x82\x01\n" +
 	"\rConsumedSteer\x12\x1b\n" +
 	"\tqueued_id\x18\x01 \x01(\tR\bqueuedId\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1f\n" +

@@ -91,9 +91,9 @@ func marshalEvent(frame *agentrewire.RuntimeEventNotification, event agentruntim
 		if string(canonicalBytes) == "null" {
 			canonicalBytes = nil
 		}
-		frame.Event = &agentrewire.RuntimeEventNotification_ToolCall{ToolCall: &agentrewire.ToolCall{Id: value.ID, Name: value.Name, Input: value.Input, Canonical: canonicalBytes, ParentToolCallId: value.ParentToolCallID, SubagentRunId: value.SubagentRunID}}
+		frame.Event = &agentrewire.RuntimeEventNotification_ToolCall{ToolCall: &agentrewire.ToolCall{Id: value.ID, Name: value.Name, Input: value.Input, Canonical: canonicalBytes, ParentToolCallId: value.ParentToolCallID, SubagentRunId: value.SubagentRunID, Cwd: value.Cwd}}
 	case agentruntime.ToolResult:
-		frame.Event = &agentrewire.RuntimeEventNotification_ToolResult{ToolResult: &agentrewire.ToolResult{ToolCallId: value.ToolCallID, Content: value.Content, IsError: value.IsError, ParentToolCallId: value.ParentToolCallID, SubagentRunId: value.SubagentRunID, Meta: value.Meta}}
+		frame.Event = &agentrewire.RuntimeEventNotification_ToolResult{ToolResult: &agentrewire.ToolResult{ToolCallId: value.ToolCallID, Content: value.Content, IsError: value.IsError, ParentToolCallId: value.ParentToolCallID, SubagentRunId: value.SubagentRunID, Meta: value.Meta, Cwd: value.Cwd}}
 	case agentruntime.SteerConsumed:
 		m := &agentrewire.SteerConsumed{}
 		for _, steer := range value.Steers {
@@ -208,10 +208,10 @@ func unmarshalEvent(frame *agentrewire.RuntimeEventNotification) (agentruntime.E
 				return nil, err
 			}
 		}
-		return agentruntime.ToolCall{ID: value.ToolCall.GetId(), Name: value.ToolCall.GetName(), Input: value.ToolCall.GetInput(), Canonical: c, ParentToolCallID: value.ToolCall.GetParentToolCallId(), SubagentRunID: value.ToolCall.GetSubagentRunId()}, nil
+		return agentruntime.ToolCall{ID: value.ToolCall.GetId(), Name: value.ToolCall.GetName(), Input: value.ToolCall.GetInput(), Canonical: c, ParentToolCallID: value.ToolCall.GetParentToolCallId(), SubagentRunID: value.ToolCall.GetSubagentRunId(), Cwd: value.ToolCall.GetCwd()}, nil
 	case *agentrewire.RuntimeEventNotification_ToolResult:
 		v := value.ToolResult
-		return agentruntime.ToolResult{ToolCallID: v.GetToolCallId(), Content: v.GetContent(), IsError: v.GetIsError(), ParentToolCallID: v.GetParentToolCallId(), SubagentRunID: v.GetSubagentRunId(), Meta: v.GetMeta()}, nil
+		return agentruntime.ToolResult{ToolCallID: v.GetToolCallId(), Content: v.GetContent(), IsError: v.GetIsError(), ParentToolCallID: v.GetParentToolCallId(), SubagentRunID: v.GetSubagentRunId(), Meta: v.GetMeta(), Cwd: v.GetCwd()}, nil
 	case *agentrewire.RuntimeEventNotification_SteerConsumed:
 		out := agentruntime.SteerConsumed{}
 		for _, steer := range value.SteerConsumed.GetSteers() {

@@ -202,7 +202,7 @@ func TestLoadSessionBlocksByType(t *testing.T) {
 		m.message.EXPECT().ListMeta(ctx, int64(6)).Return(msgs, nil)
 		m.message.EXPECT().FillBlocksByType(ctx, gomock.Any(), gomock.Any()).DoAndReturn(
 			func(_ context.Context, batch []*chat_entity.Message, types []string) error {
-				assert.Equal(t, []string{"tool_use", "subagent_state", "nested_tool_use"}, types)
+				assert.Equal(t, []string{"tool_use", "subagent_state", "nested_tool_use", "tool_cwd"}, types)
 				batch[0].BlocksJSON = "[]"
 				batch[1].BlocksJSON = `[{"type":"tool_use","data":{"id":"tu1","name":"Task",` +
 					`"input":{"run_in_background":true}}},` +
@@ -225,6 +225,29 @@ func TestLoadSessionBlocksByType(t *testing.T) {
 		assert.Equal(t, "t1", block.Subagent.TaskID)
 		assert.Equal(t, "local_agent", block.Subagent.Kind)
 		assert.Equal(t, true, block.ToolInput["run_in_background"])
+	})
+
+	t.Run("tool_use 连带取 tool_cwd,目录合进对应调用的卡;没有记录的调用目录为空", func(t *testing.T) {
+		m := setupChatTest(t)
+		ctx := context.Background()
+		msgs := []*chat_entity.Message{{ID: 1, SessionID: 8, Role: "assistant", Seq: 1}}
+		m.message.EXPECT().ListMeta(ctx, int64(8)).Return(msgs, nil)
+		m.message.EXPECT().FillBlocksByType(ctx, gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, batch []*chat_entity.Message, types []string) error {
+				assert.Contains(t, types, "tool_cwd", "少取 tool_cwd,派生视图里的每张工具卡都会丢掉所在目录")
+				batch[0].BlocksJSON = `[{"type":"tool_use","data":{"id":"tu1","name":"Bash"}},` +
+					`{"type":"tool_cwd","data":{"tool_call_id":"tu1","cwd":"/repo/wt"}},` +
+					`{"type":"tool_use","data":{"id":"tu2","name":"Bash"}}]`
+				return nil
+			}).Times(1)
+
+		resp, err := m.svc.LoadSessionBlocksByType(ctx, &chat_svc.LoadSessionBlocksByTypeRequest{
+			SessionID: 8, Types: []string{chat_svc.ChatBlockTypeToolUse},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.Messages[0].Blocks, 2, "tool_cwd 不作为独立块下行")
+		assert.Equal(t, "/repo/wt", resp.Messages[0].Blocks[0].Cwd)
+		assert.Empty(t, resp.Messages[0].Blocks[1].Cwd)
 	})
 
 	t.Run("点名之外的类型不下行", func(t *testing.T) {
