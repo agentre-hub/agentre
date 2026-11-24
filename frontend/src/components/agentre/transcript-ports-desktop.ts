@@ -22,6 +22,7 @@ import {
   runMemoryWrite,
 } from "./memory-page/memory-errors";
 import { toEntryView } from "./memory-page/to-entry-view";
+import { openWebPreview } from "./tool-windows/web-preview-store";
 
 import {
   AnswerToolApproval,
@@ -138,6 +139,12 @@ export const desktopTranscriptPorts = {
         ? url
         : await ResolveSessionURL(opts.sessionId, url);
     BrowserOpenURL(target);
+  },
+
+  // 悬浮卡的「应用内预览」：在「网页预览」工具窗里打开这条 localhost 链接并显示该窗。
+  // 远端会话的端口转发由窗口自己经 ProbeSessionWebPreview 解析，这里只递地址。
+  previewURL(sessionId, url) {
+    openWebPreview(sessionId, url);
   },
 
   async readWorkspaceFile(sessionId, path) {

@@ -33,7 +33,15 @@ import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
 import { useSessionRootStore } from "@/stores/session-root-store";
 import { useSessionTerminalsStore } from "@/stores/session-terminals-store";
-import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
+import {
+  selectIsToolWindowShown,
+  useToolWindowLayout,
+} from "@/stores/tool-window-layout-store";
+import {
+  currentUrl,
+  selectActiveTab,
+  useWebPreviewStore,
+} from "./tool-windows/web-preview-store";
 import {
   toLinkRoots,
   useDesktopTranscriptPorts,
@@ -248,6 +256,23 @@ describe("useDesktopTranscriptPorts 的 attachTerminal", () => {
         .getState()
         .tabs.filter((t) => t.meta.kind === "terminal"),
     ).toHaveLength(1);
+  });
+});
+
+describe("useDesktopTranscriptPorts 的 previewURL", () => {
+  it("Given a localhost link in a session, When previewURL is called, Then the web preview window shows and opens it, with the default open path untouched", () => {
+    useWebPreviewStore.setState({ bySession: {} });
+    const { result } = renderHook(() => useDesktopTranscriptPorts());
+
+    result.current.previewURL?.(7, "http://localhost:3000/a?x=1");
+
+    const tab = selectActiveTab(useWebPreviewStore.getState().bySession[7]);
+    expect(tab && currentUrl(tab)).toBe("http://localhost:3000/a?x=1");
+    expect(
+      selectIsToolWindowShown("webPreview")(useToolWindowLayout.getState()),
+    ).toBe(true);
+    expect(BrowserOpenURL).not.toHaveBeenCalled();
+    expect(ResolveSessionURL).not.toHaveBeenCalled();
   });
 });
 

@@ -99,6 +99,7 @@ import { NewSessionExecTargetLine } from "./session-exec-target";
 import { deriveBackgroundTasks } from "./background-tasks/derive";
 import type { SessionProcess } from "./background-tasks/types";
 import { useSessionProcesses } from "./background-tasks/use-session-processes";
+import { openWebPreview } from "./tool-windows/web-preview-store";
 import { usePanelShown } from "./chat-panel/panel-shown";
 import { deriveTaskProgress } from "./task-progress/derive";
 import { TaskProgressBar } from "./task-progress/task-progress-bar";
@@ -1158,6 +1159,7 @@ function ChatPanel({
           onCwdSpecified={reloadAfterChange}
           onJumpToMessage={handleJumpToMessage}
           sessionInfo={sessionInfoInput}
+          processes={sessionProcesses}
           hidden={Boolean(showNewSessionPrompt)}
         >
           <EditorSplit
@@ -1191,6 +1193,9 @@ function ChatPanel({
                   processes={sessionProcesses}
                   onOpenProcess={(_process, port) =>
                     void handleOpenProcess(port)
+                  }
+                  onPreviewProcess={(_process, port) =>
+                    openWebPreview(sessionId, `http://localhost:${port}/`)
                   }
                   onKillProcess={handleKillProcess}
                   onProcessesOpenChange={handleProcessesOpenChange}

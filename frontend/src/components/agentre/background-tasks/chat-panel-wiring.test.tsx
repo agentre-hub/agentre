@@ -10,6 +10,16 @@ import { act, render as rtlRender } from "@testing-library/react";
 import * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  selectIsToolWindowShown,
+  useToolWindowLayout,
+} from "@/stores/tool-window-layout-store";
+
+import {
+  currentUrl,
+  selectActiveTab,
+  useWebPreviewStore,
+} from "../tool-windows/web-preview-store";
 import type { BackgroundTask, SessionProcess } from "./types";
 
 const runtimeMocks = vi.hoisted(() => ({ BrowserOpenURL: vi.fn() }));
@@ -40,6 +50,7 @@ const appMocks = vi.hoisted(() => ({
   StopBackgroundTask: vi.fn(),
   KillSessionProcess: vi.fn(),
   OpenSessionProcessPort: vi.fn(),
+  ProbeSessionWebPreview: vi.fn(() => new Promise(() => {})),
   GetSessionGitState: vi.fn().mockResolvedValue({
     state: {
       branch: "",
@@ -305,5 +316,24 @@ describe("ChatPanel · background tasks popover wiring", () => {
         "http://localhost:9229",
       ),
     );
+  });
+  // 「应用内预览」：弹层点的端口交给网页预览窗在本窗口打开并显示它，默认的浏览器打开不动。
+  it("Given a process with a port, When the popover previews it in app, Then the web preview window opens that localhost address and the browser is not used", () => {
+    useWebPreviewStore.setState({ bySession: {} });
+    render(<ChatPanel sessionId={42} />);
+    const onPreview =
+      lastHeaderProp<(p: SessionProcess, port: number) => void>(
+        "onPreviewProcess",
+      );
+
+    act(() => onPreview(proc, 9229));
+
+    const tab = selectActiveTab(useWebPreviewStore.getState().bySession[42]);
+    expect(tab && currentUrl(tab)).toBe("http://localhost:9229/");
+    expect(
+      selectIsToolWindowShown("webPreview")(useToolWindowLayout.getState()),
+    ).toBe(true);
+    expect(appMocks.OpenSessionProcessPort).not.toHaveBeenCalled();
+    expect(runtimeMocks.BrowserOpenURL).not.toHaveBeenCalled();
   });
 });

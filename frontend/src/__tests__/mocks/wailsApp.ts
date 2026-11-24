@@ -220,6 +220,17 @@ export const OpenSessionProcessPort = windowBackedMock(
   "OpenSessionProcessPort",
   () => Promise.resolve(""),
 );
+export const ProbeSessionWebPreview = windowBackedMock(
+  "ProbeSessionWebPreview",
+  (_sessionId: unknown, url: unknown) =>
+    Promise.resolve({
+      url,
+      forwarded: false,
+      embeddable: true,
+      reason: "",
+      detail: "",
+    }),
+);
 export const ResolveLocalCommandScope = typedWindowBackedMock<
   [request: ResolveLocalCommandScopeRequest],
   Promise<LocalCommandScope>

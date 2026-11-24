@@ -197,7 +197,7 @@ beforeEach(() => {
 });
 
 describe("「变更」工具窗 · 图标条", () => {
-  it("图标条上是大纲 / 变更 / 目录 / 关联 / 会话信息 / 终端六个工具窗，Git 不是其中之一；变更带当前档的文件数", () => {
+  it("图标条上是大纲 / 变更 / 网页预览 / 目录 / 关联 / 会话信息 / 终端七个工具窗，Git 不是其中之一；变更带当前档的文件数", () => {
     renderSidebar();
 
     const toolbar = screen.getByRole("toolbar", { name: "Tool windows" });
@@ -208,6 +208,7 @@ describe("「变更」工具窗 · 图标条", () => {
     ).toEqual([
       "Outline",
       "Changes",
+      "Web preview",
       "Directory",
       "Relations",
       "Session info",
@@ -230,6 +231,8 @@ describe("「变更」工具窗 · 图标条", () => {
     stripButton("Outline").focus();
     await user.keyboard("{ArrowDown}");
     expect(stripButton("Changes")).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(stripButton("Web preview")).toHaveFocus();
     await user.keyboard("{ArrowDown}");
     expect(stripButton("Directory")).toHaveFocus();
     await user.keyboard("{ArrowDown}");

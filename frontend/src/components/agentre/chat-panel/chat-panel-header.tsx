@@ -41,6 +41,7 @@ type ChatPanelHeaderProps = {
   backgroundTasks: BackgroundTask[];
   processes?: SessionProcess[];
   onOpenProcess?: (process: SessionProcess, port: number) => void;
+  onPreviewProcess?: (process: SessionProcess, port: number) => void;
   onKillProcess?: (process: SessionProcess) => void | Promise<void>;
   onProcessesOpenChange?: (open: boolean) => void;
   onClearCompletedTasks: () => void;
@@ -75,6 +76,7 @@ function ChatPanelHeader({
   backgroundTasks,
   processes,
   onOpenProcess,
+  onPreviewProcess,
   onKillProcess,
   onProcessesOpenChange,
   onClearCompletedTasks,
@@ -203,6 +205,7 @@ function ChatPanelHeader({
                 tasks={backgroundTasks}
                 processes={processes}
                 onOpenProcess={onOpenProcess}
+                onPreviewProcess={onPreviewProcess}
                 onKillProcess={onKillProcess}
                 onOpenChange={onProcessesOpenChange}
                 onClearCompleted={onClearCompletedTasks}

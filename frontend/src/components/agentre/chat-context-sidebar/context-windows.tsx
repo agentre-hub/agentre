@@ -9,6 +9,7 @@ import {
 } from "../tool-windows/session-info-tool-window";
 import { TerminalToolWindow } from "../tool-windows/terminal-tool-window";
 import type { SessionRelations } from "../tool-windows/use-session-relations";
+import { WebPreviewToolWindow } from "../tool-windows/web-preview-tool-window";
 
 import type { ChangeRow, OutlineItem } from "./derive";
 import { ChangesPanel } from "./views/changes-panel";
@@ -155,4 +156,16 @@ export function RelationsToolWindowEntry() {
 export function SessionInfoToolWindowEntry() {
   const { sessionId, sessionInfo } = useChatContextData();
   return <SessionInfoToolWindow sessionId={sessionId} info={sessionInfo} />;
+}
+
+/** 「网页预览」工具窗：会话监听的端口成标签；远端会话标出执行设备。 */
+export function WebPreviewToolWindowEntry() {
+  const { sessionId, remote, sessionInfo } = useChatContextData();
+  return (
+    <WebPreviewToolWindow
+      sessionId={sessionId}
+      remote={remote}
+      deviceName={sessionInfo.session?.deviceName ?? ""}
+    />
+  );
 }

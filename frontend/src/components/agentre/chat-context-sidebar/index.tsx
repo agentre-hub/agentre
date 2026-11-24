@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   FolderTree,
   GitCompareArrows,
+  Globe,
   Info,
   Link2,
   ListTree,
@@ -29,6 +30,8 @@ import type { ToolWindowDefinition } from "../tool-windows/types";
 import type { SessionInfoData } from "../tool-windows/session-info-tool-window";
 import { sumSessionUsage } from "../tool-windows/session-usage";
 import { useSessionRelations } from "../tool-windows/use-session-relations";
+import { useWebPreviewStore } from "../tool-windows/web-preview-store";
+import type { SessionProcess } from "../background-tasks/types";
 
 import {
   ChangesToolWindow,
@@ -38,6 +41,7 @@ import {
   RelationsToolWindowEntry,
   SessionInfoToolWindowEntry,
   TerminalToolWindowEntry,
+  WebPreviewToolWindowEntry,
   WorkRootChangeCountsContext,
   type ChatContextData,
 } from "./context-windows";
@@ -67,6 +71,11 @@ type Props = {
    * 一层从 messages 派生。缺省 = 还没有会话详情，窗口里只剩不依赖它的行。
    */
   sessionInfo?: Omit<SessionInfoData, "turns" | "usage">;
+  /**
+   * 会话留下的存活进程（与后台弹层「进程与端口」同一份）。监听中的端口自动成「网页预览」
+   * 的标签；窗口没打开时也同步，打开时标签已就绪。
+   */
+  processes?: readonly SessionProcess[];
   /** 新建会话提示页：不显示图标条与工具窗（见 ToolWindowLayout）。 */
   hidden?: boolean;
   /** 编辑区（对话内容页与文件预览列），由工具窗骨架摆在左边。 */
@@ -83,6 +92,8 @@ type Props = {
  * 会话当前工作根是会话级的（useSessionRoot，标题栏胶囊是唯一切换点）：这一层
  * 挂着它的取数与推送订阅（useSessionRootSync），「变更」「目录」都按它取数。
  */
+const NO_PROCESSES: readonly SessionProcess[] = [];
+
 function ChatContextToolWindowsImpl({
   sessionId,
   messages,
@@ -94,6 +105,7 @@ function ChatContextToolWindowsImpl({
   projectId,
   onCwdSpecified,
   sessionInfo: sessionInfoInput,
+  processes = NO_PROCESSES,
   hidden = false,
   children,
 }: Props) {
@@ -294,6 +306,22 @@ function ChatContextToolWindowsImpl({
     ],
   );
 
+  // 监听中的端口 → 网页预览的标签。一个端口只取第一个监听它的进程的命令。
+  const syncPorts = useWebPreviewStore((s) => s.syncPorts);
+  React.useEffect(() => {
+    if (hidden) return;
+    const seen = new Set<number>();
+    const entries: { port: number; command: string }[] = [];
+    for (const p of processes) {
+      for (const port of p.ports) {
+        if (seen.has(port)) continue;
+        seen.add(port);
+        entries.push({ port, command: p.command });
+      }
+    }
+    syncPorts(sessionId, entries);
+  }, [hidden, processes, sessionId, syncPorts]);
+
   // 图标条上终端图标的运行中圆点：本会话有存活的终端进程。
   const terminalRunning = useSessionTerminalsStore((s) =>
     hasLiveSessionTerminal(s.bySession[sessionId]),
@@ -319,6 +347,12 @@ function ChatContextToolWindowsImpl({
         label: t("chatContext.directory.label"),
         icon: FolderTree,
         content: <DirectoryToolWindow />,
+      },
+      {
+        id: "webPreview",
+        label: t("webPreviewToolWindow.label"),
+        icon: Globe,
+        content: <WebPreviewToolWindowEntry />,
       },
       {
         id: "relations",

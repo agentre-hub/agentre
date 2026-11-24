@@ -152,6 +152,11 @@ export interface TranscriptPorts {
     url: string,
     opts?: { sessionId?: number },
   ): void | Promise<void>;
+  /**
+   * 在宿主的应用内网页预览里打开这条 URL（桌面端的「网页预览」工具窗）。只对指向 localhost
+   * 的链接提供入口；宿主不提供时（agentre-server）浮窗里不渲染「应用内预览」。
+   */
+  previewURL?(sessionId: number, url: string): void;
   /** 读工作区文件（转录里内联图片需要）。 */
   readWorkspaceFile?(sessionId: number, path: string): Promise<ReadFileResult>;
   /** 把一条本地命令挂到终端标签上。纯桌面能力。 */

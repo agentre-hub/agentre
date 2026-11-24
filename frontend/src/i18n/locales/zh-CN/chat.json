@@ -353,6 +353,8 @@
       "noPort": "无监听端口",
       "openPort": "在浏览器打开",
       "openPortNumber": "在浏览器打开 :{{port}}",
+      "previewPort": "应用内预览",
+      "previewPortNumber": "应用内预览 :{{port}}",
       "killProcess": "结束进程",
       "killProcessConfirm": "结束？",
       "killedProcess": "已结束 {{command}}",
@@ -583,5 +585,29 @@
     "noReply": "还没有回复",
     "overlapOne": "也改了 {{file}}",
     "overlapMany": "也改了 {{file}} 等 {{count}} 个文件"
+  },
+  "webPreviewToolWindow": {
+    "label": "网页预览",
+    "empty": "还没有监听中的端口。启动开发服务后会自动出现标签。",
+    "address": "地址",
+    "back": "后退",
+    "refresh": "刷新",
+    "openInBrowser": "在浏览器打开",
+    "fill": "占满编辑区",
+    "restore": "还原",
+    "closeTab": "关闭标签",
+    "loading": "加载中…",
+    "invalidUrl": "请输入 http 或 https 地址。",
+    "forwarded": "{{device}} · 经端口转发",
+    "portGone": "这个端口已不再监听",
+    "reload": "重新加载",
+    "openForwardSettings": "打开端口转发设置",
+    "reasons": {
+      "frameBlocked": "这个页面无法在应用内显示：目标站禁止被嵌入（{{detail}}）。",
+      "certificate": "证书校验失败：{{detail}}",
+      "forwardFailed": "端口转发没能连上 https 目标，可能是证书没有通过校验。",
+      "unreachable": "无法访问这个页面：{{detail}}",
+      "noLoad": "页面没有加载出来，可能无法访问或响应太慢。"
+    }
   }
 }

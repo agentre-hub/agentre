@@ -129,6 +129,56 @@ describe("BackgroundTasksPopoverContent processes", () => {
     expect(onOpen).toHaveBeenCalledWith(single, 5391);
   });
 
+  // 「应用内预览」：每个端口一颗，点了把该端口交给宿主；默认的「打开」不受影响。
+  it("Given onPreviewProcess, When a port's in-app preview is clicked, Then the host gets that port and the default open is not called", async () => {
+    const onOpen = vi.fn();
+    const onPreview = vi.fn();
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[]}
+        processes={[vite]}
+        onOpenProcess={onOpen}
+        onPreviewProcess={onPreview}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Preview :5392 in app" }),
+    );
+    expect(onPreview).toHaveBeenCalledExactlyOnceWith(vite, 5392);
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Open :5391 in browser" }),
+    ).toBeInTheDocument();
+  });
+
+  it("Given a single-port process and onPreviewProcess, Then one in-app preview button previews that port", async () => {
+    const onPreview = vi.fn();
+    const single = { ...vite, ports: [5391] };
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[]}
+        processes={[single, tail]}
+        onOpenProcess={vi.fn()}
+        onPreviewProcess={onPreview}
+      />,
+    );
+    const buttons = screen.getAllByRole("button", { name: "Preview in app" });
+    expect(buttons).toHaveLength(1);
+    await userEvent.click(buttons[0]);
+    expect(onPreview).toHaveBeenCalledWith(single, 5391);
+  });
+
+  it("Given no onPreviewProcess, Then no in-app preview button is rendered", () => {
+    render(
+      <BackgroundTasksPopoverContent
+        tasks={[]}
+        processes={[vite]}
+        onOpenProcess={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /Preview/ })).toBeNull();
+  });
+
   it("Given no callbacks, When rendered, Then no action buttons appear and rows are not clickable", () => {
     render(<BackgroundTasksPopoverContent tasks={[]} processes={[vite]} />);
     expect(screen.queryByRole("button")).toBeNull();

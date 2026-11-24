@@ -353,6 +353,8 @@
       "noPort": "No listening port",
       "openPort": "Open in browser",
       "openPortNumber": "Open :{{port}} in browser",
+      "previewPort": "Preview in app",
+      "previewPortNumber": "Preview :{{port}} in app",
       "killProcess": "Stop process",
       "killProcessConfirm": "Stop?",
       "killedProcess": "Stopped {{command}}",
@@ -583,5 +585,29 @@
     "noReply": "No reply yet",
     "overlapOne": "Also edited {{file}}",
     "overlapMany": "Also edited {{file}} and {{count}} files in all"
+  },
+  "webPreviewToolWindow": {
+    "label": "Web preview",
+    "empty": "No listening ports yet. A tab appears when a dev server starts.",
+    "address": "Address",
+    "back": "Back",
+    "refresh": "Refresh",
+    "openInBrowser": "Open in browser",
+    "fill": "Fill editor",
+    "restore": "Restore",
+    "closeTab": "Close tab",
+    "loading": "Loading…",
+    "invalidUrl": "Enter an http or https address.",
+    "forwarded": "{{device}} · via port forward",
+    "portGone": "This port is no longer listening",
+    "reload": "Reload",
+    "openForwardSettings": "Open port forwarding settings",
+    "reasons": {
+      "frameBlocked": "This page can't be shown in the app: the site doesn't allow embedding ({{detail}}).",
+      "certificate": "The certificate failed verification: {{detail}}",
+      "forwardFailed": "The port forward couldn't reach the https target. The certificate may have failed verification.",
+      "unreachable": "The page can't be reached: {{detail}}",
+      "noLoad": "The page did not load. It may be unreachable or too slow."
+    }
   }
 }

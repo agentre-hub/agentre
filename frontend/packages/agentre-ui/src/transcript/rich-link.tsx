@@ -5,6 +5,7 @@ import {
   FileText,
   Folder,
   Link as LinkIcon,
+  PanelRight,
 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
@@ -230,6 +231,19 @@ function openURL(
   });
 }
 
+/** 指向本机环回（localhost / 127.0.0.1 / ::1）的 http(s) 地址。 */
+function isLoopbackURL(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return (
+      (u.protocol === "http:" || u.protocol === "https:") &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function openLocalInternal(
   kind: Extract<LinkClass, { kind: "local-internal" }>,
   t: TFunction,
@@ -383,10 +397,13 @@ function LinkPopover({
   kind,
   opposite,
   onOpposite,
+  onPreviewURL,
 }: {
   kind: Exclude<LinkClass, { kind: "unknown" }>;
   opposite: "preview" | "external" | null;
   onOpposite: () => void;
+  /** 只有宿主提供了应用内网页预览、且这是一条 localhost 链接时才有。 */
+  onPreviewURL: (() => void) | null;
 }) {
   const { t } = useUiTranslation();
   const Icon =
@@ -452,6 +469,18 @@ function LinkPopover({
         >
           <Eye className="size-3.5" aria-hidden />
           {t("richLink.openPreview")}
+        </button>
+      ) : null}
+      {onPreviewURL ? (
+        <button
+          type="button"
+          aria-label={t("richLink.previewInApp")}
+          title={t("richLink.previewInApp")}
+          className={POPOVER_BUTTON}
+          onClick={onPreviewURL}
+        >
+          <PanelRight className="size-3.5" aria-hidden />
+          {t("richLink.previewInApp")}
         </button>
       ) : null}
       <button
@@ -546,6 +575,17 @@ export function RichLink({
     else forcePreview(kind, ports, sessionId);
   };
 
+  const onPreviewURL =
+    kind.kind === "url" &&
+    sessionId !== undefined &&
+    ports.previewURL !== undefined &&
+    isLoopbackURL(kind.url)
+      ? () => {
+          setOpen(false);
+          ports.previewURL?.(sessionId, kind.url);
+        }
+      : null;
+
   return (
     <HoverCard
       open={open}
@@ -575,7 +615,12 @@ export function RichLink({
         </a>
       </HoverCardTrigger>
       <HoverCardContent className="w-auto min-w-64 max-w-[min(28rem,calc(100vw-2rem))] p-1.5">
-        <LinkPopover kind={kind} opposite={opposite} onOpposite={onOpposite} />
+        <LinkPopover
+          kind={kind}
+          opposite={opposite}
+          onOpposite={onOpposite}
+          onPreviewURL={onPreviewURL}
+        />
       </HoverCardContent>
     </HoverCard>
   );

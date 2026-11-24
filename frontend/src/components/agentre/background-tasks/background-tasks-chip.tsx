@@ -29,6 +29,7 @@ type BackgroundTasksChipProps = {
   // 会话留下的存活进程;有进程时按钮即使没有运行中的任务也保留。
   processes?: SessionProcess[];
   onOpenProcess?: (process: SessionProcess, port: number) => void;
+  onPreviewProcess?: (process: SessionProcess, port: number) => void;
   onKillProcess?: PendingAction<SessionProcess>;
   // 弹层每次打开 / 收起都回调,宿主据此立刻刷新进程列表。
   onOpenChange?: (open: boolean) => void;
@@ -45,6 +46,7 @@ export function BackgroundTasksChip({
   onLocateTask,
   processes,
   onOpenProcess,
+  onPreviewProcess,
   onKillProcess,
   onOpenChange,
 }: BackgroundTasksChipProps) {
@@ -195,6 +197,7 @@ export function BackgroundTasksChip({
           onStopTask={onStopTask}
           processes={processes}
           onOpenProcess={onOpenProcess}
+          onPreviewProcess={onPreviewProcess}
           onKillProcess={onKillProcess}
           onLocateTask={
             onLocateTask &&
