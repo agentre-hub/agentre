@@ -1267,7 +1267,7 @@ describe("useChatSession block windowing", () => {
 
     expect(loadChatSessionBlocksByType).toHaveBeenCalledWith({
       sessionId: 9,
-      types: ["text", "tool_use"],
+      types: ["text", "tool_use", "plan"],
     });
     // 窗口外那条:后台任务面板看得见它的 tool_use 卡,但它仍不是「正文已就绪」。
     expect(result.current.messages[0].blocks?.[0].toolUseId).toBe("tu1");
