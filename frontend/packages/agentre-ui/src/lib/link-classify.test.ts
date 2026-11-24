@@ -338,3 +338,68 @@ describe("classifyLink", () => {
     });
   });
 });
+
+describe("classifyLink with work roots", () => {
+  const PRIMARY = { path: "/repo", name: "repo", primary: true };
+  const NESTED = { path: "/repo/.claude/worktrees/x", name: "x" };
+  const SIBLING = { path: "/repo-wt", name: "repo-wt" };
+  const ROOTS = [PRIMARY, NESTED, SIBLING];
+
+  it("Given a relative path and the AI's directory, When classified, Then it joins onto that directory and belongs to the root containing it", () => {
+    expect(
+      classifyLink("src/a.ts:3", { cwd: "/repo-wt/pkg", roots: ROOTS }),
+    ).toEqual({
+      kind: "local-internal",
+      fullPath: "/repo-wt/pkg/src/a.ts",
+      pathKind: "file",
+      relPath: "pkg/src/a.ts",
+      root: SIBLING,
+      line: 3,
+    });
+  });
+
+  it("Given an absolute path inside a nested worktree, When classified, Then the deepest root owns it", () => {
+    expect(
+      classifyLink("/repo/.claude/worktrees/x/a.ts", {
+        cwd: "/repo",
+        roots: ROOTS,
+      }),
+    ).toMatchObject({ kind: "local-internal", relPath: "a.ts", root: NESTED });
+  });
+
+  it("Given an absolute path outside every root, When classified, Then it is external", () => {
+    expect(
+      classifyLink("/repo-other/a.ts", { cwd: "/repo", roots: ROOTS }),
+    ).toMatchObject({ kind: "local-external", fullPath: "/repo-other/a.ts" });
+  });
+
+  it("Given a root itself, When classified, Then it is that root's folder", () => {
+    expect(
+      classifyLink("/repo-wt", { cwd: "/repo", roots: ROOTS }),
+    ).toMatchObject({
+      kind: "local-internal",
+      relPath: "",
+      pathKind: "folder",
+      root: SIBLING,
+    });
+  });
+
+  it("Given a home-anchored path, When classified with roots, Then it stays external", () => {
+    expect(
+      classifyLink("~/repo/a.ts", { cwd: "/repo", roots: ROOTS }),
+    ).toMatchObject({ kind: "local-external", fullPath: "~/repo/a.ts" });
+  });
+
+  it("Given Windows roots, When the agent writes a different drive-letter case, Then the root still owns it", () => {
+    const root = { path: "C:\\work\\repo-wt", name: "repo-wt" };
+    expect(
+      classifyLink("c:/work/repo-wt/a.ts", { roots: [root] }),
+    ).toMatchObject({ kind: "local-internal", relPath: "a.ts", root });
+  });
+
+  it("Given the options form without roots, When classified, Then it equals the plain cwd form", () => {
+    for (const href of ["src/a.ts:3", "/Users/me/proj/a.ts", "/elsewhere/a"]) {
+      expect(classifyLink(href, { cwd: CWD })).toEqual(classifyLink(href, CWD));
+    }
+  });
+});

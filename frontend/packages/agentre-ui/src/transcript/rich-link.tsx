@@ -7,6 +7,7 @@ import {
   Link as LinkIcon,
 } from "lucide-react";
 import * as React from "react";
+import { toast } from "sonner";
 import { useUiTranslation } from "../i18n";
 import type { TFunction } from "i18next";
 
@@ -18,18 +19,32 @@ import {
 import { cn } from "../lib/utils";
 import { copyTextWithToast } from "../lib/clipboard-toast";
 import type { PreviewAnchor } from "../file-preview/anchor";
-import { classifyLink, type LinkClass } from "../lib/link-classify";
+import {
+  classifyLink,
+  type ClassifyLinkOptions,
+  HOME_ANCHORED,
+  type LinkClass,
+  type LinkRoot,
+} from "../lib/link-classify";
 import { previewKind } from "../lib/previewable";
 import { toastOpenPathFailure } from "./open-path-failure";
 import { useTranscriptPorts } from "./ports-context";
-import { type SessionLocation, useSessionLocation } from "./session-location";
-import type { TranscriptPorts } from "./ports";
+import {
+  type SessionLocation,
+  useItemCwd,
+  useSessionLocation,
+  useSessionRoots,
+} from "./session-location";
+import type { PreviewFileTarget, TranscriptPorts } from "./ports";
 
 const HOVER_OPEN_DELAY_MS = 200;
 const HOVER_CLOSE_DELAY_MS = 200;
 
 /**
- * 这条链接能不能交给内置预览,以及交的是哪条会话级 relPath。null = 不能。
+ * 这条链接能不能交给内置预览,以及交给宿主的是哪个目标。null = 不能。
+ *
+ * 归属了某个工作根(`kind.root`,只在宿主给了根时出现)就交 `{ root, path }`;
+ * 否则交今天的会话级 relPath 字符串。
  *
  * 「在不在 cwd 内」只判一次:classifyLink 已经判过了,`local-internal` 的
  * `relPath` 就是它的答案,也是 popover 里显示给用户的那一条。分流处不再拿第二个
@@ -42,10 +57,12 @@ const HOVER_CLOSE_DELAY_MS = 200;
  * ——内置预览渲染不了的类型一律不进这条路。空串 relPath(链接指向 cwd 本身)同样
  * 不是一个可预览的文件。
  */
-function previewRelPath(kind: LinkClass): string | null {
+function previewTarget(kind: LinkClass): string | PreviewFileTarget | null {
   if (kind.kind !== "local-internal") return null;
   if (kind.relPath === "" || previewKind(kind.relPath) === null) return null;
-  return kind.relPath;
+  return kind.root
+    ? { root: kind.root.path, path: kind.relPath }
+    : kind.relPath;
 }
 
 /**
@@ -152,9 +169,9 @@ function forcePreview(
   ports: TranscriptPorts,
   sessionId: number | undefined,
 ) {
-  const relPath = previewRelPath(kind);
-  if (relPath === null || sessionId === undefined) return;
-  ports.previewFile?.(sessionId, relPath, previewAnchor(kind), {
+  const target = previewTarget(kind);
+  if (target === null || sessionId === undefined) return;
+  ports.previewFile?.(sessionId, target, previewAnchor(kind), {
     force: true,
   });
 }
@@ -167,7 +184,7 @@ function canPreviewLink(
   return (
     typeof ports.previewFile === "function" &&
     sessionId !== undefined &&
-    previewRelPath(kind) !== null
+    previewTarget(kind) !== null
   );
 }
 
@@ -189,8 +206,97 @@ function openWithExternalApp(
   });
 }
 
+/**
+ * 外部浏览器打开 URL。带上会话号:远端会话里的 localhost 链接要经端口转发才够得到
+ * 执行设备上的服务,改写由宿主做。宿主那边失败(设备离线、转发建不起来)照实说,
+ * 不吞掉。
+ */
+function openURL(
+  url: string,
+  t: TFunction,
+  ports: TranscriptPorts,
+  sessionId: number | undefined,
+) {
+  const opened =
+    sessionId === undefined
+      ? ports.openExternalURL?.(url)
+      : ports.openExternalURL?.(url, { sessionId });
+  opened?.catch((err: unknown) => {
+    toast.error(
+      t("richLink.openFailed", {
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  });
+}
+
+function openLocalInternal(
+  kind: Extract<LinkClass, { kind: "local-internal" }>,
+  t: TFunction,
+  ports: TranscriptPorts,
+  sessionId: number | undefined,
+  location: SessionLocation | undefined,
+) {
+  // 判定见 previewTarget:判定不通过(扩展名不在内置预览的 allowlist)一律
+  // 交给外部应用,与设置无关。判定通过时才去问宿主的 previewFile——设置读取
+  // 留在宿主那一侧(见 ports.ts),这里只认它的布尔回执:true 表示宿主已接手,
+  // 不再退回 openPath;false / 端口缺失都退回今天的外部打开路线,字节不变
+  // (含 line:col 后缀)。
+  const target = previewTarget(kind);
+  const anchor = previewAnchor(kind);
+  const tookOver =
+    target !== null &&
+    sessionId !== undefined &&
+    (anchor === undefined
+      ? (ports.previewFile?.(sessionId, target) ?? false)
+      : (ports.previewFile?.(sessionId, target, anchor) ?? false));
+  if (tookOver) return;
+  openWithExternalApp(kind, t, ports, sessionId, location);
+}
+
+/**
+ * 不在任何已认领根内的绝对路径,点击即请宿主认领(spec 决策 20:点击是明确意图)。
+ * 认领后落进某个根就按根内文件处理;认领不成立(宿主 reject、或集合里仍没有包含
+ * 它的根)按今天的外部文件处理。只在宿主给了根、且提供认领能力时走这条路。
+ */
+async function claimThenOpen(
+  kind: Extract<LinkClass, { kind: "local-external" }>,
+  res: ClassifyLinkOptions,
+  t: TFunction,
+  ports: TranscriptPorts,
+  sessionId: number,
+  location: SessionLocation | undefined,
+) {
+  const roots = await Promise.resolve(
+    ports.claimPath?.(sessionId, kind.fullPath),
+  ).catch(() => undefined);
+  const claimed = roots
+    ? classifyLink(fullTarget(kind), { ...res, roots })
+    : null;
+  if (claimed?.kind === "local-internal") {
+    openLocalInternal(claimed, t, ports, sessionId, location);
+    return;
+  }
+  openWithExternalApp(kind, t, ports, sessionId, location);
+}
+
+function canClaim(
+  kind: Extract<LinkClass, { kind: "local-external" }>,
+  res: ClassifyLinkOptions,
+  ports: TranscriptPorts,
+  sessionId: number | undefined,
+): sessionId is number {
+  return (
+    res.roots !== undefined &&
+    typeof ports.claimPath === "function" &&
+    sessionId !== undefined &&
+    !HOME_ANCHORED.test(kind.fullPath)
+  );
+}
+
 function dispatchClick(
   kind: LinkClass,
+  res: ClassifyLinkOptions,
   t: TFunction,
   ports: TranscriptPorts,
   sessionId: number | undefined,
@@ -198,27 +304,16 @@ function dispatchClick(
 ) {
   switch (kind.kind) {
     case "url":
-      ports.openExternalURL?.(kind.url);
+      openURL(kind.url, t, ports, sessionId);
       return;
-    case "local-internal": {
-      // 判定见 previewRelPath:判定不通过(扩展名不在内置预览的 allowlist)一律
-      // 交给外部应用,与设置无关。判定通过时才去问宿主的 previewFile——设置读取
-      // 留在宿主那一侧(见 ports.ts),这里只认它的布尔回执:true 表示宿主已接手,
-      // 不再退回 openPath;false / 端口缺失都退回今天的外部打开路线,字节不变
-      // (含 line:col 后缀)。
-      const relPath = previewRelPath(kind);
-      const anchor = previewAnchor(kind);
-      const tookOver =
-        relPath !== null &&
-        sessionId !== undefined &&
-        (anchor === undefined
-          ? (ports.previewFile?.(sessionId, relPath) ?? false)
-          : (ports.previewFile?.(sessionId, relPath, anchor) ?? false));
-      if (tookOver) return;
-      openWithExternalApp(kind, t, ports, sessionId, location);
+    case "local-internal":
+      openLocalInternal(kind, t, ports, sessionId, location);
       return;
-    }
     case "local-external":
+      if (canClaim(kind, res, ports, sessionId)) {
+        void claimThenOpen(kind, res, t, ports, sessionId, location);
+        return;
+      }
       openWithExternalApp(kind, t, ports, sessionId, location);
       return;
     case "unknown":
@@ -259,6 +354,17 @@ function PopoverPath({ text, split }: { text: string; split: boolean }) {
 const POPOVER_BUTTON =
   "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:focus-outline";
 
+/** 根名标签：宿主给的名字，缺省取路径最后一段。 */
+function rootName(root: LinkRoot): string {
+  if (root.name) return root.name;
+  return (
+    root.path
+      .replace(/[\\/]+$/, "")
+      .split(/[\\/]/)
+      .pop() || root.path
+  );
+}
+
 function lineLabel(kind: LinkClass): string | null {
   if (kind.kind !== "local-internal" && kind.kind !== "local-external")
     return null;
@@ -296,6 +402,12 @@ function LinkPopover({
         ? kind.relPath
         : kind.fullPath;
   const line = lineLabel(kind);
+  // 归属的根不是会话主根时，路径前标出根名：同一个 src/a.ts 在不同 checkout 里
+  // 是不同的文件。
+  const root =
+    kind.kind === "local-internal" && kind.root && !kind.root.primary
+      ? kind.root
+      : null;
   const copyLabel =
     kind.kind === "url" ? t("richLink.copyLink") : t("richLink.copyPath");
   return (
@@ -304,6 +416,15 @@ function LinkPopover({
       className="flex min-w-0 items-center gap-1.5"
     >
       <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      {root ? (
+        <span
+          data-testid="rich-link-popover-root"
+          title={t("richLink.workRootTitle", { path: root.path })}
+          className="max-w-32 shrink-0 truncate rounded bg-secondary px-1 font-mono text-3xs text-muted-foreground"
+        >
+          {rootName(root)}
+        </span>
+      ) : null}
       <PopoverPath text={text} split={kind.kind !== "url"} />
       {line ? (
         <span className="shrink-0 rounded bg-secondary px-1 font-mono text-3xs text-muted-foreground">
@@ -356,7 +477,16 @@ export function RichLink({
   const { t } = useUiTranslation();
   const ports = useTranscriptPorts();
   const location = useSessionLocation();
-  const kind = React.useMemo(() => classifyLink(href, cwd), [href, cwd]);
+  const roots = useSessionRoots();
+  const itemCwd = useItemCwd();
+  // 链接怎么解析:宿主给了工作根(桌面端)时按「AI 当时所在目录」补全、按最深的根
+  // 归属;没给(agentre-server)时只按会话工作目录 —— 今天的行为,一个字节不变。
+  // 预览、复制路径、系统打开都从这一份解析结果出发。
+  const res = React.useMemo<ClassifyLinkOptions>(
+    () => (roots ? { cwd: itemCwd ?? cwd, roots } : { cwd }),
+    [roots, itemCwd, cwd],
+  );
+  const kind = React.useMemo(() => classifyLink(href, res), [href, res]);
   const [open, setOpen] = React.useState(false);
 
   if (kind.kind === "unknown") {
@@ -378,8 +508,8 @@ export function RichLink({
 
   // 「入口不渲染」而不是「渲染出来点了没反应」(spec「入口与可用性」)。判据是
   // 「这条路径在这台宿主上到底有没有一个去处」,而不是「它可不可预览」:
-  //   - 内置预览:要 previewFile,且这条链接有一条可预览的 relPath(见
-  //     previewRelPath —— 与点下去真正分流用的是同一个判定,不是另判一遍);
+  //   - 内置预览:要 previewFile,且这条链接有一个可预览的目标(见
+  //     previewTarget —— 与点下去真正分流用的是同一个判定,不是另判一遍);
   //   - 外部应用:要 openPath —— 桌面端的退路,浏览器里根本没有这个去向。
   // 两条都不成立时它就不该看起来能点。控制台里 allowlist 外的路径(「它没有
   // 『交给外部应用』这条退路」)与越出 cwd 的路径都落在这里。这条判定只看端口
@@ -395,7 +525,7 @@ export function RichLink({
 
   const onClick = (e: React.MouseEvent) => {
     e.preventDefault();
-    dispatchClick(kind, t, ports, sessionId, location);
+    dispatchClick(kind, res, t, ports, sessionId, location);
   };
 
   // 相反打开方式：两条路都在（能预览 + 宿主有系统打开）且宿主告知了默认方式。

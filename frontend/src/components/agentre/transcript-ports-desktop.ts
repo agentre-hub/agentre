@@ -9,6 +9,10 @@ import type {
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
+import {
+  type WorkRoot,
+  useSessionRootStore,
+} from "@/stores/session-root-store";
 import { openSettings } from "@/stores/settings-dialog-store";
 
 import {
@@ -28,10 +32,35 @@ import {
   ResolveExecApproval,
   ResolvePlanAction,
   ResolveSessionURL,
+  WorkspaceFsClaimPath,
   WorkspaceFsReadFile,
 } from "../../../wailsjs/go/app/App";
 import { chat_svc, type memory_svc } from "../../../wailsjs/go/models";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
+
+/**
+ * 会话的认领集合交给转录做链接归属的形状（`SessionLocationProvider` 的 `roots`）。
+ * 集合还没取回时会话工作目录就是唯一的根——今天的口径。
+ */
+export function toLinkRoots(roots: readonly WorkRoot[], cwd: string) {
+  if (roots.length === 0) return cwd ? [{ path: cwd, primary: true }] : [];
+  return roots.map((r) => ({
+    path: r.path,
+    name: r.name,
+    primary: r.isPrimary,
+  }));
+}
+
+/**
+ * 预览标签上的根只有一种表示（`FilePreviewTab.root`：主根恒为空串）。转录给的是根的
+ * 绝对路径，在这个边界上把主根换成空串——否则侧栏与转录会为同一个文件开出两个标签。
+ */
+function canonicalPreviewRoot(sessionId: number, root: string): string {
+  const entry = useSessionRootStore.getState().bySession[sessionId];
+  const primary = entry?.roots.find((r) => r.isPrimary)?.path ?? entry?.cwd;
+  const trim = (p: string) => p.replace(/[\\/]+$/, "");
+  return primary !== undefined && trim(root) === trim(primary) ? "" : root;
+}
 
 /**
  * 桌面端的对话流端口实现 —— 共享包与 Wails 绑定之间唯一的接缝。
@@ -145,13 +174,30 @@ export const desktopTranscriptPorts = {
   // ——那是侧栏「本次会话」档的工具 diff,一次取数都不打。
   //
   // `force`:用户在浮窗 / 失败提示里明确选了「预览」,设置不拦它。
+  //
+  // `{ root, path }`：链接归属的工作根（转录据会话的认领集合判出）。主根在这里归一成
+  // 预览标签的规范表示。
   previewFile(sessionId, path, anchor?, opts?) {
     const { openAction } = useFileSettingsStore.getState().settings;
     if (openAction === "external" && !opts?.force) return false;
+    const target =
+      typeof path === "string"
+        ? path
+        : { root: canonicalPreviewRoot(sessionId, path.root), path: path.path };
     useFilePreviewTabsStore
       .getState()
-      .openPreview(sessionId, path, "directory", anchor);
+      .openPreview(sessionId, target, "directory", anchor);
     return true;
+  },
+
+  // 点了一条不在已认领根内的绝对路径（spec 决策 20）：后端按自动认领的规则当场认领，
+  // 回完整集合。集合同时落到会话的工作根状态上，标题栏胶囊与转录的根归属随之更新。
+  async claimPath(sessionId, absPath) {
+    const roots = await WorkspaceFsClaimPath(sessionId, absPath);
+    const store = useSessionRootStore.getState();
+    const entry = store.bySession[sessionId];
+    if (entry) store.applyRoots(sessionId, entry.cwd, roots);
+    return toLinkRoots(roots, entry?.cwd ?? "");
   },
 
   // 对话里的记忆卡片。创建者在这里不需要可点：卡片只用摘要与详情，所以会话标题查询与

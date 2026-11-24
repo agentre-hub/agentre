@@ -1,3 +1,19 @@
+/**
+ * 会话的一个工作根（spec 2026-11-24-chat-right-toolwindows「文件链接」）。`primary`
+ * 标出会话主根；`name` 是悬浮卡上的根名标签，缺省时用路径最后一段。
+ */
+export type LinkRoot = { path: string; name?: string; primary?: boolean };
+
+/**
+ * `cwd`：相对路径补全用的目录（「AI 当时所在目录」）。`roots`：宿主给出的已认领
+ * 工作根；给了它，「内部」就改判为「落在某个根之内」，归属包含它的最深的根，
+ * `relPath` 相对那个根。不给时与只传 cwd 字符串完全相同（今天的行为）。
+ */
+export type ClassifyLinkOptions = {
+  cwd?: string;
+  roots?: readonly LinkRoot[];
+};
+
 export type LinkClass =
   | { kind: "url"; url: string }
   | {
@@ -5,6 +21,8 @@ export type LinkClass =
       fullPath: string;
       pathKind: LocalPathKind;
       relPath: string;
+      /** 只在调用方给了 `roots` 时出现：这条路径归属的工作根。 */
+      root?: LinkRoot;
       line?: number;
       endLine?: number;
       col?: number;
@@ -138,10 +156,49 @@ function internalRelativePath(fullPath: string, cwd: string): string | null {
   return normalizedFull.slice(normalizedCwd.length + 1);
 }
 
+/**
+ * 包含 `fullPath` 的最深的根，以及路径相对它的部分。没有根包含它时为 null。
+ */
+function owningRoot(
+  fullPath: string,
+  roots: readonly LinkRoot[],
+): { root: LinkRoot; relPath: string } | null {
+  let best: { root: LinkRoot; relPath: string } | null = null;
+  for (const root of roots) {
+    if (!root.path) continue;
+    const relPath = internalRelativePath(fullPath, root.path);
+    if (relPath === null) continue;
+    if (best === null || relPath.length < best.relPath.length) {
+      best = { root, relPath };
+    }
+  }
+  return best;
+}
+
+/**
+ * 这条路径归谁：给了根就归最深的根，没给就看在不在 cwd 之内（今天的口径）。
+ * 家目录形式无法与 cwd / 根比较（它们是展开后的绝对路径），一律当作外部目标。
+ */
+function ownerOf(
+  fullPath: string,
+  cwd: string | undefined,
+  roots: readonly LinkRoot[] | undefined,
+): { root?: LinkRoot; relPath: string } | null {
+  if (HOME_ANCHORED.test(fullPath)) return null;
+  if (roots) return owningRoot(fullPath, roots);
+  if (!cwd) return null;
+  const relPath = internalRelativePath(fullPath, cwd);
+  return relPath === null ? null : { relPath };
+}
+
 export function classifyLink(
   href: string | undefined,
-  cwd?: string,
+  cwdOrOptions?: string | ClassifyLinkOptions,
 ): LinkClass {
+  const { cwd, roots } =
+    typeof cwdOrOptions === "object"
+      ? cwdOrOptions
+      : { cwd: cwdOrOptions, roots: undefined };
   if (!href) return { kind: "unknown", href: "" };
 
   if (URL_PREFIX.test(href)) return { kind: "url", url: href };
@@ -172,19 +229,19 @@ export function classifyLink(
   }
 
   const { path: fullPath, line, endLine, col } = stripLineSuffix(rawPath);
-  const pathKind = classifyLocalPathKind(fullPath, cwd, relativeSource);
 
-  // 家目录形式无法与 cwd 比较（cwd 是展开后的绝对路径），一律当作 cwd 外目标。
-  const relPath =
-    cwd && !HOME_ANCHORED.test(fullPath)
-      ? internalRelativePath(fullPath, cwd)
-      : null;
-  if (relPath !== null) {
+  const owner = ownerOf(fullPath, cwd, roots);
+  const pathKind =
+    owner?.root && owner.relPath === ""
+      ? "folder"
+      : classifyLocalPathKind(fullPath, cwd, relativeSource);
+  if (owner !== null) {
     return {
       kind: "local-internal",
       fullPath,
       pathKind,
-      relPath,
+      relPath: owner.relPath,
+      ...(owner.root ? { root: owner.root } : {}),
       ...(line !== undefined ? { line } : {}),
       ...(endLine !== undefined ? { endLine } : {}),
       ...(col !== undefined ? { col } : {}),

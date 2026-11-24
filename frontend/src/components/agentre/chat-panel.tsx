@@ -47,6 +47,7 @@ import {
 } from "@/stores/queued-messages-store";
 import { useSessionConnectionState } from "@/stores/session-conn-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
+import { useSessionRoot } from "@/stores/session-root-store";
 
 import {
   useBackendCapabilities,
@@ -66,6 +67,7 @@ import { NewSessionChatGuard } from "./chat-panel/new-session-chat-guard";
 import type { ChatPanelNotice } from "./chat-panel/notice";
 import { ChatPanelNoticeAlert } from "./chat-panel/notice-alert";
 import { SessionLoadError } from "./chat-panel/session-load-error";
+import { toLinkRoots } from "./transcript-ports-desktop";
 import { liveContentByMessageId } from "./chat-panel/stream-view";
 import { useAutonomousTurnEvents } from "./chat-panel/use-autonomous-turn-events";
 import { useChatActions } from "./chat-panel/use-chat-actions";
@@ -1376,9 +1378,16 @@ function ChatPanel({
       ? "remote"
       : "local"
     : undefined;
+  // 转录链接按会话已认领的工作根归属(spec「文件链接」),与标题栏胶囊同一份集合。
+  const claimedRoots = useSessionRoot(session?.id ?? 0).roots;
+  const sessionCwd = session?.cwd ?? "";
+  const linkRoots = React.useMemo(
+    () => (sessionCwd ? toLinkRoots(claimedRoots, sessionCwd) : undefined),
+    [claimedRoots, sessionCwd],
+  );
 
   return (
-    <SessionLocationProvider location={sessionLocation}>
+    <SessionLocationProvider location={sessionLocation} roots={linkRoots}>
       {panel}
     </SessionLocationProvider>
   );

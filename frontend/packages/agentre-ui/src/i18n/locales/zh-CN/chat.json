@@ -202,7 +202,8 @@
     "openExternalAria": "用系统默认应用打开",
     "openFailed": "打开失败: {{error}}",
     "openPreview": "预览",
-    "openPreviewAria": "在预览面板打开"
+    "openPreviewAria": "在预览面板打开",
+    "workRootTitle": "工作根：{{path}}"
   },
   "terminal": {
     "banner": {

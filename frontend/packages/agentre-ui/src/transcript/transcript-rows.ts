@@ -49,11 +49,15 @@ type MutableAgentSpawnChildBlocks = Omit<AgentSpawnChildBlocks, "byRun"> & {
   byRun: Map<string, TranscriptBlock[]>;
 };
 
+// `cwd`(正文 / 计划 / 工具 / 工具权限项):这一项产生时 AI 所在的目录(spec
+// 2026-11-24-chat-right-toolwindows「AI 当时所在目录」)。工具项取自己的记录;其余取
+// 同一轮里它之前最近一个工具块的记录,再没有就是这一轮开始时的位置。缺省 = 没有
+// 记录(旧消息 / 旧 agentred),链接回落到会话工作目录。
 export type RenderItem =
   // streaming=true 标记这是「流式途中正在生长」的文本项 —— 用 StreamingMarkdown
   // 增量渲染(已定稿 block memo 跳过、只重解析活跃尾巴);持久化文本仍走整段 MarkdownText。
-  | { text: string; type: "text"; streaming?: boolean }
-  | { block: TranscriptBlock; type: "plan" }
+  | { text: string; type: "text"; streaming?: boolean; cwd?: string }
+  | { block: TranscriptBlock; type: "plan"; cwd?: string }
   | {
       block: TranscriptBlock;
       startedAt?: number;
@@ -66,6 +70,7 @@ export type RenderItem =
       // childBlocks 仅 canonical.agent.spawn 需要(parent → run 归集),其它工具留空。
       childBlocks?: AgentSpawnChildBlocks;
       type: "tool";
+      cwd?: string;
     }
   | {
       block: TranscriptBlock;
@@ -83,6 +88,7 @@ export type RenderItem =
       // 会被过滤掉。未 resolved / resolved-denied 的审批不会被标记,保留为独立卡。
       _consumed?: boolean;
       type: "tool_permission_request";
+      cwd?: string;
     }
   | { block: TranscriptBlock; type: "tool_approval" }
   | { block: TranscriptBlock; type: "exec_approval" }
@@ -182,6 +188,8 @@ export type BuildRenderItemsArgs = {
   // 流式途中遇到 tool_use 时,store 会把当下的 liveDelta 先冻成 text block 推
   // 到 liveBlocks 尾,所以真实顺序就是 [persisted..., ...liveBlocks, liveDelta]。
   liveBlocks?: TranscriptBlock[];
+  /** 这一轮开始时 AI 所在的目录(前面各轮最后一个带记录的工具块);缺省 = 没有记录。 */
+  turnStartCwd?: string;
 };
 
 export function buildRenderItems({
@@ -191,6 +199,7 @@ export function buildRenderItems({
   liveThinking = "",
   liveThinkingStartedAt,
   liveBlocks = [],
+  turnStartCwd,
 }: BuildRenderItemsArgs): VisibleRenderItem[] {
   // 预扫一遍把 subagent 内部 block 先按外层 tool_use_id,再按 run id 归集;
   // 缺失 run id 的块仍保留在 all 中,主流程会 skip,由父卡作为 unmatched step 渲染。
@@ -225,6 +234,13 @@ export function buildRenderItems({
   // 这是协议上唯一可行的关联方式 —— ChatBlockToolPermission 没有 toolUseId 字段,
   // can_use_tool control_request 也不携带未来的 tool_use_id。
   const pendingPermsByTool = new Map<string, number[]>();
+  // AI 此刻所在的目录:随主线工具块(tool_use / tool_result)的记录前移,子代理的
+  // 块在 consumeBlock 入口就被跳过,所以它们的位置不移动主线(spec 决策 16)。
+  let location = turnStartCwd || undefined;
+  const located = <T extends RenderItem>(item: T): T => {
+    if (location) (item as { cwd?: string }).cwd = location;
+    return item;
+  };
 
   function appendText(text: string, streaming = false) {
     if (!text) return;
@@ -236,7 +252,7 @@ export function buildRenderItems({
       if (streaming) last.streaming = true;
       return;
     }
-    items.push({ text, type: "text", streaming });
+    items.push(located({ text, type: "text", streaming }));
   }
 
   const consumeBlock = (b: TranscriptBlock) => {
@@ -258,10 +274,12 @@ export function buildRenderItems({
         // Actionable plan blocks carry canonical.actions and need the shared
         // PlanCard in the transcript.
         if (isRenderablePlanBlock(b)) {
-          items.push({ block: b, type: "plan" });
+          items.push(located({ block: b, type: "plan" }));
         }
         break;
       case "tool_use": {
+        // 工具项用调用自己的记录:先前移位置,下面的 located 就落在它上面。
+        if (b.cwd) location = b.cwd;
         // AskUserQuestion 类工具的 tool_use 不渲染独立卡 —— ask_user_question block
         // 已经把交互界面接管掉。占位 SKIPPED_TOOL_INDEX 让后续 tool_result 也 skip。
         if (isAskUserQuestionToolName(b.toolName)) {
@@ -281,7 +299,7 @@ export function buildRenderItems({
         if (isSubagentCanonical(b)) {
           // canonical.agent.spawn — 走 CanonicalToolRouter → AgentSpawnCard,childBlocks
           // 由 parent-child 归集传过去(AgentSpawnCard 内部渲染 STEPS 段)。
-          const item: RenderItem = {
+          const item: RenderItem = located({
             childBlocks: b.toolUseId
               ? (childrenByParent.get(b.toolUseId) ?? {
                   all: [],
@@ -290,14 +308,14 @@ export function buildRenderItems({
               : { all: [], byRun: new Map() },
             toolBlock: b,
             type: "tool",
-          };
+          });
           items.push(item);
           if (b.toolUseId) {
             pendingToolIndexes.set(b.toolUseId, items.length - 1);
           }
           break;
         }
-        const item: RenderItem = { toolBlock: b, type: "tool" };
+        const item: RenderItem = located({ toolBlock: b, type: "tool" });
         // 配对消费一条审批 RenderItem —— 找最早未消费且同 toolName 的 allowed 审批。
         // 只是把那条审批标成已消费(它不再单独出现在转录里);审批本身的信息由
         // 工具块上的 toolPermission 承载,不需要再挂一份到 RenderItem 上。
@@ -320,6 +338,7 @@ export function buildRenderItems({
         break;
       }
       case "tool_result": {
+        if (b.cwd) location = b.cwd;
         const toolIndex = b.toolUseId
           ? pendingToolIndexes.get(b.toolUseId)
           : pendingAnonymousToolIndexes.pop();
@@ -333,6 +352,8 @@ export function buildRenderItems({
 
         if (item?.type === "tool") {
           item.resultBlock = b;
+          // 调用没报目录、结果报了:工具项用结果的记录。
+          if (!item.toolBlock?.cwd && b.cwd) item.cwd = b.cwd;
           if (b.toolUseId) pendingToolIndexes.delete(b.toolUseId);
         }
         // 孤儿 tool_result:没有配对 tool_use(AskUserQuestion 历史数据 / 后端漏过滤
@@ -343,7 +364,7 @@ export function buildRenderItems({
       case "ask_user_question":
         // ask_user_question 走 CanonicalToolRouter — block.canonical (UserAsk)
         // 已由后端 live + replay 双路径填好,UserAskCard 直接消费。
-        items.push({ toolBlock: b, type: "tool" });
+        items.push(located({ toolBlock: b, type: "tool" }));
         break;
       case "tool_permission_request": {
         // tool_permission_request 渲染走 CanonicalToolRouter —— ExitPlanMode
@@ -351,7 +372,7 @@ export function buildRenderItems({
         // → canonical.tool.permission → ToolPermissionCard。两条 canonical 都由后端
         // dispatcher_emitter + replay 填好。RenderItem.type 保留 "tool_permission_request"
         // 让 merge 到下方同 toolName tool_use 卡的逻辑可识别。
-        items.push({ block: b, type: "tool_permission_request" });
+        items.push(located({ block: b, type: "tool_permission_request" }));
         const idx = items.length - 1;
         const perm = b.toolPermission;
         // 只有 resolved + allowed 才参与 merge:未决态用户还要操作、denied 没有下游 tool_use。
@@ -658,6 +679,8 @@ export type TranscriptRow = {
   /** 末行渲染 footer(meta/copy/edit)+ RetryNotice + TypingIndicator + ErrorCard。 */
   isLastOfMessage: boolean;
   autonomous: boolean;
+  /** 构建这一组行时用的「这一轮开始时 AI 所在目录」;行缓存据它判断是否过期。 */
+  turnStartCwd?: string;
 };
 
 export type TranscriptRowsResult = {
@@ -773,6 +796,7 @@ function buildMessageRows(
     liveThinkingStartedAt?: number | null;
     liveBlocks?: TranscriptBlock[];
   },
+  turnStartCwd?: string,
 ): TranscriptRow[] {
   const items = buildRenderItems({
     messageId: m.id,
@@ -781,7 +805,9 @@ function buildMessageRows(
     liveThinking: live?.liveThinking,
     liveThinkingStartedAt: live?.liveThinkingStartedAt,
     liveBlocks: live?.liveBlocks,
+    turnStartCwd,
   });
+  const located = turnStartCwd ? { turnStartCwd } : {};
   if (items.length === 0) {
     return [
       {
@@ -793,6 +819,7 @@ function buildMessageRows(
         message: m,
         messageId: m.id,
         sourceDevice,
+        ...located,
       },
     ];
   }
@@ -808,7 +835,42 @@ function buildMessageRows(
     message: m,
     messageId: m.id,
     sourceDevice,
+    ...located,
   }));
+}
+
+// 每条消息里最后一个带目录记录的主线工具块的目录(没有 = null)。消息对象的块不可变,
+// 按对象缓存:行缓存命中时 buildRows 仍要逐条推进位置,不该每次重扫全部块。
+const lastToolCwdCache = new WeakMap<TranscriptMessage, string | null>();
+
+function lastToolCwdOf(blocks: readonly TranscriptBlock[]): string | null {
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const b = blocks[i];
+    if (b.parentToolUseId) continue;
+    if ((b.type === "tool_use" || b.type === "tool_result") && b.cwd) {
+      return b.cwd;
+    }
+  }
+  return null;
+}
+
+/**
+ * 这条消息之后 AI 所在的目录:消息(含它还没落库的 live 块)里最后一个带记录的主线
+ * 工具块的目录;没有就保持 `before`。
+ */
+function locationAfter(
+  m: TranscriptMessage,
+  before: string | undefined,
+  liveBlocks?: readonly TranscriptBlock[],
+): string | undefined {
+  const live = liveBlocks ? lastToolCwdOf(liveBlocks) : null;
+  if (live) return live;
+  let persisted = lastToolCwdCache.get(m);
+  if (persisted === undefined) {
+    persisted = lastToolCwdOf(m.blocks ?? []);
+    lastToolCwdCache.set(m, persisted);
+  }
+  return persisted ?? before;
 }
 
 function localCommandRow(entry: TranscriptLocalCommand): TranscriptRow {
@@ -830,6 +892,8 @@ export type SettledTranscriptRows = TranscriptRowsResult & {
   groupByMessageId: ReadonlyMap<number, { start: number; length: number }>;
   /** messageId → 消息对象。overlay 重建 live 行时按 id 取对象,避免每 chunk 全表扫描。 */
   messageByMessageId: ReadonlyMap<number, TranscriptMessage>;
+  /** messageId → 这一轮开始时 AI 所在的目录。overlay 重建 live 行时接着用。 */
+  turnStartCwdByMessageId: ReadonlyMap<number, string | undefined>;
 };
 
 /**
@@ -850,35 +914,56 @@ function buildRows(args: BuildTranscriptRowsArgs): SettledTranscriptRows {
   // 同时记下每组的 createtime,供阶段二归并 —— 消息组顺序原样保留,无重排可能。
   const messageGroups: { rows: TranscriptRow[]; createtime: number }[] = [];
   const messageByMessageId = new Map<number, TranscriptMessage>();
+  const turnStartCwdByMessageId = new Map<number, string | undefined>();
   for (const m of displayMessages) {
     messageByMessageId.set(m.id, m);
   }
+  // AI 所在目录逐条消息往前推:每一轮从上一轮结束时的位置开始。
+  let location: string | undefined;
   for (const m of displayMessages) {
     const autonomous = autonomousIds.has(m.id);
     // R17:来源标识只属于「非本机发出的用户消息」—— 其它角色恒 undefined。
     const sourceDevice =
       m.role === "user" ? sourceByMessageId?.get(m.id) : undefined;
+    // 位置只影响 assistant 行;用户行不带它,位置变化也就不会让用户行的缓存失效。
+    const turnStartCwd = m.role === "assistant" ? location : undefined;
+    turnStartCwdByMessageId.set(m.id, location);
     const live = liveByMessageId?.get(m.id);
     let messageRows: TranscriptRow[];
     if (live) {
       // live 消息每 chunk 重建,不读不写缓存。
-      messageRows = buildMessageRows(m, autonomous, sourceDevice, live);
+      messageRows = buildMessageRows(
+        m,
+        autonomous,
+        sourceDevice,
+        live,
+        turnStartCwd,
+      );
     } else {
       const cached = cache?.get(m);
       // autonomous 取决于前一条消息,与消息对象自身无关 —— 缓存命中但标志变了
       // (极端:上游裁剪了前面的消息而对象引用未变)就重建,避免 banner 错挂。
       // 来源标识同理:缓存命中但来源变了/新增了就重建,避免旧来源滞留在缓存里。
+      // 这一轮开始时的位置同样取决于前面的消息。
       if (
         cached &&
         cached[0]?.autonomous === autonomous &&
-        cached[0]?.sourceDevice === sourceDevice
+        cached[0]?.sourceDevice === sourceDevice &&
+        cached[0]?.turnStartCwd === turnStartCwd
       ) {
         messageRows = cached;
       } else {
-        messageRows = buildMessageRows(m, autonomous, sourceDevice);
+        messageRows = buildMessageRows(
+          m,
+          autonomous,
+          sourceDevice,
+          undefined,
+          turnStartCwd,
+        );
         cache?.set(m, messageRows);
       }
     }
+    location = locationAfter(m, location, live?.liveBlocks);
     messageGroups.push({ createtime: m.createtime, rows: messageRows });
   }
 
@@ -941,6 +1026,7 @@ function buildRows(args: BuildTranscriptRowsArgs): SettledTranscriptRows {
     messageByMessageId,
     rowIndexByKey,
     rows,
+    turnStartCwdByMessageId,
   };
 }
 
@@ -1013,11 +1099,17 @@ export function applyLiveTranscriptRows(
   const prefixLen = liveGroups[0].start;
   // 只重建 live 消息的行组(live 内容每 chunk 都在变,必须现场重建)。
   const liveRows: TranscriptRow[] = [];
+  // 位置从第一个 live 组开始时的位置接着推:后面的 live 组接在前一个(含它的 live 块)之后。
+  let location = settled.turnStartCwdByMessageId.get(liveGroups[0].m.id);
   for (const { content, m } of liveGroups) {
     const autonomous = args.autonomousIds.has(m.id);
     const sourceDevice =
       m.role === "user" ? args.sourceByMessageId?.get(m.id) : undefined;
-    liveRows.push(...buildMessageRows(m, autonomous, sourceDevice, content));
+    const turnStartCwd = m.role === "assistant" ? location : undefined;
+    liveRows.push(
+      ...buildMessageRows(m, autonomous, sourceDevice, content, turnStartCwd),
+    );
+    location = locationAfter(m, location, content.liveBlocks);
   }
   // 前缀与 settled 共享引用(浅拷贝数组,元素仍是同一批 row 对象)。
   const rows = settled.rows.slice(0, prefixLen).concat(liveRows);
@@ -1048,6 +1140,7 @@ export function buildTranscriptRows(
   const {
     groupByMessageId: _g,
     messageByMessageId: _m,
+    turnStartCwdByMessageId: _c,
     ...result
   } = buildRows(args);
   return result;
