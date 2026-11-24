@@ -29,6 +29,8 @@ type ctlHandler struct {
 	resources Resources
 	// cards 把 send --wait 的子会话升级成调用方转录里的子代理卡(nil = 不升级)。
 	cards SubagentCards
+	// dispatches 登记会话间的派发关系(nil = 不登记),见 dispatch.go。
+	dispatches chat_svc.DispatchRecorder
 	// approvals 在会话里出审批卡；external 是桌面端弹窗的待审批队列（nil = 不可用）。
 	approvals       SessionApprovals
 	external        ExternalApprovals
@@ -199,13 +201,21 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 		agentName = a.Name
 	}
 
-	// --wait：订阅必须在 Send 之前(快 turn 的回执会丢)。
+	// 派发关系:登记同样先于起轮;只有会话 token 才有派发方。
+	dispatch := h.beginDispatch(r.Context(), cred, req, sessionID)
+
+	// --wait 要等结果,要登记派发的也要知道这一轮何时收尾：订阅必须在 Send 之前(快 turn 的回执会丢)。
 	var turnCh <-chan chat_svc.TurnResult
-	if req.Wait {
-		var cancel func()
-		turnCh, cancel = h.chat.ObserveTurn(sessionID)
-		defer cancel()
+	cancelObserve := func() {}
+	if req.Wait || dispatch.recorded() {
+		turnCh, cancelObserve = h.chat.ObserveTurn(sessionID)
 	}
+	trackedInBackground := false
+	defer func() {
+		if !trackedInBackground {
+			cancelObserve()
+		}
+	}()
 	// 子代理卡:登记同样必须在 Send 之前(子会话起轮第一时间的步骤要攒住)。
 	card := h.watchSubagentCard(r.Context(), cred, req, sessionID)
 	defer card.Close()
@@ -218,15 +228,22 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 		EmitTurnStartedBypass: req.Isolated, // 隔离会话不需要前端正常轮起始事件；可见会话要
 	})
 	if err != nil {
+		dispatch.finish(r.Context(), chat_svc.DispatchOutcome{Status: chat_svc.CtlSendFailed})
 		writeErr(w, http.StatusInternalServerError, "start turn failed")
 		return
 	}
+	dispatch.started(r.Context())
 	logger.Ctx(r.Context()).Info("ctl_svc.serveSend: dispatched",
 		zap.Int64("agentId", agentID),
 		zap.Int64("sessionId", sessionID),
 		zap.Bool("wait", req.Wait))
 
 	if !req.Wait {
+		if dispatch.recorded() {
+			// 响应不等收尾:后台盯着这一轮,收尾时把派发行落成终态。
+			trackedInBackground = true
+			go dispatch.track(context.WithoutCancel(r.Context()), turnCh, cancelObserve)
+		}
 		writeJSON(w, http.StatusOK, sendDTO{
 			SessionID:          sessionID,
 			AssistantMessageID: sendResp.AssistantMessageID,
@@ -251,6 +268,7 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 	select {
 	case res := <-turnCh:
 		if res.Err != nil {
+			dispatch.finish(r.Context(), chat_svc.DispatchOutcomeOfTurn(res))
 			card.Finish(r.Context(), chat_svc.CtlSendOutcome{
 				Status: chat_svc.CtlSendFailed, FinalText: res.Err.Error(), AssistantMessageID: res.AssistantMessageID,
 			})
@@ -259,6 +277,7 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 		}
 		text, terr := h.chat.FinalAssistantText(r.Context(), res.AssistantMessageID)
 		if terr != nil {
+			dispatch.finish(r.Context(), chat_svc.DispatchOutcome{Status: chat_svc.CtlSendFailed, ReplyMessageID: res.AssistantMessageID})
 			card.Finish(r.Context(), chat_svc.CtlSendOutcome{
 				Status: chat_svc.CtlSendFailed, FinalText: "read final text failed", AssistantMessageID: res.AssistantMessageID,
 			})
@@ -269,6 +288,7 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 		if res.Aborted {
 			status = chat_svc.CtlSendCanceled
 		}
+		dispatch.finish(r.Context(), chat_svc.DispatchOutcomeOfTurn(res))
 		card.Finish(r.Context(), chat_svc.CtlSendOutcome{
 			Status: status, FinalText: text, AssistantMessageID: res.AssistantMessageID,
 		})
@@ -281,6 +301,7 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 	case <-r.Context().Done():
 		// CLI 断开/取消 → 中止该轮，不留悬空 turn（用 Background：请求 ctx 已取消）。
 		_, _ = h.chat.Stop(context.Background(), &chat_svc.StopRequest{SessionID: sessionID})
+		dispatch.finish(context.WithoutCancel(r.Context()), chat_svc.DispatchOutcome{Status: chat_svc.CtlSendCanceled})
 		card.Finish(context.WithoutCancel(r.Context()), chat_svc.CtlSendOutcome{Status: chat_svc.CtlSendCanceled})
 		writeErr(w, http.StatusRequestTimeout, "canceled")
 	}

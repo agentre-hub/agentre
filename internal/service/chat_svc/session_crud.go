@@ -20,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_dispatch_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
@@ -99,7 +100,7 @@ func fireSessionDeleted(ctx context.Context, sessionID int64) {
 	}()
 }
 
-// Delete 软删会话行，并物理清除它的转录（消息/块）、帧编号台账、替换恢复状态与认领的工作根
+// Delete 软删会话行，并物理清除它的转录（消息/块）、帧编号台账、替换恢复状态、认领的工作根与派发关系
 // （规格「可观察的要求」6）：会话删除后不留可恢复的转录残余，只有 chat_sessions 行
 // 本身保持软删（不回填历史上已软删的会话，见决策 6）。任一清理步骤失败都直接把错误
 // 返回给调用方，不吞掉——调用方（含 server 侧的删除重试）据此重放。
@@ -129,6 +130,10 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 	}
 	// 会话认领的工作根集合(spec 2026-11-24「会话删除时关联清理」)。
 	if err := workspace_fs_repo.WorkRoot().DeleteBySession(ctx, req.SessionID); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	// 派发关系(本会话派发出去的与派发了本会话的,spec 2026-11-24 决策 21)。
+	if err := session_dispatch_repo.SessionDispatch().DeleteBySession(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
 	fireSessionDeleted(ctx, req.SessionID)

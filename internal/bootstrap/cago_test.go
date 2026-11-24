@@ -16,11 +16,13 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/session_dispatch_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/workspace_fs_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_dispatch_repo"
 	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	"github.com/agentre-hub/agentre/migrations"
@@ -547,6 +549,52 @@ func TestInitLetsAWorkRootBeClaimed(t *testing.T) {
 	}
 	if rows, _ := repo.ListBySession(ctx, 43); len(rows) != 0 {
 		t.Fatalf("ListBySession(43) after DeleteBySession = %+v, want empty", rows)
+	}
+}
+
+// TestInitLetsADispatchBeRecorded 证明全新库上派发关系表真能落库、状态能推进、终态不被
+// 迟到写入改回、会话删除时两个方向都清得掉(repo 层 sqlmock 只验 SQL 拼写)。
+func TestInitLetsADispatchBeRecorded(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	ctx := context.Background()
+	repo := session_dispatch_repo.SessionDispatch()
+	if repo == nil {
+		t.Fatal("session_dispatch_repo.SessionDispatch() = nil after Init; bootstrap forgot to RegisterSessionDispatch")
+	}
+	row := &session_dispatch_entity.SessionDispatch{
+		DispatcherSessionID: 1, DispatchedSessionID: 2, Method: session_dispatch_entity.MethodAgrctlSend,
+		Task: "t", Isolated: true, Status: session_dispatch_entity.StatusQueued,
+	}
+	if err := repo.Create(ctx, row); err != nil || row.ID == 0 {
+		t.Fatalf("Create() = id %d, %v", row.ID, err)
+	}
+	if err := repo.UpdateState(ctx, row.ID, session_dispatch_repo.StateChange{Status: "completed", Finishtime: 9, ReplyMessageID: 5}); err != nil {
+		t.Fatalf("UpdateState(completed) error = %v", err)
+	}
+	if err := repo.UpdateState(ctx, row.ID, session_dispatch_repo.StateChange{Status: "running"}); err != nil {
+		t.Fatalf("UpdateState(running) error = %v", err)
+	}
+	rows, err := repo.ListByDispatcher(ctx, 1)
+	if err != nil || len(rows) != 1 || rows[0].Status != "completed" || rows[0].ReplyMessageID != 5 || !rows[0].Isolated {
+		t.Fatalf("ListByDispatcher(1) = %+v, %v; want one completed isolated row with reply 5", rows, err)
+	}
+	if rows, _ := repo.ListByDispatched(ctx, 2); len(rows) != 1 {
+		t.Fatalf("ListByDispatched(2) = %+v, want one row", rows)
+	}
+	if err := repo.DeleteBySession(ctx, 2); err != nil {
+		t.Fatalf("DeleteBySession() error = %v", err)
+	}
+	if rows, _ := repo.ListByDispatcher(ctx, 1); len(rows) != 0 {
+		t.Fatalf("ListByDispatcher(1) after deleting the dispatched session = %+v, want empty", rows)
 	}
 }
 

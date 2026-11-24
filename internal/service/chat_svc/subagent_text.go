@@ -35,6 +35,11 @@ func messageText(m *chat_entity.Message) (string, error) {
 // FinalAssistantText 读取某 assistant message 的纯文本。子 agent 工具用它把子 agent
 // 最终回复回灌给调用方(TurnResult 只带 message id, 不含文本)。
 func (s *chatSvc) FinalAssistantText(ctx context.Context, messageID int64) (string, error) {
+	return finalAssistantText(ctx, messageID)
+}
+
+// finalAssistantText 是 FinalAssistantText 的无状态实现(派发关系的「最后回复」也读它)。
+func finalAssistantText(ctx context.Context, messageID int64) (string, error) {
 	if messageID <= 0 {
 		return "", nil
 	}

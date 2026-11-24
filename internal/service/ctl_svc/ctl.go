@@ -22,6 +22,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 type ctlSvc struct {
@@ -36,6 +37,8 @@ type ctlSvc struct {
 	resources Resources
 	// cards 把 send --wait 的子会话升级成父转录里的子代理卡(nil = 不升级)。
 	cards SubagentCards
+	// dispatches 登记会话间的派发关系(nil = 不登记)。
+	dispatches chat_svc.DispatchRecorder
 	// approvals / external 是写操作的两条审批通路（会话审批卡 / 桌面端弹窗队列）。
 	approvals       SessionApprovals
 	external        ExternalApprovals
@@ -155,7 +158,7 @@ func (s *ctlSvc) ControlHandler() http.Handler {
 		s.mu.RLock()
 		h := &ctlHandler{
 			token: s.token, sessions: s.sessions,
-			agents: s.agents, projects: s.projects, chat: s.chat, resources: s.resources, cards: s.cards,
+			agents: s.agents, projects: s.projects, chat: s.chat, resources: s.resources, cards: s.cards, dispatches: s.dispatches,
 			approvals: s.approvals, external: s.external, approvalTimeout: s.approvalTimeout,
 		}
 		s.mu.RUnlock()

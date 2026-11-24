@@ -449,12 +449,15 @@ func (a *App) registerChatService() {
 	// subagent_svc 同样需 chat_svc.Chat() 非 nil(起子 agent 轮),故也在 RegisterChat 之后接线。
 	// agent_repo.Agent() 直接满足 AgentGateway(Find/FindByName/List)。
 	subagent_svc.Default().RegisterDeps(agent_repo.Agent(), subagent_svc.ChatSvcGateway())
+	// 派发关系登记(spec 2026-11-24 决策 21):agent 派发与 agrctl send 共用 chat_svc 的登记服务。
+	subagent_svc.Default().RegisterDispatchRecorder(chat_svc.Dispatch())
 
 	// ctl_svc 控制 API 的 chat 依赖也必须在 RegisterChat 之后:ctl_svc 直接持有
 	// chat_svc.Chat(),不再懒解析(bootstrap 里只挂 ControlHandler,这里补齐 deps)。
 	ctl_svc.Default().RegisterDeps(agent_repo.Agent(), ctl_svc.ProjectSvcGateway(), ctl_svc.ChatSvcGateway())
 	// send --wait 的子代理卡端口同样取自 chat_svc 单例,同一时机接线。
 	ctl_svc.Default().RegisterSubagentCards(ctl_svc.ChatSubagentCards())
+	ctl_svc.Default().RegisterDispatchRecorder(chat_svc.Dispatch())
 
 	// hooktool_svc 依赖:hook_svc.Hook() 满足 HookService;agent_repo.Agent() 满足 AgentLookup;
 	// chat_svc.Chat() 满足 ApprovalGateway。须在 RegisterChat 之后(chat_svc.Chat() 非 nil)。
