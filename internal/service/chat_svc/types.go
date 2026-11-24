@@ -685,6 +685,14 @@ type ChatSessionDetail struct {
 	// 原因) / "local-path-missing"（本机未配置路径，ProjectLocalPathMissing）/
 	// "location-missing"（远端机器未配置路径，ProjectLocationMissing）。
 	CwdUnavailableReason string `json:"cwdUnavailableReason,omitempty"`
+	// ProviderSessionID 是 CLI 自己的会话 ID（claude --resume / codex resume 用的那个）；
+	// 还没起过 CLI 或后端没有这个概念时为空串。会话信息工具窗只读展示。
+	ProviderSessionID string `json:"providerSessionId"`
+	// CarriedMemory 是这条会话首个回合带入的记忆，按层分组：每一层是 [层标题, 条目…]，
+	// 只含条目行（不含总标题、遗漏提示与使用说明）。没带入时是空列表（不是 null），
+	// 前端据此显示「无」。用 [][]string 而不是结构体切片：嵌套结构会让 wails 给
+	// ChatSessionDetail 生成 convertValues 方法，破坏前端按展开对象构造它的既有写法。
+	CarriedMemory [][]string `json:"carriedMemory"`
 }
 
 // BlockReason 是不可对话 Agent 的结构化原因枚举；空串 = 可对话（与 Chattable=true 一致）。

@@ -712,6 +712,8 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			ModelKey:               sess.ModelKey,
 			ReasoningEffort:        sess.ReasoningEffort,
 			ProjectID:              sess.ProjectID,
+			ProviderSessionID:      sess.ProviderSessionID,
+			CarriedMemory:          carriedMemory(sess),
 		},
 		Messages: make([]ChatMessage, 0, len(served)),
 	}

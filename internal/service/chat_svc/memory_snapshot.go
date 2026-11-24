@@ -268,6 +268,33 @@ func (c memoryCopy) heading(section memorySection) string {
 	}
 }
 
+// carriedMemory 把会话首个回合取下的快照还原成「按层分组的条目」，给会话信息工具窗
+// 只读展示，每层是 [层标题, 条目…]。快照里只有层标题（「### …」）下的 `- ` 行是记忆条目；总标题、「N 条未带入」
+// 提示与末尾使用说明都不算。没取过快照或没带任何条目时返回空切片（非 nil）。
+func carriedMemory(sess *chat_entity.Session) [][]string {
+	sections := [][]string{}
+	if sess == nil || !sess.MemorySnapshotTaken {
+		return sections
+	}
+	for _, block := range strings.Split(sess.MemorySnapshot, "\n\n") {
+		lines := strings.Split(block, "\n")
+		if !strings.HasPrefix(lines[0], "### ") {
+			continue
+		}
+		section := []string{strings.TrimPrefix(lines[0], "### ")}
+		for _, line := range lines[1:] {
+			if entry, ok := strings.CutPrefix(line, "- "); ok {
+				section = append(section, entry)
+			}
+		}
+		if len(section) == 1 {
+			continue
+		}
+		sections = append(sections, section)
+	}
+	return sections
+}
+
 // appendMemorySnapshot 把快照接在 agent 自己的提示词之后。
 func appendMemorySnapshot(prompt, snapshot string) string {
 	switch {

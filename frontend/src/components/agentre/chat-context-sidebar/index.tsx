@@ -2,6 +2,7 @@ import * as React from "react";
 import {
   FolderTree,
   GitCompareArrows,
+  Info,
   Link2,
   ListTree,
   SquareTerminal,
@@ -25,6 +26,8 @@ import type { chat_svc } from "../../../../wailsjs/go/models";
 
 import { ToolWindowLayout } from "../tool-windows/tool-window-layout";
 import type { ToolWindowDefinition } from "../tool-windows/types";
+import type { SessionInfoData } from "../tool-windows/session-info-tool-window";
+import { sumSessionUsage } from "../tool-windows/session-usage";
 import { useSessionRelations } from "../tool-windows/use-session-relations";
 
 import {
@@ -33,6 +36,7 @@ import {
   DirectoryToolWindow,
   OutlineToolWindow,
   RelationsToolWindowEntry,
+  SessionInfoToolWindowEntry,
   TerminalToolWindowEntry,
   WorkRootChangeCountsContext,
   type ChatContextData,
@@ -58,6 +62,11 @@ type Props = {
   projectId?: number;
   /** 指定路径成功后的回调——调用方据此重新 LoadSession。 */
   onCwdSpecified?: () => void;
+  /**
+   * 「会话信息」工具窗的输入：会话详情与输入框旁控件的同一份状态。轮数与累计用量由这
+   * 一层从 messages 派生。缺省 = 还没有会话详情，窗口里只剩不依赖它的行。
+   */
+  sessionInfo?: Omit<SessionInfoData, "turns" | "usage">;
   /** 新建会话提示页：不显示图标条与工具窗（见 ToolWindowLayout）。 */
   hidden?: boolean;
   /** 编辑区（对话内容页与文件预览列），由工具窗骨架摆在左边。 */
@@ -84,6 +93,7 @@ function ChatContextToolWindowsImpl({
   cwdUnavailableReason,
   projectId,
   onCwdSpecified,
+  sessionInfo: sessionInfoInput,
   hidden = false,
   children,
 }: Props) {
@@ -219,6 +229,22 @@ function ChatContextToolWindowsImpl({
   // 「关联」四组数据在这一层取一次：窗口收起时图标条也要它的提醒圆点与标题数量。
   const relations = useSessionRelations({ sessionId, enabled: !hidden });
 
+  // 轮数 = 用户消息数；累计用量只读消息自己的记录列（子代理用量不计入）。
+  const turns = React.useMemo(
+    () => messages.filter((m) => m.role === "user").length,
+    [messages],
+  );
+  const usage = React.useMemo(() => sumSessionUsage(messages), [messages]);
+  const sessionInfo = React.useMemo<SessionInfoData>(
+    () => ({
+      session: null,
+      ...sessionInfoInput,
+      turns,
+      usage,
+    }),
+    [sessionInfoInput, turns, usage],
+  );
+
   const data = React.useMemo<ChatContextData>(
     () => ({
       sessionId,
@@ -241,6 +267,7 @@ function ChatContextToolWindowsImpl({
       git,
       gitState,
       relations,
+      sessionInfo,
     }),
     [
       sessionId,
@@ -263,6 +290,7 @@ function ChatContextToolWindowsImpl({
       git,
       gitState,
       relations,
+      sessionInfo,
     ],
   );
 
@@ -300,6 +328,12 @@ function ChatContextToolWindowsImpl({
         countBadge: false,
         alert: relations.overlapAlert,
         content: <RelationsToolWindowEntry />,
+      },
+      {
+        id: "sessionInfo",
+        label: t("sessionInfoToolWindow.label"),
+        icon: Info,
+        content: <SessionInfoToolWindowEntry />,
       },
       {
         id: "terminal",

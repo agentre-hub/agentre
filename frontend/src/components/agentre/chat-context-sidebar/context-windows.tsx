@@ -3,6 +3,10 @@ import * as React from "react";
 import type { ChangesScope } from "@/stores/chat-sidebar-store";
 
 import { RelationsToolWindow } from "../tool-windows/relations-tool-window";
+import {
+  SessionInfoToolWindow,
+  type SessionInfoData,
+} from "../tool-windows/session-info-tool-window";
 import { TerminalToolWindow } from "../tool-windows/terminal-tool-window";
 import type { SessionRelations } from "../tool-windows/use-session-relations";
 
@@ -46,6 +50,8 @@ export type ChatContextData = {
   gitState: GitState | null;
   /** 「关联」工具窗的四组数据：图标条上的提醒圆点、标题栏数量与窗口读同一份。 */
   relations: SessionRelations;
+  /** 「会话信息」工具窗的各行数据（输入框旁控件的同一份状态 + 由消息派生的轮数与累计用量）。 */
+  sessionInfo: SessionInfoData;
 };
 
 export const ChatContextDataContext =
@@ -143,4 +149,10 @@ export function TerminalToolWindowEntry() {
 export function RelationsToolWindowEntry() {
   const { sessionId, relations } = useChatContextData();
   return <RelationsToolWindow sessionId={sessionId} relations={relations} />;
+}
+
+/** 「会话信息」工具窗：只读键值列表。 */
+export function SessionInfoToolWindowEntry() {
+  const { sessionId, sessionInfo } = useChatContextData();
+  return <SessionInfoToolWindow sessionId={sessionId} info={sessionInfo} />;
 }

@@ -976,6 +976,37 @@ function ChatPanel({
       supportsReasoningEffort,
     ],
   );
+  // 「会话信息」工具窗的输入：输入框旁那几颗控件的同一份状态（所以标签逐字一致），
+  // 控件不显示时对应项为 undefined，窗口据此不画那一行。
+  const sessionInfoInput = React.useMemo(
+    () => ({
+      session,
+      permissionMode: isModeSwitchable ? permissionModeValue : undefined,
+      modelLabel:
+        activeBackendType && activeBackendType !== "hermes"
+          ? providerPill.resolvedModelLabel
+          : undefined,
+      reasoningEffort: supportsReasoningEffort
+        ? reasoningEffortPill.value || reasoningEffortPill.backendValue
+        : undefined,
+      contextUsage: composerContextUsage,
+      onCopyLaunchCommand: session
+        ? () => void handleCopyLaunchCommand(session.id)
+        : undefined,
+    }),
+    [
+      session,
+      isModeSwitchable,
+      permissionModeValue,
+      activeBackendType,
+      providerPill.resolvedModelLabel,
+      supportsReasoningEffort,
+      reasoningEffortPill.value,
+      reasoningEffortPill.backendValue,
+      composerContextUsage,
+      handleCopyLaunchCommand,
+    ],
+  );
   const composerTopSlot = React.useMemo(
     () => (
       <>
@@ -1126,6 +1157,7 @@ function ChatPanel({
           projectId={session?.projectId}
           onCwdSpecified={reloadAfterChange}
           onJumpToMessage={handleJumpToMessage}
+          sessionInfo={sessionInfoInput}
           hidden={Boolean(showNewSessionPrompt)}
         >
           <EditorSplit

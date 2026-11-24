@@ -529,6 +529,33 @@
       "title": "Chat"
     }
   },
+  "sessionInfoToolWindow": {
+    "label": "Session info",
+    "rows": {
+      "agent": "Agent",
+      "backend": "Backend",
+      "model": "Model & reasoning effort",
+      "permission": "Permission mode",
+      "context": "Context usage",
+      "usage": "Total usage",
+      "memory": "Carried-in memory",
+      "location": "Location",
+      "created": "Created & turns",
+      "cliSession": "CLI session ID"
+    },
+    "usage": "Input {{input}} · Output {{output}} · Cache hits {{cache}}",
+    "otherWorktrees_one": "{{count}} other worktree",
+    "otherWorktrees_other": "{{count}} other worktrees",
+    "turns_one": "{{count}} turn",
+    "turns_other": "{{count}} turns",
+    "memory": {
+      "none": "None",
+      "count_one": "{{count}} entry",
+      "count_other": "{{count}} entries",
+      "view": "View",
+      "title": "Carried-in memory"
+    }
+  },
   "relationsToolWindow": {
     "label": "Relations",
     "empty": "Nothing related yet",

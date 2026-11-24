@@ -529,6 +529,33 @@
       "title": "对话"
     }
   },
+  "sessionInfoToolWindow": {
+    "label": "会话信息",
+    "rows": {
+      "agent": "Agent",
+      "backend": "后端",
+      "model": "模型与思考力度",
+      "permission": "权限模式",
+      "context": "上下文用量",
+      "usage": "累计用量",
+      "memory": "带入的记忆",
+      "location": "位置",
+      "created": "创建时间与轮数",
+      "cliSession": "CLI 会话 ID"
+    },
+    "usage": "输入 {{input}} · 输出 {{output}} · 缓存命中 {{cache}}",
+    "otherWorktrees_one": "另有 {{count}} 个 worktree",
+    "otherWorktrees_other": "另有 {{count}} 个 worktree",
+    "turns_one": "{{count}} 轮",
+    "turns_other": "{{count}} 轮",
+    "memory": {
+      "none": "无",
+      "count_one": "{{count}} 条",
+      "count_other": "{{count}} 条",
+      "view": "查看",
+      "title": "带入的记忆"
+    }
+  },
   "relationsToolWindow": {
     "label": "关联",
     "empty": "暂无关联",
