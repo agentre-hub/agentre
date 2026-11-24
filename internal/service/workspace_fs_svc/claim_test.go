@@ -1,0 +1,425 @@
+package workspace_fs_svc
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"sync"
+	"testing"
+
+	"github.com/smartystreets/goconvey/convey"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
+	"github.com/agentre-hub/agentre/internal/model/entity/workspace_fs_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/workspacefs/wire"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
+	mockWR "github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo/mock_workspace_fs_repo"
+)
+
+// rootStore 是认领集合仓库 mock 背后的数据:mockgen 的 mock 把调用转进这里,两个
+// svc 实例共用同一份 store 就等于「重启后读到同一个库」。createErr 非空时 Create 失败。
+type rootStore struct {
+	mu        sync.Mutex
+	rows      []workspace_fs_entity.WorkRoot
+	createErr error
+}
+
+func (st *rootStore) paths(sessionID int64) []string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	var out []string
+	for _, r := range st.rows {
+		if r.SessionID == sessionID {
+			out = append(out, r.Path)
+		}
+	}
+	return out
+}
+
+func (st *rootStore) put(row workspace_fs_entity.WorkRoot) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.rows = append(st.rows, row)
+}
+
+// useStore 把认领集合仓库换成背靠 store 的 mock(经 RegisterWorkRoot 注入,用例结束还原)。
+func (r *rig) useStore(t *testing.T, ctrl *gomock.Controller, store *rootStore) {
+	t.Helper()
+	r.store = store
+	repo := mockWR.NewMockWorkRootRepo(ctrl)
+	repo.EXPECT().ListBySession(gomock.Any(), gomock.Any()).AnyTimes().
+		DoAndReturn(func(_ context.Context, sessionID int64) ([]*workspace_fs_entity.WorkRoot, error) {
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			var out []*workspace_fs_entity.WorkRoot
+			for i := range store.rows {
+				if store.rows[i].SessionID == sessionID {
+					row := store.rows[i]
+					out = append(out, &row)
+				}
+			}
+			return out, nil
+		})
+	repo.EXPECT().Create(gomock.Any(), gomock.Any()).AnyTimes().
+		DoAndReturn(func(_ context.Context, row *workspace_fs_entity.WorkRoot) error {
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			if store.createErr != nil {
+				return store.createErr
+			}
+			for _, existing := range store.rows {
+				if existing.SessionID == row.SessionID && existing.Path == row.Path {
+					return nil
+				}
+			}
+			store.rows = append(store.rows, *row)
+			return nil
+		})
+	repo.EXPECT().Delete(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().
+		DoAndReturn(func(_ context.Context, sessionID int64, path string) error {
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			kept := store.rows[:0]
+			for _, existing := range store.rows {
+				if existing.SessionID != sessionID || existing.Path != path {
+					kept = append(kept, existing)
+				}
+			}
+			store.rows = kept
+			return nil
+		})
+	prev := workspace_fs_repo.WorkRoot()
+	workspace_fs_repo.RegisterWorkRoot(repo)
+	t.Cleanup(func() { workspace_fs_repo.RegisterWorkRoot(prev) })
+}
+
+func rootPaths(roots []WorkRootView) []string {
+	out := make([]string, 0, len(roots))
+	for _, r := range roots {
+		out = append(out, r.Path)
+	}
+	return out
+}
+
+func TestClaim_SameRepoWorktreeIsClaimedAndPersisted(t *testing.T) {
+	convey.Convey("认领候选:同一主仓库的 worktree", t, func() {
+		main := filepath.Join(t.TempDir(), "main")
+		initRepoAt(t, main)
+		nested := filepath.Join(main, ".claude", "worktrees", "x")
+		addWorktreeAt(t, main, nested, "nested")
+
+		convey.Convey("AI 位置落进 worktree 的子目录 → 认领它的根并持久化,WorkRoots 里出现", func() {
+			r := newRig(t, 0, main)
+			r.withWritten()
+
+			added, err := r.svc.Claim(r.ctx, 42, []string{nested})
+			require.NoError(t, err)
+			require.Len(t, added, 1)
+			assert.Equal(t, nested, added[0].Path)
+			assert.Equal(t, "x", added[0].Name)
+			assert.True(t, added[0].IsWorktree)
+			assert.False(t, added[0].IsPrimary)
+			assert.Equal(t, []string{nested}, r.store.paths(42))
+			require.Len(t, r.store.rows, 1)
+			assert.Equal(t, "x", r.store.rows[0].Worktree)
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{main, nested}, rootPaths(roots))
+
+			convey.Convey("再认领同一个 worktree(换个子路径)→ 不重复,返回空", func() {
+				again, err := r.svc.Claim(r.ctx, 42, []string{filepath.Join(nested, "a.go")})
+				require.NoError(t, err)
+				assert.Empty(t, again)
+				assert.Equal(t, []string{nested}, r.store.paths(42))
+			})
+		})
+
+		convey.Convey("用户点击 worktree 里文件的绝对路径 → 同样认领", func() {
+			r := newRig(t, 0, main)
+			r.withWritten()
+
+			added, err := r.svc.Claim(r.ctx, 42, []string{filepath.Join(nested, "a.go")})
+			require.NoError(t, err)
+			assert.Equal(t, []string{nested}, rootPaths(added))
+		})
+
+		convey.Convey("相对路径与空串候选被忽略", func() {
+			r := newRig(t, 0, main)
+			r.withWritten()
+
+			added, err := r.svc.Claim(r.ctx, 42, []string{"", ".claude/worktrees/x"})
+			require.NoError(t, err)
+			assert.Empty(t, added)
+			assert.Empty(t, r.store.paths(42))
+		})
+
+		convey.Convey("持久化失败 → Claim 报错,集合里也不出现这个根", func() {
+			r := newRig(t, 0, main)
+			r.withWritten()
+			r.store.createErr = errors.New("disk full")
+
+			_, err := r.svc.Claim(r.ctx, 42, []string{nested})
+			require.Error(t, err)
+
+			r.store.createErr = nil
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{main}, rootPaths(roots))
+		})
+	})
+}
+
+func TestClaim_Negatives(t *testing.T) {
+	convey.Convey("不指回同一主仓库或 git 判定失败 → 不认领、不报错", t, func() {
+		convey.Convey("本机:/tmp 目录与另一个仓库都不认领", func() {
+			wr := newWorktreeRig(t)
+			other := filepath.Join(t.TempDir(), "other")
+			initRepoAt(t, other)
+			r := newRig(t, 0, wr.main)
+			r.withWritten()
+
+			added, err := r.svc.Claim(r.ctx, 42, []string{wr.foreign, filepath.Join(wr.foreign, "patch.diff"), other})
+			require.NoError(t, err)
+			assert.Empty(t, added)
+			assert.Empty(t, r.store.paths(42))
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{wr.main}, rootPaths(roots))
+		})
+
+		convey.Convey("远端:不同公共目录不认领,git 判定失败的候选不认领也不报错", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten()
+			r.expectGitStateOrErr(map[string]wire.GitStateResp{
+				"/remote/main": {CommonDir: "/remote/main/.git"},
+				"/other/repo":  {CommonDir: "/other/repo/.git"},
+				"/remote/wt":   {CommonDir: "/remote/main/.git", Worktree: "wt"},
+			}, map[string]error{"/remote/broken": errors.New("connection lost")})
+
+			added, err := r.svc.Claim(r.ctx, 42, []string{"/tmp", "/other/repo", "/remote/broken", "/remote/wt"})
+			require.NoError(t, err)
+			assert.Equal(t, []string{"/remote/wt"}, rootPaths(added))
+			assert.Equal(t, []string{"/remote/wt"}, r.store.paths(42))
+		})
+
+		convey.Convey("会话 cwd 不在 git 仓库里 → 什么都不认领", func() {
+			r := newRig(t, 7, "/remote/plain")
+			r.withWritten()
+			r.expectGitState(map[string]wire.GitStateResp{
+				"/remote/wt": {CommonDir: "/remote/main/.git", Worktree: "wt"},
+			})
+
+			added, err := r.svc.Claim(r.ctx, 42, []string{"/remote/wt"})
+			require.NoError(t, err)
+			assert.Empty(t, added)
+		})
+	})
+}
+
+// 认领持久化:换一个全新的 svc 实例(等同重启)读同一份库,认领的根仍在,
+// 不依赖写入路径重算。
+func TestClaim_PersistedRootsSurviveRestart(t *testing.T) {
+	wr := newWorktreeRig(t)
+	store := &rootStore{}
+
+	before := newRig(t, 0, wr.main)
+	before.useStore(t, gomock.NewController(t), store)
+	before.withWritten()
+	added, err := before.svc.Claim(before.ctx, 42, []string{wr.wt})
+	require.NoError(t, err)
+	require.Len(t, added, 1)
+
+	after := newRig(t, 0, wr.main)
+	after.useStore(t, gomock.NewController(t), store)
+	after.withWritten() // 重启后的会话没有任何写入记录可供重算
+	roots, err := after.svc.WorkRoots(after.ctx, 42)
+	require.NoError(t, err)
+	require.Len(t, roots, 2)
+	assert.Equal(t, wr.wt, roots[1].Path)
+	assert.Equal(t, "wt", roots[1].Name)
+	assert.True(t, roots[1].IsWorktree)
+
+	// 别的会话看不到这个认领。
+	other, err := after.svc.WorkRoots(after.ctx, 43)
+	require.NoError(t, err)
+	assert.Len(t, other, 1)
+}
+
+// 写入路径仍是候选来源:老会话靠它获得根,并且认领结果同样持久化。
+func TestWorkRoots_WrittenPathClaimIsPersisted(t *testing.T) {
+	wr := newWorktreeRig(t)
+	r := newRig(t, 0, wr.main)
+	r.withWritten(filepath.Join(wr.wt, "pkg", "x.go"))
+
+	roots, err := r.svc.WorkRoots(r.ctx, 42)
+	require.NoError(t, err)
+	assert.Equal(t, []string{wr.main, wr.wt}, rootPaths(roots))
+	assert.Equal(t, []string{wr.wt}, r.store.paths(42))
+}
+
+// 持久化的根后来不再是同一主仓库的那个工作树(被删掉 / 换成别的东西)→ 按认领规则
+// 它不在集合里:重新读入时剔除并从库里删掉;判定时 git 失败则保留(判不准不收窄)。
+func TestWorkRoots_StalePersistedRoot(t *testing.T) {
+	convey.Convey("持久化的根重新读入时按认领规则校验", t, func() {
+		convey.Convey("不再是 git 仓库 → 剔除并删除", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten()
+			r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: "/remote/gone", Worktree: "gone"})
+			r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: "/remote/wt", Worktree: "wt"})
+			r.expectGitState(map[string]wire.GitStateResp{
+				"/remote/main": {CommonDir: "/remote/main/.git"},
+				"/remote/wt":   {CommonDir: "/remote/main/.git", Worktree: "wt"},
+			})
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"/remote/main", "/remote/wt"}, rootPaths(roots))
+			assert.Equal(t, []string{"/remote/wt"}, r.store.paths(42))
+		})
+
+		convey.Convey("换成另一个仓库 / 另一个 worktree → 剔除并删除", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten()
+			r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: "/remote/a", Worktree: "a"})
+			r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: "/remote/b", Worktree: "b"})
+			r.expectGitState(map[string]wire.GitStateResp{
+				"/remote/main": {CommonDir: "/remote/main/.git"},
+				"/remote/a":    {CommonDir: "/elsewhere/.git"},
+				"/remote/b":    {CommonDir: "/remote/main/.git", Worktree: "b2"},
+			})
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"/remote/main"}, rootPaths(roots))
+			assert.Empty(t, r.store.paths(42))
+		})
+
+		convey.Convey("校验时 git 判定失败 → 保留,下次再校验", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten()
+			r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: "/remote/wt", Worktree: "wt"})
+			failing := map[string]error{"/remote/wt": errors.New("connection lost")}
+			seen := r.expectGitStateOrErr(map[string]wire.GitStateResp{
+				"/remote/main": {CommonDir: "/remote/main/.git"},
+				"/remote/wt":   {CommonDir: "/remote/main/.git", Worktree: "wt"},
+			}, failing)
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 2)
+			assert.Equal(t, "/remote/wt", roots[1].Path)
+			assert.True(t, roots[1].IsWorktree)
+			assert.Equal(t, []string{"/remote/wt"}, r.store.paths(42))
+
+			delete(failing, "/remote/wt")
+			_, err = r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			_, err = r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"/remote/main", "/remote/wt", "/remote/wt"}, *seen,
+				"失败的那次校验要重试,成功之后不再问")
+		})
+	})
+}
+
+// 远端 git 判定按会话缓存:同一会话里已判过的目录不再发 gitState RPC,
+// 取工作根不再每次逐层重爬。
+func TestWorkRoots_RemoteJudgementsCachedPerSession(t *testing.T) {
+	r := newRig(t, 7, "/remote/main")
+	r.withWritten("/remote/wt/pkg/x.go", "/tmp/patch.diff")
+	seen := r.expectGitState(map[string]wire.GitStateResp{
+		"/remote/main":   {CommonDir: "/remote/main/.git"},
+		"/remote/wt/pkg": {CommonDir: "/remote/main/.git", Worktree: "wt"},
+		"/remote/wt":     {CommonDir: "/remote/main/.git", Worktree: "wt"},
+	})
+
+	first, err := r.svc.WorkRoots(r.ctx, 42)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/remote/main", "/remote/wt"}, rootPaths(first))
+	askedOnce := append([]string(nil), *seen...)
+
+	for i := 0; i < 3; i++ {
+		again, err := r.svc.WorkRoots(r.ctx, 42)
+		require.NoError(t, err)
+		assert.Equal(t, rootPaths(first), rootPaths(again))
+	}
+	// AI 位置在已判过的目录里来回变化,也不再问。
+	added, err := r.svc.Claim(r.ctx, 42, []string{"/remote/wt/pkg", "/remote/wt", "/remote/main"})
+	require.NoError(t, err)
+	assert.Empty(t, added)
+	// root 参数闸门同样走缓存后的集合。
+	_, err = r.svc.GitState(r.ctx, 42, "/remote/wt")
+	require.NoError(t, err)
+
+	assert.Equal(t, append(askedOnce, "/remote/wt"), *seen,
+		"只有 GitState 自己那一跳是新的;认领判定一个目录都没有重问")
+	assert.Equal(t, []string{"/remote/main", "/remote/wt/pkg", "/remote/wt", "/remote", "/tmp"}, askedOnce)
+}
+
+func TestRevoke(t *testing.T) {
+	convey.Convey("撤销认领", t, func() {
+		wr := newWorktreeRig(t)
+
+		convey.Convey("撤销已认领的根 → 集合与库里都没有它,写入路径重算也不把它认领回来", func() {
+			r := newRig(t, 0, wr.main)
+			r.withWritten(filepath.Join(wr.wt, "pkg", "x.go"))
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 2)
+
+			revoked, err := r.svc.Revoke(r.ctx, 42, wr.wt)
+			require.NoError(t, err)
+			assert.True(t, revoked)
+			assert.Empty(t, r.store.paths(42))
+
+			roots, err = r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{wr.main}, rootPaths(roots))
+		})
+
+		convey.Convey("重启后撤销持久化的根", func() {
+			r := newRig(t, 0, wr.main)
+			r.withWritten()
+			r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: wr.wt, Worktree: "wt"})
+
+			revoked, err := r.svc.Revoke(r.ctx, 42, wr.wt+"/")
+			require.NoError(t, err)
+			assert.True(t, revoked)
+			assert.Empty(t, r.store.paths(42))
+		})
+
+		convey.Convey("主根不能撤销;不在集合里的路径什么也不做", func() {
+			r := newRig(t, 0, wr.main)
+			r.withWritten()
+			r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: wr.wt, Worktree: "wt"})
+
+			revoked, err := r.svc.Revoke(r.ctx, 42, wr.main)
+			require.NoError(t, err)
+			assert.False(t, revoked)
+			revoked, err = r.svc.Revoke(r.ctx, 42, wr.foreign)
+			require.NoError(t, err)
+			assert.False(t, revoked)
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{wr.main, wr.wt}, rootPaths(roots))
+			assert.Equal(t, []string{wr.wt}, r.store.paths(42))
+		})
+
+		convey.Convey("撤销后再认领同一个 worktree → 重新判定并认领回来", func() {
+			r := newRig(t, 0, wr.main)
+			r.withWritten()
+			_, err := r.svc.Claim(r.ctx, 42, []string{wr.wt})
+			require.NoError(t, err)
+			_, err = r.svc.Revoke(r.ctx, 42, wr.wt)
+			require.NoError(t, err)
+
+			added, err := r.svc.Claim(r.ctx, 42, []string{wr.wt})
+			require.NoError(t, err)
+			assert.Equal(t, []string{wr.wt}, rootPaths(added))
+		})
+	})
+}

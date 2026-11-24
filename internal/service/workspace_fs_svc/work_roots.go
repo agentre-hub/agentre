@@ -20,7 +20,9 @@ import (
 // 集合之外仍然一律拒绝——边界只是变宽了一格,没有放松。
 //
 // 认领两个条件缺一不可:
-//  1. AI 的写入路径属于一个尚未认领的工作树(否则它本来就在集合里,不是新根);
+//  1. 候选路径(AI 当前位置、写入目标、`git worktree add` 的路径、用户点击的路径,
+//     见 Claim;写入路径另由取工作根时补喂)属于一个尚未认领的工作树(否则它本来
+//     就在集合里,不是新根);
 //  2. 该路径解析出的 git 公共目录(GitState.CommonDir)与会话 cwd 的相同,
 //     即它指回同一个主仓库。
 //
@@ -37,7 +39,8 @@ import (
 //
 // 判定所需的 git 事实一律经 gitStateAt 取,本机走叶子包、远端走
 // workspacefs.gitState RPC(daemon 侧是同一份叶子实现),因此本地会话与远端
-// agentred 会话认领出的集合形状一致(硬不变量 5)。
+// agentred 会话认领出的集合形状一致(硬不变量 5)。认领结果持久化、git 判定按
+// 会话缓存,见 claim.go。
 
 // WrittenPath 是 AI 的一次写入:Path 是工具调用里的原始路径(可能是相对路径),
 // Dir 是该调用执行时 AI 所在的目录(没有记录时为空串)。相对路径按 Dir 补全,
@@ -127,63 +130,6 @@ func (s *workspaceFsImpl) rootFor(ctx context.Context, sessionID int64, root str
 	return 0, "", i18n.NewError(ctx, code.WorkspaceFsPathRefused)
 }
 
-// claimedRoots 从会话 cwd 出发算出完整的工作根集合。
-func (s *workspaceFsImpl) claimedRoots(ctx context.Context, sessionID, deviceID int64, cwd string) ([]WorkRootView, error) {
-	primary, err := s.gitStateAt(ctx, deviceID, cwd)
-	if err != nil {
-		return nil, err
-	}
-	roots := []WorkRootView{{
-		Path: cwd, Name: baseOf(cwd), IsWorktree: primary.Worktree != "", IsPrimary: true,
-	}}
-	if primary.NotARepo || primary.CommonDir == "" {
-		// 会话 cwd 不在任何 git 工作树内:没有"同一个主仓库"可指回,认领条件 2
-		// 永远不成立。直接单根返回,顺带省掉一次会话消息扫描。
-		return roots, nil
-	}
-
-	written, err := s.writtenPathsOf(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	// 已认领的工作树按 worktree 短名记账:CommonDir 恒等于 primary 的(条件 2),
-	// 短名在同一 CommonDir 内唯一,主 checkout 的短名是空串。
-	claimed := map[string]struct{}{primary.Worktree: {}}
-	judged := make(map[string]struct{}, len(written)) // 本轮已判过的目录,每个只问一次 git
-	for _, w := range written {
-		p, ok := anchorWrittenPath(w, cwd)
-		if !ok {
-			continue
-		}
-		dir := dirOf(p)
-		if _, done := judged[dir]; done {
-			continue
-		}
-		judged[dir] = struct{}{}
-		st, err := s.gitStateAt(ctx, deviceID, dir)
-		if err != nil {
-			logClaimGitFailure(ctx, deviceID, err)
-			continue
-		}
-		if st.NotARepo || st.CommonDir != primary.CommonDir {
-			continue // 条件 2 不成立
-		}
-		if _, dup := claimed[st.Worktree]; dup {
-			continue // 条件 1 不成立:这个工作树已经在集合里(不论路径怎么写)
-		}
-		root, ok := s.worktreeRootOf(ctx, deviceID, dir, st)
-		if !ok {
-			continue // 向上找根时 git 判定失败
-		}
-		claimed[st.Worktree] = struct{}{}
-		roots = append(roots, WorkRootView{Path: root, Name: baseOf(root), IsWorktree: st.Worktree != ""})
-		logger.Ctx(ctx).Info("workspace_fs_svc.claimedRoots: claimed work root",
-			zap.Int64("sessionID", sessionID), zap.Int64("deviceID", deviceID),
-			zap.String("rootName", baseOf(root)), zap.Bool("isWorktree", st.Worktree != ""))
-	}
-	return roots, nil
-}
-
 // anchorWrittenPath 把一次写入补全成绝对路径:绝对路径原样(清理后)返回;相对
 // 路径按该调用所在目录 Dir 补全,Dir 缺失(或本身不是绝对路径)时回落会话 cwd。
 // 路径为空时 ok=false。
@@ -199,36 +145,6 @@ func anchorWrittenPath(w WrittenPath, cwd string) (string, bool) {
 		base = cwd
 	}
 	return joinPath(base, w.Path), true
-}
-
-// worktreeRootOf 给出 dir(其 git 状态为 st)所属工作树的根。
-//
-// 认领的是**工作树的根**而不是被写文件所在的那一层子目录:根的名字与内容都要
-// 能当侧栏的一个根用。GitState 只给 CommonDir 不给工作树根,所以这里靠"同一
-// 工作树内 CommonDir 与 worktree 短名都不变"向上走:一旦上一层换了主仓库、
-// 换了 worktree、或根本不在工作树内,就说明刚才那层就是根。这样 worktree 嵌在
-// 主 checkout 里(两者 CommonDir 相同)时也不会一路爬到主仓库去。
-//
-// 向上任何一层 git 判定失败都按"不认领"处理(ok=false)并记一条 Warn:认领只会
-// 让边界变宽,判不准时就不变宽,也不该让整个侧栏取数因此失败。
-func (s *workspaceFsImpl) worktreeRootOf(ctx context.Context, deviceID int64, dir string, st *GitStateView) (string, bool) {
-	root := dir
-	for i := 0; i < maxRootAscent; i++ {
-		parent := dirOf(root)
-		if parent == root {
-			break
-		}
-		pst, err := s.gitStateAt(ctx, deviceID, parent)
-		if err != nil {
-			logClaimGitFailure(ctx, deviceID, err)
-			return "", false
-		}
-		if pst.NotARepo || pst.CommonDir != st.CommonDir || pst.Worktree != st.Worktree {
-			break
-		}
-		root = parent
-	}
-	return root, true
 }
 
 // logClaimGitFailure 记录一次被跳过的认领判定。具体路径不进日志(与 rootFor 越界

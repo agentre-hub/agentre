@@ -65,3 +65,15 @@ func (a *App) WorkspaceFsGitFileContent(sessionID int64, root, relPath string) (
 func (a *App) WorkspaceFsSearchFiles(sessionID int64, root, query string, includeIgnored bool) (*workspace_fs_svc.SearchFilesView, error) {
 	return workspace_fs_svc.Default().SearchFiles(a.ctx, sessionID, root, query, includeIgnored)
 }
+
+// WorkspaceFsClaimPath 是用户点击了一个绝对路径(spec 决策 20):把它当认领候选,
+// 落在同一主仓库、尚未认领的 worktree 里时当场认领(规则与自动认领相同),然后交回
+// 认领之后的完整工作根集合,前端在其中找包含该路径的最深的根去预览。认领不成立
+// (不同仓库、/tmp、git 判定失败)不报错,集合照旧返回。
+func (a *App) WorkspaceFsClaimPath(sessionID int64, absPath string) ([]workspace_fs_svc.WorkRootView, error) {
+	svc := workspace_fs_svc.Default()
+	if _, err := svc.Claim(a.ctx, sessionID, []string{absPath}); err != nil {
+		return nil, err
+	}
+	return svc.WorkRoots(a.ctx, sessionID)
+}

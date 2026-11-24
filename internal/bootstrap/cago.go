@@ -39,6 +39,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/app_settings_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
@@ -147,6 +148,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	issue_repo.RegisterIssueLabel(issue_repo.NewIssueLabel())
 	issue_svc.SetDefault(issue_svc.New())
 	memory_repo.RegisterMemory(memory_repo.NewMemory())
+	workspace_fs_repo.RegisterWorkRoot(workspace_fs_repo.NewWorkRoot())
 	// 把 project_svc 的 cwd 解析注入 exec_target_svc —— 那个包不直接 import project_svc，
 	// 避免 project_svc → chat_repo 与 exec_target_svc → project_svc 形成环。
 	exec_target_svc.RegisterCwdResolver(project_svc.Default().ResolveSessionCwd)

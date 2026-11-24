@@ -16,9 +16,11 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/workspace_fs_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	"github.com/agentre-hub/agentre/migrations"
 )
@@ -124,6 +126,8 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"labels":       {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
 		"issue_labels": {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
 		"memories":     {"owner_kind", "owner_id", "summary", "prev_summary", "state", "changed_at", "sync_id", "sync_origin_fingerprint"},
+		// 工作根认领集合(spec 2026-11-24「识别信号 · 认领」):重启后仍在。
+		"session_work_roots": {"session_id", "path", "worktree"},
 	} {
 		if !gormDB.Migrator().HasTable(table) {
 			t.Errorf("current table %q was not created", table)
@@ -497,6 +501,51 @@ func TestInitRegistersProjectLocationRepo(t *testing.T) {
 
 	if project_location_repo.ProjectLocation() == nil {
 		t.Fatal("project_location_repo.ProjectLocation() = nil after Init; bootstrap forgot to RegisterProjectLocation")
+	}
+}
+
+// TestInitLetsAWorkRootBeClaimed 证明全新库上工作根认领集合真能落库、重复认领幂等、
+// 能撤销:repo 层 sqlmock 只验 SQL 拼写(那边是 MySQL 方言),碰不到 SQLite 上
+// ON CONFLICT DO NOTHING 与唯一索引的真实行为。
+func TestInitLetsAWorkRootBeClaimed(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	ctx := context.Background()
+	repo := workspace_fs_repo.WorkRoot()
+	if repo == nil {
+		t.Fatal("workspace_fs_repo.WorkRoot() = nil after Init; bootstrap forgot to RegisterWorkRoot")
+	}
+	for i := 0; i < 2; i++ {
+		if err := repo.Create(ctx, &workspace_fs_entity.WorkRoot{SessionID: 42, Path: "/repo/.worktrees/x", Worktree: "x"}); err != nil {
+			t.Fatalf("Create() #%d error = %v; 重复认领必须幂等", i+1, err)
+		}
+	}
+	if err := repo.Create(ctx, &workspace_fs_entity.WorkRoot{SessionID: 43, Path: "/repo/.worktrees/x", Worktree: "x"}); err != nil {
+		t.Fatalf("Create() other session error = %v", err)
+	}
+	rows, err := repo.ListBySession(ctx, 42)
+	if err != nil || len(rows) != 1 || rows[0].Worktree != "x" {
+		t.Fatalf("ListBySession(42) = %+v, %v; want one row with worktree x", rows, err)
+	}
+	if err := repo.Delete(ctx, 42, "/repo/.worktrees/x"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if rows, _ := repo.ListBySession(ctx, 42); len(rows) != 0 {
+		t.Fatalf("ListBySession(42) after Delete = %+v, want empty", rows)
+	}
+	if err := repo.DeleteBySession(ctx, 43); err != nil {
+		t.Fatalf("DeleteBySession() error = %v", err)
+	}
+	if rows, _ := repo.ListBySession(ctx, 43); len(rows) != 0 {
+		t.Fatalf("ListBySession(43) after DeleteBySession = %+v, want empty", rows)
 	}
 }
 

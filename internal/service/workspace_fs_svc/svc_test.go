@@ -37,6 +37,8 @@ type rig struct {
 	calls    map[string][]*workspaceProtoCall
 	fallback map[string]func(context.Context, string, any, any) error
 	svc      *workspaceFsImpl
+	// store 是认领集合仓库 mock 背后的那份数据(见 claim_test.go 的 rootStore)。
+	store *rootStore
 }
 
 // newRig 装配一个只有 mock 依赖的 svc。resolver 是本服务自声明的窄接口,单测
@@ -60,6 +62,7 @@ func newRig(t *testing.T, deviceID int64, cwd string) *rig {
 			return deviceID, cwd, nil
 		},
 	}
+	r.useStore(t, ctrl, &rootStore{})
 	return r
 }
 

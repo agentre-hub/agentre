@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"sync"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -61,6 +62,14 @@ type WorkspaceFsSvc interface {
 	// WorkRoots 列出本会话已认领的工作根集合(见 work_roots.go)。第一项恒是
 	// 会话 cwd 对应的根(IsPrimary)。
 	WorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error)
+	// Claim 按认领规则判定候选路径(文件或目录的绝对路径:AI 当前位置、写入目标、
+	// `git worktree add` 的路径、用户点击的路径),把指回会话主仓库、尚未认领的
+	// 工作树的根认领并持久化。返回本次**新增**的根(没有新增时为空);git 判定
+	// 失败的候选不认领、不报错。
+	Claim(ctx context.Context, sessionID int64, candidates []string) ([]WorkRootView, error)
+	// Revoke 撤销本会话已认领的根 root(不再出现在集合里,也不再持久化)。主根不能
+	// 撤销;root 不是已认领的根时什么也不做。返回是否真的撤销了一个根。
+	Revoke(ctx context.Context, sessionID int64, root string) (bool, error)
 	// ListDir 列出 root 下 relPath 这一层(relPath 为空即 root 本身)。root 为
 	// 空串表示会话 cwd;非空时必须命中本会话已认领的工作根集合,否则拒绝。
 	ListDir(ctx context.Context, sessionID int64, root, relPath string, includeIgnored bool) (*ListDirView, error)
@@ -208,11 +217,18 @@ var defaultSvc WorkspaceFsSvc = &workspaceFsImpl{}
 
 func Default() WorkspaceFsSvc { return defaultSvc }
 
+// RegisterWorkspaceFs 替换默认实现(绑定层单测注入桩)。
+func RegisterWorkspaceFs(impl WorkspaceFsSvc) { defaultSvc = impl }
+
 type workspaceFsImpl struct {
 	// rdSvc / resolver / writtenPaths 默认走包级单例;单测注入 mock 与闭包。
 	rdSvc        remote_device_svc.RemoteDeviceSvc
 	resolver     SessionWorkspaceResolver
 	writtenPaths SessionWrittenPathsResolver
+
+	// claims 是各会话在本进程里的认领状态(见 claim.go)。
+	claimsMu sync.Mutex
+	claims   map[int64]*claimState
 }
 
 func (s *workspaceFsImpl) deviceSvc() remote_device_svc.RemoteDeviceSvc {
