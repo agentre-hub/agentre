@@ -14,6 +14,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
@@ -207,6 +208,46 @@ func writeMsg(t *testing.T, id, version int64, path string) *chat_entity.Message
 	})
 	m.Updatetime = version
 	return m
+}
+
+// Hermes 的写入只在实时路径被识别过(spec 问题 6):落库后的 write_file / patch 块
+// 必须经 canonical.FromToolUse 重算出路径,否则永远触发不了工作根认领。
+func TestSessionWrittenPaths_HermesWrites(t *testing.T) {
+	stubMessages(t, []*chat_entity.Message{
+		msgWithBlocks(t, 9101,
+			blocks.ToolUseBlock{ID: "h1", Name: "write_file", Input: map[string]any{"path": "/wt/h.go", "content": "x\n"}},
+			blocks.ToolUseBlock{ID: "h2", Name: "patch", Input: map[string]any{
+				"mode": "replace", "path": "/wt/p.go", "old_string": "a", "new_string": "b",
+			}},
+		),
+	}, nil)
+
+	paths, err := SessionWrittenPaths(context.Background(), 7)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/wt/h.go", "/wt/p.go"}, paths)
+}
+
+// ACP 落库名是 title:写入信号是 translator 写进入参的 acp_kind / acp_paths。
+// 只读 kind 的调用即使带路径也不算写入。
+func TestSessionWrittenPaths_ACPWrites(t *testing.T) {
+	stubMessages(t, []*chat_entity.Message{
+		msgWithBlocks(t, 9102,
+			blocks.ToolUseBlock{ID: "a1", Name: "Editing main.go", Input: map[string]any{
+				canonical.ACPKindInputKey:  "edit",
+				canonical.ACPPathsInputKey: []any{"/wt/a.go", "/wt/b.go"},
+			}},
+			blocks.ToolUseBlock{ID: "a2", Name: "Deleting", Input: map[string]any{
+				canonical.ACPKindInputKey: "delete", "path": "/wt/gone.go",
+			}},
+			blocks.ToolUseBlock{ID: "a3", Name: "Reading", Input: map[string]any{
+				canonical.ACPKindInputKey: "read", "path": "/wt/r.go",
+			}},
+		),
+	}, nil)
+
+	paths, err := SessionWrittenPaths(context.Background(), 7)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/wt/a.go", "/wt/b.go", "/wt/gone.go"}, paths)
 }
 
 // TestSessionWrittenPaths_IncrementalByVersion 钉住决策 4 的后半句:工作根的「写过的

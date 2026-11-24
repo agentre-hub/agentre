@@ -20,7 +20,6 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-hub/agentre/internal/pkg/diff"
 )
 
 // EventKind is one gateway event `params.type` (or a synthetic kind for unit
@@ -434,9 +433,10 @@ func normalizeTodoStatus(status string) canonical.PlanStepStatus {
 	}
 }
 
-// recognizeCanonical maps Hermes' file-mutating tools onto the shared canonical
-// shapes, then falls back to the cross-backend recognizer (agent/task spawn).
-// Everything else stays a raw tool card.
+// recognizeCanonical maps Hermes' tool calls onto the shared canonical shapes via
+// canonical.FromToolUse — the same rule set the end-of-turn recompute applies to
+// the persisted blocks (write_file / patch / agent spawn). Everything else stays
+// a raw tool card.
 func recognizeCanonical(name string, rawInput json.RawMessage) canonical.CanonicalTool {
 	if len(rawInput) == 0 {
 		return nil
@@ -445,72 +445,8 @@ func recognizeCanonical(name string, rawInput json.RawMessage) canonical.Canonic
 	if err := json.Unmarshal(rawInput, &m); err != nil {
 		return nil
 	}
-	switch name {
-	case "write_file":
-		return fileWriteCanonical(m)
-	case "patch":
-		return patchCanonical(m)
-	}
 	if c, ok := canonical.FromToolUse(name, m); ok {
 		return c
 	}
 	return nil
-}
-
-func fileWriteCanonical(m map[string]any) canonical.CanonicalTool {
-	path, _ := m["path"].(string)
-	content, ok := m["content"].(string)
-	if !ok {
-		return nil
-	}
-	bytes := len(content)
-	truncated := false
-	if bytes > canonical.WriteContentByteCap {
-		content = content[:canonical.WriteContentByteCap]
-		truncated = true
-	}
-	lines := 0
-	if content != "" {
-		lines = strings.Count(content, "\n")
-		if !strings.HasSuffix(content, "\n") {
-			lines++
-		}
-	}
-	return canonical.FileWrite{
-		Path:      path,
-		Content:   content,
-		Lines:     lines,
-		Bytes:     bytes,
-		Truncated: truncated,
-	}
-}
-
-// patchCanonical maps Hermes' `patch` tool (mode=replace) onto FileEdit. Other
-// modes (create/append/multi_replace) are left raw: their wire shape does not
-// map cleanly onto a single diff and a half-rendered DiffCard is worse than a
-// raw tool card.
-func patchCanonical(m map[string]any) canonical.CanonicalTool {
-	mode, _ := m["mode"].(string)
-	if mode != "replace" {
-		return nil
-	}
-	path, _ := m["path"].(string)
-	oldString, _ := m["old_string"].(string)
-	newString, _ := m["new_string"].(string)
-	if strings.TrimSpace(path) == "" || oldString == "" {
-		return nil
-	}
-	payload := diff.FromEdit(map[string]any{
-		"file_path":  path,
-		"old_string": oldString,
-		"new_string": newString,
-	})
-	totalHunks := 0
-	for _, f := range payload.Files {
-		totalHunks += len(f.Hunks)
-	}
-	if len(payload.Files) == 0 || totalHunks == 0 {
-		return nil
-	}
-	return canonical.FileEdit{Files: canonical.PatchesFromDiff(payload)}
 }
