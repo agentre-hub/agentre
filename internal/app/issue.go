@@ -287,3 +287,108 @@ func (a *App) IssueMove(req *IssueMoveRequest) (*IssueItem, error) {
 	}
 	return toIssueItem(d), nil
 }
+
+// ── 会话 ↔ 看板任务关联(spec 2026-11-24 决策 23)────────────────────────────
+// 关联只存本机、不同步,也从不改变任务阶段。
+
+// IssueCreateLinkedRequest 关联窗「新建任务」:Title 为空时取会话标题(从搜索列表进入时是搜索词)。
+type IssueCreateLinkedRequest struct {
+	SessionID int64  `json:"sessionID"`
+	Title     string `json:"title"`
+}
+
+// SessionLinkedIssue 关联窗里一条已关联任务;OtherSessionCount 是「另有 N 个会话」。
+type SessionLinkedIssue struct {
+	ID                int64  `json:"id"`
+	Title             string `json:"title"`
+	Stage             string `json:"stage"`
+	OtherSessionCount int64  `json:"otherSessionCount"`
+}
+
+// IssueLinkedSession 看板卡片上一条关联会话;AgentStatus 与会话列表同源(idle / running /
+// waiting / error)。
+type IssueLinkedSession struct {
+	SessionID   int64  `json:"sessionID"`
+	Title       string `json:"title"`
+	AgentID     int64  `json:"agentID"`
+	AgentName   string `json:"agentName"`
+	AgentStatus string `json:"agentStatus"`
+}
+
+// IssueLinkCandidate 「关联任务」搜索列表的一项;Linked 表示本会话已关联(打勾)。
+type IssueLinkCandidate struct {
+	ID     int64  `json:"id"`
+	Title  string `json:"title"`
+	Stage  string `json:"stage"`
+	Linked bool   `json:"linked"`
+}
+
+// IssueLinkSession 把会话与任务关联(幂等,不改阶段)。「开始会话」在首条消息发出、会话
+// 创建之后由前端调用它。
+func (a *App) IssueLinkSession(sessionID, issueID int64) error {
+	return codedError(issue_svc.Default().LinkSession(a.ctx, sessionID, issueID))
+}
+
+// IssueUnlinkSession 取消关联(幂等)。
+func (a *App) IssueUnlinkSession(sessionID, issueID int64) error {
+	return codedError(issue_svc.Default().UnlinkSession(a.ctx, sessionID, issueID))
+}
+
+// IssueCreateLinked 在「待办」阶段新建任务(项目取会话所属项目)并立即关联。
+func (a *App) IssueCreateLinked(req *IssueCreateLinkedRequest) (*IssueItem, error) {
+	d, err := issue_svc.Default().CreateLinked(a.ctx, &issue_svc.CreateLinkedRequest{
+		SessionID: req.SessionID, Title: req.Title,
+	})
+	if err != nil {
+		return nil, codedError(err)
+	}
+	return toIssueItem(d), nil
+}
+
+// IssueListBySession 关联窗里本会话已关联的任务(编号 / 标题 / 阶段 / 另有 N 个会话)。
+func (a *App) IssueListBySession(sessionID int64) ([]*SessionLinkedIssue, error) {
+	views, err := issue_svc.Default().ListBySession(a.ctx, sessionID)
+	if err != nil {
+		return nil, codedError(err)
+	}
+	out := make([]*SessionLinkedIssue, 0, len(views))
+	for _, v := range views {
+		out = append(out, &SessionLinkedIssue{
+			ID: v.Issue.ID, Title: v.Issue.Title, Stage: v.Issue.Stage,
+			OtherSessionCount: v.OtherSessionCount,
+		})
+	}
+	return out, nil
+}
+
+// IssueSessionsOf 看板卡片上某任务的关联会话(标题 / Agent / 运行状态)。
+func (a *App) IssueSessionsOf(issueID int64) ([]*IssueLinkedSession, error) {
+	views, err := issue_svc.Default().SessionsOf(a.ctx, issueID)
+	if err != nil {
+		return nil, codedError(err)
+	}
+	out := make([]*IssueLinkedSession, 0, len(views))
+	for _, v := range views {
+		out = append(out, &IssueLinkedSession{
+			SessionID: v.SessionID, Title: v.Title, AgentID: v.AgentID,
+			AgentName: v.AgentName, AgentStatus: v.AgentStatus,
+		})
+	}
+	return out, nil
+}
+
+// IssueSearchForSession 「关联任务」搜索:范围是本会话所属项目及其子项目的任务(会话不属于
+// 任何项目时是全部任务),每项带编号 / 标题 / 阶段与「已关联」标记。
+func (a *App) IssueSearchForSession(sessionID int64, keyword string) ([]*IssueLinkCandidate, error) {
+	cands, err := issue_svc.Default().SearchForSession(a.ctx, sessionID, keyword)
+	if err != nil {
+		return nil, codedError(err)
+	}
+	out := make([]*IssueLinkCandidate, 0, len(cands))
+	for _, c := range cands {
+		out = append(out, &IssueLinkCandidate{
+			ID: c.Issue.ID, Title: c.Issue.Title, Stage: c.Issue.Stage, Linked: c.Linked,
+		})
+	}
+	return out, nil
+}

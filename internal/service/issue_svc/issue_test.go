@@ -240,6 +240,7 @@ func TestIssueSvcGet_NotFound(t *testing.T) {
 func TestIssueSvcDelete_Happy(t *testing.T) {
 	ctx, mi, _, _, svc := setupIssueSvc(t)
 	mi.EXPECT().Find(ctx, int64(5)).Return(&issue_entity.Issue{ID: 5, State: issue_entity.StateOpen}, nil)
+	registerLinkCleanup(t, ctx, 5)
 	mi.EXPECT().Delete(ctx, int64(5)).Return(nil)
 
 	err := svc.Delete(ctx, 5)

@@ -23,6 +23,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/repository/session_dispatch_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo"
 	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	"github.com/agentre-hub/agentre/migrations"
@@ -915,5 +916,61 @@ WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'migrations'`).Sca
 				t.Errorf("primary key is not AUTOINCREMENT; DDL:\n%s", table.SQL)
 			}
 		})
+	}
+}
+
+// TestInitLetsASessionBeLinkedToAnIssue 证明全新库上会话 ↔ 任务关联表真能落库:重复关联幂等
+// (唯一索引 + 冲突忽略的真实 SQL)、按会话 / 按任务 / 计数互通、取消关联、按任务与按会话
+// 清理(repo 层 sqlmock 只验 SQL 拼写)。
+func TestInitLetsASessionBeLinkedToAnIssue(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	ctx := context.Background()
+	repo := session_issue_link_repo.SessionIssueLink()
+	if repo == nil {
+		t.Fatal("session_issue_link_repo.SessionIssueLink() = nil after Init; bootstrap forgot to RegisterSessionIssueLink")
+	}
+	for _, pair := range [][2]int64{{1, 10}, {1, 10}, {1, 11}, {2, 10}} {
+		if err := repo.Link(ctx, pair[0], pair[1]); err != nil {
+			t.Fatalf("Link(%v) error = %v", pair, err)
+		}
+	}
+	if rows, err := repo.ListBySession(ctx, 1); err != nil || len(rows) != 2 {
+		t.Fatalf("ListBySession(1) = %+v, %v; want two rows (duplicate link ignored)", rows, err)
+	}
+	if rows, err := repo.ListByIssue(ctx, 10); err != nil || len(rows) != 2 {
+		t.Fatalf("ListByIssue(10) = %+v, %v; want two rows", rows, err)
+	}
+	if counts, err := repo.CountByIssues(ctx, []int64{10, 11, 12}); err != nil || counts[10] != 2 || counts[11] != 1 || len(counts) != 2 {
+		t.Fatalf("CountByIssues = %v, %v; want {10:2, 11:1}", counts, err)
+	}
+	if err := repo.Unlink(ctx, 1, 11); err != nil {
+		t.Fatalf("Unlink() error = %v", err)
+	}
+	if err := repo.Unlink(ctx, 1, 11); err != nil {
+		t.Fatalf("second Unlink() error = %v, want idempotent", err)
+	}
+	if err := repo.DeleteByIssue(ctx, 10); err != nil {
+		t.Fatalf("DeleteByIssue() error = %v", err)
+	}
+	if rows, _ := repo.ListBySession(ctx, 1); len(rows) != 0 {
+		t.Fatalf("ListBySession(1) after DeleteByIssue(10) = %+v, want empty", rows)
+	}
+	if err := repo.Link(ctx, 3, 20); err != nil {
+		t.Fatalf("Link() error = %v", err)
+	}
+	if err := repo.DeleteBySession(ctx, 3); err != nil {
+		t.Fatalf("DeleteBySession() error = %v", err)
+	}
+	if rows, _ := repo.ListByIssue(ctx, 20); len(rows) != 0 {
+		t.Fatalf("ListByIssue(20) after DeleteBySession(3) = %+v, want empty", rows)
 	}
 }

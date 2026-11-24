@@ -99,3 +99,33 @@ type ListIssuesResponse struct {
 	// **不随筛选变化** —— 打开项目选择器的目的就是判断该切到哪。
 	ProjectCounts map[int64]int64
 }
+
+// CreateLinkedRequest 关联工具窗「新建任务」:在「待办」阶段创建并立即关联到会话。
+type CreateLinkedRequest struct {
+	SessionID int64
+	// Title 为空(去空白后)时取会话标题;从搜索列表进入时是搜索词。
+	Title string
+}
+
+// LinkedIssueView 关联窗里一条已关联任务。
+type LinkedIssueView struct {
+	Issue *issue_entity.Issue
+	// OtherSessionCount 是除本会话外还关联了这个任务的会话数(「另有 N 个会话」)。
+	OtherSessionCount int64
+}
+
+// LinkedSessionView 看板卡片上一条关联会话。AgentStatus 取会话自己的 agent_status
+// (idle / running / waiting / error),与会话列表的状态标记同一来源。
+type LinkedSessionView struct {
+	SessionID   int64
+	Title       string
+	AgentID     int64
+	AgentName   string
+	AgentStatus string
+}
+
+// LinkCandidate 「关联任务」搜索列表的一项。
+type LinkCandidate struct {
+	Issue  *issue_entity.Issue
+	Linked bool
+}
