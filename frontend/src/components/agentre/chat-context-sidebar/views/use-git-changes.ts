@@ -95,14 +95,19 @@ export function useGitChanges({
     );
   }, [enabled, cwd, root, sessionId, doneTick, reloadTick]);
 
-  const loaded = state.status === "loaded" ? state.view : null;
-  const notARepo = loaded?.notARepo === true;
+  const reload = React.useCallback(() => setReloadTick((tick) => tick + 1), []);
 
-  return {
-    state,
-    count: loaded && !notARepo ? (loaded.changes?.length ?? 0) : null,
-    notARepo,
-    reload: () => setReloadTick((tick) => tick + 1),
-    overlayChanges: loaded && !notARepo ? (loaded.changes ?? []) : null,
-  };
+  // 返回值只随快照变：它经 context 交给各工具窗，宿主在流式输出期间每个文字
+  // delta 都重渲染，返回一个新对象就会让所有工具窗跟着重渲染。
+  return React.useMemo(() => {
+    const loaded = state.status === "loaded" ? state.view : null;
+    const notARepo = loaded?.notARepo === true;
+    return {
+      state,
+      count: loaded && !notARepo ? (loaded.changes?.length ?? 0) : null,
+      notARepo,
+      reload,
+      overlayChanges: loaded && !notARepo ? (loaded.changes ?? []) : null,
+    };
+  }, [state, reload]);
 }

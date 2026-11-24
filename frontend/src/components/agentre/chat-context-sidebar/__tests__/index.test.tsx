@@ -48,7 +48,6 @@ vi.mock("../../../../../wailsjs/go/app/App", () => ({
   UpdateAppSettings: vi.fn(),
 }));
 
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import {
   selectActivePreviewTab,
   useFilePreviewTabsStore,
@@ -58,7 +57,14 @@ import {
   useFileSettingsStore,
 } from "@/stores/file-settings-store";
 
-import { ChatContextSidebar } from "../index";
+import { ChatContextToolWindows } from "../index";
+
+import {
+  changesHeading,
+  isToolWindowShown,
+  showOnly,
+  stripButton,
+} from "./tool-window-helpers";
 
 import type { chat_svc } from "../../../../../wailsjs/go/models";
 
@@ -114,10 +120,10 @@ const assistantM = (id: number, text: string): Msg =>
     createtime: 0,
   }) as unknown as Msg;
 
-describe("ChatContextSidebar", () => {
+describe("ChatContextToolWindows", () => {
   beforeEach(() => {
     localStorage.clear();
-    useChatSidebarStore.setState({ open: true, activeTab: "outline" });
+    showOnly("outline");
     gitChangesMock.mockReset();
     gitChangesMock.mockResolvedValue(gitChangesView([]));
     listDirMock.mockReset();
@@ -145,9 +151,9 @@ describe("ChatContextSidebar", () => {
       ],
       truncated: false,
     });
-    useChatSidebarStore.setState({ open: true, activeTab: "directory" });
+    showOnly("directory");
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[]}
         activeMessageId={null}
@@ -177,7 +183,7 @@ describe("ChatContextSidebar", () => {
 
   it("shows OutlineView by default", () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[userM(1, "hello world")]}
         activeMessageId={null}
@@ -189,7 +195,7 @@ describe("ChatContextSidebar", () => {
 
   it("does not render the legacy git Context block at the top", () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[userM(1, "hello world")]}
         activeMessageId={null}
@@ -202,7 +208,7 @@ describe("ChatContextSidebar", () => {
 
   it("exposes a resize separator on the left edge", () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[userM(1, "hello world")]}
         activeMessageId={null}
@@ -213,50 +219,54 @@ describe("ChatContextSidebar", () => {
     expect(sep).toHaveAttribute("aria-orientation", "vertical");
   });
 
-  it("Given the sidebar on each of its pages, When rendered, Then it sits on the chrome surface and no row draws a dividing line", async () => {
+  it("Given each of the three tool windows, When shown, Then the right area sits on the chrome surface and no row draws a dividing line", async () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[userM(1, "hello world")]}
         activeMessageId={null}
         onJumpToMessage={() => {}}
       />,
     );
-    const aside = screen.getByRole("complementary");
+    const aside = screen.getByRole("complementary", {
+      name: "Right tool windows",
+    });
     expect(aside).toHaveClass("bg-chrome");
-    // 页签是分段控件：当前页是按钮填充，不是品牌色。
-    const outlineTab = screen.getByRole("tab", { name: /^Outline/ });
-    expect(outlineTab).toHaveClass("bg-button-fill");
-    expect(outlineTab.className).not.toMatch(/bg-primary/);
+    // 已打开的图标是按钮填充，不是品牌色。
+    expect(stripButton("Outline")).toHaveClass("bg-button-fill");
+    expect(stripButton("Outline").className).not.toMatch(/bg-primary/);
+    expect(edgeClasses(aside)).toEqual([]);
+    expect(
+      edgeClasses(screen.getByRole("toolbar", { name: "Tool windows" })),
+    ).toEqual([]);
+
+    await userEvent.click(stripButton("Changes"));
     expect(edgeClasses(aside)).toEqual([]);
 
-    await userEvent.click(screen.getByRole("tab", { name: /^Changes/ }));
-    expect(edgeClasses(aside)).toEqual([]);
-
-    await userEvent.click(screen.getByRole("tab", { name: /^Directory/ }));
+    await userEvent.click(stripButton("Directory"));
     expect(edgeClasses(aside)).toEqual([]);
   });
 
-  it("switches to the session changes list when the Changes tab is clicked", async () => {
+  it("switches to the session changes list when the Changes icon is clicked", async () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[userM(1, "hello world")]}
         activeMessageId={null}
         onJumpToMessage={() => {}}
       />,
     );
-    await userEvent.click(screen.getByRole("tab", { name: /^Changes/ }));
+    await userEvent.click(stripButton("Changes"));
     expect(
       screen.getByText(/No files have been changed by tools in this session/),
     ).toBeInTheDocument();
-    expect(useChatSidebarStore.getState().activeTab).toBe("changes");
+    expect(isToolWindowShown("changes")).toBe(true);
   });
 
   it("calls onJumpToMessage when outline row clicked", async () => {
     const onJump = vi.fn();
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[userM(99, "hello world")]}
         activeMessageId={null}
@@ -269,7 +279,7 @@ describe("ChatContextSidebar", () => {
 
   it("highlights the outline row matching activeMessageId", () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[userM(11, "first"), userM(22, "second")]}
         activeMessageId={22}
@@ -284,7 +294,7 @@ describe("ChatContextSidebar", () => {
 
   it("highlights the turn's user row when activeMessageId points to an assistant reply in that turn", () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[
           userM(11, "first"),
@@ -306,7 +316,7 @@ describe("ChatContextSidebar", () => {
 
   it("switches the highlight to the next turn's user row once a later turn's assistant becomes active", () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[
           userM(11, "first"),
@@ -332,7 +342,7 @@ describe("ChatContextSidebar", () => {
       .mockImplementation(() => {});
 
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[userM(11, "first"), userM(22, "second")]}
         activeMessageId={22}
@@ -352,7 +362,7 @@ describe("ChatContextSidebar", () => {
       .mockImplementation(() => {});
 
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[userM(11, "first"), userM(22, "second")]}
         activeMessageId={null}
@@ -364,10 +374,10 @@ describe("ChatContextSidebar", () => {
   });
 });
 
-describe("ChatContextSidebar top-level tabs", () => {
+describe("ChatContextToolWindows · three tool windows", () => {
   beforeEach(() => {
     localStorage.clear();
-    useChatSidebarStore.setState({ open: true, activeTab: "outline" });
+    showOnly("outline");
     gitChangesMock.mockReset();
     gitChangesMock.mockResolvedValue(gitChangesView([]));
     listDirMock.mockReset();
@@ -382,9 +392,9 @@ describe("ChatContextSidebar top-level tabs", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders three equal-width, iconless tabs showing 大纲/变更/目录 counts, exactly one selected", () => {
+  it("registers 大纲 / 变更 / 目录 as tool windows on the strip; only the outline window is open", () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[userM(1, "first"), userM(2, "second")]}
         activeMessageId={null}
@@ -392,29 +402,32 @@ describe("ChatContextSidebar top-level tabs", () => {
       />,
     );
 
-    const tabs = screen.getAllByRole("tab");
-    expect(tabs).toHaveLength(3);
-    expect(tabs.map((tab) => tab.textContent)).toEqual([
-      "Outline2",
-      "Changes0",
+    const toolbar = screen.getByRole("toolbar", { name: "Tool windows" });
+    const buttons = within(toolbar).getAllByRole("button");
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Outline",
+      "Changes",
       "Directory",
     ]);
-    // 不带图标。
-    for (const tab of tabs) {
-      expect(tab.querySelector("svg")).toBeNull();
-    }
-    // 恰有一段选中（大纲），其余未选中。
-    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual([
+    expect(buttons.map((b) => b.getAttribute("aria-pressed"))).toEqual([
       "true",
       "false",
       "false",
     ]);
-    expect(screen.getByRole("tablist")).toContainElement(tabs[0]);
+    expect(
+      screen.getAllByRole("region").map((r) => r.getAttribute("aria-label")),
+    ).toEqual(["Outline"]);
+    // 大纲的标题只有名称，不带数量（spec：变更、关联才带数量）。
+    expect(
+      within(screen.getByRole("region", { name: "Outline" })).getByRole(
+        "heading",
+      ),
+    ).toHaveTextContent(/^Outline$/);
   });
 
-  it("counts the message-derived rows on the Changes tab without calling the backend", () => {
+  it("counts the message-derived rows for the Changes icon without calling the backend; no badge at 0", async () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[]}
         activeMessageId={null}
@@ -423,16 +436,19 @@ describe("ChatContextSidebar top-level tabs", () => {
       />,
     );
 
-    // 默认档是「本次会话」：角标来自消息派生，进大纲页时不打后端。
-    expect(screen.getByRole("tab", { name: /^Changes/ }).textContent).toBe(
-      "Changes0",
-    );
+    // 默认档是「本次会话」：数量来自消息派生，只开着大纲时不打后端。
+    expect(
+      within(stripButton("Changes")).queryByTestId("tool-window-badge"),
+    ).toBeNull();
     expect(gitChangesMock).not.toHaveBeenCalled();
+
+    await userEvent.click(stripButton("Changes"));
+    expect(changesHeading()).toHaveTextContent(/^Changes0$/);
   });
 
-  it("switches the selected tab on click and persists it to the sidebar store", async () => {
+  it("opens the directory window below the outline on click and records it in the layout store", async () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[]}
         activeMessageId={null}
@@ -441,44 +457,40 @@ describe("ChatContextSidebar top-level tabs", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: /^Directory/ }));
-    expect(useChatSidebarStore.getState().activeTab).toBe("directory");
-    expect(screen.getByRole("tab", { name: /^Directory/ })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(screen.getByRole("tab", { name: /^Outline/ })).toHaveAttribute(
-      "aria-selected",
-      "false",
-    );
+    await userEvent.click(stripButton("Directory"));
+    expect(isToolWindowShown("directory")).toBe(true);
+    expect(stripButton("Directory")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("region", { name: "Directory" })).toHaveFocus();
+    // 目录在右下，不替换右上的大纲。
+    expect(stripButton("Outline")).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("keeps the outline page's chrome to a single row (only the top tab bar)", () => {
+  it("keeps the outline window's content free of extra chrome rows", () => {
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[]}
         activeMessageId={null}
         onJumpToMessage={() => {}}
+      />,
+    );
+
+    expect(screen.queryAllByRole("tablist")).toHaveLength(0);
+  });
+
+  it("gives the changes window one chrome row under its title: the scope pill group", async () => {
+    showOnly("changes");
+    render(
+      <ChatContextToolWindows
+        sessionId={1}
+        messages={[]}
+        activeMessageId={null}
+        onJumpToMessage={() => {}}
+        cwd="/repo"
       />,
     );
 
     expect(screen.getAllByRole("tablist")).toHaveLength(1);
-  });
-
-  it("keeps the changes page's chrome to two rows: top tab bar + scope pill group", async () => {
-    render(
-      <ChatContextSidebar
-        sessionId={1}
-        messages={[]}
-        activeMessageId={null}
-        onJumpToMessage={() => {}}
-        cwd="/repo"
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("tab", { name: /^Changes/ }));
-    expect(screen.getAllByRole("tablist")).toHaveLength(2);
     const scopeBar = screen.getByRole("tablist", { name: /change scope/i });
     expect(
       within(scopeBar).getByRole("tab", { name: "This session" }),
@@ -490,9 +502,10 @@ describe("ChatContextSidebar top-level tabs", () => {
     );
   });
 
-  it("keeps the directory page's chrome to two rows as well", async () => {
+  it("gives the directory window one chrome row under its title as well", async () => {
+    showOnly("directory");
     render(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={1}
         messages={[]}
         activeMessageId={null}
@@ -501,9 +514,8 @@ describe("ChatContextSidebar top-level tabs", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: /^Directory/ }));
-    // 目录页第二行是图标按钮行，不是 tablist：常驻 chrome 仍是两行。
-    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+    // 目录的第二行是图标按钮行，不是 tablist。
+    expect(screen.queryAllByRole("tablist")).toHaveLength(0);
     expect(
       screen.getByRole("button", { name: /show ignored/i }),
     ).toBeInTheDocument();

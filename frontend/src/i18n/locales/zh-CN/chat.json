@@ -136,7 +136,6 @@
       "expand": "展开",
       "collapse": "收起"
     },
-    "sidebar": "对话上下文",
     "workRoots": {
       "mainRepo": "主仓库",
       "worktree": "worktree",
@@ -358,9 +357,6 @@
     },
     "toolbar": {
       "aria": "会话工具栏",
-      "contextSidebar": "上下文侧栏",
-      "hideContextSidebar": "隐藏上下文侧栏",
-      "showContextSidebar": "显示上下文侧栏",
       "stop": "停止",
       "stopActiveTitle": "停止当前回合"
     },
@@ -478,5 +474,17 @@
   "taskProgress": {
     "allCompleted": "全部完成",
     "title": "任务进度"
+  },
+  "toolWindows": {
+    "strip": "工具窗",
+    "rightArea": "右侧工具窗",
+    "bottomArea": "底部工具窗",
+    "hide": "隐藏",
+    "slots": {
+      "rightTop": "右上",
+      "rightBottom": "右下",
+      "bottomLeft": "底部左",
+      "bottomRight": "底部右"
+    }
   }
 }

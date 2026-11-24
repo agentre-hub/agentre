@@ -4,7 +4,7 @@ import { cn } from "@agentre-hub/agentre-ui";
 
 import type { ChangesScope } from "@/stores/chat-sidebar-store";
 
-import { handleTablistKeyDown } from "../tab-bar";
+import { handleTablistKeyDown } from "./tablist-keydown";
 
 import type { ChangeRow } from "../derive";
 

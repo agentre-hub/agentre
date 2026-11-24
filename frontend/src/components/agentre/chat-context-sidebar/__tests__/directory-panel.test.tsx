@@ -116,8 +116,6 @@ function rowOf(el: HTMLElement): HTMLElement {
 beforeEach(() => {
   localStorage.clear();
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "directory",
     changesScope: "session",
     showIgnored: false,
   });

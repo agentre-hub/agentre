@@ -136,7 +136,6 @@
       "expand": "Expand",
       "collapse": "Collapse"
     },
-    "sidebar": "Chat context",
     "workRoots": {
       "mainRepo": "Main repo",
       "worktree": "worktree",
@@ -358,9 +357,6 @@
     },
     "toolbar": {
       "aria": "Session toolbar",
-      "contextSidebar": "Context sidebar",
-      "hideContextSidebar": "Hide context sidebar",
-      "showContextSidebar": "Show context sidebar",
       "stop": "Stop",
       "stopActiveTitle": "Stop current turn"
     },
@@ -478,5 +474,17 @@
   "taskProgress": {
     "allCompleted": "All done",
     "title": "Task Progress"
+  },
+  "toolWindows": {
+    "strip": "Tool windows",
+    "rightArea": "Right tool windows",
+    "bottomArea": "Bottom tool windows",
+    "hide": "Hide",
+    "slots": {
+      "rightTop": "Right top",
+      "rightBottom": "Right bottom",
+      "bottomLeft": "Bottom left",
+      "bottomRight": "Bottom right"
+    }
   }
 }

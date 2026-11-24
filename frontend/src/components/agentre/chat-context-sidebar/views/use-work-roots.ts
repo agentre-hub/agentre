@@ -131,16 +131,21 @@ export function useWorkRoots({ sessionId, cwd, messages }: Params): WorkRoots {
     setFollowed(null);
   }, [mainPath]);
 
-  return {
-    roots,
-    current,
-    rootArg: current === cwd ? "" : current,
-    pinned,
-    followedTo:
-      followed === null
-        ? null
-        : (roots.find((r) => r.path === followed) ?? null),
-    select,
-    stayInMain,
-  };
+  // 返回值只随这些输入变：它经 context 交给各工具窗，宿主在流式输出期间每个
+  // 文字 delta 都重渲染，返回一个新对象就会让所有工具窗跟着重渲染。
+  return React.useMemo(
+    () => ({
+      roots,
+      current,
+      rootArg: current === cwd ? "" : current,
+      pinned,
+      followedTo:
+        followed === null
+          ? null
+          : (roots.find((r) => r.path === followed) ?? null),
+      select,
+      stayInMain,
+    }),
+    [roots, current, cwd, pinned, followed, select, stayInMain],
+  );
 }

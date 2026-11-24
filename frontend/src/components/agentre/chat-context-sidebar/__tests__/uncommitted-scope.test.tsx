@@ -50,7 +50,9 @@ import {
 } from "@/stores/file-preview-tabs-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { ChatContextSidebar } from "../index";
+import { ChatContextToolWindows } from "../index";
+
+import { changesHeading, showOnly, stripButton } from "./tool-window-helpers";
 
 import type { chat_svc } from "../../../../../wailsjs/go/models";
 
@@ -90,10 +92,10 @@ function changesView(
 }
 
 function renderSidebar(
-  props: Partial<React.ComponentProps<typeof ChatContextSidebar>>,
+  props: Partial<React.ComponentProps<typeof ChatContextToolWindows>>,
 ) {
   return render(
-    <ChatContextSidebar
+    <ChatContextToolWindows
       sessionId={7}
       messages={[] as chat_svc.ChatMessage[]}
       activeMessageId={null}
@@ -113,17 +115,20 @@ function gitRow(path: string): HTMLElement {
   return found;
 }
 
-function changesTab(): HTMLElement {
-  return screen.getByRole("tab", { name: /^Changes/ });
+/** 图标条上「变更」的角标数字；不显示角标时为 null。 */
+function changesBadge(): string | null {
+  return (
+    within(stripButton("Changes")).queryByTestId("tool-window-badge")
+      ?.textContent ?? null
+  );
 }
 
 beforeEach(() => {
   localStorage.clear();
-  // 「未提交」是「变更」页内的第二档（决策 2）：一级 tab 停在「变更」，档位
+  // 「未提交」是「变更」工具窗内的第二档（决策 2）：「变更」工具窗显示，档位
   // 停在「未提交」。
+  showOnly("changes");
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "changes",
     changesScope: "uncommitted",
     showIgnored: false,
   });
@@ -200,25 +205,25 @@ describe("「变更」页 · 未提交档", () => {
     ).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("shows this scope's changed-file count on the top-level Changes tab", async () => {
+  it("shows this scope's changed-file count on the Changes icon and title", async () => {
     gitChangesMock.mockResolvedValue(
       changesView([{ path: "a.go" }, { path: "b.go" }]),
     );
     renderSidebar({});
 
-    await waitFor(() => expect(changesTab()).toHaveTextContent("Changes2"));
+    await waitFor(() => expect(changesBadge()).toBe("2"));
+    expect(changesHeading()).toHaveTextContent(/^Changes2$/);
   });
 
-  it("shows no count on the Changes tab until this scope's data has loaded", async () => {
-    // 未加载 / 加载中都不显角标（决策：served requirement）。
-    useChatSidebarStore.setState({ activeTab: "outline" });
+  it("shows no badge on the Changes icon until this scope's data has loaded", async () => {
+    // 未加载 / 加载中都不显角标（spec「图标条」：数据未就绪时不显示）。
+    showOnly("outline");
     gitChangesMock.mockResolvedValue(
       changesView([{ path: "a.go" }, { path: "b.go" }]),
     );
     renderSidebar({});
 
-    expect(changesTab()).toHaveTextContent("Changes");
-    expect(changesTab()).not.toHaveTextContent("Changes2");
+    expect(changesBadge()).toBeNull();
     expect(gitChangesMock).not.toHaveBeenCalled();
   });
 
@@ -228,11 +233,11 @@ describe("「变更」页 · 未提交档", () => {
     );
     const { rerender } = renderSidebar({});
 
-    await waitFor(() => expect(changesTab()).toHaveTextContent("Changes2"));
+    await waitFor(() => expect(changesBadge()).toBe("2"));
 
-    await userEvent.click(screen.getByRole("tab", { name: /^Outline/ }));
+    await userEvent.click(stripButton("Outline"));
     rerender(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={8}
         messages={[]}
         activeMessageId={null}
@@ -242,15 +247,14 @@ describe("「变更」页 · 未提交档", () => {
       />,
     );
 
-    await waitFor(() => expect(changesTab()).toHaveTextContent("Changes"));
-    expect(changesTab()).not.toHaveTextContent("Changes2");
+    await waitFor(() => expect(changesBadge()).toBeNull());
   });
 
-  it("makes no git call at all while browsing the Outline tab", async () => {
-    useChatSidebarStore.setState({ activeTab: "outline" });
+  it("makes no git call at all while only the Outline window is open", async () => {
+    showOnly("outline");
     renderSidebar({});
 
-    await screen.findByRole("tab", { name: /^Outline/ });
+    await screen.findByRole("region", { name: "Outline" });
     expect(gitChangesMock).not.toHaveBeenCalled();
   });
 

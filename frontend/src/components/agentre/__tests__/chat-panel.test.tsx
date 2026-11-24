@@ -442,8 +442,11 @@ import {
   streamForMessage,
   useChatStreamsStore,
 } from "@/stores/chat-streams-store";
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import {
+  DEFAULT_TOOL_WINDOW_SLOTS,
+  useToolWindowLayout,
+} from "@/stores/tool-window-layout-store";
 import { useQueuedMessagesStore } from "@/stores/queued-messages-store";
 import { useSessionConnStore } from "@/stores/session-conn-store";
 import { localCommandRuntimeStore } from "@/stores/local-command-runtime-store";
@@ -6522,10 +6525,10 @@ describe("ChatPanel · 头部在四态都在位且恒高", () => {
 
     render(<ChatPanel sessionId={42} />);
 
-    const toolbar = screen.getByRole("toolbar");
+    const toolbar = screen.getByRole("toolbar", { name: "Session toolbar" });
     expect(within(toolbar).queryByText("Test session")).toBeNull();
     expect(
-      within(toolbar).getByRole("button", { name: "Context sidebar" }),
+      within(toolbar).getByRole("button", { name: "More actions" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2 })).not.toBe(toolbar);
     expect(toolbar.contains(screen.getByRole("heading", { level: 2 }))).toBe(
@@ -6560,8 +6563,8 @@ describe("ChatPanel · 头部在四态都在位且恒高", () => {
 
     render(<ChatPanel sessionId={42} />);
 
-    const toolbar = screen.getByRole("toolbar");
-    for (const name of ["Stop", "Context sidebar", "More actions"]) {
+    const toolbar = screen.getByRole("toolbar", { name: "Session toolbar" });
+    for (const name of ["Stop", "More actions"]) {
       const button = within(toolbar).getByRole("button", { name });
       expect(button).toHaveAttribute("data-variant", "ghost");
       expect(button.getAttribute("title")).toBeTruthy();
@@ -7013,23 +7016,41 @@ describe("ChatPanel · 会话级思考力度控件（trailing 侧，决策 6/9�
   });
 });
 
-// ─── 2026-10-15 无边框改版 · 对话页是一张内容页，右侧栏落在外框上（P1） ─────────
+// ─── 2026-10-15 无边框改版 · 对话页是一张内容页，右侧落在外框上（P1） ───────────
+// ─── 2026-11-24 右侧栏换成工具窗骨架（图标条 + 槽位），标题栏的侧栏开关移除 ─────
 
-describe("ChatPanel · 右侧栏渲染在聊天内容页之外", () => {
+describe("ChatPanel · 工具窗渲染在聊天内容页之外", () => {
   const WIDTH_KEY = "agentre.sidebarWidth.chat-context";
 
-  function openSidebar() {
-    const prev = useChatSidebarStore.getState().open;
-    useChatSidebarStore.getState().setOpen(true);
+  function showOutlineOnly() {
+    const prev = useToolWindowLayout.getState();
+    useToolWindowLayout.setState({
+      slotOf: { ...DEFAULT_TOOL_WINDOW_SLOTS },
+      shown: {
+        rightTop: "outline",
+        rightBottom: null,
+        bottomLeft: null,
+        bottomRight: null,
+      },
+      focusRequest: null,
+    });
     onTestFinished(() => {
-      useChatSidebarStore.getState().setOpen(prev);
+      useToolWindowLayout.setState({
+        slotOf: prev.slotOf,
+        shown: prev.shown,
+        focusRequest: null,
+      });
       localStorage.removeItem(WIDTH_KEY);
     });
   }
 
-  it("Given 已有会话且右侧栏打开, When 渲染, Then 标题、转录、输入框在同一张内容页上，右侧栏在内容页之外、落在外框色上", () => {
+  function strip() {
+    return screen.getByRole("toolbar", { name: "Tool windows" });
+  }
+
+  it("Given 已有会话且大纲工具窗打开, When 渲染, Then 标题、转录、输入框在同一张内容页上，工具窗与图标条在内容页之外、落在外框色上", () => {
     resetStore();
-    openSidebar();
+    showOutlineOnly();
     mockSessionStore.session = makeSession({ id: 42 });
 
     render(<ChatPanel sessionId={42} />);
@@ -7042,44 +7063,64 @@ describe("ChatPanel · 右侧栏渲染在聊天内容页之外", () => {
     );
     expect(sheet.contains(screen.getByTestId("chat-composer-band"))).toBe(true);
 
-    const aside = screen.getByRole("complementary", { name: "Chat context" });
+    const aside = screen.getByRole("complementary", {
+      name: "Right tool windows",
+    });
     expect(sheet.contains(aside)).toBe(false);
     expect(aside).toHaveClass("bg-chrome");
-    // 内容页与右侧栏是同一行里的兄弟：右侧栏仍占满从 Tab 条下沿到底的整高。
-    expect(aside.parentElement).toBe(sheet.parentElement);
+    expect(
+      within(aside).getByRole("region", { name: "Outline" }),
+    ).toBeInTheDocument();
+    expect(sheet.contains(strip())).toBe(false);
+    // 内容页、右侧工具窗、图标条排在同一行里：右侧仍占满从 Tab 条下沿到底的整高，
+    // 图标条在最右。
+    const row = aside.parentElement!;
+    expect(row.contains(sheet)).toBe(true);
+    expect(row.lastElementChild).toBe(strip());
   });
 
-  it("Given 右侧栏在内容页之外, When 用标题栏开关收起再展开, Then 它跟着隐藏与重现", async () => {
+  it("Given 对话标题栏, When 渲染, Then 不再有「显示 / 隐藏侧栏」按钮", () => {
     resetStore();
-    openSidebar();
+    showOutlineOnly();
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const toolbar = screen.getByRole("toolbar", { name: "Session toolbar" });
+    expect(
+      within(toolbar).queryByRole("button", { name: /sidebar/i }),
+    ).toBeNull();
+  });
+
+  it("Given 大纲工具窗打开, When 在图标条上点大纲收起再展开, Then 它跟着隐藏与重现", async () => {
+    resetStore();
+    showOutlineOnly();
     mockSessionStore.session = makeSession({ id: 42 });
     const user = userEvent.setup();
 
     render(<ChatPanel sessionId={42} />);
-    const toggle = within(screen.getByRole("toolbar")).getByRole("button", {
-      name: "Context sidebar",
-    });
+    const toggle = within(strip()).getByRole("button", { name: "Outline" });
 
     await user.click(toggle);
-    expect(
-      screen.queryByRole("complementary", { name: "Chat context" }),
-    ).toBeNull();
+    expect(screen.queryByRole("region", { name: "Outline" })).toBeNull();
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
 
     await user.click(toggle);
-    expect(
-      screen.getByRole("complementary", { name: "Chat context" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Outline" })).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("Given 已存的右侧栏宽度, When 渲染并拖拽调宽, Then 沿用 agentre.sidebarWidth.chat-context 读写", () => {
+  it("Given 已存的右侧栏宽度, When 渲染并拖拽调宽, Then 右侧工具窗沿用 agentre.sidebarWidth.chat-context 读写", () => {
     resetStore();
-    openSidebar();
+    showOutlineOnly();
     localStorage.setItem(WIDTH_KEY, "300");
     mockSessionStore.session = makeSession({ id: 42 });
 
     render(<ChatPanel sessionId={42} />);
 
-    const aside = screen.getByRole("complementary", { name: "Chat context" });
+    const aside = screen.getByRole("complementary", {
+      name: "Right tool windows",
+    });
     expect(aside).toHaveStyle({ width: "300px" });
 
     // 手柄在左边缘：往左拖 40px，宽度 +40。
@@ -7092,9 +7133,9 @@ describe("ChatPanel · 右侧栏渲染在聊天内容页之外", () => {
     expect(localStorage.getItem(WIDTH_KEY)).toBe("340");
   });
 
-  it("Given 新建会话尚未首发, When 渲染, Then 内容页照样在位、没有右侧栏", () => {
+  it("Given 新建会话尚未首发, When 渲染, Then 内容页照样在位、没有图标条也没有工具窗", () => {
     resetStore();
-    openSidebar();
+    showOutlineOnly();
 
     render(
       <ChatPanel
@@ -7111,9 +7152,11 @@ describe("ChatPanel · 右侧栏渲染在聊天内容页之外", () => {
     );
 
     expect(screen.getByRole("main")).toHaveClass("content-sheet");
+    expect(screen.queryByRole("toolbar", { name: "Tool windows" })).toBeNull();
     expect(
-      screen.queryByRole("complementary", { name: "Chat context" }),
+      screen.queryByRole("complementary", { name: "Right tool windows" }),
     ).toBeNull();
+    expect(screen.queryByRole("region")).toBeNull();
   });
 });
 

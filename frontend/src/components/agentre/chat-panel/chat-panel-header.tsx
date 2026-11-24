@@ -1,11 +1,5 @@
 import type * as React from "react";
-import {
-  LoaderCircle,
-  MoreHorizontal,
-  PanelRight,
-  PanelRightClose,
-  Square,
-} from "lucide-react";
+import { LoaderCircle, MoreHorizontal, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Button,
@@ -57,8 +51,6 @@ type ChatPanelHeaderProps = {
   /** 已点停止、这一轮还没结束。与输入框提交位的停止键共用同一份。 */
   stopping?: boolean;
   onStop: (sessionId: number) => void;
-  sidebarOpen: boolean;
-  onToggleSidebar: () => void;
   onRename: (session: ChatSessionDetail) => void;
   onCopyLaunchCommand: (sessionId: number) => void;
   onDelete: (sessionId: number) => void;
@@ -92,8 +84,6 @@ function ChatPanelHeader({
   canStop,
   stopping = false,
   onStop,
-  sidebarOpen,
-  onToggleSidebar,
   onRename,
   onCopyLaunchCommand,
   onDelete,
@@ -242,24 +232,6 @@ function ChatPanelHeader({
               )}
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("chatPanel.toolbar.contextSidebar")}
-            onClick={onToggleSidebar}
-            title={
-              sidebarOpen
-                ? t("chatPanel.toolbar.hideContextSidebar")
-                : t("chatPanel.toolbar.showContextSidebar")
-            }
-          >
-            {sidebarOpen ? (
-              <PanelRightClose data-icon="only" aria-hidden="true" />
-            ) : (
-              <PanelRight data-icon="only" aria-hidden="true" />
-            )}
-          </Button>
           {/* 更多操作：改名 / 复制启动命令 / 删除三项都要一条真的会话，
             新建未首发与加载中因此不摆这颗。 */}
           {session ? (

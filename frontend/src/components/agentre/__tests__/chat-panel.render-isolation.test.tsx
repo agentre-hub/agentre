@@ -234,8 +234,8 @@ import {
   LocalCommandsProvider,
   TerminalTransportProvider,
 } from "@agentre-hub/agentre-ui";
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useChatStreamsStore } from "@/stores/chat-streams-store";
+import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
 
 import { deriveBackgroundTasks } from "../background-tasks/derive";
 import { ChatPanel } from "../chat-panel";
@@ -301,7 +301,7 @@ describe("ChatPanel 流式输出期间的渲染隔离", () => {
     useChatStreamsStore.setState({ streams: new Map() });
     // 每个 delta 各自落一次 store —— 最坏情况，正好放大每次通知的重渲染。
     useChatStreamsStore.getState().__setDeltaFlushMs(0);
-    useChatSidebarStore.setState({ open: true });
+    useToolWindowLayout.getState().show("changes");
     useChatStreamsStore.getState().openStream({
       sessionId: SESSION_ID,
       assistantMessageId: ASSISTANT_ID,

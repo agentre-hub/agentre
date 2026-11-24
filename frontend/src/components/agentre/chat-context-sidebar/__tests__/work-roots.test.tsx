@@ -45,7 +45,9 @@ import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { ChatContextSidebar } from "../index";
+import { ChatContextToolWindows } from "../index";
+
+import { showOnly, stripButton } from "./tool-window-helpers";
 
 import type { chat_svc } from "../../../../../wailsjs/go/models";
 
@@ -159,10 +161,10 @@ function listing(entries: string[] = []) {
 }
 
 function renderSidebar(
-  props: Partial<React.ComponentProps<typeof ChatContextSidebar>> = {},
+  props: Partial<React.ComponentProps<typeof ChatContextToolWindows>> = {},
 ) {
   return render(
-    <ChatContextSidebar
+    <ChatContextToolWindows
       sessionId={7}
       messages={twoRootMessages}
       activeMessageId={null}
@@ -186,9 +188,8 @@ async function openSwitcher(user: ReturnType<typeof userEvent.setup>) {
 
 beforeEach(() => {
   localStorage.clear();
+  showOnly("directory");
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "directory",
     changesScope: "session",
     showIgnored: false,
   });
@@ -215,11 +216,11 @@ describe("根切换器：只在工作根 ≥ 2 时存在", () => {
     renderSidebar();
 
     await waitFor(() => expect(workRootsMock).toHaveBeenCalledWith(7));
-    await screen.findByRole("tab", { name: /Directory/ });
+    await screen.findByRole("region", { name: "Directory" });
     expect(screen.queryByTestId("root-switcher")).toBeNull();
   });
 
-  it("Given two work roots, When the sidebar renders, Then the switcher sits above the tab bar and names the current root, whether it is the main repo, and its change count", async () => {
+  it("Given two work roots, When the directory window renders, Then the switcher sits at its top above the directory's own chrome row and names the current root, whether it is the main repo, and its change count", async () => {
     renderSidebar();
 
     const trigger = await screen.findByTestId("root-switcher");
@@ -228,12 +229,13 @@ describe("根切换器：只在工作根 ≥ 2 时存在", () => {
     // 主仓库下本会话改了 a.go 与 docs/b.md 两个文件。
     expect(trigger).toHaveTextContent("2");
 
-    const tabBar = screen
-      .getByRole("tab", { name: /Directory/ })
-      .closest('[role="tablist"]');
-    expect(tabBar).not.toBeNull();
+    const region = screen.getByRole("region", { name: "Directory" });
+    expect(region).toContainElement(trigger);
+    const showIgnored = within(region).getByRole("button", {
+      name: /show ignored/i,
+    });
     expect(
-      trigger.compareDocumentPosition(tabBar!) &
+      trigger.compareDocumentPosition(showIgnored) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -335,10 +337,8 @@ describe("换根时在途的分支状态响应", () => {
 describe("变更行的本机操作跟着当前工作根走", () => {
   it("Given the sidebar is rooted at the worktree, When a session change row is revealed, Then the absolute target is built from that worktree and not from the session cwd", async () => {
     const user = userEvent.setup();
-    useChatSidebarStore.setState({
-      activeTab: "changes",
-      changesScope: "session",
-    });
+    showOnly("changes");
+    useChatSidebarStore.setState({ changesScope: "session" });
     renderSidebar();
     await screen.findByTestId("root-switcher");
 
@@ -377,12 +377,15 @@ describe("根切换器：手动切换、固定与跨页共享", () => {
     expect(switcher()).toHaveTextContent("proj-ia");
     expect(switcher()).toHaveTextContent("Pinned");
 
-    // 切一级 tab 不改变工作根：「变更」页的未提交档对同一个根取数。
-    await user.click(screen.getByRole("tab", { name: /Changes/ }));
+    // 再打开「变更」工具窗也不改变工作根：它的未提交档对同一个根取数，两个
+    // 工具窗顶上的切换器说的是同一个根。
+    await user.click(stripButton("Changes"));
     await waitFor(() =>
       expect(gitChangesMock).toHaveBeenCalledWith(7, WT, "uncommitted", ""),
     );
-    expect(switcher()).toHaveTextContent("proj-ia");
+    const switchers = screen.getAllByTestId("root-switcher");
+    expect(switchers).toHaveLength(2);
+    for (const el of switchers) expect(el).toHaveTextContent("proj-ia");
   });
 
   it("Given the sidebar is following automatically, When nothing has been pinned, Then the switcher carries no pinned marking at all", async () => {
@@ -420,7 +423,7 @@ describe("自动跟随：AI 写进另一个根", () => {
     expect(switcher()).toHaveTextContent("proj");
 
     rerender(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={7}
         messages={wroteInWorktree}
         activeMessageId={null}
@@ -456,7 +459,7 @@ describe("自动跟随：AI 写进另一个根", () => {
 
     // 撤销之后再写进 worktree 也不再跟过去。
     rerender(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={7}
         messages={[
           ...wroteInWorktree,
@@ -483,7 +486,7 @@ describe("自动跟随：AI 写进另一个根", () => {
     await waitFor(() => expect(switcher()).toHaveTextContent("Pinned"));
 
     rerender(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={7}
         messages={wroteInWorktree}
         activeMessageId={null}
@@ -503,7 +506,7 @@ describe("自动跟随：AI 写进另一个根", () => {
     await waitFor(() => expect(switcher()).toHaveTextContent("proj-ia"));
 
     rerender(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={7}
         messages={[
           ...wroteInWorktree,

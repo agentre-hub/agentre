@@ -114,8 +114,6 @@ beforeEach(() => {
   nextId = 1;
   localStorage.clear();
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "changes",
     changesScope: "session",
     showIgnored: false,
     // 工作根是每会话一条的运行期状态:不在这里清掉,上一个用例设过的根会跟着

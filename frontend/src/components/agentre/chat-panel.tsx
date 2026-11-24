@@ -59,7 +59,7 @@ import {
   type ChatComposerHandle,
   type ChatTranscriptHandle,
 } from "./chat";
-import { ChatContextSidebar } from "./chat-context-sidebar";
+import { ChatContextToolWindows } from "./chat-context-sidebar";
 import { ChatPanelHeader } from "./chat-panel/chat-panel-header";
 import { ChatPanelConfirmDialogs } from "./chat-panel/confirm-dialogs";
 import { NewSessionChatGuard } from "./chat-panel/new-session-chat-guard";
@@ -85,7 +85,6 @@ import {
   useReasoningEffortPill,
 } from "./reasoning-effort";
 import { NewSessionExecTargetLine } from "./session-exec-target";
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { deriveBackgroundTasks } from "./background-tasks/derive";
 import type { SessionProcess } from "./background-tasks/types";
 import { useSessionProcesses } from "./background-tasks/use-session-processes";
@@ -353,8 +352,6 @@ function ChatPanel({
   // 住在共享包的 useTranscriptScroll 里 —— 那是纯 DOM 工作,不认 Wails 也不认 store。
   // 这里只留转录渲染器的句柄;接线在下面 liveByMessageId 备好之后。
   const transcriptHandleRef = React.useRef<ChatTranscriptHandle>(null);
-  const sidebarOpen = useChatSidebarStore((s) => s.open);
-  const setSidebarOpen = useChatSidebarStore((s) => s.setOpen);
 
   // ── 当前选中会话的派生视图 ──
   // 没有 LiveStream entry 表示该会话当前不在生成中；UI 的 typing indicator /
@@ -939,7 +936,7 @@ function ChatPanel({
       taskProgress,
     ],
   );
-  // 侧栏是 memo 的:跳转与「指定路径后重载」的回调同样要身份稳定。
+  // 工具窗共享的会话事实是 memo 的:跳转与「指定路径后重载」的回调同样要身份稳定。
   const handleJumpToMessage = React.useCallback((mid: number) => {
     transcriptHandleRef.current?.scrollToMessage(mid);
   }, []);
@@ -1044,13 +1041,25 @@ function ChatPanel({
       ) : (
         // 关键：showNewSessionPrompt → 已有会话 切换时，<ChatComposer> 必须保持挂载，
         // 否则 TipTap editor 实例随子树卸载重建，用户刚发完首条消息焦点就跑了。
-        // 布局：一行分三块，都落在外框上 ——
+        // 布局：工具窗骨架（ChatContextToolWindows → ToolWindowLayout）把编辑区摆在
+        //   左边，右侧是工具窗槽位与最右的图标条，都落在外框上 ——
         //   <main> 是内容页（content-sheet）：头部铺顶（四种会话情形都在），下面
         //     transcript（或新会话占位）+ notice + ChatComposer；
-        //   右侧栏 ChatContextSidebar 与文件预览在内容页之外，从 Tab 条下沿一直到底，
-        //     与内容页之间只隔一道外框缝，不画线。
+        //   文件预览暂时仍是内容页右边独立的一列，与内容页同在编辑区里。
+        //   新建会话提示页不显示图标条与工具窗，但编辑区在树里的位置不变——
         //   ChatComposer 固定在 <main> 的最后一个 child 位置，跨分支保持同一 React 实例。
-        <div className="flex min-h-0 min-w-0 flex-1">
+        <ChatContextToolWindows
+          sessionId={session?.id ?? 0}
+          messages={messages}
+          activeMessageId={activeMessageId}
+          cwd={session?.cwd ?? ""}
+          remote={Boolean(session?.deviceID)}
+          cwdUnavailableReason={session?.cwdUnavailableReason}
+          projectId={session?.projectId}
+          onCwdSpecified={reloadAfterChange}
+          onJumpToMessage={handleJumpToMessage}
+          hidden={Boolean(showNewSessionPrompt)}
+        >
           <main className="content-sheet flex min-h-0 min-w-0 flex-1 flex-col">
             <ChatPanelHeader
               session={session}
@@ -1080,8 +1089,6 @@ function ChatPanel({
               canStop={canStop}
               stopping={stopping}
               onStop={(id) => void doStop(id)}
-              sidebarOpen={sidebarOpen}
-              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
               onRename={(target) =>
                 setPendingRename({ id: target.id, draft: target.title })
               }
@@ -1285,27 +1292,14 @@ function ChatPanel({
               </div>
             </div>
           </main>
-          {!showNewSessionPrompt && sidebarOpen ? (
-            <ChatContextSidebar
-              sessionId={session?.id ?? 0}
-              messages={messages}
-              activeMessageId={activeMessageId}
-              cwd={session?.cwd ?? ""}
-              remote={Boolean(session?.deviceID)}
-              cwdUnavailableReason={session?.cwdUnavailableReason}
-              projectId={session?.projectId}
-              onCwdSpecified={reloadAfterChange}
-              onJumpToMessage={handleJumpToMessage}
-            />
-          ) : null}
-          {/* 最右一栏:文件预览面板。仅在选中了可预览文件时渲染(内部自行返回
-                null),打开占位、关闭释放宽度;宽高记忆独立 persistenceKey。 */}
+          {/* 文件预览列:仅在选中了可预览文件时渲染(内部自行返回 null),打开占位、
+                关闭释放宽度;宽高记忆独立 persistenceKey。 */}
           <FilePreviewPanel
             sessionId={session?.id ?? 0}
             messages={messages}
             cwd={session?.cwd ?? ""}
           />
-        </div>
+        </ChatContextToolWindows>
       )}
       <ChatPanelConfirmDialogs
         pendingRegenId={pendingRegenId}
