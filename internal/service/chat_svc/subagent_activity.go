@@ -103,6 +103,8 @@ func (s *chatSvc) driveSubagentActivity(ctx context.Context, sessionID int64, be
 	turnCtx := s.newTurnContext(launchMsg, sess, stream, be.Type)
 	for ev := range act.Events {
 		s.publishPeerEvent(sessionID, ev)
+		// 后台子代理的工具事件都是嵌套的:只参与认领,不移动主位置。
+		s.observeToolEvent(ctx, sessionID, ev)
 		if err := s.dispatcher.Apply(ctx, ev, acc, dispEmit, turnCtx); err != nil {
 			logger.Ctx(ctx).Warn("chat_svc: subagent activity dispatcher Apply failed",
 				zap.String("eventType", fmt.Sprintf("%T", ev)), zap.Error(err))

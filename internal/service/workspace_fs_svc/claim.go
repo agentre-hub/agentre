@@ -102,11 +102,10 @@ func (s *workspaceFsImpl) claimedRoots(ctx context.Context, sessionID, deviceID 
 		return nil, err
 	}
 	for _, w := range written {
-		p, ok := anchorWrittenPath(w, cwd)
+		dir, ok := WrittenDir(w, cwd)
 		if !ok {
 			continue
 		}
-		dir := dirOf(p)
 		if _, done := st.fed[dir]; done {
 			continue
 		}

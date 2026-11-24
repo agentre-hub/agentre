@@ -162,6 +162,14 @@ type ChatSvc interface {
 	// CatchUpRemoteDevice 在某台 daemon 重新上线时补上启动那次没做成的补齐(启动补齐
 	// 只跑一次,开机自启早于网络就绪的那一次拨号失败否则就是终局)。见 remote_catchup.go。
 	CatchUpRemoteDevice(ctx context.Context, deviceID int64) error
+	// ObserveAILocation 是不随工具事件到达的位置信号的入口(Claude Code init 帧目录、
+	// PostToolUse hook 的 cwd、ExitWorktree 选择删除),与工具事件上的 Cwd 走同一条路:
+	// 更新 AI 当前位置(子代理信号只认领)、认领、按需撤销,变化时推 chat:workroots:<sid>。
+	// 见 ai_location.go。
+	ObserveAILocation(ctx context.Context, sessionID int64, sig AILocationSignal)
+	// AILocation 返回会话的 AI 当前位置(执行设备上的目录);空串 = 没有位置记录,即会话
+	// 工作目录。workspace_fs_svc 据它标出 AI 所在的工作根。
+	AILocation(ctx context.Context, sessionID int64) (string, error)
 }
 
 var defaultChat ChatSvc
@@ -343,6 +351,13 @@ type chatSvc struct {
 	connStates map[int64]remote.ConnState
 	// testHookPool 如果非 nil,代替 remote_device_svc.Default().Pool() 用于测试注入。
 	testHookPool remote_device_svc.ConnPool
+
+	// AI 当前位置与工作根认领,见 ai_location.go。workRoots 为 nil 时走
+	// workspace_fs_svc.Default();workRootsRunner 为 nil 时认领在后台 goroutine 里跑
+	// (单测换成同步执行)。
+	workRoots       WorkRootsPort
+	workRootsRunner func(func())
+	aiLocations     aiLocationBook
 }
 
 // ── ListAgents ───────────────────────────────────────────────────────────────

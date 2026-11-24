@@ -163,6 +163,15 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// 里的事实。这里注入的是包级函数（不经 chat_svc.Chat()），因为它只读消息、
 	// 不依赖那个单例的任何状态。
 	workspace_fs_svc.RegisterSessionWrittenPaths(chat_svc.SessionWrittenPaths)
+	// 第三个窄接口：AI 当前位置（据它标出 AI 所在的工作根）。位置随工具事件实时更新，
+	// 状态在 chat_svc 单例上；单例在 app.go 里才注册，所以这里每次现取。
+	workspace_fs_svc.RegisterSessionAILocation(func(ctx context.Context, sessionID int64) (string, error) {
+		chat := chat_svc.Chat()
+		if chat == nil {
+			return "", nil
+		}
+		return chat.AILocation(ctx, sessionID)
+	})
 
 	// 启动时按持久化的开关恢复 Debug 日志级别（取代旧 AGENTRE_DEBUG 环境变量）。
 	applyDebugLoggingOnBoot(ctx)

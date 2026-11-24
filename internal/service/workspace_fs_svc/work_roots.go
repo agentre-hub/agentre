@@ -82,6 +82,42 @@ type WorkRootView struct {
 	Name       string `json:"name"`
 	IsWorktree bool   `json:"isWorktree"`
 	IsPrimary  bool   `json:"isPrimary"`
+	// AIHere 标记 AI 当前位置所在的那个根(最多一个;位置不在任何根内时一个都不标)。
+	AIHere bool `json:"aiHere"`
+}
+
+// SessionAILocationResolver 返回本会话的 AI 当前位置:执行设备上的一个绝对目录,空串 =
+// 没有位置记录(即会话 cwd)。实现方是 chat_svc —— 位置由工具事件随到随更,只有持有
+// 事件流的那一侧知道。注入模式与 SessionWrittenPathsResolver 一致。
+type SessionAILocationResolver func(ctx context.Context, sessionID int64) (string, error)
+
+var resolveAILocationFn SessionAILocationResolver
+
+// RegisterSessionAILocation 由 bootstrap 注入 chat_svc 的实现。未注入时按「没有位置
+// 记录」处理:AI 在主根。
+func RegisterSessionAILocation(fn SessionAILocationResolver) { resolveAILocationFn = fn }
+
+// AIRootIndex 给出目录 dir 属于 roots 里的哪个根:包含它的**最深**的根(嵌在主 checkout
+// 里的 worktree 优先于主根),按路径段比较;dir 为空串(没有位置记录)即主根。不属于任何
+// 根时返回 -1。WorkRoots 据它标 AIHere,chat_svc 据它判「AI 的根变没变」—— 两处同一口径。
+func AIRootIndex(roots []WorkRootView, dir string) int {
+	if dir == "" {
+		for i, r := range roots {
+			if r.IsPrimary {
+				return i
+			}
+		}
+		return -1
+	}
+	dir = cleanPath(dir)
+	best, bestLen := -1, -1
+	for i, r := range roots {
+		root := cleanPath(r.Path)
+		if isWithin(root, dir) && len(root) > bestLen {
+			best, bestLen = i, len(root)
+		}
+	}
+	return best
 }
 
 // WorkRoots 返回本会话已认领的工作根集合,第一项恒是会话 cwd 对应的根。
@@ -90,7 +126,34 @@ func (s *workspaceFsImpl) WorkRoots(ctx context.Context, sessionID int64) ([]Wor
 	if err != nil {
 		return nil, err
 	}
-	return s.claimedRoots(ctx, sessionID, deviceID, cwd)
+	roots, err := s.claimedRoots(ctx, sessionID, deviceID, cwd)
+	if err != nil {
+		return nil, err
+	}
+	s.markAIHere(ctx, sessionID, roots)
+	return roots, nil
+}
+
+// markAIHere 在 roots(已是副本)上标出 AI 当前所在的根。位置取不到时一个都不标:
+// 标错一个根会让前端的「跟随 AI」切到错的 checkout,不标只是少一个提示。
+func (s *workspaceFsImpl) markAIHere(ctx context.Context, sessionID int64, roots []WorkRootView) {
+	fn := s.aiLocation
+	if fn == nil {
+		fn = resolveAILocationFn
+	}
+	dir := ""
+	if fn != nil {
+		d, err := fn(ctx, sessionID)
+		if err != nil {
+			logger.Ctx(ctx).Warn("workspace_fs_svc.WorkRoots: ai location unavailable, no root marked",
+				zap.Int64("sessionID", sessionID), zap.Error(err))
+			return
+		}
+		dir = d
+	}
+	if i := AIRootIndex(roots, dir); i >= 0 {
+		roots[i].AIHere = true
+	}
 }
 
 // rootFor 解析出这次调用实际使用的 {deviceID, root}:root 为空串即会话 cwd;
@@ -145,6 +208,27 @@ func anchorWrittenPath(w WrittenPath, cwd string) (string, bool) {
 		base = cwd
 	}
 	return joinPath(base, w.Path), true
+}
+
+// WrittenDir 给出一次写入所在的目录(认领候选):路径按 anchorWrittenPath 的规则补全
+// (相对路径按 w.Dir,缺失时按 fallback),再取它的上一级。补全不出绝对路径时 ok=false。
+// 取工作根时补喂写入路径与 chat_svc 实时认领写入目标走这同一个口径。
+func WrittenDir(w WrittenPath, fallback string) (string, bool) {
+	p, ok := anchorWrittenPath(w, fallback)
+	if !ok || !isAbsPath(p) {
+		return "", false
+	}
+	return dirOf(p), true
+}
+
+// CleanLocation 把一条位置信号(执行设备上的目录)清理成规范写法;不是绝对路径时
+// ok=false —— 没有锚点的位置不可信,不参与位置更新与认领。远端路径按那台机器的规则
+// 切(见下方「路径工具」)。
+func CleanLocation(p string) (string, bool) {
+	if !isAbsPath(p) {
+		return "", false
+	}
+	return cleanPath(p), true
 }
 
 // logClaimGitFailure 记录一次被跳过的认领判定。具体路径不进日志(与 rootFor 越界

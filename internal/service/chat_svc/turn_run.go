@@ -266,6 +266,8 @@ func (t *turnRun) applyDurable(ctx context.Context, ev agentruntime.Event) {
 	if t.cards == nil {
 		t.cards = t.svc.newDurableCards(t.sess.ID, t.stream, t)
 	}
+	// 远端那一路的位置信号以持久帧为准(预览帧可能被丢)。
+	t.svc.observeToolEvent(ctx, t.sess.ID, ev)
 	if t.cards.restore(ctx, t.acc, ev) {
 		return
 	}
@@ -320,6 +322,11 @@ func (t *turnRun) applyLive(ctx context.Context, ev agentruntime.Event, preview 
 	// 这一轮若是某次 `agrctl send --wait` 建出的子会话,同一份原始事件交给父转录里的
 	// 子代理卡(ctl_subagent.go)。只入队、不等父轮的锁。
 	t.svc.mirrorCtlSendChild(t.sess.ID, t.assistantMsg.Model, ev)
+	// 工具事件一到就更新 AI 当前位置并认领(轮次进行中生效)。预览帧只管呈现,位置归
+	// 同一帧的持久那一份(applyDurable)。
+	if !preview {
+		t.svc.observeToolEvent(ctx, t.sess.ID, ev)
+	}
 	if t.streamStopErr != nil {
 		if eventShowsProgressAfterError(ev) {
 			fields := make([]zap.Field, 0, 6)

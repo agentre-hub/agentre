@@ -21,7 +21,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/workspace_fs_svc"
 )
 
-// writes 造期望值:这一片还没有逐调用的所在目录记录,Dir 恒为空。
+// writes 造期望值:这些 fixture 都没有逐调用的所在目录记录,Dir 为空。
 func writes(paths ...string) []workspace_fs_svc.WrittenPath {
 	out := make([]workspace_fs_svc.WrittenPath, 0, len(paths))
 	for _, p := range paths {
@@ -186,7 +186,7 @@ func TestSessionWrittenPaths(t *testing.T) {
 			assert.Empty(t, paths)
 		})
 
-		convey.Convey("只按 tool_use / nested_tool_use 两类块补正文,不读回整条转录", func() {
+		convey.Convey("只按 tool_use / nested_tool_use / tool_cwd 三类块补正文,不读回整条转录", func() {
 			msgs := []*chat_entity.Message{
 				msgWithBlocks(t, 1,
 					blocks.TextBlock{Text: "long answer"},
@@ -201,7 +201,7 @@ func TestSessionWrittenPaths(t *testing.T) {
 			repo := registerMessageMock(t)
 			repo.EXPECT().ListVersions(gomock.Any(), int64(7)).Return(versionsOf(msgs), nil).Times(1)
 			repo.EXPECT().FillBlocksByType(gomock.Any(), gomock.Len(2),
-				gomock.InAnyOrder([]string{"tool_use", "nested_tool_use"})).
+				gomock.InAnyOrder([]string{"tool_use", "nested_tool_use", "tool_cwd"})).
 				DoAndReturn(fillBlocksByTypeFrom(t, msgs)).Times(1)
 
 			paths, err := SessionWrittenPaths(context.Background(), 7)

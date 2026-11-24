@@ -225,6 +225,7 @@ type workspaceFsImpl struct {
 	rdSvc        remote_device_svc.RemoteDeviceSvc
 	resolver     SessionWorkspaceResolver
 	writtenPaths SessionWrittenPathsResolver
+	aiLocation   SessionAILocationResolver
 
 	// claims 是各会话在本进程里的认领状态(见 claim.go)。
 	claimsMu sync.Mutex
