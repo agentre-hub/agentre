@@ -53,6 +53,84 @@ const DEFAULT_SHOWN: Readonly<Record<SlotId, ToolWindowId | null>> = {
   bottomRight: null,
 };
 
+const EMPTY_SHOWN: Readonly<Record<SlotId, ToolWindowId | null>> = {
+  rightTop: null,
+  rightBottom: null,
+  bottomLeft: null,
+  bottomRight: null,
+};
+
+/**
+ * 三种视图模式（spec「视图模式」）：停靠·固定、停靠·失焦自动收起、浮动（只在主
+ * 窗口内浮动，决策 11）。
+ */
+export const TOOL_WINDOW_MODES = ["pinned", "autoHide", "float"] as const;
+
+export type ToolWindowMode = (typeof TOOL_WINDOW_MODES)[number];
+
+export const DEFAULT_TOOL_WINDOW_MODES: Readonly<
+  Record<ToolWindowId, ToolWindowMode>
+> = {
+  outline: "pinned",
+  changes: "pinned",
+  webPreview: "pinned",
+  directory: "pinned",
+  relations: "pinned",
+  sessionInfo: "pinned",
+  terminal: "pinned",
+};
+
+/** 浮动窗相对工具窗区域左上角的位置与大小（px）。 */
+export type FloatRect = { x: number; y: number; width: number; height: number };
+
+export const MIN_FLOAT_SIZE = { width: 220, height: 140 } as const;
+
+/**
+ * 四条可拖的分隔条：编辑区 | 右侧（right = 右侧列占的宽度比例）、编辑区 / 底部
+ * （bottom = 底部行占的高度比例）、右上 / 右下（rightSplit = 右上占右侧列的比例）、
+ * 底部左 | 底部右（bottomSplit = 底部左占底部行的比例）。
+ */
+export const DIVIDER_IDS = [
+  "right",
+  "bottom",
+  "rightSplit",
+  "bottomSplit",
+] as const;
+
+export type DividerId = (typeof DIVIDER_IDS)[number];
+
+export const DEFAULT_DIVIDER_RATIOS: Readonly<Record<DividerId, number>> = {
+  right: 0.25,
+  bottom: 0.32,
+  rightSplit: 0.5,
+  bottomSplit: 0.5,
+};
+
+export const DIVIDER_LIMITS: Readonly<
+  Record<DividerId, { min: number; max: number }>
+> = {
+  right: { min: 0.12, max: 0.6 },
+  bottom: { min: 0.12, max: 0.75 },
+  rightSplit: { min: 0.15, max: 0.85 },
+  bottomSplit: { min: 0.15, max: 0.85 },
+};
+
+/**
+ * 一个工具窗此刻怎么呈现。可用宽度不足（窄窗口）时，右侧槽位里停靠的工具窗改为
+ * 「浮动 + 失焦自动收起」盖在对话上方——只是呈现，保存的模式不变（spec「窄窗口」）。
+ */
+export function resolvePresentation(
+  mode: ToolWindowMode,
+  slot: SlotId,
+  narrow: boolean,
+): { floating: boolean; autoHide: boolean } {
+  if (mode === "float") return { floating: true, autoHide: false };
+  if (narrow && (slot === "rightTop" || slot === "rightBottom")) {
+    return { floating: true, autoHide: true };
+  }
+  return { floating: false, autoHide: mode === "autoHide" };
+}
+
 export const TOOL_WINDOW_LAYOUT_KEY = "tool-window-layout";
 
 /** 旧侧栏（chat-sidebar-store）的持久化键：升级时从它读「开没开、停在哪个 tab」。 */
@@ -63,6 +141,14 @@ type PersistedLayout = {
   slotOf: Record<ToolWindowId, SlotId>;
   /** 每个槽位此刻显示的工具窗；一个槽位同一时刻最多显示一个。 */
   shown: Record<SlotId, ToolWindowId | null>;
+  /** 每个工具窗的视图模式。 */
+  mode: Record<ToolWindowId, ToolWindowMode>;
+  /** 浮动窗被拖过 / 改过大小后的位置与大小；没有的用默认位置。 */
+  floatRect: Partial<Record<ToolWindowId, FloatRect>>;
+  /** 四条分隔条的比例。 */
+  ratios: Record<DividerId, number>;
+  /** 对话页左侧的会话列表是否收起（spec 决策 8：它只能收起 / 展开）。 */
+  sessionListCollapsed: boolean;
 };
 
 type ToolWindowLayoutState = PersistedLayout & {
@@ -71,6 +157,13 @@ type ToolWindowLayoutState = PersistedLayout & {
    * 把焦点拿走并调用 clearFocusRequest。
    */
   focusRequest: ToolWindowId | null;
+  /**
+   * 专注（⇧⌘\）进入前的显示状态；null = 不在专注。瞬时、不持久化。打开任一
+   * 工具窗即退出专注（丢掉它）。
+   */
+  focusSnapshot: Record<SlotId, ToolWindowId | null> | null;
+  /** 被最大化的工具窗（⇧⌘'）；瞬时、不持久化。 */
+  maximized: ToolWindowId | null;
   /** 图标条点击：未显示 → 显示（替换同槽位的那个）并请求焦点；已显示 → 隐藏。 */
   toggle: (id: ToolWindowId) => void;
   /** 显示（替换同槽位当前的工具窗），不抢焦点。 */
@@ -78,6 +171,21 @@ type ToolWindowLayoutState = PersistedLayout & {
   /** 隐藏；它本来就没显示时什么都不做。 */
   hide: (id: ToolWindowId) => void;
   clearFocusRequest: () => void;
+  setMode: (id: ToolWindowId, mode: ToolWindowMode) => void;
+  /** 移到另一个槽位并显示（替换那里当前的工具窗）、请求焦点；移回原槽位不变。 */
+  moveTo: (id: ToolWindowId, slot: SlotId) => void;
+  setFloatRect: (id: ToolWindowId, rect: FloatRect) => void;
+  /** 设分隔比例；超出这条分隔条的上下限时收在边界上。 */
+  setRatio: (divider: DividerId, ratio: number) => void;
+  /** 专注：隐藏全部工具窗；再来一次恢复之前的显示。 */
+  toggleFocusMode: () => void;
+  /** 最大化 / 还原一个正在显示的工具窗。 */
+  toggleMaximize: (id: ToolWindowId) => void;
+  /** 让一个正在显示的工具窗拿焦点（换了呈现位置、被重新挂载之后）。 */
+  requestFocus: (id: ToolWindowId) => void;
+  /** 恢复默认布局：槽位、显示、模式、比例、浮动位置；会话列表收起状态不在其中。 */
+  restoreDefaults: () => void;
+  toggleSessionList: () => void;
 };
 
 const TOOL_WINDOW_ID_SET: ReadonlySet<string> = new Set(TOOL_WINDOW_IDS);
@@ -118,7 +226,76 @@ function sanitizeLayout(raw: unknown): PersistedLayout {
     shown[slot] =
       candidate !== null && slotOf[candidate] === slot ? candidate : null;
   }
-  return { slotOf, shown };
+  const savedMode = asRecord(saved.mode);
+  const mode = {} as Record<ToolWindowId, ToolWindowMode>;
+  for (const id of TOOL_WINDOW_IDS) {
+    const v = savedMode[id];
+    mode[id] = isMode(v) ? v : DEFAULT_TOOL_WINDOW_MODES[id];
+  }
+  const savedRects = asRecord(saved.floatRect);
+  const floatRect: Partial<Record<ToolWindowId, FloatRect>> = {};
+  for (const id of TOOL_WINDOW_IDS) {
+    const rect = parseFloatRect(savedRects[id]);
+    if (rect !== null) floatRect[id] = rect;
+  }
+  const savedRatios = asRecord(saved.ratios);
+  const ratios = {} as Record<DividerId, number>;
+  for (const d of DIVIDER_IDS) {
+    const v = savedRatios[d];
+    const { min, max } = DIVIDER_LIMITS[d];
+    ratios[d] =
+      typeof v === "number" && v >= min && v <= max
+        ? v
+        : DEFAULT_DIVIDER_RATIOS[d];
+  }
+  const sessionListCollapsed =
+    typeof saved.sessionListCollapsed === "boolean"
+      ? saved.sessionListCollapsed
+      : false;
+  return { slotOf, shown, mode, floatRect, ratios, sessionListCollapsed };
+}
+
+const MODE_SET: ReadonlySet<string> = new Set(TOOL_WINDOW_MODES);
+
+function isMode(v: unknown): v is ToolWindowMode {
+  return typeof v === "string" && MODE_SET.has(v);
+}
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+/** 读回的浮动位置：四项都是有限数、不在左上角之外、不小于最小尺寸才算数。 */
+function parseFloatRect(v: unknown): FloatRect | null {
+  const r = asRecord(v);
+  const { x, y, width, height } = r;
+  if (
+    !isFiniteNumber(x) ||
+    !isFiniteNumber(y) ||
+    !isFiniteNumber(width) ||
+    !isFiniteNumber(height)
+  ) {
+    return null;
+  }
+  if (x < 0 || y < 0) return null;
+  if (width < MIN_FLOAT_SIZE.width || height < MIN_FLOAT_SIZE.height) {
+    return null;
+  }
+  return { x, y, width, height };
+}
+
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v));
+}
+
+function defaultLayoutParts(): Omit<PersistedLayout, "sessionListCollapsed"> {
+  return {
+    slotOf: { ...DEFAULT_TOOL_WINDOW_SLOTS },
+    shown: { ...DEFAULT_SHOWN },
+    mode: { ...DEFAULT_TOOL_WINDOW_MODES },
+    floatRect: {},
+    ratios: { ...DEFAULT_DIVIDER_RATIOS },
+  };
 }
 
 const LEGACY_TABS: ReadonlySet<string> = new Set([
@@ -133,7 +310,9 @@ const LEGACY_TABS: ReadonlySet<string> = new Set([
  * 非法 tab 回落到「大纲」），用户升级前看到的是什么，升级后就还是什么。
  * 没有旧状态（全新安装）或读不懂时返回 null，交给默认值。
  */
-function layoutFromLegacySidebar(raw: string | null): PersistedLayout | null {
+function layoutFromLegacySidebar(
+  raw: string | null,
+): Pick<PersistedLayout, "slotOf" | "shown"> | null {
   if (raw === null) return null;
   let parsed: unknown;
   try {
@@ -143,12 +322,7 @@ function layoutFromLegacySidebar(raw: string | null): PersistedLayout | null {
   }
   const state = asRecord(asRecord(parsed).state);
   const open = typeof state.open === "boolean" ? state.open : true;
-  const shown: Record<SlotId, ToolWindowId | null> = {
-    rightTop: null,
-    rightBottom: null,
-    bottomLeft: null,
-    bottomRight: null,
-  };
+  const shown: Record<SlotId, ToolWindowId | null> = { ...EMPTY_SHOWN };
   if (open) {
     const tab =
       typeof state.activeTab === "string" && LEGACY_TABS.has(state.activeTab)
@@ -186,9 +360,11 @@ const layoutStorage: StateStorage = {
 export const useToolWindowLayout = create<ToolWindowLayoutState>()(
   persist(
     (set) => ({
-      slotOf: { ...DEFAULT_TOOL_WINDOW_SLOTS },
-      shown: { ...DEFAULT_SHOWN },
+      ...defaultLayoutParts(),
+      sessionListCollapsed: false,
       focusRequest: null,
+      focusSnapshot: null,
+      maximized: null,
       toggle: (id) =>
         set((s) => {
           const slot = s.slotOf[id];
@@ -196,25 +372,100 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
             return {
               shown: { ...s.shown, [slot]: null },
               focusRequest: s.focusRequest === id ? null : s.focusRequest,
+              maximized: s.maximized === id ? null : s.maximized,
             };
           }
-          return { shown: { ...s.shown, [slot]: id }, focusRequest: id };
+          return {
+            shown: { ...s.shown, [slot]: id },
+            focusRequest: id,
+            focusSnapshot: null,
+          };
         }),
       show: (id) =>
         set((s) => {
           const slot = s.slotOf[id];
           return s.shown[slot] === id
             ? s
-            : { shown: { ...s.shown, [slot]: id } };
+            : { shown: { ...s.shown, [slot]: id }, focusSnapshot: null };
         }),
       hide: (id) =>
         set((s) => {
           const slot = s.slotOf[id];
           return s.shown[slot] === id
-            ? { shown: { ...s.shown, [slot]: null } }
+            ? {
+                shown: { ...s.shown, [slot]: null },
+                maximized: s.maximized === id ? null : s.maximized,
+              }
             : s;
         }),
       clearFocusRequest: () => set({ focusRequest: null }),
+      setMode: (id, mode) =>
+        set((s) =>
+          s.mode[id] === mode ? s : { mode: { ...s.mode, [id]: mode } },
+        ),
+      moveTo: (id, slot) =>
+        set((s) => {
+          const from = s.slotOf[id];
+          if (from === slot) return s;
+          const shown = { ...s.shown, [slot]: id };
+          if (s.shown[from] === id) shown[from] = null;
+          return {
+            slotOf: { ...s.slotOf, [id]: slot },
+            shown,
+            focusRequest: id,
+            focusSnapshot: null,
+          };
+        }),
+      setFloatRect: (id, rect) =>
+        set((s) => ({
+          floatRect: {
+            ...s.floatRect,
+            [id]: {
+              x: Math.max(0, rect.x),
+              y: Math.max(0, rect.y),
+              width: Math.max(MIN_FLOAT_SIZE.width, rect.width),
+              height: Math.max(MIN_FLOAT_SIZE.height, rect.height),
+            },
+          },
+        })),
+      setRatio: (divider, ratio) =>
+        set((s) => {
+          const { min, max } = DIVIDER_LIMITS[divider];
+          const next = clamp(ratio, min, max);
+          return s.ratios[divider] === next
+            ? s
+            : { ratios: { ...s.ratios, [divider]: next } };
+        }),
+      toggleFocusMode: () =>
+        set((s) => {
+          if (s.focusSnapshot !== null) {
+            return { shown: s.focusSnapshot, focusSnapshot: null };
+          }
+          if (SLOT_IDS.every((slot) => s.shown[slot] === null)) return s;
+          return {
+            shown: { ...EMPTY_SHOWN },
+            focusSnapshot: s.shown,
+            maximized: null,
+          };
+        }),
+      // 最大化 / 还原会把工具窗挪到另一处渲染（重新挂载），焦点跟着它过去。
+      toggleMaximize: (id) =>
+        set((s) => {
+          if (s.maximized === id) return { maximized: null, focusRequest: id };
+          return s.shown[s.slotOf[id]] === id
+            ? { maximized: id, focusRequest: id }
+            : s;
+        }),
+      requestFocus: (id) =>
+        set((s) => (s.shown[s.slotOf[id]] === id ? { focusRequest: id } : s)),
+      restoreDefaults: () =>
+        set({
+          ...defaultLayoutParts(),
+          focusSnapshot: null,
+          maximized: null,
+        }),
+      toggleSessionList: () =>
+        set((s) => ({ sessionListCollapsed: !s.sessionListCollapsed })),
     }),
     {
       name: TOOL_WINDOW_LAYOUT_KEY,
@@ -222,6 +473,10 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
       partialize: (s): PersistedLayout => ({
         slotOf: s.slotOf,
         shown: s.shown,
+        mode: s.mode,
+        floatRect: s.floatRect,
+        ratios: s.ratios,
+        sessionListCollapsed: s.sessionListCollapsed,
       }),
       // 读回值缺失时同样逐项回落到默认，而不是沿用内存里的当前值。
       merge: (persisted, current) => ({

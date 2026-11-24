@@ -480,11 +480,31 @@
     "rightArea": "Right tool windows",
     "bottomArea": "Bottom tool windows",
     "hide": "Hide",
+    "options": "{{name}} options",
     "slots": {
       "rightTop": "Right top",
       "rightBottom": "Right bottom",
       "bottomLeft": "Bottom left",
       "bottomRight": "Bottom right"
-    }
+    },
+    "modes": {
+      "pinned": "Docked · Pinned",
+      "autoHide": "Docked · Auto-hide on blur",
+      "float": "Float"
+    },
+    "menu": {
+      "viewMode": "View mode",
+      "moveTo": "Move to",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "restoreDefaults": "Restore default layout"
+    },
+    "dividers": {
+      "right": "Resize right tool windows",
+      "bottom": "Resize bottom tool windows",
+      "rightSplit": "Resize right top and bottom",
+      "bottomSplit": "Resize bottom left and right"
+    },
+    "dropTo": "Drop in {{slot}}"
   }
 }

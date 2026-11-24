@@ -68,11 +68,83 @@ export function formatChord(
   platform: DesktopPlatform,
 ): string {
   const isMac = platform === "darwin";
+  const key = chord.key === "Escape" ? "Esc" : chord.key;
+  switch (chord.mod) {
+    case "secondary":
+      return isMac ? `⌃${key}` : `Alt+${key}`;
+    case "control":
+      return isMac ? `⌃${key}` : `Ctrl+${key}`;
+    case "shift":
+      return isMac ? `⇧${key}` : `Shift+${key}`;
+    case "none":
+      return key;
+    default:
+      break;
+  }
   if (isMac) {
     const shift = chord.mod === "primary-shift" ? "⇧" : "";
-    return `⌘${shift}${chord.key}`;
+    return `⌘${shift}${key}`;
   }
   const shift = chord.mod === "primary-shift" ? "Shift+" : "";
   // Keep the comma literal so "Ctrl+," reads as a key, not a separator.
-  return `Ctrl+${shift}${chord.key}`;
+  return `Ctrl+${shift}${key}`;
+}
+
+/** 固定快捷键的按键 → KeyboardEvent.code：按物理键比，不受 ⇧ / 输入法改写 key 的影响。 */
+const FIXED_KEY_CODES: Record<string, string> = {
+  "`": "Backquote",
+  "\\": "Backslash",
+  "'": "Quote",
+  Escape: "Escape",
+};
+
+function codeForKey(key: string): string {
+  if (/^[0-9]$/.test(key)) return `Digit${key}`;
+  return FIXED_KEY_CODES[key] ?? key;
+}
+
+/**
+ * 按键是否正好是这个和弦：修饰键必须完全一致（多按一个也不算），按键按物理键
+ * （event.code）比。给固定、不可改绑的工具窗快捷键用。
+ */
+export function matchesChord(
+  event: Pick<
+    KeyboardEvent,
+    "code" | "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey"
+  >,
+  chord: KeyChord,
+  platform: DesktopPlatform,
+): boolean {
+  const code = codeForKey(chord.key);
+  if (event.code !== code && !(chord.key === "Escape" && event.key === code)) {
+    return false;
+  }
+  const isMac = platform === "darwin";
+  const want = { meta: false, ctrl: false, alt: false, shift: false };
+  switch (chord.mod) {
+    case "primary":
+    case "primary-shift":
+      if (isMac) want.meta = true;
+      else want.ctrl = true;
+      want.shift = chord.mod === "primary-shift";
+      break;
+    case "secondary":
+      if (isMac) want.ctrl = true;
+      else want.alt = true;
+      break;
+    case "control":
+      want.ctrl = true;
+      break;
+    case "shift":
+      want.shift = true;
+      break;
+    case "none":
+      break;
+  }
+  return (
+    event.metaKey === want.meta &&
+    event.ctrlKey === want.ctrl &&
+    event.altKey === want.alt &&
+    event.shiftKey === want.shift
+  );
 }

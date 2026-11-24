@@ -1,27 +1,81 @@
 import * as React from "react";
-import { Minus } from "lucide-react";
+import { Minus, MoreHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button } from "@agentre-hub/agentre-ui";
-import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  cn,
+} from "@agentre-hub/agentre-ui";
+import { detectBrowserPlatform } from "@/lib/platform";
+import {
+  useToolWindowLayout,
+  type FloatRect,
+} from "@/stores/tool-window-layout-store";
 
+import { useOptionalShortcutsContext } from "../shortcuts/shortcuts-provider";
+import { matchFocusedToolWindowShortcut } from "../shortcuts/tool-window-shortcuts";
+import { useToolWindowLayoutContext } from "./layout-context";
+import { ToolWindowMenuContent } from "./tool-window-menu";
 import type { ToolWindowDefinition } from "./types";
+
+/**
+ * 工具窗此刻在哪儿画：停靠在槽位里、浮在编辑区上方（浮动模式）、窄窗口下盖在
+ * 对话上方的右侧覆盖层、或最大化占满工具窗区域。
+ */
+export type ToolWindowPresentation =
+  | "docked"
+  | "float"
+  | "overlay"
+  | "maximized";
 
 type Props = {
   window: ToolWindowDefinition;
+  presentation?: ToolWindowPresentation;
+  /** 焦点移到编辑区或其它工具窗时会自动收起（只用于标注，收起由布局负责）。 */
+  autoHide?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
 };
+
+/** 浮动窗没被拖过时的默认位置与大小：靠右上角。 */
+const DEFAULT_FLOAT_STYLE: React.CSSProperties = {
+  top: 12,
+  right: 12,
+  width: 340,
+  height: 460,
+};
+
+/** 拖动时至少留这么多在工具窗区域里，免得拖丢。 */
+const KEEP_VISIBLE = { x: 80, y: 32 };
 
 /**
  * 一个工具窗的外壳（spec「工具窗标题栏」）：带名称的区域，标题栏显示名称（带数量
- * 的工具窗跟着数字），「隐藏」平时不占眼，悬停或焦点落进来时出现；焦点在工具窗
- * 里时整圈描边。内容超出可视高度时在外壳内滚动。
+ * 的工具窗跟着数字），⋯ 与「隐藏」平时不占眼，悬停或焦点落进来时出现；焦点在
+ * 工具窗里时整圈描边。内容超出可视高度时在外壳内滚动。
  *
  * 被图标条点开时它自己把焦点拿进来（store 的 focusRequest），启动时恢复显示的
- * 工具窗不抢输入框的焦点。
+ * 工具窗不抢输入框的焦点。焦点在里面时：⇧Esc 隐藏、Esc 把焦点还给输入框、⇧⌘'
+ * 最大化 / 还原。浮动时拖标题栏移动、拖右下角改大小，位置与大小记进布局。
  */
-function ToolWindowFrameImpl({ window: w }: Props) {
+function ToolWindowFrameImpl({
+  window: w,
+  presentation = "docked",
+  autoHide = false,
+  className,
+  style,
+}: Props) {
   const { t } = useTranslation();
+  const platform =
+    useOptionalShortcutsContext()?.platform ?? detectBrowserPlatform();
+  const { focusEditor } = useToolWindowLayoutContext();
   const hide = useToolWindowLayout((s) => s.hide);
+  const toggleMaximize = useToolWindowLayout((s) => s.toggleMaximize);
+  const setFloatRect = useToolWindowLayout((s) => s.setFloatRect);
+  const floatRect = useToolWindowLayout((s) =>
+    presentation === "float" ? s.floatRect[w.id] : undefined,
+  );
   const focusRequested = useToolWindowLayout((s) => s.focusRequest === w.id);
   const clearFocusRequest = useToolWindowLayout((s) => s.clearFocusRequest);
   const ref = React.useRef<HTMLElement>(null);
@@ -32,15 +86,104 @@ function ToolWindowFrameImpl({ window: w }: Props) {
     clearFocusRequest();
   }, [focusRequested, clearFocusRequest]);
 
+  const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    // 菜单等弹层经 React 树冒泡上来的按键不算「焦点在工具窗里」；弹层自己处理过
+    // （例如 Esc 关菜单）的也不再处理。
+    if (e.nativeEvent.defaultPrevented) return;
+    if (!e.currentTarget.contains(e.target as Node)) return;
+    const action = matchFocusedToolWindowShortcut(e.nativeEvent, platform);
+    if (action === null) return;
+    e.preventDefault();
+    if (action === "hide") {
+      hide(w.id);
+      focusEditor();
+    } else if (action === "returnFocus") {
+      // 「失焦自动收起」的工具窗随焦点离开由布局收起；浮动窗不收起。
+      focusEditor();
+    } else {
+      toggleMaximize(w.id);
+    }
+  };
+
+  const trackPointer = (
+    e: React.PointerEvent,
+    next: (dx: number, dy: number, start: FloatRect) => FloatRect,
+  ) => {
+    const el = ref.current;
+    if (e.button !== 0 || !el) return;
+    e.preventDefault();
+    if (!el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    const start: FloatRect = {
+      x: el.offsetLeft,
+      y: el.offsetTop,
+      width: el.offsetWidth,
+      height: el.offsetHeight,
+    };
+    const parent = el.parentElement;
+    const onMove = (ev: PointerEvent) => {
+      const rect = next(ev.clientX - e.clientX, ev.clientY - e.clientY, start);
+      setFloatRect(w.id, keepInside(rect, parent));
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+      document.body.style.userSelect = "";
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
+    document.body.style.userSelect = "none";
+  };
+
+  const floating = presentation === "float";
+  const onHeaderPointerDown = floating
+    ? (e: React.PointerEvent) => {
+        // 标题栏上的按钮照常点；拖的是标题栏本身。
+        if ((e.target as Element).closest("button")) return;
+        trackPointer(e, (dx, dy, s) => ({ ...s, x: s.x + dx, y: s.y + dy }));
+      }
+    : undefined;
+
+  const floatStyle: React.CSSProperties | undefined = floating
+    ? floatRect
+      ? {
+          left: floatRect.x,
+          top: floatRect.y,
+          width: floatRect.width,
+          height: floatRect.height,
+        }
+      : DEFAULT_FLOAT_STYLE
+    : undefined;
+
   return (
     <section
       ref={ref}
       aria-label={w.label}
       tabIndex={-1}
       data-tool-window={w.id}
-      className="group/tool-window flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] bg-sheet outline-none focus-within:focus-outline-inset"
+      data-floating={presentation === "float" || presentation === "overlay"}
+      data-auto-hide={autoHide}
+      data-maximized={presentation === "maximized"}
+      onKeyDown={onKeyDown}
+      style={{ ...floatStyle, ...style }}
+      className={cn(
+        "group/tool-window flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] bg-sheet outline-none focus-within:focus-outline-inset",
+        // 盖在工具窗区域上方的那几种：所在的覆盖层不接指针，它们自己接。
+        presentation !== "docked" && "pointer-events-auto",
+        floating &&
+          "absolute max-h-[calc(100%-16px)] max-w-[calc(100%-16px)] shadow-overlay",
+        presentation === "overlay" && "shadow-overlay",
+        className,
+      )}
     >
-      <div className="flex h-8 shrink-0 items-center gap-1 pr-1 pl-3">
+      <div
+        onPointerDown={onHeaderPointerDown}
+        className={cn(
+          "flex h-8 shrink-0 items-center gap-1 pr-1 pl-3",
+          floating && "cursor-move select-none",
+        )}
+      >
         <h3 className="flex min-w-0 flex-1 items-baseline gap-1.5 text-xs font-semibold text-foreground">
           <span className="truncate">{w.label}</span>
           {w.count != null ? (
@@ -49,6 +192,21 @@ function ToolWindowFrameImpl({ window: w }: Props) {
             </span>
           ) : null}
         </h3>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={t("toolWindows.options", { name: w.label })}
+              title={t("toolWindows.options", { name: w.label })}
+              className={HEADER_ACTION_CLASS}
+            >
+              <MoreHorizontal aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <ToolWindowMenuContent id={w.id} align="end" />
+        </DropdownMenu>
         <Button
           type="button"
           variant="ghost"
@@ -56,7 +214,7 @@ function ToolWindowFrameImpl({ window: w }: Props) {
           aria-label={t("toolWindows.hide")}
           title={t("toolWindows.hide")}
           onClick={() => hide(w.id)}
-          className="opacity-0 group-focus-within/tool-window:opacity-100 group-hover/tool-window:opacity-100 focus-visible:opacity-100"
+          className={HEADER_ACTION_CLASS}
         >
           <Minus aria-hidden="true" />
         </Button>
@@ -64,8 +222,37 @@ function ToolWindowFrameImpl({ window: w }: Props) {
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
         {w.content}
       </div>
+      {floating ? (
+        <span
+          aria-hidden="true"
+          onPointerDown={(e) =>
+            trackPointer(e, (dx, dy, s) => ({
+              ...s,
+              width: s.width + dx,
+              height: s.height + dy,
+            }))
+          }
+          className="absolute right-0 bottom-0 size-3 cursor-nwse-resize touch-none"
+        />
+      ) : null}
     </section>
   );
+}
+
+/** ⋯ 与「隐藏」：悬停或焦点落进工具窗时出现；菜单开着时保持可见。 */
+const HEADER_ACTION_CLASS =
+  "opacity-0 group-focus-within/tool-window:opacity-100 group-hover/tool-window:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100";
+
+/** 浮动窗拖动后至少有一角留在工具窗区域里。 */
+function keepInside(rect: FloatRect, parent: HTMLElement | null): FloatRect {
+  const width = parent?.clientWidth ?? 0;
+  const height = parent?.clientHeight ?? 0;
+  if (width <= 0 || height <= 0) return rect;
+  return {
+    ...rect,
+    x: Math.min(rect.x, width - KEEP_VISIBLE.x),
+    y: Math.min(rect.y, height - KEEP_VISIBLE.y),
+  };
 }
 
 export const ToolWindowFrame = React.memo(ToolWindowFrameImpl);

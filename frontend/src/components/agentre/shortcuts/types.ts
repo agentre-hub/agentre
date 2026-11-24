@@ -1,6 +1,17 @@
-export type ShortcutScope = "global" | "session" | "tabs";
+export type ShortcutScope = "global" | "session" | "tabs" | "toolWindows";
 
-export type ModifierKind = "primary" | "primary-shift";
+/**
+ * primary = macOS ⌘ / 其它 Ctrl。下面几种只给固定（不可改绑）的工具窗快捷键用：
+ * secondary = macOS ⌃ / 其它 Alt（⌃1–6，⌘1–9 已被标签页占用）；control = 两边都是
+ * Ctrl（⌃`）；shift / none = 只有 ⇧ 或不带修饰键（⇧Esc / Esc）。
+ */
+export type ModifierKind =
+  | "primary"
+  | "primary-shift"
+  | "secondary"
+  | "control"
+  | "shift"
+  | "none";
 
 export type KeyChord = {
   mod: ModifierKind;

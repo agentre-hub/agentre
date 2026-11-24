@@ -480,11 +480,31 @@
     "rightArea": "右侧工具窗",
     "bottomArea": "底部工具窗",
     "hide": "隐藏",
+    "options": "{{name}}选项",
     "slots": {
       "rightTop": "右上",
       "rightBottom": "右下",
       "bottomLeft": "底部左",
       "bottomRight": "底部右"
-    }
+    },
+    "modes": {
+      "pinned": "停靠 · 固定",
+      "autoHide": "停靠 · 失焦自动收起",
+      "float": "浮动"
+    },
+    "menu": {
+      "viewMode": "视图模式",
+      "moveTo": "移到",
+      "maximize": "最大化",
+      "restore": "还原",
+      "restoreDefaults": "恢复默认布局"
+    },
+    "dividers": {
+      "right": "调整右侧工具窗宽度",
+      "bottom": "调整底部工具窗高度",
+      "rightSplit": "调整右上与右下的分配",
+      "bottomSplit": "调整底部左与底部右的分配"
+    },
+    "dropTo": "放到{{slot}}"
   }
 }

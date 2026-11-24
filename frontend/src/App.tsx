@@ -61,6 +61,7 @@ import { desktopTranscriptLiveState } from "@/components/agentre/transcript-live
 import { useDesktopTranscriptPorts } from "@/components/agentre/transcript-ports-desktop";
 import { desktopTerminalTransport } from "@/components/agentre/terminal/terminal-transport-desktop";
 import { ChatPanelHost } from "@/components/agentre/chat-tabs/chat-panel-host";
+import { useChatRailClick } from "@/components/agentre/session-index/use-chat-rail-click";
 import { useChatAgents } from "@/hooks/use-chat-agents";
 import {
   deriveAppStatusBarState,
@@ -172,6 +173,8 @@ function AppLayout() {
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>("unknown");
   const location = useLocation();
   const navigate = useNavigate();
+  // 「对话」图标：在别的页面时回到对话页，已在对话页时收起 / 展开会话列表。
+  const onChatRailClick = useChatRailClick();
   // 主题三态、存储与系统跟随都在共享包里（浏览器宿主同用一份）；这里只消费。
   const { effectiveTheme, setThemePreference, themePreference } = useTheme();
 
@@ -331,7 +334,11 @@ function AppLayout() {
                               isNavItemActive(location.pathname, item.path)
                             }
                             onClick={
-                              item.path ? () => navigate(item.path!) : undefined
+                              item.path === "/chat"
+                                ? onChatRailClick
+                                : item.path
+                                  ? () => navigate(item.path!)
+                                  : undefined
                             }
                           />
                         );

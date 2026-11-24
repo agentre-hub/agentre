@@ -188,6 +188,56 @@
       "tabChip": {
         "hint": "按 TabStrip 排列顺序（固定 + 普通 + 预览）",
         "label": "切换到第 {{index}} 个 Tab"
+      },
+      "toolWindows": {
+        "changes": {
+          "hint": "与点击图标条上的图标相同",
+          "label": "显示 / 隐藏变更"
+        },
+        "directory": {
+          "hint": "与点击图标条上的图标相同",
+          "label": "显示 / 隐藏目录"
+        },
+        "hideAll": {
+          "hint": "专注：图标条保留，再按一次恢复之前的显示",
+          "label": "隐藏全部工具窗"
+        },
+        "hideFocused": {
+          "hint": "隐藏获得焦点的工具窗",
+          "label": "隐藏当前工具窗"
+        },
+        "maximize": {
+          "hint": "焦点在工具窗内时最大化它，再按一次还原",
+          "label": "最大化获得焦点的区域"
+        },
+        "outline": {
+          "hint": "与点击图标条上的图标相同",
+          "label": "显示 / 隐藏大纲"
+        },
+        "relations": {
+          "hint": "与点击图标条上的图标相同",
+          "label": "显示 / 隐藏关联"
+        },
+        "returnFocus": {
+          "hint": "焦点在工具窗内时，把焦点还给输入框",
+          "label": "回到输入框"
+        },
+        "sessionInfo": {
+          "hint": "与点击图标条上的图标相同",
+          "label": "显示 / 隐藏会话信息"
+        },
+        "sessionList": {
+          "hint": "与再次点击左侧「对话」图标相同",
+          "label": "收起 / 展开会话列表"
+        },
+        "terminal": {
+          "hint": "与点击图标条上的图标相同",
+          "label": "显示 / 隐藏终端"
+        },
+        "webPreview": {
+          "hint": "与点击图标条上的图标相同",
+          "label": "显示 / 隐藏网页预览"
+        }
       }
     },
     "resetAll": "全部重置为默认",
@@ -199,7 +249,8 @@
     },
     "sections": {
       "chat": "对话页",
-      "global": "全局导航"
+      "global": "全局导航",
+      "toolWindows": "工具窗"
     },
     "title": "键盘快捷键",
     "unbound": "未绑定"

@@ -15,7 +15,6 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
-  ResizableSidebar,
   SessionGroupList,
   SessionIndexEmpty,
   type ImportDialogPrefill,
@@ -43,6 +42,7 @@ import { IndexGroupRow, type IndexGroupHandlers } from "./index-group-row";
 import { IndexToolbar } from "./index-toolbar";
 import { useSessionImportPorts } from "./import-ports-desktop";
 import { useSessionActions } from "./session-actions";
+import { SessionListSidebar } from "./session-list-sidebar";
 import { useMachineRoster } from "./machine-roster";
 import { useIndexDialogs } from "./use-index-dialogs";
 import { useIndexFilter, useIndexSearch } from "./use-index-filter";
@@ -590,7 +590,7 @@ export function SessionIndexPage() {
         onProjectMerged={handleProjectMerged}
       />
 
-      <ResizableSidebar
+      <SessionListSidebar
         persistenceKey="chat"
         ariaLabel={t("sessionIndex.sidebar")}
       >
@@ -640,7 +640,7 @@ export function SessionIndexPage() {
           ) : null}
           {showGroupList ? <SessionGroupList>{list}</SessionGroupList> : null}
         </div>
-      </ResizableSidebar>
+      </SessionListSidebar>
     </>
   );
 }

@@ -23,6 +23,7 @@ import {
   saveShortcutsState,
   clearShortcutsState,
 } from "./storage";
+import { dispatchGlobalToolWindowShortcut } from "./tool-window-shortcuts";
 import type {
   AttentionEntry,
   KeyChord,
@@ -217,6 +218,13 @@ export function ShortcutsProvider({
       // 也会触发 keydown，event.isComposing=true 表明 keystroke 属于输入法，
       // 不能当作 ⌘P / ⌘1-9 / nav.* 来用。
       if (event.isComposing) return;
+
+      // 工具窗快捷键（⌃1–6 / ⌃` / ⇧⌘\ / ⌘0）是固定的、按物理键比的和弦，有的不带
+      // 主修饰键，有的按键不在可绑定集里，所以不走下面的 KeyChord 查表。
+      if (dispatchGlobalToolWindowShortcut(event, platformRef.current)) {
+        event.preventDefault();
+        return;
+      }
 
       // Ctrl+Tab / Ctrl+Shift+Tab —— 浏览器式循环切换到下一个 / 上一个 Tab。
       // 它不是可重绑的 KeyChord：Ctrl 在 macOS 不是主修饰键，"Tab" 也不在

@@ -200,6 +200,7 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
   }, [recordingId, platform, findChordConflict, setBinding, showConflict, t]);
 
   const globalDefs = REGISTRY.filter((def) => def.scope === "global");
+  const toolWindowDefs = REGISTRY.filter((def) => def.scope === "toolWindows");
   const chatTabDef = getDef(TAB_CHIP_IDS[0]!)!;
   const tabCloseDef = getDef(TAB_CLOSE_ID)!;
 
@@ -298,6 +299,24 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
           onStartRecord={() => {}}
           onCancelRecord={() => {}}
         />
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {t("shortcuts.sections.toolWindows")}
+        </h2>
+        {toolWindowDefs.map((def) => (
+          <ShortcutRow
+            key={def.id}
+            fixed
+            def={def}
+            chord={def.defaultBinding}
+            recording={false}
+            highlighted={false}
+            onStartRecord={() => {}}
+            onCancelRecord={() => {}}
+          />
+        ))}
       </section>
 
       <div className="flex items-center justify-end gap-3">
