@@ -44,6 +44,8 @@ type fakeServer struct {
 	gen        int
 	revoked    bool
 	revokeBody map[string]any
+	// revokeDeny 非空时，吊销接口 403 + 这条消息（个人 token 缺 devices:write）。
+	revokeDeny string
 	hits       int
 }
 
@@ -100,11 +102,16 @@ func newFakeServer(t *testing.T) *fakeServer {
 		writeEnvelope(w, map[string]any{"access_token": f.access, "expires_in": 900, "refresh_token": f.refresh, "refresh_expires_in": 86400})
 	})
 	mux.HandleFunc("/v1/oauth/token/revoke", func(w http.ResponseWriter, r *http.Request) {
-		if !f.authed(w, r, false) {
+		if !f.authed(w, r, true) {
 			return
 		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		if f.revokeDeny != "" {
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 403, "msg": f.revokeDeny, "data": nil})
+			return
+		}
 		_ = json.NewDecoder(r.Body).Decode(&f.revokeBody)
 		f.revoked = true
 		writeEnvelope(w, map[string]any{})

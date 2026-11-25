@@ -172,13 +172,23 @@ func (a *Client) plan(ctx context.Context, agentSync, projectSync, targetBackend
 
 // accountDevice 是 GET /v1/devices 的一行。
 type accountDevice struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name"`
-	Kind        string `json:"kind"`
-	Fingerprint string `json:"fingerprint"`
-	Online      bool   `json:"online"`
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	DisplayName  string `json:"display_name"`
+	Kind         string `json:"kind"`
+	Platform     string `json:"platform"`
+	Version      string `json:"version"`
+	Fingerprint  string `json:"fingerprint"`
+	LastSeenAt   int64  `json:"last_seen_at"`
+	Online       bool   `json:"online"`
+	IsThisDevice bool   `json:"is_this_device"`
 }
+
+// Device 是账号下的一台设备（GET /v1/devices 的一行）。
+type Device = accountDevice
+
+// Label 是设备给人看的名字：账号级备注名优先，否则自报的名字。
+func (d accountDevice) Label() string { return d.label() }
 
 func (d accountDevice) label() string {
 	if strings.TrimSpace(d.DisplayName) != "" {
@@ -188,7 +198,12 @@ func (d accountDevice) label() string {
 }
 
 func (a *Client) devices(ctx context.Context) ([]accountDevice, error) {
-	raw, err := a.srv.GetRaw(ctx, "/v1/devices")
+	return ListDevices(ctx, a.srv)
+}
+
+// ListDevices 列出账号下的设备（agrctl 的设备管理命令不需要 relay，直接用它）。
+func ListDevices(ctx context.Context, srv Server) ([]Device, error) {
+	raw, err := srv.GetRaw(ctx, "/v1/devices")
 	if err != nil {
 		return nil, ServerErr(err)
 	}

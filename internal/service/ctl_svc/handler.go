@@ -55,6 +55,10 @@ func (h *ctlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch route {
 	case "resources":
 		h.serveResources(w, r, cred)
+	case "provider-test":
+		h.serveProviderTest(w, r)
+	case "provider-discover":
+		h.serveProviderDiscover(w, r)
 	case "agents":
 		h.serveAgents(w, r)
 	case "projects":

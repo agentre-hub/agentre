@@ -354,6 +354,42 @@ elsewhere, or timed out, fails with "the pending item no longer exists" (exit `1
 asks several questions at once is answered in the desktop app. `answer` is refused from inside an
 Agentre session (exit `1`).
 
+## `test provider`, `discover models`, `import models`
+
+```
+{{AGRCTL_PATH}} test provider <provider> [--model <model id>] [--device <device>]
+{{AGRCTL_PATH}} discover models <provider> [--device <device>] [-o json]
+{{AGRCTL_PATH}} import models <provider> (--all | <model id>...) [--device <device>]
+```
+
+`test provider` sends one real request with the saved configuration and prints success, or the
+upstream error summary (exit `1`; never the API key). `discover models` lists the models the
+upstream offers and marks the ones already imported (`-o json`: `modelId`, `name`, `imported`).
+`import models` creates the missing ones as models of the provider through the same write path
+as `create model` (so the same approval rules apply) and skips existing ones, printing both
+counts. Against the account these run on `--device` (default: the first online device that
+already has the provider); `--device` is not available against the desktop, which runs them
+itself. A provider created or changed a moment ago may not have reached the device yet:
+`device <name> has not received this provider yet — try again shortly` (exit `1`); wait and retry.
+
+## `list devices`, `get device`, `update device`, `delete device`, `upgrade device`
+
+```
+{{AGRCTL_PATH}} list devices [-o json]
+{{AGRCTL_PATH}} get device <device>
+{{AGRCTL_PATH}} update device <device> --name <name>
+{{AGRCTL_PATH}} delete device <device>
+{{AGRCTL_PATH}} upgrade device <device>
+```
+
+Account only: against the desktop or a session these fail with `device management needs an
+account login — run 'agrctl login'` (exit `1`). `list devices` shows name, kind, online state (a
+`cli` device shows when it was last used), version and a `*` on the device this `agrctl` is
+logged in as. `get device` also lists the backends bound to it. `update`, `delete` and `upgrade`
+change the account, so a program using the user's login is refused like any other write;
+`delete device` on the current device is the same as `logout`; only an `agentred` device can be
+upgraded. Pairing a new `agentred` is done on that machine with `agentred login`.
+
 ## `login`, `logout`, `whoami`
 
 ```

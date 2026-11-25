@@ -76,6 +76,8 @@ type Resources struct {
 	Cascade CascadeCounter
 	// Memory 是会话里 agent 的记忆读写；缺席时记忆请求 503。
 	Memory MemoryService
+	// Probes 是供应商测试 / 模型发现；缺席时这两个端点 503（不影响 ready）。
+	Probes ProviderProbes
 }
 
 func (r Resources) ready() bool {

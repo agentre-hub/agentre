@@ -35,6 +35,11 @@ Usage:
   agrctl create token --name <n> --scope <s>[,<s>...] [--expires <d>|never]   issue a personal token (login + terminal only)
   agrctl rotate token <name> [--expires <d>|never]   replace a token's secret, keeping name and scopes
   agrctl list tokens [-o json] | delete token <name>   list or revoke personal tokens (never shows token characters)
+  agrctl test provider <provider> [--model <id>] [--device <d>]   send one real request with the saved config
+  agrctl discover models <provider> [--device <d>] [-o json]       list the upstream models, marking imported ones
+  agrctl import models <provider> (--all | <model id>...)          import upstream models (existing ones are skipped)
+  agrctl list devices | get device <d> | update device <d> --name <n> | delete device <d> | upgrade device <d>
+                                                account mode only; see 'agrctl help device'
 
 Resources: agent, department (dept), project (proj), provider, model, backend, memory.
 <ref> is a numeric id, a name, or a parent/child path (projects, departments);
@@ -207,6 +212,10 @@ func verbUsage(verb string) string {
 		return answerUsage
 	case "rotate":
 		return tokenRotateUsage
+	case "test", "discover", "import":
+		return providerOpHelp(verb)
+	case "upgrade":
+		return deviceUpgradeUsage
 	case "login":
 		return loginUsage
 	case "logout":
@@ -265,6 +274,10 @@ func runHelp(args []string, w io.Writer) error {
 	}
 	if (args[0] == "token" || args[0] == "tokens") && len(args) == 1 {
 		_, _ = fmt.Fprintln(w, tokenUsage)
+		return nil
+	}
+	if isDeviceResource(args[0]) && len(args) == 1 {
+		_, _ = fmt.Fprintln(w, deviceUsageText)
 		return nil
 	}
 	if isSessionResource(args[0]) && len(args) == 1 {

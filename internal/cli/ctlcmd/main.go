@@ -101,6 +101,12 @@ func dispatch(args []string, s *sys) error {
 		_, _ = fmt.Fprintln(s.stdout, sessionResourceUsage(verb))
 		return nil
 	}
+	if deviceVerb(verb, rest) {
+		return runDevice(verb, rest[1:], s)
+	}
+	if providerOp(verb, rest) {
+		return runProviderOp(verb, rest, s)
+	}
 	if action, ok := tokenVerb(verb, rest); ok {
 		return runToken(action, rest[1:], s)
 	}
@@ -133,6 +139,8 @@ func dispatch(args []string, s *sys) error {
 		return runGet(rest, s)
 	case "create", "update", "delete":
 		return runWrite(verb, args, s)
+	case "upgrade":
+		return usageErrorf("upgrade supports: device (agrctl upgrade device <device>)")
 	default:
 		return usageErrorf("unknown command %q (run 'agrctl help')", verb)
 	}

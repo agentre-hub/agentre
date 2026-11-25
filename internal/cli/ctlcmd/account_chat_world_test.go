@@ -160,9 +160,9 @@ func (w *world) serveDevices(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeEnvelope(rw, map[string]any{"devices": []map[string]any{
-		{"id": 1, "name": "laptop", "kind": "desktop", "fingerprint": laptopFP, "online": false},
-		{"id": 2, "name": "build-box", "kind": "agentred", "fingerprint": boxFP, "online": true},
-		{"id": 42, "name": "build-box", "kind": "cli", "fingerprint": ownFP, "online": false},
+		{"id": 1, "name": "laptop", "kind": "desktop", "fingerprint": laptopFP, "online": false, "version": "0.8.0", "last_seen_at": 1_700_000_000_000},
+		{"id": 2, "name": "build-box", "kind": "agentred", "fingerprint": boxFP, "online": true, "version": "0.9.0"},
+		{"id": 42, "name": "build-box", "kind": "cli", "fingerprint": ownFP, "online": false, "version": "agrctl abc1234", "last_seen_at": 1_750_000_000_000, "is_this_device": true},
 	}})
 }
 
@@ -222,6 +222,10 @@ type fakeAgentred struct {
 	listed     func(n int)
 	lists      int
 	answersLog *answerLog
+	// engineTest / engineDiscover 是 engine.test / engine.discover 的作答（nil = 默认成功）；engine 记下收到的请求。
+	engineTest     func(*agentrewire.EngineTestRequest) (*agentrewire.EngineTestResponse, error)
+	engineDiscover func(*agentrewire.EngineDiscoverRequest) (*agentrewire.EngineDiscoverResponse, error)
+	engine         []string
 }
 
 func newFakeAgentred() *fakeAgentred {
@@ -479,7 +483,41 @@ func (f *fakeAgentred) registry() *protorpc.Registry {
 			return &agentrewire.SetSessionReasoningEffortResponse{}, nil
 		})
 	f.registerAnswers(reg)
+	f.registerEngine(reg)
 	return reg
+}
+
+func (f *fakeAgentred) registerEngine(reg *protorpc.Registry) {
+	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_TEST),
+		func() *agentrewire.EngineTestRequest { return &agentrewire.EngineTestRequest{} },
+		func(_ context.Context, req *agentrewire.EngineTestRequest) (*agentrewire.EngineTestResponse, error) {
+			f.mu.Lock()
+			f.engine = append(f.engine, "test:"+req.GetProviderKey()+"/"+req.GetModelKey())
+			fn := f.engineTest
+			f.mu.Unlock()
+			if fn == nil {
+				return &agentrewire.EngineTestResponse{Ok: true, Message: "connection succeeded"}, nil
+			}
+			return fn(req)
+		})
+	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_ENGINE_DISCOVER),
+		func() *agentrewire.EngineDiscoverRequest { return &agentrewire.EngineDiscoverRequest{} },
+		func(_ context.Context, req *agentrewire.EngineDiscoverRequest) (*agentrewire.EngineDiscoverResponse, error) {
+			f.mu.Lock()
+			f.engine = append(f.engine, "discover:"+req.GetProviderKey())
+			fn := f.engineDiscover
+			f.mu.Unlock()
+			if fn == nil {
+				return &agentrewire.EngineDiscoverResponse{}, nil
+			}
+			return fn(req)
+		})
+}
+
+func (f *fakeAgentred) engineCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.engine...)
 }
 
 func cloneSummary(s *agentrewire.SessionSummary) *agentrewire.SessionSummary {

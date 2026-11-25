@@ -35,6 +35,7 @@ func ProductionResources() Resources {
 		Writers:   productionWriters(ports),
 		Cascade:   departmentWriter{ports},
 		Memory:    liveMemory{},
+		Probes:    liveProbes{providers: ports.providers},
 	}
 }
 

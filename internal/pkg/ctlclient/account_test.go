@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,6 +35,9 @@ type fakeAccountServer struct {
 	revokeBody map[string]any
 	resources  int
 	lastBearer string
+
+	patchMethod string
+	patchBody   []byte
 }
 
 func newFakeAccountServer(t *testing.T) *fakeAccountServer {
@@ -101,6 +105,16 @@ func newFakeAccountServer(t *testing.T) *fakeAccountServer {
 		_ = json.NewDecoder(r.Body).Decode(&f.revokeBody)
 		f.revoked = true
 		envelope(w, map[string]any{})
+	})
+	mux.HandleFunc("/v1/devices/42", func(w http.ResponseWriter, r *http.Request) {
+		if !f.authed(w, r) {
+			return
+		}
+		f.mu.Lock()
+		f.patchMethod = r.Method
+		f.patchBody, _ = io.ReadAll(r.Body)
+		f.mu.Unlock()
+		envelope(w, map[string]any{"display_name": "renamed"})
 	})
 	mux.HandleFunc("/v1/ctl/resources", func(w http.ResponseWriter, r *http.Request) {
 		if !f.authed(w, r) {
@@ -373,5 +387,22 @@ func TestAccount_RevokeNamesThisDevice(t *testing.T) {
 	}
 	if f.revokeBody["device_id"] != float64(42) || !f.revoked {
 		t.Fatalf("revoke body = %v, want device_id 42", f.revokeBody)
+	}
+}
+
+func TestAccount_PatchRawSendsAPatchWithTheBearerAndBody(t *testing.T) {
+	f := newFakeAccountServer(t)
+	dir := t.TempDir()
+	f.loggedIn(t, dir, time.Now().Add(time.Hour).Unix())
+	a, _ := LoginAccount(dir)
+	raw, err := a.PatchRaw(context.Background(), "/v1/devices/42", []byte(`{"display_name":"renamed"}`))
+	if err != nil {
+		t.Fatalf("PatchRaw: %v", err)
+	}
+	if f.patchMethod != http.MethodPatch || string(f.patchBody) != `{"display_name":"renamed"}` || f.lastBearer != "Bearer access-0" {
+		t.Fatalf("method = %q, body = %s, bearer = %q", f.patchMethod, f.patchBody, f.lastBearer)
+	}
+	if !strings.Contains(string(raw), "renamed") {
+		t.Fatalf("response = %s", raw)
 	}
 }

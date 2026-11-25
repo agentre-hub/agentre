@@ -214,6 +214,11 @@ func (a *Account) DeleteRaw(ctx context.Context, path string) ([]byte, error) {
 	return a.authed(ctx, http.MethodDelete, path, nil)
 }
 
+// PatchRaw 发一个带 Bearer 的 JSON PATCH，返回原始响应体；非 2xx 返回 *ServerError。
+func (a *Account) PatchRaw(ctx context.Context, path string, body []byte) ([]byte, error) {
+	return a.authed(ctx, http.MethodPatch, path, body)
+}
+
 // Bearer 交出此刻该用的那枚凭据：relay 握手（Authorization 与 auth.account 的 credential）
 // 用的就是它。登录态快过期时先刷新。
 func (a *Account) Bearer(ctx context.Context) (string, error) { return a.bearer(ctx) }
