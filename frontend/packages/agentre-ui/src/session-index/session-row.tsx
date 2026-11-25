@@ -25,6 +25,7 @@ import { AgentAvatar } from "../ui/agent-avatar";
 import type { AgentAvatarProps } from "../ui/agent-avatar";
 import { StatusDot } from "../ui/status-dot";
 import { StatusMark } from "../ui/status-mark";
+import { useTouch } from "../ui/touch";
 import type { SessionTrailingMark } from "./types";
 
 /**
@@ -144,6 +145,12 @@ type SessionRowProps = Omit<React.ComponentProps<"button">, "onClick"> & {
   onStopTurn?: () => void;
   onFilterAgent?: () => void;
   onFilterMachine?: () => void;
+  /**
+   * 触屏档：长按菜单锚定到本行（贴行下方右对齐，放不下翻上方，行完整露出），菜单行
+   * 44px / 15px。不传则跟随最近的 `TouchProvider`，再不然与桌面一致。菜单由行自己
+   * 渲染，宿主传不进 `anchorRef`，所以锚点由行自己登记。
+   */
+  touch?: boolean;
 };
 
 function SessionRow({
@@ -174,9 +181,13 @@ function SessionRow({
   onStopTurn,
   onFilterAgent,
   onFilterMachine,
+  touch: touchProp,
   ...props
 }: SessionRowProps) {
   const { t } = useUiTranslation();
+  const touch = useTouch(touchProp);
+  // 菜单锚点：Trigger 的 ref 会落到行元素上（按钮、原生 <a>、宿主 renderLink 的元素）。
+  const rowRef = React.useRef<HTMLElement>(null);
   const config = statusConfig[status];
   const hiddenFromAccessibility = ariaHidden === true || ariaHidden === "true";
   const hasContextMenu = Boolean(
@@ -376,11 +387,13 @@ function SessionRow({
 
   const withMenu = hasContextMenu ? (
     <ContextMenu>
-      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+      <ContextMenuTrigger asChild ref={rowRef}>
+        {row}
+      </ContextMenuTrigger>
       {/* 只摆宿主真的给了 handler 的能力：没有 rename 就没这一项，而不是摆一个
           按下去什么都不发生的死项。分隔线只在它真的隔开两项时才画 —— delete 是
           第一项时，那条线只是凭空多出来的一行。 */}
-      <ContextMenuContent>
+      <ContextMenuContent touch={touch} anchorRef={touch ? rowRef : undefined}>
         {onRenameSession ? (
           <ContextMenuItem onSelect={onRenameSession}>
             <Pencil className="size-4" aria-hidden="true" />
