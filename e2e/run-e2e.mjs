@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -59,6 +59,10 @@ async function waitForFile(path, { timeoutMs = 120_000, intervalMs = 100 } = {})
   throw new Error(`timed out waiting for ${path}`);
 }
 
+function accountPeerCommand() {
+  return ["test", "-count=1", "./e2e/accountpeer"];
+}
+
 function appCommand(run) {
   return [
     "dev",
@@ -108,6 +112,25 @@ async function main() {
   );
 
   try {
+    // Headless agrctl account peer: needs no desktop, so it runs (and fails) first. Its
+    // temp files live under the run root.
+    const accountPeerTmp = join(run.runRoot, "account-peer-tmp");
+    mkdirSync(accountPeerTmp, { recursive: true, mode: 0o700 });
+    const accountPeer = supervisor.track(
+      spawnLogged("go", accountPeerCommand(), {
+        cwd: REPO_ROOT,
+        env: { ...process.env, TMPDIR: accountPeerTmp },
+        logPath: join(run.logsDir, "account-peer.log"),
+      }),
+    );
+    const accountPeerResult = await childResult(accountPeer);
+    if (accountPeerResult.code !== 0) {
+      throw new Error(
+        `headless agrctl account-peer smoke failed with exit ${accountPeerResult.code} (see logs/account-peer.log)`,
+      );
+    }
+    if (interrupted) throw failure;
+
     await generateWailsBindings(run);
 
     const syncIdentity = {

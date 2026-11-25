@@ -2,7 +2,7 @@
 
 This directory owns two distinct workflows:
 
-1. **Automated E2E** — `make e2e` runs the dedicated, hermetic E2E desktop composition and the three committed smoke specs.
+1. **Automated E2E** — `make e2e` runs the dedicated, hermetic E2E desktop composition, the three committed Playwright smoke specs, and the headless agrctl account-peer smoke.
 2. **Local real verification** — `make verify-up` launches the formal desktop main with isolated local state; `drive.mjs` records one action at a time. Evidence and verdict rules are owned by [`docs/verification.md`](../docs/verification.md).
 
 Agentre exposes no HTTP application API. Both workflows use the Wails development bridge so Chromium drives the real React → Wails IPC → Go service/repository → SQLite path.
@@ -20,14 +20,15 @@ Prerequisites are Go, Node 24+, pnpm, the Wails CLI, Chromium, and the platform 
 
 1. Runs only the safe automated Node guards (`run-context`, app-overlay, fake-sync, current-contract, and browser) before launching any process, plus `guard-suite` itself, which fails if a `lib/*.test.mjs` on disk is not registered in the list below. It does not run the formal verification target guard, because that tool derives installed/development roots.
 2. Creates a random private run root with private data, keychain, browser, log, Playwright, manifest, and token paths.
-3. Reserves dynamic loopback ports.
-4. Starts the loopback fake sync HTTP server and loopback fake remote WebSocket peer.
-5. Starts Vite and the independent app under `e2e/app/`; before bootstrap, the app validates the manifest/token/path contract and attests that the canonical bootstrap `AppDataDir` equals the manifest data directory.
-6. After bootstrap and before E2E composition, the app attests that the runtime's canonical data directory still equals the manifest data directory.
-7. Runs Playwright with one worker and exactly three specs; the desktop smoke uses SQLite `PRAGMA database_list` plus unique UI-written rows to prove the read-only oracle opened the manifest's `agentre.db`.
-8. After Playwright succeeds, checks only the runner-owned file keychain and requires a regular file containing the generated remote device credential.
-9. Stops only processes owned by the run.
-10. Deletes successful run state; on failure, copies a sanitized per-run directory to `e2e/artifacts/<run-id>/` and removes browser/keychain/token-bearing files.
+3. Runs the headless agrctl account-peer smoke (`go test ./e2e/accountpeer`, see below). It needs no desktop, so it runs first and a failure stops the run; its temp files live under `<run root>/account-peer-tmp`.
+4. Reserves dynamic loopback ports.
+5. Starts the loopback fake sync HTTP server and loopback fake remote WebSocket peer.
+6. Starts Vite and the independent app under `e2e/app/`; before bootstrap, the app validates the manifest/token/path contract and attests that the canonical bootstrap `AppDataDir` equals the manifest data directory.
+7. After bootstrap and before E2E composition, the app attests that the runtime's canonical data directory still equals the manifest data directory.
+8. Runs Playwright with one worker and exactly three specs; the desktop smoke uses SQLite `PRAGMA database_list` plus unique UI-written rows to prove the read-only oracle opened the manifest's `agentre.db`.
+9. After Playwright succeeds, checks only the runner-owned file keychain and requires a regular file containing the generated remote device credential.
+10. Stops only processes owned by the run.
+11. Deletes successful run state; on failure, copies a sanitized per-run directory to `e2e/artifacts/<run-id>/` and removes browser/keychain/token-bearing files.
 
 ### Committed coverage
 
@@ -35,7 +36,10 @@ Prerequisites are Go, Node 24+, pnpm, the Wails CLI, Chromium, and the platform 
 |---|---|
 | `tests/desktop.spec.ts` | Real UI/IPC/service/repository/migration path; unique persisted messages and SQLite `PRAGMA database_list` prove the oracle reads the manifest's `agentre.db`; deterministic streamed reply survives reload; runtime failure reaches an error terminal state; a session-token `agrctl send --wait` issued from an open foreground or `run_in_background` Bash call, or one that reaches the desktop before its foreground call is registered (Codex's order) (fake directive `e2e-agrctl-send:<fg|bg|late>:<agentID>:<label>`; `late` posts first and registers the call only after the child's first step; child steps via `e2e-child-steps:<n>`) upgrades that call in place into one subagent card with live nested steps and the final text, persists as `agrctl_send` (foreground) / `local_bash` (background), and renders the same after reload. |
 | `tests/sync-client.spec.ts` | Desktop sync client against a loopback protocol recorder; push/pull identity, payload, version/cursor and UI/SQLite convergence; rejection/invalid-response queue retention and visible error state. |
+| `accountpeer/` (Go, `go test ./e2e/accountpeer`) | Headless agrctl account peer, no desktop: the test builds `cmd/agrctl` into a run-scoped temp dir and runs it with a scrubbed environment and an isolated `AGENTRE_DATA_DIR`/`HOME` against a loopback fake account server (RFC 8628 Device Flow that approves at once, `/v1/ctl/resources`, dispatch plan, devices, saved sessions), the real `relaypeertest` relay and a scripted fake agentred. Chain: `login` (0600 credentials) → async `send --agent` (stdout is the conversation UUID) → `wait` exits 4 with the pending question → `pending -o json` → `answer --option` → `wait` exits 0 with the final text → `messages` shows the user and final text. `send` and `answer` run on a pseudo-terminal because a logged-in account only writes as a person at a terminal. |
 | `tests/remote-peer.spec.ts` | Desktop direct remote transport against a loopback binary Protobuf RPC/WebSocket peer; auth/capability/session/run protocol, streamed persistence, reconnect/disconnect terminal state, protocol-error terminal state, and credential redaction. |
+
+The account-peer smoke needs no desktop and no Playwright; it is the only coverage of agrctl's account mode in this suite.
 
 No external Server, OAuth, MySQL, Redis, daemon process, LAN discovery, relay, or real agent CLI is configured by this suite. Fakes bind only dynamic loopback ports and receive generated test identities and credentials.
 
@@ -66,7 +70,7 @@ cd e2e && pnpm run test:guards
 node --test e2e/lib/run-context.test.mjs
 node --test e2e/lib/fake-sync-server.test.mjs
 node --test e2e/lib/browser.test.mjs
-go test ./e2e/preflight ./e2e/composition ./e2e/fakepeer ./e2e/app
+go test ./e2e/preflight ./e2e/composition ./e2e/fakepeer ./e2e/app ./e2e/accountpeer
 cd e2e && pnpm exec tsc --noEmit
 ```
 
@@ -80,6 +84,7 @@ The canonical automated check remains `make e2e`; passing only a focused fake or
 | `preflight/` | Manifest/token/path/permission safety gate. |
 | `composition/` | E2E-only dependency composition and run-scoped fake identity seeding. |
 | `fakes/` | Deterministic local runtime and login fixtures used only by the independent composition. |
+| `accountpeer/` | Headless agrctl account-peer smoke: fake account server + relay + scripted fake agentred and the agrctl process driver. |
 | `fakepeer/`, `cmd/fake-peer/` | Loopback remote binary Protobuf RPC/WebSocket peer and executable. |
 | `lib/run-context.mjs` | Random run allocation, dynamic ports, process ownership, run-scoped evidence, artifact sanitization. |
 | `lib/fake-sync-server.mjs` | Loopback sync protocol fake and recorder. |
