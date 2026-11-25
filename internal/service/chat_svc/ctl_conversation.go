@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -21,6 +22,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
@@ -112,6 +114,20 @@ type CtlTail struct {
 	LatestSeq int64
 }
 
+// CtlExecTarget 是 agent 的一档执行目标,供 agrctl send --device / --backend 挑选。
+type CtlExecTarget struct {
+	AgentBackendID int64
+	// Backend 是后端名。
+	Backend string
+	// Device 是它所在设备的展示名(本机为 "this desktop");DeviceRefs 是 --device 能
+	// 选中它的全部写法(设备名、指纹;本机另有 "local" 与主机名)。
+	Device     string
+	DeviceRefs []string
+	Available  bool
+	// Reason 是不可用的原因(Available 时为空)。
+	Reason string
+}
+
 // CtlConversationGateway 是控制 API(ctl_svc)对「按 conversation_id 定位并操作一条会话」
 // 的窄依赖。与 HeadlessRunnerGateway 分开:那个端口 subagent_svc 也在用,拓宽它会让另一个
 // 消费方平白背上这些能力。
@@ -121,8 +137,13 @@ type CtlConversationGateway interface {
 	LookupCtlConversation(ctx context.Context, conversationID string) (*CtlConversation, error)
 	// DescribeCtlConversation 同上,按本机主键。
 	DescribeCtlConversation(ctx context.Context, sessionID int64) (*CtlConversation, error)
-	// CheckCtlOverrides 只校验不写:sessionID>0 按该会话下一轮的后端,否则按 agentID 的默认后端。
-	CheckCtlOverrides(ctx context.Context, agentID, sessionID int64, o CtlOverrides) error
+	// CheckCtlOverrides 只校验不写:sessionID>0 按该会话下一轮的后端;否则按新会话将落到
+	// 的那一档 —— agentBackendID>0 是 --device / --backend 挑中的一档,0 是 agent 的默认档。
+	CheckCtlOverrides(ctx context.Context, agentID, agentBackendID, sessionID int64, o CtlOverrides) error
+	// CtlExecTargets 按生效顺序列出 agent 的执行目标,每档带设备、可用性与不可用的原因。
+	CtlExecTargets(ctx context.Context, agentID, projectID int64) ([]CtlExecTarget, error)
+	// PinCtlExecTarget 在新会话首轮之前把它钉到选中的那一档后端上。
+	PinCtlExecTarget(ctx context.Context, sessionID, agentBackendID int64) error
 	// ApplyCtlOverrides 把覆盖写到会话上(自下一轮生效),与桌面端会话设置同一条路径。
 	ApplyCtlOverrides(ctx context.Context, sessionID int64, o CtlOverrides) error
 	// SteerCtlConversation 把一条插话排进正在跑的这一轮(与桌面端插话同一个队列),交回排队 id。
@@ -239,11 +260,11 @@ func ctlDeviceName(ctx context.Context, deviceID int64) string {
 	return fallback
 }
 
-func (s *chatSvc) CheckCtlOverrides(ctx context.Context, agentID, sessionID int64, o CtlOverrides) error {
+func (s *chatSvc) CheckCtlOverrides(ctx context.Context, agentID, agentBackendID, sessionID int64, o CtlOverrides) error {
 	if o.Empty() {
 		return nil
 	}
-	sess := &chat_entity.Session{AgentID: agentID}
+	sess := &chat_entity.Session{AgentID: agentID, ExecAgentBackendID: agentBackendID}
 	if sessionID > 0 {
 		found, err := chat_repo.Session().Find(ctx, sessionID)
 		if err != nil {
@@ -512,4 +533,84 @@ func ctlNotificationSeq(params any) int64 {
 		return p.Seq
 	}
 	return 0
+}
+
+// ctlLocalDevice 是本机桌面在 --device 里的展示名。
+const ctlLocalDevice = "this desktop"
+
+// CtlExecTargets 按 R15 的生效顺序列出 agent 的执行目标与每档此刻的可用性(与新会话
+// 自动挑选同一份判定)。agent 没有显式执行目标时只有它的主档,按可用处理 —— 自动挑选
+// 对这种 agent 也不做逐档判定。
+func (s *chatSvc) CtlExecTargets(ctx context.Context, agentID, projectID int64) ([]CtlExecTarget, error) {
+	a, err := agent_repo.Agent().Find(ctx, agentID)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err, zap.Int64("agentId", agentID))
+	}
+	if a == nil {
+		return nil, i18n.NewError(ctx, code.AgentNotFound)
+	}
+	views, err := s.execTargets().ListExecTargetAvailability(ctx, agentID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if len(views) == 0 && a.AgentBackendID > 0 {
+		views = []exec_target_svc.ExecTargetAvailabilityView{{AgentBackendID: a.AgentBackendID, Available: true}}
+	}
+	out := make([]CtlExecTarget, 0, len(views))
+	for _, v := range views {
+		be, err := agent_backend_repo.AgentBackend().Find(ctx, v.AgentBackendID)
+		if err != nil {
+			return nil, operationFailedWithCause(ctx, err, zap.Int64("agentBackendId", v.AgentBackendID))
+		}
+		t := CtlExecTarget{AgentBackendID: v.AgentBackendID, Available: v.Available && be != nil}
+		if !t.Available {
+			t.Reason = v.Hint
+			if t.Reason == "" {
+				t.Reason = string(v.Reason)
+			}
+		}
+		if be == nil {
+			t.Backend = fmt.Sprintf("#%d", v.AgentBackendID)
+			out = append(out, t)
+			continue
+		}
+		t.Backend = be.Name
+		t.Device, t.DeviceRefs = ctlExecDevice(ctx, be)
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// ctlExecDevice 是一档后端所在设备的展示名,以及 --device 能选中它的写法。
+func ctlExecDevice(ctx context.Context, be *agent_backend_entity.AgentBackend) (string, []string) {
+	if exec_target_svc.BackendTargetsRemote(be) {
+		fp := string(be.DeviceFingerprint)
+		name := fp
+		if view := exec_target_svc.LocalPairedDeviceView(ctx, be.DeviceFingerprint); view != nil && strings.TrimSpace(view.Name) != "" {
+			name = view.Name
+		}
+		return name, []string{name, fp}
+	}
+	refs := []string{ctlLocalDevice, "local"}
+	if host, err := os.Hostname(); err == nil && host != "" {
+		refs = append(refs, host)
+	}
+	if rds := remote_device_svc.Default(); rds != nil {
+		if fp, err := rds.DeviceFingerprint(); err == nil && fp != "" {
+			refs = append(refs, string(fp))
+		}
+	}
+	return ctlLocalDevice, refs
+}
+
+// PinCtlExecTarget 把新会话钉到选中的那一档(R15b 的会话粘性):此后每一轮的后端解析
+// 都短路到它。远端档的设备列不在这里写 —— 真正借到连接时由 recordExecDaemon 带着当下
+// 的 daemon 实例标识一并写上(与 pinExecTargetIfUnset 同一条约定)。
+func (s *chatSvc) PinCtlExecTarget(ctx context.Context, sessionID, agentBackendID int64) error {
+	if err := chat_repo.Session().UpdateExecDaemon(ctx, sessionID, 0, "", agentBackendID); err != nil {
+		return operationFailedWithCause(ctx, err, zap.Int64("sessionId", sessionID), zap.Int64("agentBackendId", agentBackendID))
+	}
+	logger.Ctx(ctx).Info("chat_svc.PinCtlExecTarget: session pinned to the chosen exec target",
+		zap.Int64("sessionId", sessionID), zap.Int64("agentBackendId", agentBackendID))
+	return nil
 }

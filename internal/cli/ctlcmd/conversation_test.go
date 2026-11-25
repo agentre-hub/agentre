@@ -173,7 +173,9 @@ func TestSend_UsageErrors(t *testing.T) {
 		{"session with project", []string{"send", "--session", sessA, "--project", "web", "hi"}, "--session"},
 		{"steer with image", []string{"send", "--session", sessA, "--steer", "--image", img, "hi"}, "--steer"},
 		{"model with cli-model", []string{"send", "--agent", "planner", "--model", "a/b", "--cli-model", "opus", "hi"}, "--cli-model"},
-		{"device in desktop mode", []string{"send", "--agent", "planner", "--device", "build-box", "hi"}, "--device"},
+		{"session with device", []string{"send", "--session", sessA, "--device", "build-box", "hi"}, "--device"},
+		{"session with backend", []string{"send", "--session", sessA, "--backend", "codex-remote", "hi"}, "--backend"},
+		{"device with backend", []string{"send", "--agent", "planner", "--device", "build-box", "--backend", "codex-remote", "hi"}, "mutually exclusive"},
 		{"missing image", []string{"send", "--agent", "planner", "--image", "/nope/missing.png", "hi"}, "missing.png"},
 		{"not an image", []string{"send", "--agent", "planner", "--image", txt, "hi"}, "not a supported image"},
 		{"timeout without wait", []string{"send", "--agent", "planner", "--timeout", "5m", "hi"}, "--timeout"},
@@ -431,5 +433,36 @@ func TestHelp_DocumentsConversationVerbs(t *testing.T) {
 		for _, want := range wants {
 			assert.Contains(t, r.stdout, want, "help %s", verb)
 		}
+	}
+}
+
+// --device / --backend 原样交给执行者(桌面端在 agent 的执行目标里挑、钉住);挑不出来按
+// 执行者的分类给退出码:不在 agent 的执行目标里 2,挑中的那一档不可用 1。
+func TestSend_DeviceAndBackendForANewSession(t *testing.T) {
+	for flagName, ref := range map[string]string{"device": "build-box", "backend": "codex-remote"} {
+		t.Run(flagName, func(t *testing.T) {
+			srv, env := newConvServer(t)
+			r := runWith([]string{"send", "--agent", "planner", "--" + flagName, ref, "go"}, env, term{})
+			require.Equal(t, 0, r.code, r.stderr)
+			assert.Equal(t, ref, srv.body("/ctl/v1/send")[flagName])
+		})
+	}
+	cases := []struct {
+		name   string
+		status int
+		msg    string
+		code   int
+	}{
+		{"not among the agent's devices", 422, `--device "nowhere" is not one of agent planner's devices (one of: this desktop, build-box)`, 2},
+		{"device offline", 409, "backend codex-gpu on gpu-box is unavailable: device gpu-box is offline", 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv, env := newConvServer(t)
+			srv.send = func(w http.ResponseWriter, _ map[string]any) { reply(w, c.status, fmt.Sprintf(`{"error":%q}`, c.msg)) }
+			r := runWith([]string{"send", "--agent", "planner", "--device", "x", "go"}, env, term{})
+			assert.Equal(t, c.code, r.code)
+			assert.Contains(t, r.stderr, c.msg)
+		})
 	}
 }

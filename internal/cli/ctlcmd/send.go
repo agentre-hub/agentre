@@ -30,8 +30,8 @@ var sendFlags = []*flagDef{
 	{name: "permission-mode", value: "<mode>", usage: "permission mode from now on (depends on the backend)"},
 	{name: "wait", usage: "block like agrctl wait: until idle (exit 0), failed (1), waiting for input (4)"},
 	{name: "timeout", value: "<duration>", usage: "with --wait: give up after this long (e.g. 90s, 10m) — exit 5"},
-	{name: "device", value: "<device>", usage: "account mode only (agrctl login): run on this device"},
-	{name: "backend", value: "<ref>", usage: "account mode only (agrctl login): run on this agent backend"},
+	{name: "device", value: "<device>", usage: "new session: run on the agent's first backend on this device (name or fingerprint; \"local\" = this desktop)"},
+	{name: "backend", value: "<ref>", usage: "new session: run on exactly this backend of the agent (name or id)"},
 	{name: "endpoint", value: "<url>", usage: "control endpoint URL   (env AGENTRE_CTL_ENDPOINT)"},
 	{name: "token", value: "<value>", usage: "control credential     (env AGENTRE_CTL_TOKEN)"},
 	outputFlag, outputFlagLong,
@@ -64,10 +64,8 @@ func runSend(args []string, s *sys) error {
 	} else if !p.has("agent") && !p.has("agent-id") {
 		return usageErrorf("send: --agent is required (or --session <id> to continue a session)")
 	}
-	for _, name := range []string{"device", "backend"} {
-		if p.has(name) {
-			return usageErrorf("send: --%s needs account mode (agrctl login); the executor here is the local desktop", name)
-		}
+	if p.has("device") && p.has("backend") {
+		return usageErrorf("send: --device and --backend are mutually exclusive")
 	}
 	if p.has("model") && p.has("cli-model") {
 		return usageErrorf("send: --model and --cli-model are mutually exclusive")
@@ -158,6 +156,11 @@ func newSessionBody(body map[string]any, p parsedArgs, ep ctlclient.Endpoint, ar
 	}
 	if v := last(p, "title"); v != "" {
 		body["title"] = v
+	}
+	for _, name := range []string{"device", "backend"} {
+		if v := last(p, name); v != "" {
+			body[name] = v
+		}
 	}
 	if p.on("isolated") {
 		body["isolated"] = true

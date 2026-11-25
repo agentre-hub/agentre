@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -147,6 +148,10 @@ type sendRequest struct {
 	CLIModel       string `json:"cliModel,omitempty"`
 	Effort         string `json:"effort,omitempty"`
 	PermissionMode string `json:"permissionMode,omitempty"`
+	// 新会话的执行目标(二选一,都不给 = 按 agent 配置的顺序挑第一个可用的):Device 是设备
+	// 名或指纹(本机也算一台),Backend 是该 agent 某一档后端的名字或 id。
+	Device  string `json:"device,omitempty"`
+	Backend string `json:"backend,omitempty"`
 }
 
 func (r sendRequest) continuing() bool { return strings.TrimSpace(r.ConversationID) != "" }
@@ -199,8 +204,13 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 		writeErr(w, http.StatusBadRequest, "text is required")
 		return
 	}
-	if req.continuing() && (req.Agent != "" || req.AgentID > 0 || req.ProjectID > 0 || req.Isolated || req.Title != "") {
-		writeErr(w, http.StatusBadRequest, "a session (conversationId) cannot be combined with agent, project, isolated or title")
+	if req.continuing() && (req.Agent != "" || req.AgentID > 0 || req.ProjectID > 0 || req.Isolated || req.Title != "" ||
+		req.Device != "" || req.Backend != "") {
+		writeErr(w, http.StatusBadRequest, "a session (conversationId) cannot be combined with agent, project, isolated, title, device or backend")
+		return
+	}
+	if strings.TrimSpace(req.Device) != "" && strings.TrimSpace(req.Backend) != "" {
+		writeErr(w, http.StatusBadRequest, "--device and --backend are mutually exclusive")
 		return
 	}
 	if req.Steer && len(req.Images) > 0 {
@@ -219,7 +229,7 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 			writeErr(w, http.StatusBadRequest, "cannot send to your own session")
 			return
 		}
-		if err := h.conversations.CheckCtlOverrides(ctx, 0, c.SessionID, overrides); err != nil {
+		if err := h.conversations.CheckCtlOverrides(ctx, 0, 0, c.SessionID, overrides); err != nil {
 			writeOverrideErr(w, err)
 			return
 		}
@@ -244,7 +254,11 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if err := h.conversations.CheckCtlOverrides(ctx, a.ID, 0, overrides); err != nil {
+	backendID, ok := h.pickExecTarget(w, r, req, a)
+	if !ok {
+		return
+	}
+	if err := h.conversations.CheckCtlOverrides(ctx, a.ID, backendID, 0, overrides); err != nil {
 		writeOverrideErr(w, err)
 		return
 	}
@@ -252,11 +266,75 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 	if !ok {
 		return
 	}
+	// 钉在首轮之前:Send 解析这条会话的后端时直接短路到选中的那一档。
+	if backendID > 0 {
+		if err := h.conversations.PinCtlExecTarget(ctx, c.SessionID, backendID); err != nil {
+			writeErr(w, http.StatusInternalServerError, "pin the chosen backend failed: "+err.Error())
+			return
+		}
+	}
 	if err := h.conversations.ApplyCtlOverrides(ctx, c.SessionID, overrides); err != nil {
 		writeOverrideErr(w, err)
 		return
 	}
 	h.dispatch(w, r, cred, req, c)
+}
+
+// pickExecTarget 按 --device / --backend 在 agent 的执行目标里挑一档(spec「发起与继续」):
+// --device 取运行在那台设备上的第一档(按 agent 配置的顺序),--backend 精确点名一档。
+// 都没给交回 0(新会话按 agent 的顺序自动挑)。点名的不在这个 agent 的执行目标里是用法
+// 错误(422,列出可选值);挑中的那一档此刻不可用(设备离线、项目在那台设备上没有路径…)
+// 报它的原因(409)。失败时已写好响应并交回 false。
+func (h *ctlHandler) pickExecTarget(w http.ResponseWriter, r *http.Request, req sendRequest, a agentResolved) (int64, bool) {
+	device, backend := strings.TrimSpace(req.Device), strings.TrimSpace(req.Backend)
+	if device == "" && backend == "" {
+		return 0, true
+	}
+	targets, err := h.conversations.CtlExecTargets(r.Context(), a.ID, req.ProjectID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "list the agent's backends failed: "+err.Error())
+		return 0, false
+	}
+	var (
+		chosen  *chat_svc.CtlExecTarget
+		options []string
+	)
+	for i := range targets {
+		t := &targets[i]
+		switch {
+		case backend != "":
+			options = appendUnique(options, t.Backend)
+			if chosen == nil && (t.Backend == backend || strconv.FormatInt(t.AgentBackendID, 10) == backend) {
+				chosen = t
+			}
+		default:
+			options = appendUnique(options, t.Device)
+			if chosen == nil && slices.Contains(t.DeviceRefs, device) {
+				chosen = t
+			}
+		}
+	}
+	if chosen == nil {
+		flag, value, what := "backend", backend, "backends"
+		if backend == "" {
+			flag, value, what = "device", device, "devices"
+		}
+		writeErr(w, http.StatusUnprocessableEntity, fmt.Sprintf("--%s %q is not one of agent %s's %s (one of: %s)",
+			flag, value, a.Name, what, strings.Join(options, ", ")))
+		return 0, false
+	}
+	if !chosen.Available {
+		writeErr(w, http.StatusConflict, fmt.Sprintf("backend %s on %s is unavailable: %s", chosen.Backend, chosen.Device, chosen.Reason))
+		return 0, false
+	}
+	return chosen.AgentBackendID, true
+}
+
+func appendUnique(list []string, v string) []string {
+	if v == "" || slices.Contains(list, v) {
+		return list
+	}
+	return append(list, v)
 }
 
 // createConversation 为一次新派发建会话并带回它的对话身份。

@@ -48,7 +48,7 @@ agrctl wait as a background shell command (or give --timeout and wait again on e
 
 func sendUsage() string {
 	var b strings.Builder
-	b.WriteString(`agrctl send --agent <name|id> [--project <ref>] [--title <title>] [--isolated]
+	b.WriteString(`agrctl send --agent <name|id> [--device <device> | --backend <ref>] [--project <ref>] [--title <title>] [--isolated]
             [--model <provider>/<model> | --cli-model <model>] [--effort <level>]
             [--permission-mode <mode>] [--image <file>]... [--wait [--timeout <duration>]] [-o json] <text...>
 agrctl send --session <id> [--steer] [--image <file>]... [--model …] [--effort …]
@@ -62,6 +62,9 @@ Without --wait it prints the session id on stdout ("dispatched to <agent> — <d
 and returns at once; the turn keeps running. With --wait it behaves like agrctl wait.
 A running session refuses a plain send (exit 1): add --steer to interject into the current turn —
 steers not yet delivered when the turn ends go out, in order, at the start of the next one.
+Without --device / --backend a new session runs on the agent's first available backend, in the
+agent's order. A --device or --backend that is not one of the agent's fails with the choices
+listed (exit 2); one that is offline, or has no path for the project, fails with the reason (exit 1).
 An unsupported --model / --cli-model / --effort / --permission-mode value fails with the
 choices listed (exit 2); the values apply to this session from the next turn on.
 

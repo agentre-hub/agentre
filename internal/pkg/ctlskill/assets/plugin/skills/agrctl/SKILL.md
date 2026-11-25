@@ -139,14 +139,20 @@ into the conversation** — tell them to run that exact command in their own ter
 | `--agent <name>` | target agent by name (or numeric id), as printed by `list agents` |
 | `--agent-id <id>` | target agent by numeric id; overrides `--agent` |
 | `--project <ref>` | project to run in: name, `parent/child` path or id from `list projects`; omitted means a free session |
+| `--device <device>` | new session: run on the agent's first backend on that device (name or fingerprint; `local` is this desktop) |
+| `--backend <ref>` | new session: run on exactly that backend of the agent (name or id); not with `--device` |
 | `--title <title>` | title of the new session |
-| `--session <id>` | continue that session instead of starting one (no `--agent` / `--project` / `--isolated` / `--title`) |
+| `--session <id>` | continue that session instead of starting one (no `--agent` / `--device` / `--backend` / `--project` / `--isolated` / `--title`) |
 | `--steer` | the session is running: interject into its current turn (cannot carry `--image`) |
 | `--image <file>` | attach a local png / jpeg / gif / webp image; repeatable |
 | `--model <provider>/<model>`, `--cli-model <model>`, `--effort <level>`, `--permission-mode <mode>` | change this session's setting from the next turn on; a value the backend does not support fails with the choices listed (exit `2`) |
 | `--wait [--timeout <duration>]` | block like `wait` below |
 | `--isolated` | one-shot isolated session, not shown in the desktop sidebar |
 | `-o json` | print one JSON object with `session`, `status` and `text` / `error` / `pending` |
+
+Without `--device` / `--backend` a new session runs on the agent's first available backend. A
+device or backend the agent does not have fails with the choices listed (exit `2`); one that is
+offline, or has no path for the project, fails with the reason (exit `1`).
 
 `--agent` (or `--agent-id`) or `--session` is required, and so is the text. Without `--wait`
 the command returns as soon as the task is dispatched and prints the **session id** — a full

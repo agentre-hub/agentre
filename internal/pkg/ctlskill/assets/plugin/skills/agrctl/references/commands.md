@@ -179,7 +179,7 @@ chat. `--api-key=<value>` also works, but the value stays in shell history.
 ## `send`
 
 ```
-{{AGRCTL_PATH}} send --agent <name> [--agent-id <id>] [--project <ref>] [--title <title>] [--isolated]
+{{AGRCTL_PATH}} send --agent <name> [--agent-id <id>] [--device <device> | --backend <ref>] [--project <ref>] [--title <title>] [--isolated]
                     [--model <provider>/<model> | --cli-model <model>] [--effort <level>]
                     [--permission-mode <mode>] [--image <file>]... [--wait [--timeout <duration>]] [-o json] <task text...>
 {{AGRCTL_PATH}} send --session <id> [--steer] [--image <file>]... [--wait [--timeout <duration>]] [-o json] <text...>
@@ -219,6 +219,19 @@ when it contains spaces.
   Error: session is running; use --steer to interject, or agrctl wait first
   {{AGRCTL_PATH}} send --session 0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a7b --steer "also cover the empty case"
   ```
+
+- Pick where a new session runs (default: the agent's first available backend):
+
+  ```
+  {{AGRCTL_PATH}} send --agent reviewer --device build-box "run the slow suite"
+  {{AGRCTL_PATH}} send --agent reviewer --device nowhere "…"
+  Error: --device "nowhere" is not one of agent reviewer's devices (one of: this desktop, build-box)
+  ```
+
+  `--device` takes a device name or fingerprint (`local` is this desktop) and picks the agent's
+  first backend there; `--backend` names one of the agent's backends exactly. A device or
+  backend the agent does not have is a usage error (exit `2`); an offline device, or one with no
+  path for the project, fails with the reason (exit `1`).
 
 - Change a setting for this session (from the next turn on):
 

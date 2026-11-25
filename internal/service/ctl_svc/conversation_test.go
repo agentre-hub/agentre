@@ -37,19 +37,23 @@ type fakeConversations struct {
 	describe func(n int, sessionID int64) *chat_svc.CtlConversation
 	calls    int
 
-	checkErr    error
-	checkedFor  []int64 // agentID / sessionID 交替无所谓,只看是否先于建会话
-	checked     []chat_svc.CtlOverrides
-	applied     map[int64]chat_svc.CtlOverrides
-	steered     []string
-	discardN    int
-	discarded   bool
-	pending     wire.SessionPendingWaitersResult
-	tail        *chat_svc.CtlTail
-	tailErr     error
-	tailFrom    int64
-	tailResume  bool
-	tailSession int64
+	checkErr   error
+	checkedFor []int64 // agentID / sessionID 交替无所谓,只看是否先于建会话
+	// checkedBackend 是新会话校验覆盖时按的那一档后端(0 = agent 默认档)。
+	checkedBackend []int64
+	execTargets    []chat_svc.CtlExecTarget
+	pinned         map[int64]int64
+	checked        []chat_svc.CtlOverrides
+	applied        map[int64]chat_svc.CtlOverrides
+	steered        []string
+	discardN       int
+	discarded      bool
+	pending        wire.SessionPendingWaitersResult
+	tail           *chat_svc.CtlTail
+	tailErr        error
+	tailFrom       int64
+	tailResume     bool
+	tailSession    int64
 }
 
 func newFakeConversations(convs ...*chat_svc.CtlConversation) *fakeConversations {
@@ -90,12 +94,27 @@ func (f *fakeConversations) DescribeCtlConversation(_ context.Context, sessionID
 	return &cp, nil
 }
 
-func (f *fakeConversations) CheckCtlOverrides(_ context.Context, agentID, sessionID int64, o chat_svc.CtlOverrides) error {
+func (f *fakeConversations) CheckCtlOverrides(_ context.Context, agentID, agentBackendID, sessionID int64, o chat_svc.CtlOverrides) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.checked = append(f.checked, o)
+	f.checkedBackend = append(f.checkedBackend, agentBackendID)
 	f.checkedFor = append(f.checkedFor, agentID+sessionID)
 	return f.checkErr
+}
+
+func (f *fakeConversations) CtlExecTargets(context.Context, int64, int64) ([]chat_svc.CtlExecTarget, error) {
+	return f.execTargets, nil
+}
+
+func (f *fakeConversations) PinCtlExecTarget(_ context.Context, sessionID, agentBackendID int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.pinned == nil {
+		f.pinned = map[int64]int64{}
+	}
+	f.pinned[sessionID] = agentBackendID
+	return nil
 }
 
 func (f *fakeConversations) ApplyCtlOverrides(_ context.Context, sessionID int64, o chat_svc.CtlOverrides) error {
@@ -556,4 +575,83 @@ func TestConversationAddressing_SessionsStreamAnswer(t *testing.T) {
 	rec = do(t, rig.h, http.MethodGet, "/ctl/v1/stream?conversationId="+convX, testToken, "")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.True(t, strings.Contains(rec.Body.String(), "not found"))
+}
+
+// ---- send --device / --backend:桌面端在 agent 自己的执行目标里挑一档,首轮之前钉住 ----
+
+// planner 的执行目标(按生效顺序):本机 claude-local、build-box 上的 codex-remote、
+// 离线的 gpu-box 上的 codex-gpu。
+func plannerTargets() []chat_svc.CtlExecTarget {
+	return []chat_svc.CtlExecTarget{
+		{AgentBackendID: 5, Backend: "claude-local", Device: "this desktop", DeviceRefs: []string{"this desktop", "local"}, Available: true},
+		{AgentBackendID: 9, Backend: "codex-remote", Device: "build-box", DeviceRefs: []string{"build-box", "sha256:bb"}, Available: true},
+		{AgentBackendID: 12, Backend: "codex-gpu", Device: "gpu-box", DeviceRefs: []string{"gpu-box"}, Reason: "device gpu-box is offline"},
+	}
+}
+
+func TestSend_DeviceOrBackendPinsTheNewSession(t *testing.T) {
+	cases := []struct {
+		name, field, ref string
+		wantBackend      int64
+	}{
+		{"device by name", "device", "build-box", 9},
+		{"device by fingerprint", "device", "sha256:bb", 9},
+		{"the local machine is a device too", "device", "local", 5},
+		{"backend by name", "backend", "codex-remote", 9},
+		{"backend by id", "backend", "5", 5},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			convs := newFakeConversations(conv(100, convA, chat_svc.CtlStatusIdle))
+			convs.execTargets = plannerTargets()
+			rig := newConvRig(t, convs)
+			rec := do(t, rig.h, http.MethodPost, "/ctl/v1/send", testToken,
+				`{"agent":"planner","text":"go","effort":"high","`+c.field+`":"`+c.ref+`"}`)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			assert.Equal(t, c.wantBackend, convs.pinned[100], "pinned before the first turn")
+			assert.Equal(t, []int64{c.wantBackend}, convs.checkedBackend, "overrides are checked against the chosen backend")
+			require.NotNil(t, rig.chat.lastSend)
+		})
+	}
+	t.Run("neither → the agent's own order, nothing pinned here", func(t *testing.T) {
+		convs := newFakeConversations(conv(100, convA, chat_svc.CtlStatusIdle))
+		convs.execTargets = plannerTargets()
+		rig := newConvRig(t, convs)
+		rec := do(t, rig.h, http.MethodPost, "/ctl/v1/send", testToken, `{"agent":"planner","text":"go"}`)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		assert.Empty(t, convs.pinned)
+	})
+}
+
+func TestSend_DeviceOrBackendRejections(t *testing.T) {
+	cases := []struct {
+		name, body string
+		code       int
+		msgs       []string
+	}{
+		{"unknown device lists the agent's devices", `{"agent":"planner","text":"go","device":"nowhere"}`,
+			http.StatusUnprocessableEntity, []string{"--device", "this desktop", "build-box", "gpu-box"}},
+		{"backend not among the agent's lists them", `{"agent":"planner","text":"go","backend":"ghost"}`,
+			http.StatusUnprocessableEntity, []string{"--backend", "claude-local", "codex-remote"}},
+		{"offline device → its reason", `{"agent":"planner","text":"go","device":"gpu-box"}`,
+			http.StatusConflict, []string{"codex-gpu", "gpu-box is offline"}},
+		{"both device and backend", `{"agent":"planner","text":"go","device":"build-box","backend":"codex-remote"}`,
+			http.StatusBadRequest, []string{"device", "backend"}},
+		{"device when continuing", `{"conversationId":"` + convA + `","text":"go","device":"build-box"}`,
+			http.StatusBadRequest, []string{"cannot be combined"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			convs := newFakeConversations(conv(100, convA, chat_svc.CtlStatusIdle))
+			convs.execTargets = plannerTargets()
+			rig := newConvRig(t, convs)
+			rec := do(t, rig.h, http.MethodPost, "/ctl/v1/send", testToken, c.body)
+			assert.Equal(t, c.code, rec.Code, rec.Body.String())
+			for _, m := range c.msgs {
+				assert.Contains(t, rec.Body.String(), m)
+			}
+			assert.Nil(t, rig.chat.lastEnsure, "a refused target creates no session")
+			assert.Nil(t, rig.chat.lastSend)
+		})
+	}
 }
