@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"runtime"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/buildinfo"
 	"github.com/agentre-hub/agentre/internal/pkg/agrctlcred"
+	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
 	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -245,6 +247,7 @@ func runWhoami(args []string, s *sys) error {
 	switch {
 	case x.kind == execAccount && x.acct.PersonalToken():
 		_, _ = fmt.Fprintf(tw, "server\t%s\n", x.acct.Server)
+		writeTokenSelf(tw, x.acct)
 	case login != nil:
 		state := ""
 		if login.Expired() {
@@ -271,4 +274,27 @@ func executorLabel(x *executor) string {
 	default:
 		return "desktop — the Agentre desktop on this machine"
 	}
+}
+
+// writeTokenSelf 向 server 问这枚个人 token 自己的名字、范围与到期时间。问不到只在该行说明
+// 原因，whoami 其余部分照常——它本来就是用来排查「现在连的是谁」的。
+func writeTokenSelf(w io.Writer, acct *ctlclient.Account) {
+	raw, err := acct.GetRaw(context.Background(), "/v1/personal-tokens/self")
+	var out struct {
+		Item tokenItem `json:"item"`
+	}
+	if err == nil {
+		err = cagoenvelope.Decode(raw, &out)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "token\t(could not be read: %v)\n", serverErr(err))
+		return
+	}
+	expires := "never"
+	if out.Item.ExpiresAt != 0 {
+		expires = tokenTime(out.Item.ExpiresAt)
+	}
+	_, _ = fmt.Fprintf(w, "token\t%s\n", out.Item.Name)
+	_, _ = fmt.Fprintf(w, "scopes\t%s\n", strings.Join(out.Item.Scopes, ","))
+	_, _ = fmt.Fprintf(w, "expires\t%s\n", expires)
 }

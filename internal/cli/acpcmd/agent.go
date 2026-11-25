@@ -92,9 +92,11 @@ type sendImage struct {
 // agentHandler 实现 acpsdk.Agent。
 type agentHandler struct {
 	endpoint ctlclient.Endpoint
-	agent    string
-	agentID  int64
-	project  int64
+	// account 非 nil 时走账号执行者（个人 token 经 relay），不用 endpoint。
+	account accountDriver
+	agent   string
+	agentID int64
+	project int64
 
 	conn *acpsdk.AgentSideConnection
 
@@ -109,6 +111,7 @@ var _ acpsdk.Agent = (*agentHandler)(nil)
 func newAgent(opts options) *agentHandler {
 	return &agentHandler{
 		endpoint: opts.Endpoint,
+		account:  opts.Account,
 		agent:    opts.Agent,
 		agentID:  opts.AgentID,
 		project:  opts.Project,
@@ -135,6 +138,9 @@ func (a *agentHandler) Initialize(context.Context, acpsdk.InitializeRequest) (ac
 
 // NewSession 在桌面端建一个 Agentre 会话,并记住 ACP sessionId → Agentre 会话 conversation_id 的映射。
 func (a *agentHandler) NewSession(ctx context.Context, _ acpsdk.NewSessionRequest) (acpsdk.NewSessionResponse, error) {
+	if a.account != nil {
+		return a.newAccountSession(), nil
+	}
 	body := map[string]any{
 		"agent":     a.agent,
 		"agentId":   a.agentID,
@@ -163,6 +169,9 @@ func (a *agentHandler) Cancel(_ context.Context, p acpsdk.CancelNotification) er
 	sessionID, ok := a.sessionOf(p.SessionId)
 	if !ok {
 		return fmt.Errorf("acp: cannot cancel unknown session %q", p.SessionId)
+	}
+	if a.account != nil {
+		return a.cancelAccount(sessionID)
 	}
 	// 带超时:session/cancel 由 SDK 在通知处理 goroutine 上同步调用,而那条 goroutine
 	// 串行处理全部通知 —— 一个挂死的 stop 请求会把后续通知全部堵住。Prompt 本身已被
@@ -195,15 +204,24 @@ func (a *agentHandler) Prompt(ctx context.Context, p acpsdk.PromptRequest) (acps
 	// 不靠「远端恰好不再发事件」来收尾。
 	streamCtx, streamCancel := context.WithCancel(ctx)
 	defer streamCancel()
-	stream, err := a.endpoint.OpenStream(streamCtx, "/ctl/v1/stream?conversationId="+url.QueryEscape(sessionID))
-	if err != nil {
-		return acpsdk.PromptResponse{}, fmt.Errorf("acp: open event stream: %w", err)
-	}
-	defer func() { _ = stream.Close() }()
+	var events <-chan streamEvent
+	var readErr <-chan error
+	if a.account != nil {
+		events, readErr, err = a.accountTurn(streamCtx, p.SessionId, text, images)
+		if err != nil {
+			return acpsdk.PromptResponse{}, fmt.Errorf("acp: dispatch prompt: %w", err)
+		}
+	} else {
+		stream, err := a.endpoint.OpenStream(streamCtx, "/ctl/v1/stream?conversationId="+url.QueryEscape(sessionID))
+		if err != nil {
+			return acpsdk.PromptResponse{}, fmt.Errorf("acp: open event stream: %w", err)
+		}
+		defer func() { _ = stream.Close() }()
 
-	events, readErr := readStream(streamCtx, stream)
-	if err := a.endpoint.Post("/ctl/v1/send", sendBody{ConversationID: sessionID, Text: text, Images: images}, nil); err != nil {
-		return acpsdk.PromptResponse{}, fmt.Errorf("acp: dispatch prompt: %w", err)
+		events, readErr = readStream(streamCtx, stream)
+		if err := a.endpoint.Post("/ctl/v1/send", sendBody{ConversationID: sessionID, Text: text, Images: images}, nil); err != nil {
+			return acpsdk.PromptResponse{}, fmt.Errorf("acp: dispatch prompt: %w", err)
+		}
 	}
 
 	for {
@@ -446,6 +464,9 @@ func (a *agentHandler) requestPermission(ctx context.Context, session acpsdk.Ses
 func (a *agentHandler) answerPermission(ctx context.Context, sessionID string, requestID string, d permissionDecision) error {
 	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), answerPermissionTimeout)
 	defer cancel()
+	if a.account != nil {
+		return a.account.Answer(postCtx, sessionID, requestID, d.Allow)
+	}
 	return a.endpoint.PostContext(postCtx, "/ctl/v1/answer-permission", answerPermissionBody{
 		ConversationID:     sessionID,
 		RequestID:          requestID,

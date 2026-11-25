@@ -28,10 +28,13 @@ Usage:
   agrctl messages <session> [--last n] [--full] the last turns of a session (--before <cursor> pages back)
   agrctl pending [<session>] [-o json]          questions and tool permissions waiting for an answer
   agrctl answer <session> <id> --option … | --text … | --allow | --deny   answer one pending item
-  agrctl acp --agent <name>                     run as an ACP v1 agent over stdio
+  agrctl acp --agent <name>                     run as an ACP v1 agent over stdio (account mode needs AGENTRE_TOKEN, see agrctl acp --help)
   agrctl login [--server <url>]                 log this machine's agrctl into an account (opens a device login)
   agrctl logout                                 revoke this agrctl device on the server and delete its login
   agrctl whoami                                 server, account, device, and which executor commands reach
+  agrctl create token --name <n> --scope <s>[,<s>...] [--expires <d>|never]   issue a personal token (login + terminal only)
+  agrctl rotate token <name> [--expires <d>|never]   replace a token's secret, keeping name and scopes
+  agrctl list tokens [-o json] | delete token <name>   list or revoke personal tokens (never shows token characters)
 
 Resources: agent, department (dept), project (proj), provider, model, backend, memory.
 <ref> is a numeric id, a name, or a parent/child path (projects, departments);
@@ -202,6 +205,8 @@ func verbUsage(verb string) string {
 		return pendingUsage
 	case "answer":
 		return answerUsage
+	case "rotate":
+		return tokenRotateUsage
 	case "login":
 		return loginUsage
 	case "logout":
@@ -256,6 +261,10 @@ func runHelp(args []string, w io.Writer) error {
 	}
 	if u := verbUsage(args[0]); u != "" && len(args) == 1 {
 		_, _ = fmt.Fprintln(w, u)
+		return nil
+	}
+	if (args[0] == "token" || args[0] == "tokens") && len(args) == 1 {
+		_, _ = fmt.Fprintln(w, tokenUsage)
 		return nil
 	}
 	if isSessionResource(args[0]) && len(args) == 1 {

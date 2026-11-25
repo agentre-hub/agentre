@@ -101,6 +101,9 @@ func dispatch(args []string, s *sys) error {
 		_, _ = fmt.Fprintln(s.stdout, sessionResourceUsage(verb))
 		return nil
 	}
+	if action, ok := tokenVerb(verb, rest); ok {
+		return runToken(action, rest[1:], s)
+	}
 	switch verb {
 	case "help", "-h", "--help":
 		return runHelp(rest, s.stdout)
