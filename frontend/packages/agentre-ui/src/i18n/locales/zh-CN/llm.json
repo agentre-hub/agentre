@@ -127,6 +127,10 @@
       "duplicateModelId": "模型 ID {{modelId}} 重复",
       "defaultRequired": "请选择一个模型作为默认模型"
     },
+    "loadFailed": {
+      "description": "没有读到供应商清单，不代表还没配置；请先重试，避免重复新建。",
+      "title": "供应商没有加载出来"
+    },
     "nav": {
       "ariaLabel": "供应商列表",
       "searchPlaceholder": "筛选供应商…",
@@ -556,6 +560,10 @@
     "list": {
       "ariaLabel": "Agent 后端列表"
     },
+    "loadFailed": {
+      "description": "没有读到后端清单，不代表还没添加；请先重试，避免重复新建。",
+      "title": "Agent 后端没有加载出来"
+    },
     "modelRoutes": {
       "hint": "Claude Code 会把请求按 OPUS / SONNET / HAIKU 三档发出；没有单独设置的档位全部走上面的主绑定（对应 CLI 的 ANTHROPIC_DEFAULT_*_MODEL）。",
       "defaultChip": "默认不用改",
@@ -622,6 +630,7 @@
       "addIsSandbox": "添加 IS_SANDBOX=1",
       "bypassWarning": "会话起手即跳过 permission gate；运行时可在 4 档之间自由切换。仅建议在隔离沙箱 / CI 中使用。",
       "hint": "--permission-mode · 新会话起手 mode",
+      "hintHuman": "新会话起手用哪种权限模式",
       "isSandboxConfigured": "已在 env_json 配置",
       "label": "默认权限模式",
       "options": {

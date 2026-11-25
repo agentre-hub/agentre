@@ -38,6 +38,7 @@ import {
   EngineSettingsPortsProvider,
   useEngineSettingsPorts,
 } from "./ports-context";
+import { LoadFailureNotice } from "./llm-provider-models/load-failure";
 import { AgentBackendsEmptyState, BackendRow } from "./agent-backends-list";
 import {
   useModelTargetCatalog,
@@ -206,6 +207,8 @@ function AgentBackendsPanelBody({
   }, [backends, ports.supportedBackendTypes]);
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [loading, setLoading] = React.useState(true);
+  // 读清单失败：清单为空但并非「没有后端」，不画空态。
+  const [loadFailed, setLoadFailed] = React.useState(false);
   const [editor, setEditor] = React.useState<EditorState>({ kind: "closed" });
   const [pendingDelete, setPendingDelete] = React.useState<Backend | null>(
     null,
@@ -410,7 +413,9 @@ function AgentBackendsPanelBody({
         ]);
         setBackends(b?.items ?? []);
         setProviders(p?.items ?? []);
+        setLoadFailed(false);
       } catch (err) {
+        setLoadFailed(true);
         setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
       } finally {
         setLoading(false);
@@ -426,9 +431,11 @@ function AgentBackendsPanelBody({
         if (!mounted) return;
         setBackends(b?.items ?? []);
         setProviders(p?.items ?? []);
+        setLoadFailed(false);
       })
       .catch((err: unknown) => {
         if (!mounted) return;
+        setLoadFailed(true);
         setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
       })
       .finally(() => {
@@ -653,6 +660,13 @@ function AgentBackendsPanelBody({
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               {t("common.loading")}
             </div>
+          ) : visibleBackends.length === 0 && loadFailed ? (
+            <LoadFailureNotice
+              testId="backend-load-failure"
+              title={t("agentBackends.loadFailed.title")}
+              description={t("agentBackends.loadFailed.description")}
+              onRetry={() => void reload()}
+            />
           ) : visibleBackends.length === 0 ? (
             <AgentBackendsEmptyState
               onCreate={openCreate}

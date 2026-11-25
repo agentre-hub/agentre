@@ -127,6 +127,10 @@
       "duplicateModelId": "Model ID {{modelId}} is duplicated",
       "defaultRequired": "Choose one model as the default"
     },
+    "loadFailed": {
+      "description": "The provider list couldn't be read, which doesn't mean none are set up. Retry first to avoid creating a duplicate.",
+      "title": "LLM providers didn't load"
+    },
     "nav": {
       "ariaLabel": "Provider list",
       "searchPlaceholder": "Filter providers…",
@@ -556,6 +560,10 @@
     "list": {
       "ariaLabel": "Agent backend list"
     },
+    "loadFailed": {
+      "description": "The backend list couldn't be read, which doesn't mean none are added. Retry first to avoid creating a duplicate.",
+      "title": "Agent backends didn't load"
+    },
     "modelRoutes": {
       "hint": "Claude Code sends requests in three tiers — OPUS / SONNET / HAIKU. Any tier you leave alone follows the main binding above (the CLI's ANTHROPIC_DEFAULT_*_MODEL).",
       "defaultChip": "Usually no change needed",
@@ -622,6 +630,7 @@
       "addIsSandbox": "Add IS_SANDBOX=1",
       "bypassWarning": "New sessions start by bypassing the permission gate. Runtime can still switch among the 4 modes. Use only in isolated sandboxes or CI.",
       "hint": "--permission-mode · initial mode for new sessions",
+      "hintHuman": "Which permission mode new sessions start in",
       "isSandboxConfigured": "Configured in env_json",
       "label": "Default Permission Mode",
       "options": {

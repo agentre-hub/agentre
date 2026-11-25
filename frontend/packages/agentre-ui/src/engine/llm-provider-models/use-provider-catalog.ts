@@ -41,6 +41,8 @@ export function useProviderCatalog(args: {
   const { t } = useTranslation();
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [providersLoading, setProvidersLoading] = React.useState(true);
+  // 最近一次读清单是否失败：失败时 providers 为空但并非「没有」，面板据此不画空态。
+  const [providersLoadFailed, setProvidersLoadFailed] = React.useState(false);
   const controlled = args.controlled;
   const controlledRef = React.useRef(controlled);
   React.useEffect(() => {
@@ -70,6 +72,7 @@ export function useProviderCatalog(args: {
     try {
       const items = (await ListLLMProviders()).items ?? [];
       setProviders(items);
+      setProvidersLoadFailed(false);
       if (reportVanishedSelection(controlledRef.current, items)) return;
       setInnerSelectedId((prev) =>
         prev !== null && items.some((p) => p.id === prev)
@@ -79,6 +82,7 @@ export function useProviderCatalog(args: {
             : null,
       );
     } catch (err) {
+      setProvidersLoadFailed(true);
       setFlash({
         kind: "err",
         text: t("llmProviders.flash.loadFailed", {
@@ -108,11 +112,13 @@ export function useProviderCatalog(args: {
         const items = (await ListLLMProviders()).items ?? [];
         if (!mounted) return;
         setProviders(items);
+        setProvidersLoadFailed(false);
         if (!reportVanishedSelection(controlledRef.current, items)) {
           setInnerSelectedId(items.length > 0 ? items[0].id : null);
         }
       } catch (err) {
         if (mounted) {
+          setProvidersLoadFailed(true);
           setFlash({
             kind: "err",
             text: t("llmProviders.flash.loadFailed", {
@@ -226,6 +232,7 @@ export function useProviderCatalog(args: {
   return {
     providers,
     providersLoading,
+    providersLoadFailed,
     selectedId,
     setSelectedId,
     selectedProvider,

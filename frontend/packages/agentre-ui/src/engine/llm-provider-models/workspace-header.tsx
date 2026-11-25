@@ -22,7 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
-import { Switch } from "../../ui/switch";
+import { TouchSwitch } from "./touch-switch";
 import { cn } from "../../lib/utils";
 
 import { LlmProviderLogo } from "../ai-brand-logo";
@@ -138,7 +138,7 @@ export function ProviderWorkspaceHeader({
             )}
             title={enableDisabledReason}
           >
-            <Switch
+            <TouchSwitch
               checked={provider.enabled}
               disabled={!hasEnabledDefault}
               onCheckedChange={() => onToggleProviderEnabled()}

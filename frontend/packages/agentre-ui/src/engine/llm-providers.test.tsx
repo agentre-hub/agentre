@@ -6,6 +6,7 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import { describe, expect, it, vi } from "vitest";
 
 import { AGENTRE_UI_NAMESPACE, agentreUiResources } from "../i18n";
+import { TouchProvider } from "../ui/touch";
 import { LlmProvidersPanel } from "./llm-providers";
 import type { EngineSettingsPorts } from "./ports";
 
@@ -217,5 +218,131 @@ describe("LlmProvidersPanel layered mode", () => {
     expect(await screen.findByRole("region")).toBeInTheDocument();
     expect(screen.getByRole("complementary")).toBeInTheDocument();
     expect(await screen.findByRole("table")).toBeInTheDocument();
+  });
+});
+
+describe("W9 供应商清单读失败", () => {
+  const failing = () =>
+    createPorts({
+      listProviders: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("request timed out after 15000ms"))
+        .mockResolvedValue(PROVIDERS),
+    });
+
+  it("Given the list fails to load, When it renders, Then no empty state invites a duplicate; an in-place notice with Retry shows, and Retry loads the list", async () => {
+    const user = userEvent.setup();
+    const ports = failing();
+    renderWithTranslations(<LlmProvidersPanel ports={ports} />);
+
+    const notice = await screen.findByTestId("provider-load-failure");
+    expect(notice).toHaveTextContent("LLM providers didn't load");
+    expect(screen.queryByText("No LLM providers configured")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Add First Provider" }),
+    ).toBeNull();
+
+    await user.click(within(notice).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Local Ollama")).toBeInTheDocument();
+    expect(screen.queryByTestId("provider-load-failure")).toBeNull();
+    expect(ports.listProviders).toHaveBeenCalledTimes(2);
+  });
+
+  it("Given a genuinely empty account, When it renders, Then the empty state still shows (no failure notice)", async () => {
+    renderWithTranslations(
+      <LlmProvidersPanel
+        ports={createPorts({ listProviders: vi.fn().mockResolvedValue([]) })}
+      />,
+    );
+    expect(
+      await screen.findByText("No LLM providers configured"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("provider-load-failure")).toBeNull();
+  });
+
+  it("Given the touch tier, When the notice renders, Then Retry is a 44px target; desktop keeps the compact one", async () => {
+    const { unmount } = renderWithTranslations(
+      <LlmProvidersPanel ports={failing()} />,
+    );
+    expect(
+      within(await screen.findByTestId("provider-load-failure")).getByRole(
+        "button",
+        { name: "Retry" },
+      ),
+    ).not.toHaveClass("min-h-11");
+    unmount();
+    renderWithTranslations(
+      <TouchProvider>
+        <LlmProvidersPanel ports={failing()} />
+      </TouchProvider>,
+    );
+    expect(
+      within(await screen.findByTestId("provider-load-failure")).getByRole(
+        "button",
+        { name: "Retry" },
+      ),
+    ).toHaveClass("min-h-11");
+  });
+});
+
+describe("F10 / F22 触屏档（供应商）", () => {
+  it("触屏：供应商与模型开关各有 44px 点按区；桌面没有", async () => {
+    const { unmount } = renderWithTranslations(
+      <LlmProvidersPanel
+        ports={createPorts()}
+        layer="detail"
+        selectedId={7}
+        onSelect={vi.fn()}
+      />,
+    );
+    await screen.findByRole("list", { name: "Models" });
+    const desktop = screen.getAllByRole("switch");
+    expect(desktop.length).toBeGreaterThan(1);
+    for (const sw of desktop) expect(sw).not.toHaveClass("before:absolute");
+    unmount();
+
+    renderWithTranslations(
+      <TouchProvider>
+        <LlmProvidersPanel
+          ports={createPorts()}
+          layer="detail"
+          selectedId={7}
+          onSelect={vi.fn()}
+        />
+      </TouchProvider>,
+    );
+    await screen.findByRole("list", { name: "Models" });
+    const touch = screen.getAllByRole("switch");
+    expect(touch.length).toBe(desktop.length);
+    for (const sw of touch) {
+      expect(sw).toHaveClass("relative", "before:absolute", "before:-inset-y-3.5");
+    }
+  });
+
+  it("触屏：供应商组头不再是等宽大写的「ANTHROPIC」；桌面保持", async () => {
+    const { unmount } = renderWithTranslations(
+      <LlmProvidersPanel
+        ports={createPorts()}
+        layer="list"
+        selectedId={null}
+        onSelect={vi.fn()}
+      />,
+    );
+    const header = (await screen.findByText("Anthropic", { selector: "div" }));
+    expect(header).toHaveClass("font-mono", "uppercase");
+    unmount();
+    renderWithTranslations(
+      <TouchProvider>
+        <LlmProvidersPanel
+          ports={createPorts()}
+          layer="list"
+          selectedId={null}
+          onSelect={vi.fn()}
+        />
+      </TouchProvider>,
+    );
+    const human = await screen.findByText("Anthropic", { selector: "div" });
+    expect(human).not.toHaveClass("font-mono");
+    expect(human).not.toHaveClass("uppercase");
   });
 });
