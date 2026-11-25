@@ -41,6 +41,7 @@ Target (one of --agent / --agent-id is required):
 Connection:
   --endpoint <url>   control endpoint URL   (env AGENTRE_CTL_ENDPOINT)
   --token <token>    control token          (env AGENTRE_CTL_TOKEN)
+  --desktop          this machine's desktop, even when agrctl is logged in
 By default the endpoint + token are read from the desktop's handshake file.
 
 Account mode: when this machine is logged in (agrctl login) or AGENTRE_TOKEN is set,
@@ -50,7 +51,7 @@ terminal and put it in the editor's agent server configuration:
   agrctl create token --name editor --scope chat,approve
   {"command": "agrctl", "args": ["acp", "--agent", "<name>"], "env": {"AGENTRE_TOKEN": "<the token>"}}
 (AGENTRE_SERVER_URL selects another server.) Without the token, agrctl acp fails
-with this hint. --endpoint keeps using the desktop.`
+with this hint. --desktop or --endpoint keeps using the desktop.`
 
 // Main is the process entry point; runs the ACP agent and exits. Never returns.
 func Main(args []string) {
@@ -95,13 +96,14 @@ func parseOptions(args []string, stderr io.Writer, lookupEnv func(string) (strin
 	project := fs.Int64("project", 0, "project id (0 = free session)")
 	endpoint := fs.String("endpoint", "", "control endpoint URL (env AGENTRE_CTL_ENDPOINT)")
 	token := fs.String("token", "", "control token (env AGENTRE_CTL_TOKEN)")
+	desktop := fs.Bool("desktop", false, "use this machine's desktop even when agrctl is logged in")
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
 	}
 	if strings.TrimSpace(*agent) == "" && *agentID <= 0 {
 		return options{}, errors.New("--agent or --agent-id is required")
 	}
-	ep, drv, err := ctlcmd.ResolveACPExecutor(*endpoint, *token, lookupEnv, stderr)
+	ep, drv, err := ctlcmd.ResolveACPExecutor(*endpoint, *token, *desktop, lookupEnv, stderr)
 	if err != nil {
 		return options{}, err
 	}

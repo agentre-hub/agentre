@@ -1,11 +1,13 @@
 package ctlcmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
 	"github.com/agentre-hub/agentre/internal/pkg/ctlaccount"
 	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
 	"github.com/agentre-hub/agentre/internal/pkg/relaypeer"
@@ -37,9 +39,29 @@ func newAccountChat(s *sys, x *executor, args []string) *ctlaccount.Client {
 		DeviceName:         x.acct.DeviceName(),
 		CredentialRejected: rejected,
 		Warn:               func(msg string) { _, _ = fmt.Fprintf(s.stderr, "warning: %s\n", msg) },
+		SelfFingerprint:    func(ctx context.Context) (string, error) { return selfFingerprint(ctx, x.acct) },
 		PollInterval:       accountPollInterval,
 		ReconnectDelay:     reconnectDelay,
 	})
+}
+
+// selfFingerprint 是调用方发起的会话记在谁名下：登录态是这台 cli 设备的指纹，个人 token 问
+// server 自己的指纹。
+func selfFingerprint(ctx context.Context, acct *ctlclient.Account) (string, error) {
+	if !acct.PersonalToken() {
+		return acct.Fingerprint(), nil
+	}
+	raw, err := acct.GetRaw(ctx, "/v1/personal-tokens/self")
+	if err != nil {
+		return "", serverErr(err)
+	}
+	var out struct {
+		PeerFingerprint string `json:"peer_fingerprint"`
+	}
+	if err := cagoenvelope.Decode(raw, &out); err != nil {
+		return "", fmt.Errorf("decode the personal token: %w", err)
+	}
+	return out.PeerFingerprint, nil
 }
 
 // accountCatalog 把 agrctl 的目录交给 ctlaccount：定位走 agrctl 自己的 locate（歧义时给出可

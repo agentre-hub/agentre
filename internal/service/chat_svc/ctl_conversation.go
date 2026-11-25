@@ -2,6 +2,7 @@ package chat_svc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -135,6 +136,16 @@ type CtlExecTarget struct {
 	Reason string
 }
 
+// CtlPendingApproval 是一张还挂着的审批卡,形状与 agentred 的 PendingApproval 相同:Kind 是卡的
+// 工具族(ctl / org),Title 是工具名,Summary 是卡上变更清单的 JSON(命令已脱敏、密钥只有标记)。
+type CtlPendingApproval struct {
+	RequestID  string          `json:"requestId"`
+	Kind       string          `json:"kind"`
+	Title      string          `json:"title"`
+	Summary    json.RawMessage `json:"summary,omitempty"`
+	Createtime int64           `json:"createtime"`
+}
+
 // CtlConversationGateway 是控制 API(ctl_svc)对「按 conversation_id 定位并操作一条会话」
 // 的窄依赖。与 HeadlessRunnerGateway 分开:那个端口 subagent_svc 也在用,拓宽它会让另一个
 // 消费方平白背上这些能力。
@@ -159,6 +170,11 @@ type CtlConversationGateway interface {
 	DiscardCtlSteers(ctx context.Context, sessionID int64) (int, error)
 	// PendingCtlWaiters 是这条会话此刻卡着的待处理项(工具审批与提问)。
 	PendingCtlWaiters(ctx context.Context, sessionID int64) (wire.SessionPendingWaitersResult, error)
+	// PendingCtlApprovals 是这条会话在跑那一轮上仍挂着的审批卡(会话内 agent 调 agrctl 写资源
+	// 或组织操作时出的卡),先出的在前。
+	PendingCtlApprovals(ctx context.Context, sessionID int64) []CtlPendingApproval
+	// AnswerToolApproval 批准或拒绝这条会话上挂着的一张审批卡(与桌面端审批卡同一个入口)。
+	AnswerToolApproval(ctx context.Context, sessionID int64, requestID string, allow bool) error
 	// TailCtlConversation 订阅这条会话的通知;resume 时从 from 之后续接,否则从当前开始。
 	TailCtlConversation(ctx context.Context, sessionID int64, from int64, resume bool) (*CtlTail, error)
 	// ListCtlConversations 按最近活动顺序列出本机桌面的会话(agent / 项目收窄下推给仓储,
@@ -466,6 +482,14 @@ func (s *chatSvc) PendingCtlWaiters(ctx context.Context, sessionID int64) (wire.
 		return wire.SessionPendingWaitersResult{}, i18n.NewError(ctx, code.ChatSessionNotFound)
 	}
 	return s.pendingSessionWaiters(ctx, session)
+}
+
+func (s *chatSvc) PendingCtlApprovals(_ context.Context, sessionID int64) []CtlPendingApproval {
+	t := s.activeTurn(sessionID)
+	if t == nil {
+		return nil
+	}
+	return t.pendingApprovals()
 }
 
 // hasErrCode 报告 err 是不是带指定业务码的 i18n 错误。

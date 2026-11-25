@@ -246,6 +246,37 @@ func TestAnswer_ToolPermission(t *testing.T) {
 	}
 }
 
+// Given 会话里 agent 调 agrctl 写资源出了一张审批卡 When pending / answer Then 它以 approval
+// 列出(变更清单原样交出),--allow / --deny 投回那张卡;对它给 --option 是用法错误
+// (spec「挂起交互」:approval 是会话内 agent 调 agrctl 写资源或组织操作时出的审批卡)。
+func TestPendingAndAnswer_ApprovalCard(t *testing.T) {
+	convs := newFakeConversations(conv(100, convA, chat_svc.CtlStatusWaiting))
+	convs.approvals = []chat_svc.CtlPendingApproval{{RequestID: "ap1", Kind: "ctl", Title: "ctl_update_provider",
+		Summary: []byte(`{"command":"agrctl update provider openai --enabled=false"}`), Createtime: 1700000000}}
+	rig := newConvRig(t, convs)
+
+	rec := do(t, rig.h, http.MethodPost, "/ctl/v1/pending", testToken, `{"conversationId":"`+convA+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	items := decode(t, rec)["items"].([]any)
+	require.Len(t, items, 1)
+	it := items[0].(map[string]any)
+	assert.Equal(t, "approval", it["kind"])
+	assert.Equal(t, "ap1", it["id"])
+	assert.Equal(t, convA, it["session"])
+	assert.Equal(t, "ctl_update_provider", it["title"])
+	assert.Equal(t, map[string]any{"command": "agrctl update provider openai --enabled=false"}, it["summary"])
+
+	rec = do(t, rig.h, http.MethodPost, "/ctl/v1/answer", testToken, `{"conversationId":"`+convA+`","requestId":"ap1","options":["1"]}`)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	assert.Nil(t, convs.answeredApproval)
+
+	rec = do(t, rig.h, http.MethodPost, "/ctl/v1/answer", testToken, `{"conversationId":"`+convA+`","requestId":"ap1","decision":"allow"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "approval", decode(t, rec)["kind"])
+	require.NotNil(t, convs.answeredApproval)
+	assert.Equal(t, approvalAnswer{sessionID: 100, requestID: "ap1", allow: true}, *convs.answeredApproval)
+}
+
 // Given 待处理项已被别处处理 When answer Then 404「该项已不存在」(exit 1),什么都不投;
 // 看不到的会话 404、畸形 id 400。
 func TestAnswer_GoneItemAndAddressing(t *testing.T) {

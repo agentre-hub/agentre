@@ -16,7 +16,7 @@ import (
 func patDriver(t *testing.T, w *world) *AccountDriver {
 	t.Helper()
 	env := envMap("AGENTRE_TOKEN", personalToken, "AGENTRE_SERVER_URL", w.srv.srv.URL)
-	ep, drv, err := ResolveACPExecutor("", "", env, &bytes.Buffer{})
+	ep, drv, err := ResolveACPExecutor("", "", false, env, &bytes.Buffer{})
 	require.NoError(t, err)
 	require.NotNil(t, drv, "a personal token selects the account executor")
 	require.Empty(t, ep.Base)
@@ -168,7 +168,7 @@ func TestACPDriver_GivenStopThenTheTurnIsAbortedOnItsDevice(t *testing.T) {
 
 func TestACPDriver_GivenTheLoginButNoPersonalTokenThenItRefusesWithTheEditorHint(t *testing.T) {
 	w := newWorld(t)
-	_, drv, err := ResolveACPExecutor("", "", envMap(), &bytes.Buffer{})
+	_, drv, err := ResolveACPExecutor("", "", false, envMap(), &bytes.Buffer{})
 	require.Error(t, err)
 	assert.Nil(t, drv)
 	assert.Contains(t, err.Error(), "AGENTRE_TOKEN")
@@ -180,7 +180,7 @@ func TestACPDriver_GivenTheLoginButNoPersonalTokenThenItRefusesWithTheEditorHint
 
 func TestACPDriver_GivenAnExplicitEndpointOrNothingThenTheDesktopIsUsed(t *testing.T) {
 	accountDirs(t)
-	ep, drv, err := ResolveACPExecutor("http://127.0.0.1:9", "ctl-token", envMap(), &bytes.Buffer{})
+	ep, drv, err := ResolveACPExecutor("http://127.0.0.1:9", "ctl-token", false, envMap(), &bytes.Buffer{})
 	require.NoError(t, err)
 	assert.Nil(t, drv)
 	assert.Equal(t, "http://127.0.0.1:9", ep.Base)

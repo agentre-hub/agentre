@@ -243,6 +243,18 @@ func (a *Account) DeviceName() string {
 	return "agrctl"
 }
 
+// Fingerprint 是登录态这台 cli 设备的指纹——它发起的会话就记在这个发起方名下。个人 token
+// 没有设备，交回空串（它的指纹要问 server）。
+func (a *Account) Fingerprint() string {
+	if a.PersonalToken() {
+		return ""
+	}
+	if c, err := agrctlcred.Load(a.dir); err == nil {
+		return strings.TrimSpace(c.Fingerprint)
+	}
+	return ""
+}
+
 // Revoke 在 server 吊销 deviceID（agrctl logout 用它吊销本 `cli` 设备）。
 func (a *Account) Revoke(ctx context.Context, deviceID int64) error {
 	body, _ := json.Marshal(map[string]int64{"device_id": deviceID})

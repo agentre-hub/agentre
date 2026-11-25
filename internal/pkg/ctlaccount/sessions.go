@@ -285,6 +285,12 @@ func (a *Client) ListSessions(ctx context.Context, f SessionFilter) ([]SessionRo
 			Status: sessionStatus(s.GetLifecycleState(), s.GetWaitingForInput()), LastActivityAt: rfc3339Ms(s.GetLastMessageAt())}
 		e.peer, e.agent, e.project, e.deviceFP, e.at = s.GetPeerFingerprint(), s.GetAgentSyncId(), s.GetProjectSyncId(), l.device.Fingerprint, s.GetLastMessageAt()
 	}
+	if f.Mine && self == "" && a.opts.SelfFingerprint != nil {
+		// 没有在线设备报出调用方的身份时问宿主：账号索引里保存的会话照样认得出是谁发起的。
+		if self, err = a.opts.SelfFingerprint(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if f.Mine && self == "" {
 		return nil, errors.New("cannot tell which sessions are yours: no online device to ask (--mine needs one)")
 	}

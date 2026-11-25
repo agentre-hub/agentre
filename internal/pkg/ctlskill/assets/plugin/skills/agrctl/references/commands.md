@@ -319,8 +319,7 @@ running on online devices; a saved session on an offline device keeps its last k
 is marked (`deviceOffline: true`, `(offline)` in the table), and unsaved sessions of an offline
 device are absent. `--mine` keeps only the sessions this caller started. `messages` falls back to
 the account's mirror when the device is offline (`device … is offline` when nothing was mirrored),
-and `tail` needs the device online. `pending` also lists approval cards (`kind` `approval`, with
-`title` and `summary`); answer them with `--allow` / `--deny`.
+and `tail` needs the device online.
 
 ## `messages`
 
@@ -344,11 +343,13 @@ When earlier messages exist, stderr prints the next command: `messages <session>
 ```
 
 `pending` lists what a session waits for: `kind` `question` (an AskUserQuestion card, with its
-options) or `tool_permission` (a tool, plan or execution approval). Without a session it covers
-every waiting session. `-o json` prints `{items: [{id, session, kind, tool, input, questions}]}`.
+options), `tool_permission` (a tool, plan or execution approval) or `approval` (the card a session's
+agent raised by writing with agrctl, with `title` and `summary`). Without a session it covers every
+waiting session. `-o json` prints `{items: [{id, session, kind, tool, input, questions, title, summary}]}`.
 
 `answer` takes the item `id`. A question takes `--option` (its text or its 1-based number; repeat for
-multi-select) or `--text`; a tool permission takes `--allow` or `--deny [--message <reason>]`.
+multi-select) or `--text`; a tool permission takes `--allow` or `--deny [--message <reason>]`, an
+approval card `--allow` or `--deny`.
 The wrong kind of answer for an item is a usage error (exit `2`). An item already answered
 elsewhere, or timed out, fails with "the pending item no longer exists" (exit `1`). A card that
 asks several questions at once is answered in the desktop app. `answer` is refused from inside an

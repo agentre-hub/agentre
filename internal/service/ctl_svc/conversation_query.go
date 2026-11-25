@@ -1,6 +1,7 @@
 package ctl_svc
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -164,7 +165,7 @@ func (h *ctlHandler) serveConversation(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, errSessionNotVisible)
 		return
 	}
-	pending, err := h.conversations.PendingCtlWaiters(r.Context(), c.SessionID)
+	pending, err := h.pendingOf(r.Context(), c.SessionID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -173,7 +174,7 @@ func (h *ctlHandler) serveConversation(w http.ResponseWriter, r *http.Request) {
 		ID: d.ConversationID, Title: d.Title, Agent: d.AgentName, Device: deviceOrLocal(d.Device),
 		Backend: d.Backend, Model: d.ModelKey, Status: string(d.Status),
 		CreatedAt: rfc3339Ms(d.CreatedAt), LastActivityAt: rfc3339Ms(d.LastMessageAt),
-		Pending: len(pending.ToolPermissions) + len(pending.AskUserQuestions), LastText: d.LastText,
+		Pending: len(pending.ToolPermissions) + len(pending.AskUserQuestions) + len(pending.Approvals), LastText: d.LastText,
 	}
 	if d.InputTokens > 0 || d.OutputTokens > 0 {
 		out.Usage = &usageDTO{Input: d.InputTokens, Output: d.OutputTokens}
@@ -267,9 +268,9 @@ type pendingQuestionDTO struct {
 	Options     []pendingOptionDTO `json:"options,omitempty"`
 }
 
-// pendingItemDTO 是一条待处理项:kind 为 question(提问卡)或 tool_permission(工具权限 /
-// 计划审批 / 执行审批)。桌面执行者上没有别的审批卡:外部调用的写审批由桌面弹窗的人决定,
-// 不经 agrctl。
+// pendingItemDTO 是一条待处理项:kind 为 question(提问卡)、tool_permission(工具权限 /
+// 计划审批 / 执行审批)或 approval(会话内 agent 调 agrctl 写资源或组织操作出的审批卡)。
+// 外部调用的写审批仍由桌面弹窗的人决定,不在这里。
 type pendingItemDTO struct {
 	ID        string               `json:"id"`
 	Session   string               `json:"session"`
@@ -277,15 +278,34 @@ type pendingItemDTO struct {
 	Tool      string               `json:"tool,omitempty"`
 	Input     json.RawMessage      `json:"input,omitempty"`
 	Questions []pendingQuestionDTO `json:"questions,omitempty"`
+	// Title / Summary 只有审批卡带:工具名与变更清单(与账号执行者同形)。
+	Title   string          `json:"title,omitempty"`
+	Summary json.RawMessage `json:"summary,omitempty"`
 }
 
 const (
 	pendingKindQuestion       = "question"
 	pendingKindToolPermission = "tool_permission"
+	pendingKindApproval       = "approval"
 )
 
-func pendingItems(session string, p wire.SessionPendingWaitersResult) []pendingItemDTO {
-	out := make([]pendingItemDTO, 0, len(p.ToolPermissions)+len(p.AskUserQuestions))
+// pendingSnapshot 是一条会话此刻的全部待处理项:运行时的工具权限与提问,加上这一轮上挂着的
+// 审批卡(wait 的 pending 与账号执行者同形)。
+type pendingSnapshot struct {
+	wire.SessionPendingWaitersResult
+	Approvals []chat_svc.CtlPendingApproval `json:"approvals,omitempty"`
+}
+
+func (h *ctlHandler) pendingOf(ctx context.Context, sessionID int64) (pendingSnapshot, error) {
+	p, err := h.conversations.PendingCtlWaiters(ctx, sessionID)
+	if err != nil {
+		return pendingSnapshot{}, err
+	}
+	return pendingSnapshot{SessionPendingWaitersResult: p, Approvals: h.conversations.PendingCtlApprovals(ctx, sessionID)}, nil
+}
+
+func pendingItems(session string, p pendingSnapshot) []pendingItemDTO {
+	out := make([]pendingItemDTO, 0, len(p.ToolPermissions)+len(p.AskUserQuestions)+len(p.Approvals))
 	for _, t := range p.ToolPermissions {
 		it := pendingItemDTO{ID: t.RequestID, Session: session, Kind: pendingKindToolPermission, Tool: t.ToolName}
 		if json.Valid(t.Input) {
@@ -301,6 +321,13 @@ func pendingItems(session string, p wire.SessionPendingWaitersResult) []pendingI
 				dto.Options = append(dto.Options, pendingOptionDTO{Label: o.Label, Description: o.Description})
 			}
 			it.Questions = append(it.Questions, dto)
+		}
+		out = append(out, it)
+	}
+	for _, a := range p.Approvals {
+		it := pendingItemDTO{ID: a.RequestID, Session: session, Kind: pendingKindApproval, Title: a.Title}
+		if json.Valid(a.Summary) {
+			it.Summary = a.Summary
 		}
 		out = append(out, it)
 	}
@@ -323,7 +350,7 @@ func (h *ctlHandler) servePending(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		p, err := h.conversations.PendingCtlWaiters(ctx, c.SessionID)
+		p, err := h.pendingOf(ctx, c.SessionID)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -338,7 +365,7 @@ func (h *ctlHandler) servePending(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, c := range waiting {
-		p, err := h.conversations.PendingCtlWaiters(ctx, c.SessionID)
+		p, err := h.pendingOf(ctx, c.SessionID)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -381,7 +408,7 @@ func (h *ctlHandler) serveAnswer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	pending, err := h.conversations.PendingCtlWaiters(ctx, c.SessionID)
+	pending, err := h.pendingOf(ctx, c.SessionID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -421,6 +448,26 @@ func (h *ctlHandler) serveAnswer(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"answered": true, "kind": pendingKindToolPermission})
+		return
+	}
+	for _, a := range pending.Approvals {
+		if a.RequestID != req.RequestID {
+			continue
+		}
+		if len(req.Options) > 0 || req.Text != "" {
+			writeErr(w, http.StatusUnprocessableEntity, "an approval card is answered with --allow or --deny, not --option / --text")
+			return
+		}
+		if req.Decision != "allow" && req.Decision != "deny" {
+			writeErr(w, http.StatusUnprocessableEntity, "an approval card needs --allow or --deny")
+			return
+		}
+		if err := h.conversations.AnswerToolApproval(ctx, c.SessionID, a.RequestID, req.Decision == "allow"); err != nil {
+			// 列出之后、作答之前被别处答掉或超时了。
+			writeErr(w, http.StatusNotFound, errPendingGone)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"answered": true, "kind": pendingKindApproval})
 		return
 	}
 	writeErr(w, http.StatusNotFound, errPendingGone)

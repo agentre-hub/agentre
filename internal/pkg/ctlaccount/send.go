@@ -392,14 +392,17 @@ func (a *Client) startSession(ctx context.Context, in SendInput) (Reply, error) 
 	return a.finishSend(ctx, out, h, in)
 }
 
-// fillTurn 填这一轮里与调用方相关的那几格：说了什么、贴了什么图、从哪来、覆盖了什么。
+// fillTurn 填这一轮里与调用方相关的那几格：说了什么、贴了什么图、从哪来、覆盖了什么
+// （只改给了覆盖的那几项，其余保留 req 上已有的值）。
 func (a *Client) fillTurn(req *agentrewire.RuntimeRunRequest, conn *relaypeer.Conn, in SendInput, model *modelTarget) {
 	req.UserText = in.Text
 	req.UserBlocks = userBlocks(in.Images)
 	req.SourceDevice = conn.SelfFingerprint
 	req.SourceDeviceName = a.opts.DeviceName
 	req.PermissionMode = in.PermissionMode
-	req.ReasoningEffort = in.Effort
+	if in.Effort != "" {
+		req.ReasoningEffort = in.Effort
+	}
 	switch {
 	case model != nil:
 		req.LlmProviderKey, req.LlmModelKey = model.providerKey, model.modelKey
@@ -501,9 +504,13 @@ func (a *Client) continueSession(ctx context.Context, in SendInput) (Reply, erro
 		return a.steerInto(ctx, h, in, out)
 	}
 	s := h.summary
+	// 这一轮照会话记下的设置跑（与控制台每轮带上会话的有效设置同一条）：runtime.run 只按
+	// 请求上的值执行，不带就退回 agent 绑定，此前钉住的覆盖就在之后的轮次里丢了。
 	req := &agentrewire.RuntimeRunRequest{
 		ConversationId: s.GetConversationId(), PeerFingerprint: s.GetPeerFingerprint(), Cwd: s.GetCwd(), Title: s.GetTitle(),
 		AgentSyncId: s.GetAgentSyncId(), ProjectSyncId: s.GetProjectSyncId(), Backend: &agentrewire.AgentBackend{Type: s.GetBackendType()},
+		LlmProviderKey: s.GetProviderKey(), LlmModelKey: s.GetModelKey(),
+		CliModelMode: s.GetCliModelMode(), CliModel: s.GetCliModel(), ReasoningEffort: s.GetReasoningEffort(),
 	}
 	a.fillTurn(req, h.conn, in, model)
 	if _, err := wirecall.RuntimeRun(ctx, h.conn, req); err != nil {

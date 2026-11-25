@@ -13,6 +13,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/cli/ctlcmd"
 	"github.com/agentre-hub/agentre/internal/pkg/agrctlcred"
+	"github.com/agentre-hub/agentre/internal/pkg/ctlendpoint"
 )
 
 const accountConv = "0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a7c"
@@ -235,5 +236,35 @@ func TestRun_GivenAnAccountLoginWithoutAPersonalTokenThenItFailsWithTheEditorHin
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, missing %q", stderr.String(), want)
 		}
+	}
+}
+
+// Given 本机已登录（例如桌面代签）When agrctl acp --desktop Then 仍用本机桌面的握手文件，不要
+// 个人 token（spec「执行者与会话引用」第 2 步：显式 --desktop 强制本机桌面）；桌面没在运行时
+// 报桌面未运行，而不是退回账号。
+func TestParseOptions_GivenALoginAndDesktopFlagThenTheDesktopIsUsed(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dir)
+	t.Setenv("AGENTRED_DATA_DIR", t.TempDir())
+	if err := agrctlcred.Save(dir, &agrctlcred.Credentials{ServerURL: "http://127.0.0.1:1", AccountID: 7, Account: "a@b.c",
+		DeviceID: 1, RefreshToken: "r", AccessToken: "a", AccessExpiresAt: time.Now().Add(time.Hour).Unix()}); err != nil {
+		t.Fatal(err)
+	}
+	noEnv := func(string) (string, bool) { return "", false }
+	var stderr strings.Builder
+	if _, err := parseOptions([]string{"--agent", "planner", "--desktop"}, &stderr, noEnv); err == nil ||
+		!strings.Contains(err.Error(), "desktop is not running") {
+		t.Fatalf("err = %v, want the desktop-not-running error", err)
+	}
+
+	if err := ctlendpoint.Write(dir, ctlendpoint.Endpoint{URL: "http://127.0.0.1:4567", Token: "hs-token"}); err != nil {
+		t.Fatal(err)
+	}
+	opts, err := parseOptions([]string{"--agent", "planner", "--desktop"}, &stderr, noEnv)
+	if err != nil {
+		t.Fatalf("parseOptions: %v", err)
+	}
+	if opts.Account != nil || opts.Endpoint.Base != "http://127.0.0.1:4567" || opts.Endpoint.Token != "hs-token" {
+		t.Fatalf("opts = %+v, want the desktop handshake endpoint", opts)
 	}
 }

@@ -52,6 +52,10 @@ type Options struct {
 	CredentialRejected error
 	// Warn reports a partial failure that does not fail the command; nil = drop.
 	Warn func(msg string)
+	// SelfFingerprint answers which initiator this caller's sessions are filed
+	// under when no online device reports it (list sessions --mine); nil = only
+	// a device can tell.
+	SelfFingerprint func(ctx context.Context) (string, error)
 	// PollInterval is how often wait / tail recheck the session; 0 = 1s.
 	PollInterval time.Duration
 	// ReconnectDelay is the pause before redialing after a drop; 0 = 1s.

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
@@ -25,10 +24,10 @@ func (h *ctlHandler) poll() time.Duration {
 // outcomeDTO 是一次等待的结果(spec「等待」):idle 带最后一轮的最终文本,failed 带错误
 // 摘要,waiting 带待处理项,running 表示等到超时会话仍在跑。
 type outcomeDTO struct {
-	Status  string                            `json:"status"`
-	Text    string                            `json:"text,omitempty"`
-	Error   string                            `json:"error,omitempty"`
-	Pending *wire.SessionPendingWaitersResult `json:"pending,omitempty"`
+	Status  string           `json:"status"`
+	Text    string           `json:"text,omitempty"`
+	Error   string           `json:"error,omitempty"`
+	Pending *pendingSnapshot `json:"pending,omitempty"`
 }
 
 type waitOutcome struct {
@@ -83,7 +82,7 @@ func (h *ctlHandler) awaitConversation(ctx context.Context, sessionID int64, tim
 		}
 		switch c.Status {
 		case chat_svc.CtlStatusWaiting:
-			pending, err := h.conversations.PendingCtlWaiters(ctx, sessionID)
+			pending, err := h.pendingOf(ctx, sessionID)
 			if err != nil {
 				return waitOutcome{}, err
 			}

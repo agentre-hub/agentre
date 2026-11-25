@@ -182,6 +182,35 @@ func TestAccountSend_GivenASessionThenItContinuesUnderItsOriginPeer(t *testing.T
 	assert.Empty(t, w.savedBodies(), "continuing does not save again")
 }
 
+// Given 一条会话上已经钉着模型、CLI 模型与思考力度（此前的覆盖、或控制台换过）When 不带覆盖
+// 继续它 Then 这一轮照会话记下的设置跑（spec「模型类覆盖…对之后的轮次生效」，与控制台每轮
+// 带上会话有效设置同一条）；带了覆盖的那一项以覆盖为准。
+func TestAccountSend_GivenPinnedSettingsThenALaterTurnRunsWithThem(t *testing.T) {
+	w := newWorld(t)
+	s := w.box.seed(sessA, ownFP, ownFP, "idle")
+	s.summary.ProviderKey, s.summary.ModelKey = "PV-4", "0b6c-22"
+	s.summary.CliModelMode, s.summary.CliModel = "fixed", "opus"
+	s.summary.ReasoningEffort = "high"
+	w.relay.Save(sessA, boxFP)
+
+	r := runWith([]string{"send", "--session", sessA, "more"}, envMap(), human)
+	require.Equal(t, exitOK, r.code, r.stderr)
+	run := w.box.runRequests()[0]
+	assert.Equal(t, "PV-4", run.GetLlmProviderKey())
+	assert.Equal(t, "0b6c-22", run.GetLlmModelKey())
+	assert.Equal(t, "fixed", run.GetCliModelMode())
+	assert.Equal(t, "opus", run.GetCliModel())
+	assert.Equal(t, "high", run.GetReasoningEffort())
+
+	w.box.finish(sessA, "idle", "done", "")
+	r = runWith([]string{"send", "--session", sessA, "--effort", "low", "again"}, envMap(), human)
+	require.Equal(t, exitOK, r.code, r.stderr)
+	run = w.box.runRequests()[1]
+	assert.Equal(t, "low", run.GetReasoningEffort(), "an override wins over the recorded setting")
+	assert.Equal(t, "PV-4", run.GetLlmProviderKey(), "the settings not overridden stay as recorded")
+	assert.Equal(t, "opus", run.GetCliModel())
+}
+
 func TestAccountSend_GivenARunningSessionThenSteerOrSayItIsBusy(t *testing.T) {
 	w := newWorld(t)
 	w.box.seed(sessA, ownFP, ownFP, "running")

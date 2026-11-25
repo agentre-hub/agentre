@@ -2,6 +2,7 @@ package ctlcmd
 
 import (
 	"encoding/json"
+	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -92,6 +93,31 @@ func TestAccountListSessions_GivenFiltersThenOnlyMatchingRowsRemain(t *testing.T
 			assert.Equal(t, c.want, rowIDs(decodeRows(r.stdout)))
 		})
 	}
+}
+
+// Given 没有任何在线设备 When list sessions --mine Then 仍从账号索引列出调用方自己发起的会话
+// （登录态认这台 cli 设备的指纹，个人 token 问 server 自己的指纹），标明设备离线，不报错
+// （spec「查询」：离线设备上已保存的会话按最后已知状态列出）。
+func TestAccountListSessions_GivenNoDeviceOnlineThenMineStillListsTheCallersSavedSessions(t *testing.T) {
+	w := listWorld(t)
+	w.relay.SetOffline(boxFP, true)
+	w.srv.mux.HandleFunc("GET /v1/personal-tokens/self", func(rw http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+personalToken {
+			rw.WriteHeader(http.StatusForbidden)
+			return
+		}
+		_, _ = rw.Write([]byte(`{"code":0,"data":{"item":{"name":"ci","scopes":["read"]},"peer_fingerprint":"` + patFP + `"}}`))
+	})
+
+	r := runWith([]string{"list", "sessions", "--mine", "-o", "json"}, envMap(), term{})
+	require.Equal(t, exitOK, r.code, r.stderr)
+	rows := decodeRows(r.stdout)
+	assert.Equal(t, sessC+","+sessA, rowIDs(rows), "the index's own activity times order them")
+	assert.Equal(t, true, rows[0]["deviceOffline"], "the laptop's saved session shows its last known state, marked")
+
+	r = runWith([]string{"list", "sessions", "--mine", "-o", "json"}, envMap("AGENTRE_TOKEN", personalToken), term{})
+	require.Equal(t, exitOK, r.code, r.stderr)
+	assert.Equal(t, sessP, rowIDs(decodeRows(r.stdout)))
 }
 
 func TestAccountListSessions_GivenAnExternalProgramThenReadingStillWorks(t *testing.T) {

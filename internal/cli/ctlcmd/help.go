@@ -169,17 +169,18 @@ names the cursor: agrctl messages <session> --before <cursor> pages back.`)
 
 const pendingUsage = `agrctl pending [<session>] [-o json]
 
-Lists what is waiting for an answer: kind question (an AskUserQuestion card, with its options) or
-tool_permission (a tool, plan or execution approval). Without a session it covers every session
-that is waiting. -o json prints {items: [{id, session, kind, tool, input, questions}]}.
+Lists what is waiting for an answer: kind question (an AskUserQuestion card, with its options),
+tool_permission (a tool, plan or execution approval) or approval (the card a session's agent raised
+by writing with agrctl, with its title and change summary). Without a session it covers every session
+that is waiting. -o json prints {items: [{id, session, kind, tool, input, questions, title, summary}]}.
 Answer with agrctl answer. An Agentre session can read pending items but not answer them.`
 
 const answerUsage = `agrctl answer <session> <id> --option <text|number> [--option …] | --text <answer>
 agrctl answer <session> <id> --allow | --deny [--message <reason>]
 
 Answers one pending item (the id from agrctl pending). A question takes --option (its text, or its
-1-based number; repeat for multi-select) or --text. A tool permission takes --allow or --deny, and
---deny may carry the reason handed back to the agent. An item that was already answered elsewhere
+1-based number; repeat for multi-select) or --text. A tool permission or an approval card takes
+--allow or --deny, and on a tool permission --deny may carry the reason handed back to the agent. An item that was already answered elsewhere
 or timed out fails with "the pending item no longer exists" (exit 1). An Agentre session cannot answer.`
 
 // withoutOutputFlags 去掉 -o/--output(help 里单独写成 -o json)。

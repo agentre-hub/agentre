@@ -2,8 +2,10 @@ package chat_svc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
@@ -135,6 +137,8 @@ type turnApproval struct {
 	blk *blocks.ToolApprovalBlock
 	msg *chat_entity.Message
 	acc *turn.Accumulator
+	// at 是出卡时刻(毫秒 epoch,与桌面库里的时间一致)。
+	at int64
 }
 
 // beginApproval 把一张 pending 的审批卡落进这一轮的转录:追加进累加器(停在命令发生处)、
@@ -147,7 +151,7 @@ func (t *turnRun) beginApproval(ctx context.Context, blk *blocks.ToolApprovalBlo
 		return blocks.ToolApprovalBlock{}, errTurnFinished
 	}
 	t.acc.AddBlock(blk, "")
-	t.approvals = append(t.approvals, &turnApproval{blk: blk, msg: t.assistantMsg, acc: t.acc})
+	t.approvals = append(t.approvals, &turnApproval{blk: blk, msg: t.assistantMsg, acc: t.acc, at: time.Now().UnixMilli()})
 	t.svc.checkpointAssistantNew(ctx, t.assistantMsg, t.acc)
 	return *blk, nil
 }
@@ -169,6 +173,25 @@ func (t *turnRun) resolveApproval(ctx context.Context, requestID, status, result
 		}
 	}
 	return blocks.ToolApprovalBlock{}, false
+}
+
+// pendingApprovals 列出这一轮上仍待决的审批卡(出卡顺序);这一轮已收口时为空。
+func (t *turnRun) pendingApprovals() []CtlPendingApproval {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.transcriptClosed {
+		return nil
+	}
+	var out []CtlPendingApproval
+	for _, a := range t.approvals {
+		if a.blk.Status != "pending" {
+			continue
+		}
+		summary, _ := json.Marshal(a.blk.ToolInput)
+		out = append(out, CtlPendingApproval{RequestID: a.blk.RequestID, Kind: a.blk.ToolKey, Title: a.blk.ToolName,
+			Summary: summary, Createtime: a.at / 1000}) // createtime 与 agentred 的审批卡同为 unix 秒
+	}
+	return out
 }
 
 // hasApproval 报告 requestID 是否登记在这一轮上且这一轮尚未收口。

@@ -61,13 +61,14 @@ type AccountDriver struct {
 
 // ResolveACPExecutor 为 acp 选执行者：显式 --endpoint、Agentre 会话注入或桌面握手 → 桌面端点；
 // 个人 token（AGENTRE_TOKEN）→ 账号驱动。本机只有登录态时拒绝并给出配置个人 token 的写法。
-// 单独的 --token（不带 --endpoint）仍是桌面的控制 token，与此前一致。
-func ResolveACPExecutor(endpoint, token string, lookupEnv func(string) (string, bool), stderr io.Writer) (ctlclient.Endpoint, *AccountDriver, error) {
+// 单独的 --token（不带 --endpoint）仍是桌面的控制 token，与此前一致；desktop（--desktop）与
+// 其它命令一样强制本机桌面，桌面没在运行就报错、不退回账号。
+func ResolveACPExecutor(endpoint, token string, desktop bool, lookupEnv func(string) (string, bool), stderr io.Writer) (ctlclient.Endpoint, *AccountDriver, error) {
 	if endpoint == "" && token != "" {
 		ep, err := ctlclient.Resolve("", token, lookupEnv)
 		return ep, nil, err
 	}
-	s := &sys{stdin: strings.NewReader(""), stdout: io.Discard, stderr: stderr, lookupEnv: lookupEnv}
+	s := &sys{stdin: strings.NewReader(""), stdout: io.Discard, stderr: stderr, lookupEnv: lookupEnv, desktop: desktop}
 	x, err := selectExecutor(s, endpoint, token)
 	if err != nil {
 		return ctlclient.Endpoint{}, nil, err

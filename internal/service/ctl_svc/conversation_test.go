@@ -63,6 +63,14 @@ type fakeConversations struct {
 	messagesSession  int64
 	messagesQuery    chat_svc.CtlMessagesQuery
 	answeredQuestion *questionAnswer
+	approvals        []chat_svc.CtlPendingApproval
+	answeredApproval *approvalAnswer
+}
+
+type approvalAnswer struct {
+	sessionID int64
+	requestID string
+	allow     bool
 }
 
 type questionAnswer struct {
@@ -155,6 +163,17 @@ func (f *fakeConversations) DiscardCtlSteers(context.Context, int64) (int, error
 
 func (f *fakeConversations) PendingCtlWaiters(context.Context, int64) (wire.SessionPendingWaitersResult, error) {
 	return f.pending, nil
+}
+
+func (f *fakeConversations) PendingCtlApprovals(context.Context, int64) []chat_svc.CtlPendingApproval {
+	return f.approvals
+}
+
+func (f *fakeConversations) AnswerToolApproval(_ context.Context, sessionID int64, requestID string, allow bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answeredApproval = &approvalAnswer{sessionID: sessionID, requestID: requestID, allow: allow}
+	return nil
 }
 
 func (f *fakeConversations) ListCtlConversations(_ context.Context, flt chat_svc.CtlListFilter) ([]*chat_svc.CtlConversation, error) {
