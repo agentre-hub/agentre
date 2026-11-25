@@ -9,6 +9,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // accountCredentialVerifier 在桌面端这一侧兑现 H1:入站对端出示的账号凭据向
@@ -22,6 +23,14 @@ type accountCredentialVerifier struct {
 	// 与「凭据核验失败」是两件事,调用方据此统一按 H4 拒绝,不必先摸一次网络)。
 	account    func(ctx context.Context) (accountID string, err error)
 	introspect func(ctx context.Context, credential string) (auth.Introspection, error)
+}
+
+// errAccountModePeerRefused 拒绝 cli 设备与个人 token:账号模式看不到只在桌面本机
+// 执行的会话(规格「执行者与会话引用」),桌面端因此不收这两类入站对端。它不是
+// -32001:凭据本身没被拒,对端刷新凭据重试只会再撞一次。
+var errAccountModePeerRefused = &rpcerror.Error{
+	Code:    rpcerror.CodeScopeDenied,
+	Message: "the desktop accepts no cli device or personal token: account mode cannot reach desktop-local sessions",
 }
 
 func newAccountCredentialVerifier(
@@ -53,6 +62,11 @@ func (v *accountCredentialVerifier) Verify(ctx context.Context, credential strin
 		logger.Ctx(ctx).Info("peer.accountCredentialVerifier: rejected a credential that belongs to another account",
 			zap.String("accountId", accountID), zap.String("credentialAccountId", verified.AccountID))
 		return auth.Introspection{}, auth.ErrCredentialInvalid
+	}
+	if verified.Kind == auth.KindCLI || verified.Kind == auth.KindPersonalToken {
+		logger.Ctx(ctx).Info("peer.accountCredentialVerifier: refused an account-mode peer",
+			zap.String("kind", verified.Kind), zap.String("peerFingerprint", verified.PeerFingerprint))
+		return auth.Introspection{}, errAccountModePeerRefused
 	}
 	return verified, nil
 }

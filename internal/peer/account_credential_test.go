@@ -89,3 +89,30 @@ func TestAccountCredentialVerifier_GivenTheAccountLookupFails_ThenPropagatesTheE
 
 	require.ErrorIs(t, err, lookupErr)
 }
+
+// Account mode never reaches desktop-local sessions: a cli device and a personal
+// token of the same account are refused by the desktop's inbound handshake,
+// while a desktop or browser ticket of that account still passes.
+func TestAccountCredentialVerifier_GivenACLIDeviceOrPersonalToken_ThenRefusesThem(t *testing.T) {
+	for kind, refused := range map[string]bool{
+		auth.KindCLI: true, auth.KindPersonalToken: true,
+		"desktop": false, "relay_client": false,
+	} {
+		t.Run(kind, func(t *testing.T) {
+			verifier := newAccountCredentialVerifier(
+				func(context.Context) (string, error) { return "7", nil },
+				func(context.Context, string) (auth.Introspection, error) {
+					return auth.Introspection{AccountID: "7", Kind: kind, PeerFingerprint: "sha256:" + kind}, nil
+				},
+			)
+
+			_, err := verifier.Verify(context.Background(), "credential")
+
+			if refused {
+				require.ErrorIs(t, err, errAccountModePeerRefused)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

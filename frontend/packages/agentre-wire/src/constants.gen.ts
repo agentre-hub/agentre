@@ -419,6 +419,15 @@ export const ErrCodeProviderMissing = -32003;
 export const ErrCodePairing = -32004;
 
 /**
+ * CodeScopeDenied refuses a call the caller is authenticated for but not
+ * permitted to make: a personal token without the scope the method needs,
+ * or acting on a session it did not start. Distinct from CodeUnauthorized
+ * for the same reason as CodeAccountServerUnreachable: the credential was
+ * accepted, so refreshing it and retrying can never succeed.
+ */
+export const ErrCodeScopeDenied = -32005;
+
+/**
  * CodeProtocolVersion is returned by a handshake handler whose peer
  * advertised a wire protocol version it does not accept.
  */

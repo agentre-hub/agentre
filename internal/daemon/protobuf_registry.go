@@ -20,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
@@ -61,6 +62,11 @@ func requireProtobufAuth(ctx context.Context) error {
 }
 
 func (d *Daemon) registerProtobufMethods() {
+	// 每个方法(含之后挂到连接级 registry 上的那一半)先过这一道:个人 token 每次调用
+	// 都重新核验一次凭据(自省缓存 60 秒,吊销因此 60 秒内在已建立的连接上生效),再按
+	// auth.methodScopes 那张表判范围;其它身份原样放行。表只有那一处。
+	scopeGuard := auth.NewMethodGuard(d.auth.VerifyAccount)
+	d.protobufRegistry.SetMethodGuard(scopeGuard.Guard)
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_AUTH_PAIR),
 		func() *agentrewire.AuthPairRequest { return &agentrewire.AuthPairRequest{} },
 		func(ctx context.Context, request *agentrewire.AuthPairRequest) (*agentrewire.AuthPairResponse, error) {
@@ -123,7 +129,19 @@ func (d *Daemon) registerProtobufMethods() {
 			if err != nil {
 				return nil, protobufError(err)
 			}
-			d.authenticateAccountConn(ctx, result.PeerFingerprint)
+			d.authenticateAccountConn(ctx, protorpc.AuthState{
+				DeviceFingerprint: result.PeerFingerprint,
+				Kind:              result.Kind,
+				Scopes:            result.Scopes,
+				TokenName:         result.TokenName,
+			})
+			if conn := protorpc.ConnFromContext(ctx); conn != nil {
+				if result.Kind == auth.KindPersonalToken {
+					scopeGuard.Bind(conn, request.Credential)
+				} else {
+					scopeGuard.Forget(conn)
+				}
+			}
 			return protobufAuthAccountResponse(result), nil
 		})
 
@@ -139,7 +157,7 @@ func (d *Daemon) registerProtobufMethods() {
 			if err != nil {
 				return nil, protobufError(err)
 			}
-			d.authenticateAccountConn(ctx, result.PeerFingerprint)
+			d.authenticateAccountConn(ctx, protorpc.AuthState{DeviceFingerprint: result.PeerFingerprint})
 			return &agentrewire.AuthDirectResponse{
 				Ok: result.OK, InstanceUuid: result.InstanceUUID, PeerFingerprint: result.PeerFingerprint,
 				ProtocolVersion: wireversion.Protocol, MinSupportedProtocolVersion: wireversion.MinSupported,
@@ -383,16 +401,34 @@ func (d *Daemon) registerProtobufMethods() {
 }
 
 // authenticateAccountConn 把一次账号身份的握手(auth.account 或 auth.direct)记进连接:
-// 对端指纹取握手认定的那个值,账号取 daemon 此刻的归属账号 —— 订阅资格
-// (connRegistry.subscribersLocked)与账号级可见性都拿它比对,两条握手共用这一处,
-// 身份就不会一条路一个样。
-func (d *Daemon) authenticateAccountConn(ctx context.Context, peerFingerprint string) {
+// 对端指纹与凭据类型 / 范围 / token 名取握手认定的那份(identity),账号取 daemon 此刻
+// 的归属账号 —— 订阅资格(connRegistry.subscribersLocked)、账号级可见性与
+// auth.GuardMethod 的范围判定都拿它比对,两条握手共用这一处,身份就不会一条路一个样。
+func (d *Daemon) authenticateAccountConn(ctx context.Context, identity protorpc.AuthState) {
 	conn := protorpc.ConnFromContext(ctx)
 	if conn == nil {
 		return
 	}
-	conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: peerFingerprint, AccountID: d.loggedInAccountID()})
+	identity.Authenticated = true
+	identity.AccountID = d.loggedInAccountID()
+	conn.SetAuth(identity)
 	d.conns.add(conn, notifier.NewProtobuf(conn))
+}
+
+// answerToolApproval 在 CtlSessions 之前补上个人 token 的归属判定:toolApproval.answer
+// 只点名对话、不点名发起方,ResolveSessionPeer 那道闸因此管不到它 —— 个人 token 只能
+// 答**以它自己的指纹记着**的那条会话里的卡(「这枚 token 自己发起的会话」)。
+func (d *Daemon) answerToolApproval(ctx context.Context, request *agentrewire.ToolApprovalAnswerRequest) (*agentrewire.ToolApprovalAnswerResponse, error) {
+	if own, ok := auth.IsPersonalToken(ctx); ok {
+		row, err := d.sessionStore.Find(ctx, devicefp.Initiator(own), request.GetConversationId())
+		if err != nil {
+			return nil, err
+		}
+		if row == nil {
+			return nil, auth.ErrForeignSession
+		}
+	}
+	return d.ctl.AnswerToolApproval(ctx, request)
 }
 
 // protobufAuthAccountResponse 把握手结果折成线格式,并**回写对端身份**:调用方在
@@ -497,6 +533,6 @@ func (d *Daemon) daemonSessionPorts() wireinbound.SessionPorts {
 		SetModelTarget:     d.sessionModelTarget.SetModelTarget,
 		SetReasoningEffort: d.sessionReasoningEffort.SetReasoningEffort,
 		SetSessionCLIModel: d.sessionCLIModel.SetCLIModel,
-		AnswerToolApproval: d.ctl.AnswerToolApproval,
+		AnswerToolApproval: d.answerToolApproval,
 	}
 }

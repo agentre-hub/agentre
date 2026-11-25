@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
@@ -354,7 +355,9 @@ func (h *SessionCatchupHandlers) findSession(ctx context.Context, conversationID
 }
 
 // ResolveSessionPeer selects the caller's own peer for an omitted origin. A
-// named origin is an account-level capability: pairing alone never grants it.
+// named origin is an account-level capability: pairing alone never grants it,
+// and a personal token holds it for reads only — its chat and approve reach just
+// the sessions recorded under its own fingerprint (auth.RequireOwnSession).
 func ResolveSessionPeer(ctx context.Context, originPeer devicefp.Initiator, loggedInAccountID func() string) (devicefp.Initiator, error) {
 	ownPeer := peerFingerprint(ctx)
 	if originPeer == "" {
@@ -362,6 +365,9 @@ func ResolveSessionPeer(ctx context.Context, originPeer devicefp.Initiator, logg
 	}
 	if !hasLoggedInAccount(ctx, loggedInAccountID) {
 		return "", rpcerror.ErrUnauthorized
+	}
+	if err := auth.RequireOwnSession(ctx, string(originPeer)); err != nil {
+		return "", err
 	}
 	return originPeer, nil
 }

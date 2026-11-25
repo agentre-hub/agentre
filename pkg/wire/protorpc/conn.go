@@ -72,6 +72,13 @@ type AuthState struct {
 	DeviceFingerprint string
 	DeviceName        string
 	AccountID         string
+	// Kind, Scopes and TokenName are the account server's verdict on an
+	// account credential (auth.account): the credential's kind (desktop, cli,
+	// personal_token, …) and, for a personal token, the scopes it holds and its
+	// name. Empty for paired peers and credentials that carry none.
+	Kind      string
+	Scopes    []string
+	TokenName string
 }
 
 type Error = rpcerror.Error
@@ -111,6 +118,7 @@ type notificationSubscription struct {
 type Registry struct {
 	methodMu           sync.RWMutex
 	methods            map[uint32]genericHandler
+	guard              MethodGuard
 	notificationMu     sync.RWMutex
 	nextNotificationID uint64
 	notifications      []notificationSubscription
@@ -144,6 +152,7 @@ func (r *Registry) Clone() *Registry {
 	for methodID, handler := range r.methods {
 		clone.methods[methodID] = handler
 	}
+	clone.guard = r.guard
 	r.notificationMu.RLock()
 	clone.nextNotificationID = r.nextNotificationID
 	clone.notifications = append([]notificationSubscription(nil), r.notifications...)
