@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -791,5 +791,90 @@ describe("SessionRow touch long-press menu", () => {
     expect(screen.getByRole("menuitem", { name: "Delete" })).not.toHaveClass(
       "min-h-11",
     );
+  });
+});
+
+describe("SessionRow menu open state (host back-dismiss seam)", () => {
+  const rowProps = {
+    status: "idle" as const,
+    title: "session-1",
+    onDeleteSession: () => {},
+  };
+
+  async function openMenu() {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    await user.pointer({
+      keys: "[MouseRight]",
+      target: screen.getByRole("button", { name: /session-1/ }),
+    });
+    await screen.findByRole("menuitem", { name: "Delete" });
+    return user;
+  }
+
+  it("onMenuOpenChange：菜单打开回 true，Esc 关闭回 false", async () => {
+    const onMenuOpenChange = vi.fn();
+    render(<SessionRow {...rowProps} onMenuOpenChange={onMenuOpenChange} />);
+    const user = await openMenu();
+    expect(onMenuOpenChange.mock.calls).toEqual([[true]]);
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull(),
+    );
+    expect(onMenuOpenChange.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it("选中菜单项关闭菜单时同样回 false", async () => {
+    const onMenuOpenChange = vi.fn();
+    render(<SessionRow {...rowProps} onMenuOpenChange={onMenuOpenChange} />);
+    const user = await openMenu();
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    expect(onMenuOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("menuOpen 由 true 变 false：宿主关掉已打开的菜单，并回调 false", async () => {
+    const onMenuOpenChange = vi.fn();
+    const { rerender } = render(
+      <SessionRow
+        {...rowProps}
+        menuOpen={false}
+        onMenuOpenChange={onMenuOpenChange}
+      />,
+    );
+    await openMenu();
+    rerender(
+      <SessionRow {...rowProps} menuOpen onMenuOpenChange={onMenuOpenChange} />,
+    );
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+    rerender(
+      <SessionRow
+        {...rowProps}
+        menuOpen={false}
+        onMenuOpenChange={onMenuOpenChange}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull(),
+    );
+    expect(onMenuOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("menuOpen={false} 不阻止用户自己打开菜单（受控只管关闭）", async () => {
+    render(<SessionRow {...rowProps} menuOpen={false} />);
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+  });
+
+  it("两个入参都不传：DOM 与传了 menuOpen / onMenuOpenChange 时逐字节一致，右键菜单照常", async () => {
+    const plain = render(<SessionRow {...rowProps} />);
+    const bare = plain.container.innerHTML;
+    plain.unmount();
+    const wired = render(
+      <SessionRow {...rowProps} menuOpen={false} onMenuOpenChange={() => {}} />,
+    );
+    expect(wired.container.innerHTML).toBe(bare);
+    wired.unmount();
+    render(<SessionRow {...rowProps} />);
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
   });
 });
