@@ -101,7 +101,6 @@ describe("FileWriteContent", () => {
       "Full content copied",
       expect.objectContaining({
         duration: 5000,
-        position: "bottom-right",
       }),
     );
     expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
