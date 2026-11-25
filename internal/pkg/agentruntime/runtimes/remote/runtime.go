@@ -108,6 +108,9 @@ type Runtime struct {
 	cliModelMu sync.Mutex
 	cliModels  map[int64]agentruntime.CLIModelState
 
+	// legacy 给旧 agentred 没盖 Cwd 的工具事件补上位置(见 legacy_location.go)。
+	legacy legacyLocations
+
 	mu              sync.RWMutex
 	sessions        map[int64]*remoteSession
 	generationGates map[int64]*generationGate
@@ -428,6 +431,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 	// constructing the real Pi RunRequest. This avoids a new wire field while
 	// letting delayed preparation/start requests fail closed against a retry.
 	params.PermissionMode = "remote-pi-generation-" + strconv.FormatUint(r.piGenerationSeq.Add(1), 10)
+	r.legacy.noteRun(req.SessionID, agent_backend_entity.TypePiAgent, req.Cwd)
 	generationCtx, cancel := context.WithCancel(ctx)
 	sess := &remoteSession{
 		id:               req.SessionID,
@@ -577,6 +581,7 @@ func (r *Runtime) runDirect(ctx context.Context, req agentruntime.RunRequest) (<
 	// 开轮前读一眼帧高水位(顺带完成 R18 的能力探测),把这一轮钉在 seq 时间线上:
 	// 不比它新的终态帧都属于已经结束的轮次。见 turnStartFloor。
 	floor := r.turnStartFloor(ctx, req.SessionID)
+	r.legacy.noteRun(req.SessionID, agent_backend_entity.BackendType(req.Backend.Type), req.Cwd)
 	sess := &remoteSession{
 		id:          req.SessionID,
 		backendType: agent_backend_entity.BackendType(req.Backend.Type),
@@ -866,7 +871,7 @@ func (r *Runtime) handleEvent(ctx context.Context, params any) (any, error) {
 		logger.Ctx(ctx).Warn("remote.handleEvent: event for unknown session dropped", fields...)
 		return nil, nil
 	}
-	ev := frame.Event
+	ev := r.legacy.infer(sid, frame.Event)
 	if sess != nil && frame.Seq > 0 && frame.Seq <= sess.startSeq {
 		// 补齐回放上来的、属于**已结束轮次**的事件:它在开轮之前就落库了。放进当前
 		// 这一轮的 events,上一轮的 TextDelta 会一字不差地追加到用户刚发出的那条消息

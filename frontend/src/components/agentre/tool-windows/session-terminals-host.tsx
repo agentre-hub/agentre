@@ -7,7 +7,11 @@ import {
   type SessionTerminal,
 } from "@/stores/session-terminals-store";
 
+import { detectBrowserPlatform } from "@/lib/platform";
+
 import { lazyView } from "../lazy-boundary";
+import { useOptionalShortcutsContext } from "../shortcuts/shortcuts-provider";
+import { isToolWindowShortcutForTerminal } from "../shortcuts/tool-window-shortcuts";
 
 import { createSessionTerminalTransport } from "./session-terminal-transport";
 
@@ -100,6 +104,13 @@ const HostedSessionTerminal = React.memo(function HostedSessionTerminal({
   const openInCurrentRoot = useSessionTerminalsStore(
     (s) => s.openInCurrentRoot,
   );
+  const platform =
+    useOptionalShortcutsContext()?.platform ?? detectBrowserPlatform();
+  // 焦点在终端里时，工具窗快捷键（⇧Esc、⌃数字…）不交给 xterm，照常冒到应用。
+  const passThroughKey = React.useCallback(
+    (ev: KeyboardEvent) => isToolWindowShortcutForTerminal(ev, platform),
+    [platform],
+  );
 
   const transport = React.useMemo(
     () =>
@@ -129,6 +140,7 @@ const HostedSessionTerminal = React.memo(function HostedSessionTerminal({
         attach={tab.attach}
         onClose={handleClose}
         onNewTerminal={handleNewTerminal}
+        passThroughKey={passThroughKey}
       />
     </TerminalTransportProvider>,
     terminalContainer(sessionId, tab.id),

@@ -149,6 +149,12 @@ type PersistedLayout = {
   ratios: Record<DividerId, number>;
   /** 对话页左侧的会话列表是否收起（spec 决策 8：它只能收起 / 展开）。 */
   sessionListCollapsed: boolean;
+  /**
+   * 专注（⇧⌘\）进入前的显示状态；null = 不在专注。随布局一起保存：在专注里重启，
+   * 再按一次仍恢复进入专注之前的显示（spec「专注」+「持久化与升级」）。打开任一工具窗
+   * 即退出专注（丢掉它）。
+   */
+  focusSnapshot: Record<SlotId, ToolWindowId | null> | null;
 };
 
 type ToolWindowLayoutState = PersistedLayout & {
@@ -158,10 +164,12 @@ type ToolWindowLayoutState = PersistedLayout & {
    */
   focusRequest: ToolWindowId | null;
   /**
-   * 专注（⇧⌘\）进入前的显示状态；null = 不在专注。瞬时、不持久化。打开任一
-   * 工具窗即退出专注（丢掉它）。
+   * 此刻挂着的图标条数（对话页挂一条；新建会话提示页与其它页面没有）。瞬时、不持久化。
+   * 工具窗快捷键「行为与点击图标相同」：没有图标可点的页面上，它们不改写保存的布局。
    */
-  focusSnapshot: Record<SlotId, ToolWindowId | null> | null;
+  stripMounts: number;
+  /** 图标条挂上时调用；返回卸下时调用的函数。 */
+  mountStrip: () => () => void;
   /** 被最大化的工具窗（⇧⌘'）；瞬时、不持久化。 */
   maximized: ToolWindowId | null;
   /**
@@ -234,14 +242,14 @@ function sanitizeLayout(raw: unknown): PersistedLayout {
     const v = savedSlotOf[id];
     slotOf[id] = isSlotId(v) ? v : DEFAULT_TOOL_WINDOW_SLOTS[id];
   }
-  const savedShown = asRecord(saved.shown);
-  const shown = {} as Record<SlotId, ToolWindowId | null>;
-  for (const slot of SLOT_IDS) {
-    const v = savedShown[slot];
-    const candidate = v === null || isToolWindowId(v) ? v : DEFAULT_SHOWN[slot];
-    shown[slot] =
-      candidate !== null && slotOf[candidate] === slot ? candidate : null;
-  }
+  const shown = sanitizeShown(saved.shown, slotOf, DEFAULT_SHOWN);
+  // 专注快照：整份不是对象 → 不在专注；逐槽位非法 → 那个槽位不显示。
+  const focusSnapshot =
+    saved.focusSnapshot !== null &&
+    typeof saved.focusSnapshot === "object" &&
+    !Array.isArray(saved.focusSnapshot)
+      ? sanitizeShown(saved.focusSnapshot, slotOf, EMPTY_SHOWN)
+      : null;
   const savedMode = asRecord(saved.mode);
   const mode = {} as Record<ToolWindowId, ToolWindowMode>;
   for (const id of TOOL_WINDOW_IDS) {
@@ -268,7 +276,32 @@ function sanitizeLayout(raw: unknown): PersistedLayout {
     typeof saved.sessionListCollapsed === "boolean"
       ? saved.sessionListCollapsed
       : false;
-  return { slotOf, shown, mode, floatRect, ratios, sessionListCollapsed };
+  return {
+    slotOf,
+    shown,
+    mode,
+    floatRect,
+    ratios,
+    sessionListCollapsed,
+    focusSnapshot,
+  };
+}
+
+/** 每个槽位的显示值：非法时回落到 fallback；显示的工具窗必须真的住在这个槽位。 */
+function sanitizeShown(
+  raw: unknown,
+  slotOf: Record<ToolWindowId, SlotId>,
+  fallback: Readonly<Record<SlotId, ToolWindowId | null>>,
+): Record<SlotId, ToolWindowId | null> {
+  const saved = asRecord(raw);
+  const shown = {} as Record<SlotId, ToolWindowId | null>;
+  for (const slot of SLOT_IDS) {
+    const v = saved[slot];
+    const candidate = v === null || isToolWindowId(v) ? v : fallback[slot];
+    shown[slot] =
+      candidate !== null && slotOf[candidate] === slot ? candidate : null;
+  }
+  return shown;
 }
 
 const MODE_SET: ReadonlySet<string> = new Set(TOOL_WINDOW_MODES);
@@ -304,7 +337,10 @@ function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
 }
 
-function defaultLayoutParts(): Omit<PersistedLayout, "sessionListCollapsed"> {
+function defaultLayoutParts(): Omit<
+  PersistedLayout,
+  "sessionListCollapsed" | "focusSnapshot"
+> {
   return {
     slotOf: { ...DEFAULT_TOOL_WINDOW_SLOTS },
     shown: { ...DEFAULT_SHOWN },
@@ -382,6 +418,16 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
       focusSnapshot: null,
       maximized: null,
       narrowCollapsed: {},
+      stripMounts: 0,
+      mountStrip: () => {
+        set((s) => ({ stripMounts: s.stripMounts + 1 }));
+        let mounted = true;
+        return () => {
+          if (!mounted) return;
+          mounted = false;
+          set((s) => ({ stripMounts: Math.max(0, s.stripMounts - 1) }));
+        };
+      },
       toggle: (id) =>
         set((s) => {
           const slot = s.slotOf[id];
@@ -530,6 +576,7 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
         floatRect: s.floatRect,
         ratios: s.ratios,
         sessionListCollapsed: s.sessionListCollapsed,
+        focusSnapshot: s.focusSnapshot,
       }),
       // 读回值缺失时同样逐项回落到默认，而不是沿用内存里的当前值。
       merge: (persisted, current) => ({

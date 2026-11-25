@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { Minus, MoreHorizontal } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -50,6 +51,40 @@ const DEFAULT_FLOAT_STYLE: React.CSSProperties = {
 /** 拖动时至少留这么多在工具窗区域里，免得拖丢。 */
 const KEEP_VISIBLE = { x: 80, y: 32 };
 
+type FrameSlots = {
+  /** 标题栏里留给工具窗自己的那一段（名称与 ⋯ 之间）；还没挂上时为 null。 */
+  titleBar: HTMLElement | null;
+  /**
+   * 外壳的按键处理（⇧Esc / Esc / ⇧⌘'）。内容里有从别的 React 树挂进来的 DOM（终端
+   * 面板住在常驻宿主里、只把容器挂进窗口）时，它们的按键不经 React 冒到外壳，内容
+   * 用原生监听把按键交给这里。
+   */
+  handleKey: (event: KeyboardEvent) => void;
+};
+
+const FrameSlotsContext = React.createContext<FrameSlots | null>(null);
+
+/**
+ * 把 children 放进所在工具窗的标题栏（spec「终端与网页预览的标题栏同时承载各自的
+ * 标签」）。不在工具窗外壳里时原地渲染。
+ */
+export function ToolWindowTitleBarSlot({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const slots = React.useContext(FrameSlotsContext);
+  if (slots === null) return <>{children}</>;
+  return slots.titleBar ? createPortal(children, slots.titleBar) : null;
+}
+
+/** 所在工具窗外壳的按键处理；不在外壳里时为 null。 */
+export function useToolWindowFrameKeys():
+  | ((event: KeyboardEvent) => void)
+  | null {
+  return React.useContext(FrameSlotsContext)?.handleKey ?? null;
+}
+
 /**
  * 一个工具窗的外壳（spec「工具窗标题栏」）：带名称的区域，标题栏显示名称（带数量
  * 的工具窗跟着数字），⋯ 与「隐藏」平时不占眼，悬停或焦点落进来时出现；焦点在
@@ -86,24 +121,35 @@ function ToolWindowFrameImpl({
     clearFocusRequest();
   }, [focusRequested, clearFocusRequest]);
 
-  const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
-    // 菜单等弹层经 React 树冒泡上来的按键不算「焦点在工具窗里」；弹层自己处理过
-    // （例如 Esc 关菜单）的也不再处理。
-    if (e.nativeEvent.defaultPrevented) return;
-    if (!e.currentTarget.contains(e.target as Node)) return;
-    const action = matchFocusedToolWindowShortcut(e.nativeEvent, platform);
-    if (action === null) return;
-    e.preventDefault();
-    if (action === "hide") {
-      hide(w.id);
-      focusEditor();
-    } else if (action === "returnFocus") {
-      // 「失焦自动收起」的工具窗随焦点离开由布局收起；浮动窗不收起。
-      focusEditor();
-    } else {
-      toggleMaximize(w.id);
-    }
-  };
+  const handleKey = React.useCallback(
+    (event: KeyboardEvent) => {
+      // 菜单等弹层经 React 树冒泡上来的按键不算「焦点在工具窗里」；弹层自己处理过
+      // （例如 Esc 关菜单）的也不再处理。
+      if (event.defaultPrevented) return;
+      if (!ref.current?.contains(event.target as Node)) return;
+      const action = matchFocusedToolWindowShortcut(event, platform);
+      if (action === null) return;
+      event.preventDefault();
+      if (action === "hide") {
+        hide(w.id);
+        focusEditor();
+      } else if (action === "returnFocus") {
+        // 「失焦自动收起」的工具窗随焦点离开由布局收起；浮动窗不收起。
+        focusEditor();
+      } else {
+        toggleMaximize(w.id);
+      }
+    },
+    [platform, hide, focusEditor, toggleMaximize, w.id],
+  );
+  const onKeyDown = (e: React.KeyboardEvent<HTMLElement>) =>
+    handleKey(e.nativeEvent);
+
+  const [titleBar, setTitleBar] = React.useState<HTMLElement | null>(null);
+  const slots = React.useMemo<FrameSlots>(
+    () => ({ titleBar, handleKey }),
+    [titleBar, handleKey],
+  );
 
   const trackPointer = (
     e: React.PointerEvent,
@@ -178,13 +224,14 @@ function ToolWindowFrameImpl({
       )}
     >
       <div
+        data-tool-window-title-bar=""
         onPointerDown={onHeaderPointerDown}
         className={cn(
           "flex h-8 shrink-0 items-center gap-1 pr-1 pl-3",
           floating && "cursor-move select-none",
         )}
       >
-        <h3 className="flex min-w-0 flex-1 items-baseline gap-1.5 text-xs font-semibold text-foreground">
+        <h3 className="flex min-w-0 items-baseline gap-1.5 text-xs font-semibold text-foreground">
           <span className="truncate">{w.label}</span>
           {w.count != null ? (
             <span className="shrink-0 font-mono text-3xs font-normal text-muted-foreground">
@@ -192,6 +239,11 @@ function ToolWindowFrameImpl({
             </span>
           ) : null}
         </h3>
+        {/* 工具窗自己的标题栏内容（终端 / 网页预览的标签）经 ToolWindowTitleBarSlot 挂到这里。 */}
+        <div
+          ref={setTitleBar}
+          className="flex h-full min-w-0 flex-1 items-center"
+        />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -220,7 +272,9 @@ function ToolWindowFrameImpl({
         </Button>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-        {w.content}
+        <FrameSlotsContext.Provider value={slots}>
+          {w.content}
+        </FrameSlotsContext.Provider>
       </div>
       {floating ? (
         <span

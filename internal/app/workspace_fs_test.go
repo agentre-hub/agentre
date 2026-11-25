@@ -36,6 +36,11 @@ func (s *stubWorkspaceFs) WorkRoots(_ context.Context, sessionID int64) ([]works
 	return s.roots, nil
 }
 
+func (s *stubWorkspaceFs) RefreshWorkRoots(_ context.Context, sessionID int64) ([]workspace_fs_svc.WorkRootView, error) {
+	s.calls = append(s.calls, "RefreshWorkRoots")
+	return s.roots, nil
+}
+
 func withStubWorkspaceFs(t *testing.T, stub *stubWorkspaceFs) *App {
 	t.Helper()
 	original := workspace_fs_svc.Default()
@@ -69,4 +74,17 @@ func TestWorkspaceFsClaimPath_ClaimErrorSurfaces(t *testing.T) {
 	_, err := a.WorkspaceFsClaimPath(42, "/repo/.worktrees/x/a.go")
 	require.Error(t, err)
 	assert.Equal(t, []string{"Claim"}, stub.calls, "认领失败时不再取集合")
+}
+
+// 界面取工作根(挂载 / 轮次结束)走重验的那条:进程里被删掉的 worktree 由此出集合
+// (spec「worktree 被移除」)。
+func TestWorkspaceFsWorkRoots_ReverifiesClaimedRoots(t *testing.T) {
+	roots := []workspace_fs_svc.WorkRootView{{Path: "/repo", Name: "repo", IsPrimary: true}}
+	stub := &stubWorkspaceFs{roots: roots}
+	a := withStubWorkspaceFs(t, stub)
+
+	got, err := a.WorkspaceFsWorkRoots(42)
+	require.NoError(t, err)
+	assert.Equal(t, roots, got)
+	assert.Equal(t, []string{"RefreshWorkRoots"}, stub.calls)
 }

@@ -588,8 +588,11 @@ function ChatPanel({
   );
   // 会话进程:面板真摆在眼前且有会话时才轮询;弹层打开立刻补拉,结束后立刻刷新。
   const panelShown = usePanelShown();
-  const { processes: sessionProcesses, refresh: refreshProcesses } =
-    useSessionProcesses(sessionId > 0 ? sessionId : undefined, panelShown);
+  const {
+    processes: sessionProcesses,
+    known: sessionProcessesKnown,
+    refresh: refreshProcesses,
+  } = useSessionProcesses(sessionId > 0 ? sessionId : undefined, panelShown);
   const handleProcessesOpenChange = React.useCallback(
     (open: boolean) => {
       if (open) void refreshProcesses();
@@ -1159,7 +1162,8 @@ function ChatPanel({
           onCwdSpecified={reloadAfterChange}
           onJumpToMessage={handleJumpToMessage}
           sessionInfo={sessionInfoInput}
-          processes={sessionProcesses}
+          processes={sessionProcessesKnown ? sessionProcesses : undefined}
+          onRefreshProcesses={refreshProcesses}
           hidden={Boolean(showNewSessionPrompt)}
         >
           <EditorSplit

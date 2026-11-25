@@ -497,14 +497,15 @@ describe("关联工具窗 · 派发", () => {
     expect(screen.getByText("No reply yet")).toBeTruthy();
   });
 
-  // 状态词表与子代理卡一致:等待 / 运行中 / 已完成 / 失败 / 已取消。
+  // 状态词表与子代理卡一致:等待 / 运行中 / 已完成 / 失败 / 已停止 —— 取消的派发在
+  // 派发方转录的子代理卡上显示「已停止」,关联窗必须是同一个词,否则同一次派发两处两种叫法。
   it("uses the subagent-card status vocabulary", async () => {
     const statuses: Array<[string, string]> = [
       ["queued", "Waiting"],
       ["running", "Running"],
       ["completed", "Done"],
       ["failed", "Failed"],
-      ["canceled", "Cancelled"],
+      ["canceled", "Stopped"],
     ];
     api.ListSessionDispatches.mockResolvedValue({
       dispatchedBy: [],

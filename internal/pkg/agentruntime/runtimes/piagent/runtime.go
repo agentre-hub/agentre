@@ -640,7 +640,8 @@ func drainStream(ctx context.Context, req agentruntime.RunRequest, loc *shellloc
 	trackers := make(map[string]*subagentTracker)
 	// 实时流这一侧的 sink 就是"塞进 out";通道由 runtime 的读方并发消费,阻塞发送
 	// 在这里是背压而不是死锁。闭包提到循环外,免得每条事件各造一个。
-	emitEvent := func(ev agentruntime.Event) { out <- stampLocation(loc, ev) }
+	stamper := newLocationStamper(loc)
+	emitEvent := func(ev agentruntime.Event) { out <- stamper.stamp(ev) }
 	for s.Next() {
 		raw := s.Event()
 		if raw.Kind == pkgpi.EventUserMessage {
@@ -686,7 +687,7 @@ func drainStream(ctx context.Context, req agentruntime.RunRequest, loc *shellloc
 		}
 		events, u, err := translate(raw)
 		for _, ev := range events {
-			out <- stampLocation(loc, ev)
+			out <- stamper.stamp(ev)
 		}
 		if u != nil {
 			usage = u

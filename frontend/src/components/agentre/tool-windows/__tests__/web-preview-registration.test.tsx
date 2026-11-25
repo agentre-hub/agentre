@@ -132,6 +132,13 @@ describe("网页预览工具窗 · 接入", () => {
         .getAllByRole("tab")
         .map((t) => t.textContent),
     ).toEqual([":3000 npm run dev", ":5173 vite", ":24678 vite"]);
+    // 标签在工具窗的标题栏里（spec「工具窗标题栏」），与名称、⋯ 同一行。
+    const titleBar = region.querySelector("[data-tool-window-title-bar]");
+    expect(titleBar).not.toBeNull();
+    expect(within(titleBar as HTMLElement).getByRole("tablist")).toBeTruthy();
+    expect(
+      within(titleBar as HTMLElement).getByText("Web preview"),
+    ).toBeTruthy();
   });
 
   // Given 窗口没打开, When 端口出现 / 消失, Then 标签仍随进程列表同步，打开时已就绪。

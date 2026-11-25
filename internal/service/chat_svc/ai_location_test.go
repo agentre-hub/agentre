@@ -161,6 +161,37 @@ func TestObserveToolEvent_WorktreeAddPathIsClaimed(t *testing.T) {
 	require.Len(t, rec.events, 1)
 }
 
+// `git worktree add <路径>` 对任何后端都是认领候选(位置不因此移动):Claude Code 的 Bash 与
+// Codex 的 command_execution 不带 shellloc 标记,从入参的命令文本识别 —— Codex 报的是包在
+// 登录 shell 里的整行,相对路径按入参的 cwd;入参没有 cwd 时按调用报的目录,再没有就按
+// AI 当前位置(旧 agentred 不报目录)。
+func TestObserveToolEvent_WorktreeAddInPlainCommandTextIsClaimed(t *testing.T) {
+	cases := []struct {
+		name  string
+		input map[string]any
+		cwd   string
+	}{
+		{"claude bash", map[string]any{"command": "git worktree add .worktrees/y -b feat"}, locRepo},
+		{"codex command_execution", map[string]any{"command": "/bin/zsh -lc 'git worktree add .worktrees/y'", "cwd": locRepo}, locRepo},
+		{"no reported dir falls back to the AI location", map[string]any{"command": "git worktree add .worktrees/y"}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			svc, port, rec := newLocationSvc(t, cwdMsg(t, 1, "c0", locRepo, ""))
+			ctx := context.Background()
+			port.EXPECT().Claim(gomock.Any(), int64(7), []string{locWT2}).Return([]workspace_fs_svc.WorkRootView{wt2Root}, nil)
+			port.EXPECT().WorkRoots(gomock.Any(), int64(7)).Return([]workspace_fs_svc.WorkRootView{withAIHere(primaryRoot), wt2Root}, nil)
+
+			input, err := json.Marshal(c.input)
+			require.NoError(t, err)
+			svc.observeToolEvent(ctx, 7, agentruntime.ToolCall{ID: "c1", Name: "Bash", Input: input, Cwd: c.cwd})
+
+			assert.Equal(t, locRepo, location(t, svc), "creating a worktree does not move the AI")
+			require.Len(t, rec.events, 1)
+		})
+	}
+}
+
 // 问题 7:写入目标是认领候选,相对路径按该调用的所在目录补全(不是会话工作目录、不跳过)。
 func TestObserveToolEvent_RelativeWriteAnchoredAtCallCwd(t *testing.T) {
 	svc, port, _ := newLocationSvc(t, cwdMsg(t, 1, "c0", locRepo+"/sub", ""))

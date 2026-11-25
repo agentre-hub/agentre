@@ -53,6 +53,8 @@ export type ChatContextData = {
   relations: SessionRelations;
   /** 「会话信息」工具窗的各行数据（输入框旁控件的同一份状态 + 由消息派生的轮数与累计用量）。 */
   sessionInfo: SessionInfoData;
+  /** 立刻重取会话的进程与端口（网页预览的端口标签来源）；宿主没给时不重取。 */
+  refreshProcesses?: () => void;
 };
 
 export const ChatContextDataContext =
@@ -160,12 +162,14 @@ export function SessionInfoToolWindowEntry() {
 
 /** 「网页预览」工具窗：会话监听的端口成标签；远端会话标出执行设备。 */
 export function WebPreviewToolWindowEntry() {
-  const { sessionId, remote, sessionInfo } = useChatContextData();
+  const { sessionId, remote, sessionInfo, refreshProcesses } =
+    useChatContextData();
   return (
     <WebPreviewToolWindow
       sessionId={sessionId}
       remote={remote}
       deviceName={sessionInfo.session?.deviceName ?? ""}
+      onRefreshPorts={refreshProcesses}
     />
   );
 }

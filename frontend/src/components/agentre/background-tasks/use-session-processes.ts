@@ -7,11 +7,18 @@ const POLL_MS = 5000;
 
 // 会话留下的存活进程。active(面板看得见且有会话)时立刻拉一次、之后每 5 秒一次;
 // 失败按「没有进程」处理,不暴露错误态。refresh 给宿主在弹层打开 / 结束进程后立刻补拉。
+// known:当前列表来自本轮可见期内一次成功的取数。面板收着、尚未取回或取数失败时为
+// false —— 那时的空表不能读成「端口都不在了」(网页预览的端口标签据此移除)。
 export function useSessionProcesses(
   sessionId: number | undefined,
   active: boolean,
-): { processes: SessionProcess[]; refresh: () => Promise<void> } {
+): {
+  processes: SessionProcess[];
+  known: boolean;
+  refresh: () => Promise<void>;
+} {
   const [processes, setProcesses] = React.useState<SessionProcess[]>([]);
+  const [known, setKnown] = React.useState(false);
   // 只认最新一次请求的结果:会话切换 / 手动 refresh 后,更早发出的响应作废。
   const seqRef = React.useRef(0);
   const inFlightRef = React.useRef(false);
@@ -22,6 +29,7 @@ export function useSessionProcesses(
     const seq = ++seqRef.current;
     inFlightRef.current = true;
     let next: SessionProcess[];
+    let ok = true;
     try {
       const resp = await ListSessionProcesses(sessionId);
       next = (resp?.processes ?? []).map((p) => ({
@@ -33,10 +41,12 @@ export function useSessionProcesses(
       }));
     } catch {
       next = [];
+      ok = false;
     }
     if (seq !== seqRef.current) return;
     inFlightRef.current = false;
     setProcesses(next);
+    setKnown(ok);
   }, [enabled, sessionId]);
 
   React.useEffect(() => {
@@ -44,6 +54,7 @@ export function useSessionProcesses(
       seqRef.current++; // 作废在途请求
       inFlightRef.current = false;
       setProcesses([]);
+      setKnown(false);
       return;
     }
     void fetchOnce();
@@ -59,8 +70,9 @@ export function useSessionProcesses(
       // 换会话时旧会话的行立刻作废:否则新列表回来之前,「结束 / 打开」会带着新会话
       // id 去操作旧会话的进程(远程会话还会在错的设备上建端口转发)。
       setProcesses([]);
+      setKnown(false);
     };
   }, [enabled, fetchOnce]);
 
-  return { processes, refresh: fetchOnce };
+  return { processes, known, refresh: fetchOnce };
 }

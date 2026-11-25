@@ -605,7 +605,7 @@
     "reasons": {
       "frameBlocked": "这个页面无法在应用内显示：目标站禁止被嵌入（{{detail}}）。",
       "certificate": "证书校验失败：{{detail}}",
-      "forwardFailed": "端口转发没能连上 https 目标，可能是证书没有通过校验。",
+      "forwardFailed": "端口转发没能完成：{{detail}}",
       "unreachable": "无法访问这个页面：{{detail}}",
       "noLoad": "页面没有加载出来，可能无法访问或响应太慢。"
     }

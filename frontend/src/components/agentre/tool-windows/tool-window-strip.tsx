@@ -62,6 +62,9 @@ function ToolWindowStripImpl({ windows, onDragTargetChange }: Props) {
   React.useEffect(() => {
     onTargetRef.current = onDragTargetChange;
   }, [onDragTargetChange]);
+  // 挂着图标条时工具窗快捷键才生效（与点击图标相同；没有图标的页面上不改写布局）。
+  const mountStrip = useToolWindowLayout((s) => s.mountStrip);
+  React.useEffect(() => mountStrip(), [mountStrip]);
 
   const begin = React.useCallback(
     (id: ToolWindowId, down: React.PointerEvent) => {

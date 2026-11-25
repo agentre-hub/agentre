@@ -13,6 +13,8 @@ import (
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
+
+	"github.com/agentre-hub/agentre/pkg/wire/portforwardhost"
 )
 
 // 网页预览预检的结论。WKWebView 里父页面拿不到 iframe 被 X-Frame-Options / frame-ancestors
@@ -24,7 +26,7 @@ const (
 	webPreviewCertificate = "certificate"
 	// webPreviewUnreachable:连不上、超时或重定向失控。
 	webPreviewUnreachable = "unreachable"
-	// webPreviewForwardFailed:端口转发层没连上 https 目标(最常见的原因是证书没通过校验)。
+	// webPreviewForwardFailed:端口转发这一层自己没能完成(映射停用 / 不在了、上游断开……)。
 	webPreviewForwardFailed = "forwardFailed"
 
 	webPreviewTimeout      = 8 * time.Second
@@ -53,7 +55,7 @@ func (a *App) ProbeSessionWebPreview(sessionID int64, rawURL string) (*WebPrevie
 		return nil, err
 	}
 	forwarded := resolved != rawURL
-	probe, err := probeWebPreview(a.ctx, resolved, forwarded && strings.HasPrefix(rawURL, "https:"))
+	probe, err := probeWebPreview(a.ctx, resolved, forwarded)
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +77,9 @@ func validateWebPreviewURL(rawURL string) error {
 }
 
 // probeWebPreview 对 rawURL 发一次 GET(HEAD 对开发服务器不可靠),跟随有界的重定向,
-// 只看最终响应头,立刻丢弃正文。forwardedHTTPS 标明 rawURL 是 https 目标的本机转发地址。
-func probeWebPreview(ctx context.Context, rawURL string, forwardedHTTPS bool) (*WebPreviewProbe, error) {
+// 只看最终响应头,立刻丢弃正文。forwarded 标明 rawURL 是本机转发地址:那时转发层自己的
+// 失败(带 portforwardhost.FailureKindHeader)按它说的种类报原因。
+func probeWebPreview(ctx context.Context, rawURL string, forwarded bool) (*WebPreviewProbe, error) {
 	if err := validateWebPreviewURL(rawURL); err != nil {
 		return nil, err
 	}
@@ -106,16 +109,33 @@ func probeWebPreview(ctx context.Context, rawURL string, forwardedHTTPS bool) (*
 	}
 	_ = resp.Body.Close()
 
-	if forwardedHTTPS && resp.StatusCode == http.StatusBadGateway {
-		return &WebPreviewProbe{
-			Reason: webPreviewForwardFailed,
-			Detail: "port forward could not reach the https target (the certificate may have failed verification)",
-		}, nil
+	if forwarded {
+		if kind := resp.Header.Get(portforwardhost.FailureKindHeader); kind != "" {
+			return forwardFailureProbe(kind), nil
+		}
 	}
 	if blocked, detail := frameBlocked(resp.Header); blocked {
 		return &WebPreviewProbe{Reason: webPreviewFrameBlocked, Detail: detail}, nil
 	}
 	return &WebPreviewProbe{Embeddable: true}, nil
+}
+
+// forwardFailureProbe 把转发层报的失败种类(portforwardhost.FailureKind.Token)翻成预检原因。
+// 证书没过单独成一类(spec「网页预览工具窗」https:显示失败原因与「打开端口转发设置」);
+// 目标连不上与设备够不着说成访问不到;其余是转发这一层没能完成。
+func forwardFailureProbe(kind string) *WebPreviewProbe {
+	switch kind {
+	case "tls-verification":
+		return &WebPreviewProbe{Reason: webPreviewCertificate,
+			Detail: "the https target's certificate failed verification on the execution device, and this port forward does not ignore certificate errors"}
+	case "no-listener":
+		return &WebPreviewProbe{Reason: webPreviewUnreachable, Detail: "nothing accepted the connection on the execution device"}
+	case "name-resolution":
+		return &WebPreviewProbe{Reason: webPreviewUnreachable, Detail: "the target host name did not resolve on the execution device"}
+	case "device-unreachable":
+		return &WebPreviewProbe{Reason: webPreviewUnreachable, Detail: "the execution device is not reachable right now"}
+	}
+	return &WebPreviewProbe{Reason: webPreviewForwardFailed, Detail: "port forward: " + kind}
 }
 
 func failedProbe(err error) *WebPreviewProbe {

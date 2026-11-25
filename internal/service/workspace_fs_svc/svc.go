@@ -62,6 +62,9 @@ type WorkspaceFsSvc interface {
 	// WorkRoots 列出本会话已认领的工作根集合(见 work_roots.go)。第一项恒是
 	// 会话 cwd 对应的根(IsPrimary)。
 	WorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error)
+	// RefreshWorkRoots 同 WorkRoots,但先把已认领的根各重验一次(界面重取用):进程里
+	// 认领后被删掉 / 换掉的 worktree 就此出集合(spec「worktree 被移除」)。
+	RefreshWorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error)
 	// Claim 按认领规则判定候选路径(文件或目录的绝对路径:AI 当前位置、写入目标、
 	// `git worktree add` 的路径、用户点击的路径),把指回会话主仓库、尚未认领的
 	// 工作树的根认领并持久化。返回本次**新增**的根(没有新增时为空);git 判定

@@ -325,6 +325,48 @@ func TestWorkRoots_StalePersistedRoot(t *testing.T) {
 	})
 }
 
+// spec「worktree 被移除」:当前进程里认领的 worktree 被别的方式删掉(Codex / pi / Bash
+// 跑 `git worktree remove`)后,界面重取工作根(RefreshWorkRoots,前端在挂载与轮次结束时
+// 调)要发现它已不在集合里;每个已认领的根每次只重问一次本身(不逐层爬),判定失败则保留。
+// 内部取数(WorkRoots,AI 每次换位置都会用)仍走缓存,不为此多发 RPC。
+func TestRefreshWorkRoots_DropsWorktreeRemovedDuringTheRun(t *testing.T) {
+	r := newRig(t, 7, "/remote/main")
+	r.withWritten()
+	states := map[string]wire.GitStateResp{
+		"/remote/main": {CommonDir: "/remote/main/.git"},
+		"/remote/wt":   {CommonDir: "/remote/main/.git", Worktree: "wt"},
+		"/remote/keep": {CommonDir: "/remote/main/.git", Worktree: "keep"},
+		"/remote":      {NotARepo: true},
+	}
+	failing := map[string]error{}
+	seen := r.expectGitStateOrErr(states, failing)
+
+	added, err := r.svc.Claim(r.ctx, 42, []string{"/remote/wt", "/remote/keep"})
+	require.NoError(t, err)
+	require.Len(t, added, 2)
+
+	// 什么都没变:重取仍是三个根,每个已认领的根只多问一次本身。
+	before := len(*seen)
+	roots, err := r.svc.RefreshWorkRoots(r.ctx, 42)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/remote/main", "/remote/wt", "/remote/keep"}, rootPaths(roots))
+	assert.ElementsMatch(t, []string{"/remote/wt", "/remote/keep"}, (*seen)[before:])
+
+	// /remote/wt 被删掉;/remote/keep 这次判定失败。
+	delete(states, "/remote/wt")
+	failing["/remote/keep"] = errors.New("connection lost")
+	before = len(*seen)
+	internal, err := r.svc.WorkRoots(r.ctx, 42)
+	require.NoError(t, err)
+	assert.Len(t, internal, 3, "内部取数不重验")
+	assert.Len(t, *seen, before, "内部取数不发 RPC")
+
+	roots, err = r.svc.RefreshWorkRoots(r.ctx, 42)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/remote/main", "/remote/keep"}, rootPaths(roots), "删掉的根出集合,判不准的保留")
+	assert.Equal(t, []string{"/remote/keep"}, r.store.paths(42), "删掉的根也从库里删除")
+}
+
 // 远端 git 判定按会话缓存:同一会话里已判过的目录不再发 gitState RPC,
 // 取工作根不再每次逐层重爬。
 func TestWorkRoots_RemoteJudgementsCachedPerSession(t *testing.T) {

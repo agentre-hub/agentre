@@ -323,6 +323,9 @@ export interface TranscriptBlock {
   // 2026-11-24-chat-right-toolwindows 决策 17）。缺省 = 没有这项记录（旧消息 /
   // 旧 agentred），消费方回落到会话工作目录。
   cwd?: string;
+  // 仅 tool_use 卡：这次调用跑完之后 AI 所在的目录（结果的记录）。派生视图只取
+  // tool_use、不取 tool_result，靠它推出加载窗口之前 AI 最后在哪。缺省 = 没有记录。
+  resultCwd?: string;
   subagent?: TranscriptBlockSubagent;
   askUserQuestion?: TranscriptBlockAskUserQuestion;
   toolPermission?: TranscriptBlockToolPermission;

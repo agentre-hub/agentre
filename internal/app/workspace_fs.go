@@ -6,9 +6,10 @@ import (
 
 // WorkspaceFsWorkRoots 列出本会话已认领的工作根:会话 cwd 恒是第一项
 // (isPrimary),AI 写进同一主仓库的另一个 worktree 时那个 worktree 也在其中。
-// 下面几个方法的 root 参数只接受这里给出的路径,其余一律被拒。
+// 下面几个方法的 root 参数只接受这里给出的路径,其余一律被拒。界面在挂载与轮次结束时
+// 取它,已认领的根因此各重验一次:进程里被删掉的 worktree 就此出集合。
 func (a *App) WorkspaceFsWorkRoots(sessionID int64) ([]workspace_fs_svc.WorkRootView, error) {
-	return workspace_fs_svc.Default().WorkRoots(a.ctx, sessionID)
+	return workspace_fs_svc.Default().RefreshWorkRoots(a.ctx, sessionID)
 }
 
 // WorkspaceFsListDir 列出 root 下 relPath 这一层。

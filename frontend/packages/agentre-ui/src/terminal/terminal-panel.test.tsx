@@ -258,6 +258,38 @@ describe("TerminalPanel", () => {
     expect(theme.selectionForeground).toBeTruthy();
   });
 
+  it("Given the host marks a key as its own, When it fires in the terminal, Then xterm does not consume it (it reaches the host) and other keys still go to xterm", () => {
+    const passThroughKey = vi.fn(
+      (ev: KeyboardEvent) => ev.ctrlKey && ev.key === "3",
+    );
+    render(
+      <TerminalPanel
+        terminalID="t1"
+        projectId={42}
+        deviceId=""
+        onClose={vi.fn()}
+        passThroughKey={passThroughKey}
+      />,
+    );
+    const key = (init: Partial<KeyboardEvent>) =>
+      ({
+        type: "keydown",
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        keyCode: 0,
+        isComposing: false,
+        ...init,
+      }) as unknown as KeyboardEvent;
+    expect(capturedKeyHandler?.(key({ ctrlKey: true, key: "3" }))).toBe(false);
+    expect(capturedKeyHandler?.(key({ key: "Escape" }))).toBe(true);
+    // keyup of the same chord is left alone: the host only listens for keydown.
+    expect(
+      capturedKeyHandler?.(key({ type: "keyup", ctrlKey: true, key: "3" })),
+    ).toBe(true);
+  });
+
   it("Given IME composition is active, When a Cmd/Ctrl+C combo fires, Then the custom key handler does not swallow it (lets the IME/xterm path run)", () => {
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: vi.fn().mockResolvedValue(undefined) },

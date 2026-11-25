@@ -194,12 +194,21 @@ function canonicalTouches(block: ChangeSourceBlock): Touch[] {
  * 一个文件一行，状态取**最后一次**调用（file.edit 取它的 kind，file.write 取
  * 「写入」），`±N` 累计本会话的调用、并在每一次全量写入处重新起算（见
  * ChangeRow.plus），行按变动规模降序、同规模按路径排序。
+ *
+ * `nested` 是落在 root 之内的其它工作根（嵌在主 checkout 里的 worktree）：它们里面的
+ * 文件归包含它的最深的根，不在 root 的行里再出现一次。
  */
 export function deriveSessionChanges(
   messages: Msg[],
   root: string,
   liveBlocks: readonly ChangeSourceBlock[] = [],
+  nested: readonly string[] = [],
 ): ChangeRow[] {
+  const nestedRels = nested
+    .map((r) => resolveToolPathInRoot(r, root))
+    .filter((rel): rel is string => rel !== null && rel !== "");
+  const inNested = (rel: string) =>
+    nestedRels.some((n) => rel === n || rel.startsWith(`${n}/`));
   const rows = new Map<string, ChangeRow>();
   const seenToolCalls = new Set<string>();
   let turn = 0;
@@ -211,7 +220,7 @@ export function deriveSessionChanges(
     }
     for (const touch of canonicalTouches(block)) {
       const path = resolveToolPathInRoot(touch.path, root);
-      if (path === null) continue;
+      if (path === null || inNested(path)) continue;
       const cut = path.lastIndexOf("/");
       const row = rows.get(path) ?? {
         path,

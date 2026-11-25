@@ -605,7 +605,7 @@
     "reasons": {
       "frameBlocked": "This page can't be shown in the app: the site doesn't allow embedding ({{detail}}).",
       "certificate": "The certificate failed verification: {{detail}}",
-      "forwardFailed": "The port forward couldn't reach the https target. The certificate may have failed verification.",
+      "forwardFailed": "The port forward didn't complete: {{detail}}",
       "unreachable": "The page can't be reached: {{detail}}",
       "noLoad": "The page did not load. It may be unreachable or too slow."
     }

@@ -194,6 +194,32 @@ func TestListSessionDispatches_ReturnsBothDirections(t *testing.T) {
 	assert.Empty(t, running.LastReply, "没有回复消息就没有最后回复")
 }
 
+// 「派发我的」是拉起本会话的那个会话(spec「关联工具窗」):同一个派发方之后又往本会话
+// send 了几次,也只列一行,取最早那次(拉起它的那次)的方式与时间;不同派发方各一行。
+func TestListSessionDispatches_DispatchedByOneRowPerDispatcher(t *testing.T) {
+	rig := newDispatchRig(t)
+	ctx := context.Background()
+	const me = int64(10)
+	rig.repo.EXPECT().ListByDispatched(ctx, me).Return([]*session_dispatch_entity.SessionDispatch{
+		{ID: 1, DispatcherSessionID: 4, DispatchedSessionID: me, Method: "agrctl_send", Createtime: 7_000},
+		{ID: 2, DispatcherSessionID: 4, DispatchedSessionID: me, Method: "agent_call", Createtime: 8_000},
+		{ID: 3, DispatcherSessionID: 5, DispatchedSessionID: me, Method: "agrctl_send", Createtime: 8_500},
+		{ID: 4, DispatcherSessionID: 4, DispatchedSessionID: me, Method: "agrctl_send", Createtime: 9_000},
+	}, nil)
+	rig.repo.EXPECT().ListByDispatcher(ctx, me).Return(nil, nil)
+	rig.sessions.EXPECT().Find(ctx, int64(4)).Return(&chat_entity.Session{ID: 4, Title: "A"}, nil)
+	rig.sessions.EXPECT().Find(ctx, int64(5)).Return(&chat_entity.Session{ID: 5, Title: "B"}, nil)
+
+	view, err := rig.svc.ListSessionDispatches(ctx, me)
+	require.NoError(t, err)
+	require.Len(t, view.DispatchedBy, 2)
+	assert.Equal(t, int64(4), view.DispatchedBy[0].SessionID)
+	assert.Equal(t, int64(1), view.DispatchedBy[0].DispatchID)
+	assert.Equal(t, "agrctl_send", view.DispatchedBy[0].Method)
+	assert.EqualValues(t, 7_000, view.DispatchedBy[0].CreatedAt)
+	assert.Equal(t, int64(5), view.DispatchedBy[1].SessionID)
+}
+
 // 读最后回复失败只让那一项没有回复,不让整个查询失败。
 func TestListSessionDispatches_ReplyReadFailureLeavesReplyEmpty(t *testing.T) {
 	rig := newDispatchRig(t)

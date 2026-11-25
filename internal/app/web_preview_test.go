@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/service/port_forward_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/portforwardhost"
 )
 
 func serve(t *testing.T, h http.HandlerFunc) *httptest.Server {
@@ -109,15 +110,42 @@ func TestProbeWebPreviewReportsRefusedPort(t *testing.T) {
 	assert.Equal(t, webPreviewUnreachable, got.Reason)
 }
 
-// Given 转发出来的 https 目标, When 转发层答 502(它没连上目标,常见是证书没过), Then 报 forwardFailed。
-func TestProbeWebPreviewForwardedHTTPSBadGateway(t *testing.T) {
-	srv := serve(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) })
-	got, err := probeWebPreview(context.Background(), srv.URL, true)
-	require.NoError(t, err)
-	assert.False(t, got.Embeddable)
-	assert.Equal(t, webPreviewForwardFailed, got.Reason)
+// Given 转发出来的地址, When 转发层自己失败(带 portforwardhost.FailureKindHeader), Then 按
+// 它说的种类报原因:证书没过 → certificate(说出原因、给「打开端口转发设置」);连不上 /
+// 设备够不着 → unreachable;其余转发层失败 → forwardFailed。不带这个头的 502 是被转发应用
+// 自己的答复,照常内嵌。
+func TestProbeWebPreviewForwardFailureKinds(t *testing.T) {
+	cases := []struct {
+		token  string
+		reason string
+	}{
+		{"tls-verification", webPreviewCertificate},
+		{"no-listener", webPreviewUnreachable},
+		{"name-resolution", webPreviewUnreachable},
+		{"device-unreachable", webPreviewUnreachable},
+		{"upstream-gone", webPreviewForwardFailed},
+		{"disabled", webPreviewForwardFailed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.token, func(t *testing.T) {
+			srv := serve(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set(portforwardhost.FailureKindHeader, tc.token)
+				w.WriteHeader(http.StatusBadGateway)
+			})
+			got, err := probeWebPreview(context.Background(), srv.URL, true)
+			require.NoError(t, err)
+			assert.False(t, got.Embeddable)
+			assert.Equal(t, tc.reason, got.Reason)
+			assert.NotEmpty(t, got.Detail)
+		})
+	}
 
-	plain, err := probeWebPreview(context.Background(), srv.URL, false)
+	appOwn := serve(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadGateway) })
+	got, err := probeWebPreview(context.Background(), appOwn.URL, true)
+	require.NoError(t, err)
+	assert.True(t, got.Embeddable, "转发地址上不带种类头的 502 是被转发应用自己的答复,照常内嵌")
+
+	plain, err := probeWebPreview(context.Background(), appOwn.URL, false)
 	require.NoError(t, err)
 	assert.True(t, plain.Embeddable, "非转发的 502 是应用自己的答复,照常内嵌")
 }

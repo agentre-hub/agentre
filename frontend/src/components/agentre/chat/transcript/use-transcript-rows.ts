@@ -19,6 +19,8 @@ import {
   buildSettledTranscriptRows,
   buildSourceByMessageId,
   indicatorHostMessageId,
+  lastRecordedToolCwd,
+  type TranscriptMessage,
   type TranscriptRow,
 } from "@agentre-hub/agentre-ui";
 
@@ -29,6 +31,33 @@ import { chat_svc } from "../../../../../wailsjs/go/models";
 // 只借组件的 live 内容契约(它比包的 LiveRowContent 多带 liveRetry / liveTurn);
 // type-only 导入,不会和 ../transcript 成运行时环。
 import type { TranscriptLiveContent } from "../transcript";
+
+// cwdBeforeWindow:转录显示的第一条消息之前 AI 所在的目录(spec 2026-11-24-chat-right-toolwindows
+// 「AI 当时所在目录」:没有同轮之前的工具块时用这一轮开始时的位置,重新加载后不变)。
+// 显示段之前的消息要么正文还没取回(手上只有派生视图块,tool_use 卡带着调用与结果两份目录
+// 记录),要么被压缩折叠藏起来;显示段第一条若是从压缩分界处截断的,截掉的那部分也算。
+export function cwdBeforeWindow(
+  allMessages: readonly chat_svc.ChatMessage[],
+  displayMessages: readonly chat_svc.ChatMessage[],
+): string | undefined {
+  const first = displayMessages[0];
+  if (!first) return undefined;
+  const at = allMessages.findIndex((m) => m.id === first.id);
+  if (at < 0) return undefined;
+  const before: TranscriptMessage[] = allMessages.slice(
+    0,
+    at,
+  ) as unknown as TranscriptMessage[];
+  const full = allMessages[at].blocks ?? [];
+  const trimmed = full.length - (first.blocks ?? []).length;
+  if (trimmed > 0) {
+    before.push({
+      ...allMessages[at],
+      blocks: full.slice(0, trimmed),
+    } as unknown as TranscriptMessage);
+  }
+  return lastRecordedToolCwd(before);
+}
 
 // findLastCompactBoundary 顺序扫所有 messages.blocks 找最后一条 type=compact_boundary
 // 的位置;没找到返回 null。返回 (messageIdx, blockIdx) 让 ChatTranscript 知道从哪里
@@ -232,6 +261,11 @@ export function useTranscriptRows({
       ),
     [displayMessages, localFingerprint, resolveSourceDeviceName],
   );
+  // 显示段之前 AI 在哪:派生视图块到了、或用户往上取回 / 展开折叠时随之更新。
+  const initialCwd = React.useMemo(
+    () => cwdBeforeWindow(allMessages, displayMessages),
+    [allMessages, displayMessages],
+  );
   // settled:只依赖 messages(流式中引用稳定),整体 memoize —— 每 chunk 不再全量
   // 重建 rows + 两张索引图。live 内容变化时只走 applyLiveTranscriptRows 的 O(live)
   // 叠加(非 live 行与 settled 共享引用,行组件 memo 恒命中)。
@@ -242,10 +276,17 @@ export function useTranscriptRows({
         // eslint-disable-next-line react-hooks/refs -- 行缓存是渲染期的旁路:按消息引用做记忆化的 WeakMap,内容由构建函数就地写,React 侧只当它是实例级的稳定容器。这条规则此前不报(forwardRef 包着的渲染函数它认不出是组件),搬进具名 hook 后才开始报 —— 语义与搬家前逐字相同。
         cache: rowsCacheRef.current,
         displayMessages,
+        initialCwd,
         localCommands,
         sourceByMessageId,
       }),
-    [autonomousIds, displayMessages, localCommands, sourceByMessageId],
+    [
+      autonomousIds,
+      displayMessages,
+      initialCwd,
+      localCommands,
+      sourceByMessageId,
+    ],
   );
   const { rows, firstRowIndexByMessageId, rowIndexByKey } = React.useMemo(
     () =>
@@ -254,6 +295,7 @@ export function useTranscriptRows({
         // eslint-disable-next-line react-hooks/refs -- 同上:settled 与 live 叠加共用这一个缓存。
         cache: rowsCacheRef.current,
         displayMessages,
+        initialCwd,
         liveByMessageId,
         localCommands,
         sourceByMessageId,
@@ -261,6 +303,7 @@ export function useTranscriptRows({
     [
       autonomousIds,
       displayMessages,
+      initialCwd,
       liveByMessageId,
       localCommands,
       settled,

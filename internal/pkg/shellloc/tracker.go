@@ -90,6 +90,22 @@ func (t *Tracker) Result(id string) string {
 	return t.dir
 }
 
+// CodexCommandTool is the tool name Codex reports shell commands under; its
+// JSON input carries the directory the command starts in ("cwd").
+const CodexCommandTool = "command_execution"
+
+// InputCwd returns the absolute "cwd" a shell tool call's JSON input reports,
+// or "" when it is missing, not absolute, or the input is not a JSON object.
+func InputCwd(input []byte) string {
+	var in struct {
+		Cwd string `json:"cwd"`
+	}
+	if json.Unmarshal(input, &in) != nil {
+		return ""
+	}
+	return AbsDir(in.Cwd)
+}
+
 var windowsAbs = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 
 // AbsDir returns p cleaned if it is an absolute directory (POSIX or Windows

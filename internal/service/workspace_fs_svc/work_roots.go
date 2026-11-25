@@ -134,6 +134,15 @@ func (s *workspaceFsImpl) WorkRoots(ctx context.Context, sessionID int64) ([]Wor
 	return roots, nil
 }
 
+func (s *workspaceFsImpl) RefreshWorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error) {
+	deviceID, cwd, err := s.workspace(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	s.stateFor(sessionID, deviceID, cwd).markClaimedUnverified()
+	return s.WorkRoots(ctx, sessionID)
+}
+
 // markAIHere 在 roots(已是副本)上标出 AI 当前所在的根。位置取不到时一个都不标:
 // 标错一个根会让前端的「跟随 AI」切到错的 checkout,不标只是少一个提示。
 func (s *workspaceFsImpl) markAIHere(ctx context.Context, sessionID int64, roots []WorkRootView) {

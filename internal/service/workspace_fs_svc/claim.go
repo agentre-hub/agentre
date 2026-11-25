@@ -329,6 +329,18 @@ func (s *workspaceFsImpl) judge(ctx context.Context, st *claimState, dir string)
 	return gs, nil
 }
 
+// markClaimedUnverified 让已读入 / 已认领的每个根在下一次取数时按认领规则重验一次:
+// 根本身的判定缓存作废(只重问根这一层,不逐层爬),判定失败时照旧保留。还没读入
+// 持久化集合时什么也不做 —— 读入本来就会校验。
+func (st *claimState) markClaimedUnverified() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for _, r := range st.roots {
+		st.unverified[r.Path] = struct{}{}
+		delete(st.judged, cleanPath(r.Path))
+	}
+}
+
 func (st *claimState) add(view WorkRootView, worktree string) {
 	st.roots = append(st.roots, view)
 	st.identity[worktree] = view.Path

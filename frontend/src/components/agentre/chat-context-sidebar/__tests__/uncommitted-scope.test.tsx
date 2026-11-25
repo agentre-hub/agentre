@@ -223,15 +223,33 @@ describe("「变更」页 · 未提交档", () => {
   });
 
   it("shows no badge on the Changes icon until this scope's data has loaded", async () => {
-    // 未加载 / 加载中都不显角标（spec「图标条」：数据未就绪时不显示）。
+    // 加载中不显角标（spec「图标条」：数据未就绪时不显示）。
     showOnly("outline");
-    gitChangesMock.mockResolvedValue(
-      changesView([{ path: "a.go" }, { path: "b.go" }]),
+    let resolve: (v: ReturnType<typeof changesView>) => void = () => {};
+    gitChangesMock.mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }),
     );
     renderSidebar({});
 
+    await waitFor(() => expect(gitChangesMock).toHaveBeenCalled());
     expect(changesBadge()).toBeNull();
-    expect(gitChangesMock).not.toHaveBeenCalled();
+    resolve(changesView([{ path: "a.go" }, { path: "b.go" }]));
+    await waitFor(() => expect(changesBadge()).toBe("2"));
+  });
+
+  it("keeps the uncommitted count on the Changes icon while the Changes window is hidden", async () => {
+    // spec「图标条」：角标数字为变更工具窗当前档位的文件数——用户故事 2「侧栏关着
+    // 也能看到改了几个文件」，所以档位停在「未提交」时，变更窗收着也照样取数。
+    showOnly("outline");
+    gitChangesMock.mockResolvedValue(
+      changesView([{ path: "a.go" }, { path: "b.go" }, { path: "c.go" }]),
+    );
+    renderSidebar({});
+
+    await waitFor(() => expect(changesBadge()).toBe("3"));
+    expect(gitChangesMock).toHaveBeenCalledWith(7, "uncommitted", "");
   });
 
   it("drops the previous session's count when the session changes behind another tab", async () => {
@@ -243,6 +261,8 @@ describe("「变更」页 · 未提交档", () => {
     await waitFor(() => expect(changesBadge()).toBe("2"));
 
     await userEvent.click(stripButton("Outline"));
+    // 新会话的快照还在路上：旧会话的数字不能留在角标上。
+    gitChangesMock.mockReturnValue(new Promise(() => {}));
     rerender(
       <ChatContextToolWindows
         sessionId={8}
@@ -257,8 +277,9 @@ describe("「变更」页 · 未提交档", () => {
     await waitFor(() => expect(changesBadge()).toBeNull());
   });
 
-  it("makes no git call at all while only the Outline window is open", async () => {
+  it("makes no git call at all while only the Outline window is open and Changes sits on the session tier", async () => {
     showOnly("outline");
+    useChatSidebarStore.setState({ changesScope: "session" });
     renderSidebar({});
 
     await screen.findByRole("region", { name: "Outline" });

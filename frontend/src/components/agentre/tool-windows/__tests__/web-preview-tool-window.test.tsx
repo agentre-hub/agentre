@@ -64,12 +64,19 @@ const probeFor = (url: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function mountWindow(props: { remote?: boolean; deviceName?: string } = {}) {
+function mountWindow(
+  props: {
+    remote?: boolean;
+    deviceName?: string;
+    onRefreshPorts?: () => void;
+  } = {},
+) {
   return render(
     <WebPreviewToolWindow
       sessionId={S}
       remote={props.remote ?? false}
       deviceName={props.deviceName ?? ""}
+      onRefreshPorts={props.onRefreshPorts}
     />,
   );
 }
@@ -152,6 +159,26 @@ describe("WebPreviewToolWindow · tabs", () => {
     sync([3000, "a"]);
     expect(await findFrame(":3000 a")).toBeInTheDocument();
     expect(screen.queryByText("This port is no longer listening")).toBeNull();
+  });
+
+  // Given 当前标签的端口已不再监听, When 按「重新加载」, Then 立刻重取会话的进程与端口（不等下一次轮询）；
+  // 端口回来后标签重新预检并显示页面。
+  it("Given the current tab's port is gone, When Reload is pressed, Then the session's ports are re-fetched right away and the page comes back once the port listens", async () => {
+    const onRefreshPorts = vi.fn(() => sync([3000, "a"]));
+    sync([3000, "a"]);
+    mountWindow({ onRefreshPorts });
+    await findFrame(":3000 a");
+    sync();
+    api.ProbeSessionWebPreview.mockClear();
+
+    await userEvent.click(screen.getByRole("button", { name: "Reload" }));
+
+    expect(onRefreshPorts).toHaveBeenCalledTimes(1);
+    expect(await findFrame(":3000 a")).toBeInTheDocument();
+    expect(api.ProbeSessionWebPreview).toHaveBeenCalledWith(
+      S,
+      "http://localhost:3000/",
+    );
   });
 
   it("Given the port is still gone, When Reload is pressed, Then the message stays", async () => {
@@ -378,7 +405,7 @@ describe("WebPreviewToolWindow · cannot embed", () => {
       probeFor("http://127.0.0.1:45123/", {
         embeddable: false,
         reason: "forwardFailed",
-        detail: "x",
+        detail: "remote dial refused",
         forwarded: true,
       }),
     );
@@ -388,6 +415,10 @@ describe("WebPreviewToolWindow · cannot embed", () => {
       await screen.findByRole("button", {
         name: "Open port forwarding settings",
       }),
+    ).toBeInTheDocument();
+    // 失败原因写明（证书失败等经转发的错误都落在这一类里）。
+    expect(
+      screen.getByText("The port forward didn't complete: remote dial refused"),
     ).toBeInTheDocument();
   });
 

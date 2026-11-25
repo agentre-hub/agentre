@@ -51,7 +51,34 @@ describe("工具窗快捷键", () => {
       sessionListCollapsed: false,
       focusSnapshot: null,
       maximized: null,
+      // 对话页的图标条挂着（这些用例模拟的是在对话页里按键）。
+      stripMounts: 1,
     });
+  });
+
+  it("Given 页面上没有图标条（新建会话提示页 / 别的页面）, When 按 ⌃1 / ⌃` / ⇧⌘\\, Then 不动保存的布局、也不留焦点请求", () => {
+    useToolWindowLayout.setState({ stripMounts: 0 });
+    useToolWindowLayout.getState().show("outline");
+    renderProvider("darwin");
+    press({ key: "1", code: "Digit1", ctrlKey: true });
+    press({ key: "`", code: "Backquote", ctrlKey: true });
+    press({ key: "|", code: "Backslash", metaKey: true, shiftKey: true });
+    const s = useToolWindowLayout.getState();
+    expect(s.shown).toEqual({
+      rightTop: "outline",
+      rightBottom: null,
+      bottomLeft: null,
+      bottomRight: null,
+    });
+    expect(s.focusRequest).toBeNull();
+    expect(s.focusSnapshot).toBeNull();
+  });
+
+  it("Given 页面上没有图标条, When 按 ⌘0, Then 会话列表照常收起", () => {
+    useToolWindowLayout.setState({ stripMounts: 0 });
+    renderProvider("darwin");
+    press({ key: "0", code: "Digit0", metaKey: true });
+    expect(useToolWindowLayout.getState().sessionListCollapsed).toBe(true);
   });
 
   it.each<[string, ToolWindowId]>([

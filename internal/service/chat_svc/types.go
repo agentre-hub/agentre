@@ -353,6 +353,10 @@ type ChatBlock struct {
 	// 产生、随工具事件传来并落库(spec 2026-11-24-chat-right-toolwindows 决策 17)。
 	// 空 = 没有这项记录(旧消息 / 旧 agentred),消费方回落到会话工作目录。
 	Cwd string `json:"cwd,omitempty"`
+	// ResultCwd 仅外层 tool_use 卡上填:这次调用跑完之后 AI 所在的目录(结果的记录)。
+	// 派生视图按类型只取 tool_use、不取 tool_result,前端靠它推出加载窗口之前 AI 最后
+	// 在哪(spec「AI 当时所在目录」:重新加载后不变)。空 = 没有记录。
+	ResultCwd string `json:"resultCwd,omitempty"`
 
 	// 仅外层 Agent / Task 工具的 tool_use block 上填，缓存 subagent 元数据快照
 	// （subagent_type / 累计 token / last_tool_name / status 等）。

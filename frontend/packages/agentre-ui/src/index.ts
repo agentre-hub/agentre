@@ -504,6 +504,7 @@ export {
   buildSourceByMessageId,
   buildTranscriptRows,
   estimateRowSizeWithSpacing,
+  lastRecordedToolCwd,
   transcriptRowPadClass,
 } from "./transcript/transcript-rows";
 export type {

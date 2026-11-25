@@ -36,13 +36,16 @@ type Props = {
   relations: SessionRelations;
 };
 
-/** 派发状态到共享状态图标的对照：与子代理卡同一套词表（等待 / 运行中 / 已完成 / 失败 / 已取消）。 */
+/**
+ * 派发状态到共享状态图标的对照：与子代理卡同一套词表（等待 / 运行中 / 已完成 / 失败 /
+ * 已停止）——取消的派发在派发方转录的子代理卡上就是「已停止」。
+ */
 const DISPATCH_MARK: Record<string, StatusMarkState> = {
   queued: "pending",
   running: "running",
   completed: "done",
   failed: "failed",
-  canceled: "cancelled",
+  canceled: "stopped",
 };
 
 const ROW =

@@ -352,7 +352,7 @@ func (s *chatSvc) anchorFor(ctx context.Context, sessionID int64, cwd string, fr
 
 // toolCallCandidates 取一次工具调用的认领候选:写入目标所在目录(file.write / file.edit,
 // 与 SessionWrittenPaths 同一口径)与 shellloc 标出的 `git worktree add` 路径。
-// anchor 只在遇到相对写入路径时才被调用(它可能要读转录恢复位置)。
+// anchor 只在遇到相对写入路径或命令文本里的 `git worktree add` 时才被调用(它可能要读转录恢复位置)。
 func toolCallCandidates(call agentruntime.ToolCall, anchor func() string) []string {
 	var out []string
 	if call.Canonical != nil {
@@ -366,15 +366,43 @@ func toolCallCandidates(call agentruntime.ToolCall, anchor func() string) []stri
 			}
 		}
 	}
-	// 先做一次字节级预筛:写文件的入参动辄几百 KB,不为找一个键整份解析。
-	if bytes.Contains(call.Input, []byte(shellloc.WorktreeAddKey)) {
-		var in map[string]json.RawMessage
-		if json.Unmarshal(call.Input, &in) == nil {
-			var p string
-			if raw, ok := in[shellloc.WorktreeAddKey]; ok && json.Unmarshal(raw, &p) == nil && p != "" {
-				out = append(out, p)
-			}
-		}
+	if p := worktreeAddOfCall(call, anchor); p != "" {
+		out = append(out, p)
 	}
 	return out
+}
+
+// worktreeAddOfCall 取一次 shell 调用里 `git worktree add` 的路径:pi / builtin / ACP 的执行侧
+// 已把它放进入参的 shellloc.WorktreeAddKey(按命令执行前的目录解析);其余后端(Claude Code
+// 的 Bash、Codex 的 command_execution,以及不打标记的旧 agentred)从入参的 command 文本
+// 识别,相对路径按入参报的 cwd(Codex),没有时按调用报的目录,再没有按 AI 当前位置。
+func worktreeAddOfCall(call agentruntime.ToolCall, anchor func() string) string {
+	// 先做一次字节级预筛:写文件的入参动辄几百 KB,不为找一个键整份解析。
+	marked := bytes.Contains(call.Input, []byte(shellloc.WorktreeAddKey))
+	if !marked && !bytes.Contains(call.Input, []byte("worktree")) {
+		return ""
+	}
+	var in map[string]json.RawMessage
+	if json.Unmarshal(call.Input, &in) != nil {
+		return ""
+	}
+	str := func(key string) string {
+		var v string
+		if raw, ok := in[key]; ok && json.Unmarshal(raw, &v) == nil {
+			return v
+		}
+		return ""
+	}
+	if marked {
+		return str(shellloc.WorktreeAddKey)
+	}
+	cmd := str("command")
+	if cmd == "" {
+		return ""
+	}
+	base := shellloc.AbsDir(str("cwd"))
+	if base == "" {
+		base = anchor()
+	}
+	return shellloc.WorktreeAddOf(cmd, base)
 }

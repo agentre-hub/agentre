@@ -180,7 +180,14 @@ func (s *dispatchSvc) ListSessionDispatches(ctx context.Context, sessionID int64
 	}
 
 	view := &SessionDispatchesView{DispatchedBy: []*DispatchedByItem{}, Dispatched: []*DispatchedItem{}}
+	// 「派发我的」是拉起本会话的那个会话:同一派发方之后又 send 进来的记录不再各占一行,
+	// 只留最早那次(into 先派发的在前)。
+	seen := make(map[int64]struct{}, len(into))
 	for _, row := range into {
+		if _, dup := seen[row.DispatcherSessionID]; dup {
+			continue
+		}
+		seen[row.DispatcherSessionID] = struct{}{}
 		sess, err := chat_repo.Session().Find(ctx, row.DispatcherSessionID)
 		if err != nil || sess == nil {
 			continue // 派发方已不在:没有可展示、可打开的对象

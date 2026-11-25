@@ -776,6 +776,11 @@ export type BuildTranscriptRowsArgs = {
    * 条目;本机发出的消息不在表里,输出与不传逐项一致(单客户端界面零变化)。
    */
   sourceByMessageId?: ReadonlyMap<number, string>;
+  /**
+   * displayMessages 第一条之前 AI 所在的目录(宿主用 lastRecordedToolCwd 从加载窗口之前
+   * 的派生视图块算出)。缺省 = 没有记录:第一轮从「没有位置」起算。
+   */
+  initialCwd?: string;
 };
 
 /** LiveRowContent 是一条 assistant 消息此刻的流式内容(尚未落库的部分)。 */
@@ -847,11 +852,29 @@ function lastToolCwdOf(blocks: readonly TranscriptBlock[]): string | null {
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const b = blocks[i];
     if (b.parentToolUseId) continue;
+    // 只有 tool_use 的消息(派生视图块)靠调用卡上的结果记录:跑完之后在哪。
+    if (b.type === "tool_use" && b.resultCwd) return b.resultCwd;
     if ((b.type === "tool_use" || b.type === "tool_result") && b.cwd) {
       return b.cwd;
     }
   }
   return null;
+}
+
+/**
+ * 这些消息之后 AI 所在的目录:最后一个带记录的主线工具块的目录(结果的记录优先于调用的),
+ * 没有记录时为 undefined。宿主用它从加载窗口之前、只带派生视图块的消息里算出
+ * BuildTranscriptRowsArgs.initialCwd —— 窗口内第一轮开头的正文据此解析链接,加载更早的
+ * 历史之后结果不变。
+ */
+export function lastRecordedToolCwd(
+  messages: readonly TranscriptMessage[],
+): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const found = lastToolCwdOf(messages[i].blocks ?? []);
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /**
@@ -918,8 +941,9 @@ function buildRows(args: BuildTranscriptRowsArgs): SettledTranscriptRows {
   for (const m of displayMessages) {
     messageByMessageId.set(m.id, m);
   }
-  // AI 所在目录逐条消息往前推:每一轮从上一轮结束时的位置开始。
-  let location: string | undefined;
+  // AI 所在目录逐条消息往前推:每一轮从上一轮结束时的位置开始(第一条从宿主给的
+  // 加载窗口之前的位置开始)。
+  let location: string | undefined = args.initialCwd || undefined;
   for (const m of displayMessages) {
     const autonomous = autonomousIds.has(m.id);
     // R17:来源标识只属于「非本机发出的用户消息」—— 其它角色恒 undefined。

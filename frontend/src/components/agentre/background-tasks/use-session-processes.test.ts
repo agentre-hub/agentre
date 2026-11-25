@@ -100,6 +100,30 @@ describe("useSessionProcesses", () => {
     expect(result.current.processes).toEqual([]);
   });
 
+  // 网页预览的端口标签随「端口消失」移除(spec「网页预览工具窗」):只有一次成功取回的
+  // 列表才算知道端口在不在;面板收着、取数失败时的空表不是「端口都没了」。
+  it("Given the list states, Then known is true only after a successful fetch for the active panel", async () => {
+    const { result, rerender } = renderHook(
+      ({ active }) => useSessionProcesses(7, active),
+      { initialProps: { active: true } },
+    );
+    expect(result.current.known).toBe(false);
+    await flush();
+    expect(result.current.known).toBe(true);
+    appMocks.ListSessionProcesses.mockRejectedValue(new Error("boom"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(result.current.known).toBe(false);
+    appMocks.ListSessionProcesses.mockResolvedValue({ processes: [view(1)] });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(result.current.known).toBe(true);
+    rerender({ active: false });
+    expect(result.current.known).toBe(false);
+  });
+
   it("Given a slow response for the old session, When session switches, Then it is ignored", async () => {
     let resolveOld: (v: unknown) => void = () => undefined;
     appMocks.ListSessionProcesses.mockImplementation((id: number) =>

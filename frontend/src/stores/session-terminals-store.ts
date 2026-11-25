@@ -51,6 +51,11 @@ type State = {
     args: { terminalId: string; command?: string },
   ) => void;
   close: (sessionId: number, id: string) => void;
+  /**
+   * 会话被删除：它的终端标签全部关掉（等同逐个关闭标签——面板卸下，本会话开的终端
+   * 进程随之结束）。
+   */
+  closeSession: (sessionId: number) => void;
   setActive: (sessionId: number, id: string) => void;
   markExited: (sessionId: number, id: string) => void;
 };
@@ -134,6 +139,17 @@ export const useSessionTerminalsStore = create<State>()((set) => {
             ? (tabs[Math.min(index, tabs.length - 1)]?.id ?? null)
             : e.activeId;
         return put(state, sessionId, { ...e, tabs, activeId });
+      }),
+    closeSession: (sessionId) =>
+      set((state) => {
+        if (!(sessionId in state.bySession) && !(sessionId in state.viewing)) {
+          return state;
+        }
+        const bySession = { ...state.bySession };
+        delete bySession[sessionId];
+        const viewing = { ...state.viewing };
+        delete viewing[sessionId];
+        return { bySession, viewing };
       }),
     setActive: (sessionId, id) =>
       set((state) => {

@@ -24,6 +24,7 @@ import {
   useWebPreviewStore,
   type PreviewTab,
 } from "./web-preview-store";
+import { ToolWindowTitleBarSlot } from "./tool-window-frame";
 
 /**
  * iframe 挂上后多久没触发 load 就判为打不开。WKWebView 里连接被拒既不触发 load 也不触发
@@ -37,6 +38,11 @@ type Props = {
   remote: boolean;
   /** 执行设备名；本机会话为空。 */
   deviceName: string;
+  /**
+   * 立刻重取会话的进程与端口（端口标签的来源）。「重新加载」一个端口已不再监听的标签
+   * 时调用：不等下一次轮询，端口回来时标签随之恢复并重新预检。
+   */
+  onRefreshPorts?: () => void;
 };
 
 type ProbeResult =
@@ -93,7 +99,7 @@ function reasonMessage(t: TFunction, reason: string, detail: string): string {
     case "certificate":
       return t("webPreviewToolWindow.reasons.certificate", { detail });
     case "forwardFailed":
-      return t("webPreviewToolWindow.reasons.forwardFailed");
+      return t("webPreviewToolWindow.reasons.forwardFailed", { detail });
     default:
       return t("webPreviewToolWindow.reasons.unreachable", { detail });
   }
@@ -126,7 +132,12 @@ function tabLabel(tab: PreviewTab): string {
  * 任意 http(s) 地址。地址经 Go 侧预检后才挂 iframe——父页面看不到 X-Frame-Options /
  * frame-ancestors 拦截与证书失败，只能由预检给出原因。
  */
-export function WebPreviewToolWindow({ sessionId, remote, deviceName }: Props) {
+export function WebPreviewToolWindow({
+  sessionId,
+  remote,
+  deviceName,
+  onRefreshPorts,
+}: Props) {
   const { t } = useTranslation();
   const session = useWebPreviewStore((s) => s.bySession[sessionId]);
   const actions = useWebPreviewStore.getState;
@@ -181,46 +192,49 @@ export function WebPreviewToolWindow({ sessionId, remote, deviceName }: Props) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* 标签在工具窗的标题栏里（spec「工具窗标题栏」）。 */}
       {tabs.length > 0 ? (
-        <div
-          role="tablist"
-          aria-label={t("webPreviewToolWindow.label")}
-          className="flex shrink-0 gap-1 overflow-x-auto px-2 pb-1"
-        >
-          {tabs.map((tb) => (
-            <div
-              key={tb.key}
-              className={cn(
-                "flex max-w-48 shrink-0 items-center rounded-md text-xs",
-                tb.key === tab?.key
-                  ? "bg-rail-accent text-foreground"
-                  : "text-muted-foreground hover:bg-rail-accent",
-              )}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tb.key === tab?.key}
-                title={tabLabel(tb)}
-                onClick={() => actions().activate(sessionId, tb.key)}
-                className="min-w-0 truncate rounded-md px-2 py-1 font-mono outline-none focus-visible:focus-outline-inset"
+        <ToolWindowTitleBarSlot>
+          <div
+            role="tablist"
+            aria-label={t("webPreviewToolWindow.label")}
+            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1"
+          >
+            {tabs.map((tb) => (
+              <div
+                key={tb.key}
+                className={cn(
+                  "flex max-w-48 shrink-0 items-center rounded-md text-xs",
+                  tb.key === tab?.key
+                    ? "bg-rail-accent text-foreground"
+                    : "text-muted-foreground hover:bg-rail-accent",
+                )}
               >
-                {tabLabel(tb)}
-              </button>
-              {tb.port === null ? (
                 <button
                   type="button"
-                  aria-label={t("webPreviewToolWindow.closeTab")}
-                  title={t("webPreviewToolWindow.closeTab")}
-                  onClick={() => actions().closeTab(sessionId, tb.key)}
-                  className="mr-1 inline-flex size-4 items-center justify-center rounded outline-none hover:bg-accent focus-visible:focus-outline"
+                  role="tab"
+                  aria-selected={tb.key === tab?.key}
+                  title={tabLabel(tb)}
+                  onClick={() => actions().activate(sessionId, tb.key)}
+                  className="min-w-0 truncate rounded-md px-2 py-0.5 font-mono outline-none focus-visible:focus-outline-inset"
                 >
-                  <X className="size-3" aria-hidden="true" />
+                  {tabLabel(tb)}
                 </button>
-              ) : null}
-            </div>
-          ))}
-        </div>
+                {tb.port === null ? (
+                  <button
+                    type="button"
+                    aria-label={t("webPreviewToolWindow.closeTab")}
+                    title={t("webPreviewToolWindow.closeTab")}
+                    onClick={() => actions().closeTab(sessionId, tb.key)}
+                    className="mr-1 inline-flex size-4 items-center justify-center rounded outline-none hover:bg-accent focus-visible:focus-outline"
+                  >
+                    <X className="size-3" aria-hidden="true" />
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </ToolWindowTitleBarSlot>
       ) : null}
 
       {tab === null ? (
@@ -323,7 +337,10 @@ export function WebPreviewToolWindow({ sessionId, remote, deviceName }: Props) {
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => actions().reload(sessionId, tab.key)}
+                  onClick={() => {
+                    actions().reload(sessionId, tab.key);
+                    onRefreshPorts?.();
+                  }}
                 >
                   {t("webPreviewToolWindow.reload")}
                 </Button>

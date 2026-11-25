@@ -67,6 +67,36 @@ type Failure struct {
 	Target string
 }
 
+// FailureKindHeader 是这一层每一次自有失败的响应上都带的头,值是 FailureKind.Token()。
+// 它让宿主之外的读方(例如在转发地址上先探一次的预检)分得清「是转发这一层失败了、是
+// 哪一种」与「被转发应用自己答了 502」,而不必去匹配正文。被转发应用自己的响应从不带它。
+const FailureKindHeader = "X-Agentre-Forward-Failure"
+
+// Token 是这种失败在 FailureKindHeader 上的稳定取值。
+func (k FailureKind) Token() string {
+	switch k {
+	case FailureNotDeclared:
+		return "not-declared"
+	case FailureDisabled:
+		return "disabled"
+	case FailureNoListener:
+		return "no-listener"
+	case FailureNameResolution:
+		return "name-resolution"
+	case FailureTLSVerification:
+		return "tls-verification"
+	case FailureDeviceUnreachable:
+		return "device-unreachable"
+	case FailureUpstreamGone:
+		return "upstream-gone"
+	case FailureForwardIncomplete:
+		return "forward-incomplete"
+	case FailureUpgradeUnavailable:
+		return "upgrade-unavailable"
+	}
+	return "forward-incomplete"
+}
+
 // FailureRenderer 由宿主提供,负责把一次失败写成响应。
 //
 // 它**只**在这一层自己的失败上被调用;被转发应用自己的响应(含它自己答的 4xx/5xx)
@@ -146,6 +176,7 @@ func (p *Proxy) fail(w http.ResponseWriter, r *http.Request, kind FailureKind) {
 // failWithTarget 同 fail,多带设备说出的那条映射的目标(见 Failure.Target)。
 func (p *Proxy) failWithTarget(w http.ResponseWriter, r *http.Request, kind FailureKind, target string) {
 	f := Failure{Kind: kind, MappingID: p.mappingID, Status: kind.defaultStatus(), Target: target}
+	w.Header().Set(FailureKindHeader, kind.Token())
 	if p.renderFailure != nil {
 		p.renderFailure(w, r, f)
 		return

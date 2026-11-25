@@ -73,9 +73,12 @@ type Props = {
   sessionInfo?: Omit<SessionInfoData, "turns" | "usage">;
   /**
    * 会话留下的存活进程（与后台弹层「进程与端口」同一份）。监听中的端口自动成「网页预览」
-   * 的标签；窗口没打开时也同步，打开时标签已就绪。
+   * 的标签；窗口没打开时也同步，打开时标签已就绪。缺省 = 此刻不知道进程列表（面板收着、
+   * 取数失败）：标签原样留着——不知道不等于端口消失。
    */
   processes?: readonly SessionProcess[];
+  /** 立刻重取进程与端口（网页预览「重新加载」一个已不再监听的标签时）。 */
+  onRefreshProcesses?: () => void;
   /** 新建会话提示页：不显示图标条与工具窗（见 ToolWindowLayout）。 */
   hidden?: boolean;
   /** 编辑区（对话内容页与文件预览列），由工具窗骨架摆在左边。 */
@@ -92,8 +95,6 @@ type Props = {
  * 会话当前工作根是会话级的（useSessionRoot，标题栏胶囊是唯一切换点）：这一层
  * 挂着它的取数与推送订阅（useSessionRootSync），「变更」「目录」都按它取数。
  */
-const NO_PROCESSES: readonly SessionProcess[] = [];
-
 function ChatContextToolWindowsImpl({
   sessionId,
   messages,
@@ -105,7 +106,8 @@ function ChatContextToolWindowsImpl({
   projectId,
   onCwdSpecified,
   sessionInfo: sessionInfoInput,
-  processes = NO_PROCESSES,
+  processes,
+  onRefreshProcesses,
   hidden = false,
   children,
 }: Props) {
@@ -140,39 +142,53 @@ function ChatContextToolWindowsImpl({
   const liveBlocks = useSessionLiveBlocks(sessionId);
 
   const outline = React.useMemo(() => deriveOutline(messages), [messages]);
+  const roots = sessionRoot.roots;
+  const removedRoots = sessionRoot.removed;
+  // 每个根之内的其它根（嵌在主 checkout 里的 worktree，含已移除的）：那些文件归最深的
+  // 根，不在外层根的「本次会话」里重复出现，各根的数字也就不重叠。
+  const nestedIn = React.useMemo(() => {
+    const all = [...roots, ...removedRoots].map((r) => r.path);
+    return (path: string) =>
+      all.filter((p) => p !== path && p.startsWith(`${path}/`));
+  }, [roots, removedRoots]);
   // 「本次会话」的行只从 canonical 块派生，当前工作根之外的路径在这里就被挡掉
   // （spec「归属过滤」）——不读 git，因此与有没有提交无关。
   const sessionChanges = React.useMemo(
-    () => deriveSessionChanges(messages, workRoot, liveBlocks),
-    [messages, workRoot, liveBlocks],
+    () =>
+      deriveSessionChanges(messages, workRoot, liveBlocks, nestedIn(workRoot)),
+    [messages, workRoot, liveBlocks, nestedIn],
   );
 
   // 标题栏胶囊下拉里每个根各自的变更数：与行用的是同一个派生函数，数字因此和
   // 切过去之后看到的行数一致。
-  const roots = sessionRoot.roots;
   const changeCounts = React.useMemo(() => {
     const counts = new Map<string, number>();
     for (const r of roots) {
       counts.set(
         r.path,
-        deriveSessionChanges(messages, r.path, liveBlocks).length,
+        deriveSessionChanges(messages, r.path, liveBlocks, nestedIn(r.path))
+          .length,
       );
     }
     return counts;
-  }, [messages, roots, liveBlocks]);
+  }, [messages, roots, liveBlocks, nestedIn]);
 
   // 已被移除的根（spec「worktree 被移除」）：它们「本次会话」改过的文件仍列出来，
   // 划掉显示、可点开看对话记录里的 diff；没有改动的根不占一个空分组。
-  const removedRoots = sessionRoot.removed;
   const removedGroups = React.useMemo<RemovedRootGroup[]>(
     () =>
       removedRoots
         .map((r) => ({
           root: r,
-          rows: deriveSessionChanges(messages, r.path, liveBlocks),
+          rows: deriveSessionChanges(
+            messages,
+            r.path,
+            liveBlocks,
+            nestedIn(r.path),
+          ),
         }))
         .filter((g) => g.rows.length > 0),
-    [messages, removedRoots, liveBlocks],
+    [messages, removedRoots, liveBlocks, nestedIn],
   );
 
   const turnToMessageId = React.useMemo(() => {
@@ -205,13 +221,16 @@ function ChatContextToolWindowsImpl({
       : null;
 
   // git 取数挂在这一层：「变更」的「未提交」档、它的角标、以及「目录」的状态
-  // 叠加要的是同一份快照，共用一个 hook 实例就只会有一次在途请求（决策 13：只有
-  // 需要它的工具窗显示时才打后端）。
+  // 叠加要的是同一份快照，共用一个 hook 实例就只会有一次在途请求。只在用得上时
+  // 打后端：「变更」或「目录」显示时，以及「变更」停在「未提交」档时——图标条
+  // 角标是当前档的文件数，变更窗收着也要有（spec「图标条」、用户故事 2）。
   const git = useGitChanges({
     sessionId,
     cwd,
     root,
-    enabled: !hidden && (changesShown || directoryShown),
+    enabled:
+      !hidden &&
+      (changesShown || directoryShown || changesScope === "uncommitted"),
   });
 
   // 分支状态只有「目录」那一行需要（决策 7），因此只在它显示时取数。
@@ -280,6 +299,7 @@ function ChatContextToolWindowsImpl({
       gitState,
       relations,
       sessionInfo,
+      refreshProcesses: onRefreshProcesses,
     }),
     [
       sessionId,
@@ -303,13 +323,14 @@ function ChatContextToolWindowsImpl({
       gitState,
       relations,
       sessionInfo,
+      onRefreshProcesses,
     ],
   );
 
   // 监听中的端口 → 网页预览的标签。一个端口只取第一个监听它的进程的命令。
   const syncPorts = useWebPreviewStore((s) => s.syncPorts);
   React.useEffect(() => {
-    if (hidden) return;
+    if (hidden || processes === undefined) return;
     const seen = new Set<number>();
     const entries: { port: number; command: string }[] = [];
     for (const p of processes) {

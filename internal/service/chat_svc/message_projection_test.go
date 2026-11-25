@@ -103,17 +103,19 @@ func TestToChatMessage_ToolCwdSurvivesSaveAndReload(t *testing.T) {
 	cm, err := toChatMessage(reloaded)
 	require.NoError(t, err)
 
-	type card struct{ Type, ID, Cwd string }
+	// 外层 tool_use 卡另带结果的记录(ResultCwd):派生视图只取 tool_use,前端靠它推出加载
+	// 窗口之前 AI 最后在哪。
+	type card struct{ Type, ID, Cwd, ResultCwd string }
 	got := make([]card, 0, len(cm.Blocks))
 	for _, b := range cm.Blocks {
-		got = append(got, card{b.Type, b.ToolCallID, b.Cwd})
+		got = append(got, card{b.Type, b.ToolCallID, b.Cwd, b.ResultCwd})
 	}
 	assert.Equal(t, []card{
-		{ChatBlockTypeToolUse, "t1", "/repo"},
-		{ChatBlockTypeToolResult, "t1", "/repo/wt"},
-		{ChatBlockTypeToolUse, "t2", ""},
-		{ChatBlockTypeToolUse, "n1", "/repo/sub"},
-		{ChatBlockTypeToolResult, "n1", "/repo/sub2"},
+		{ChatBlockTypeToolUse, "t1", "/repo", "/repo/wt"},
+		{ChatBlockTypeToolResult, "t1", "/repo/wt", ""},
+		{ChatBlockTypeToolUse, "t2", "", ""},
+		{ChatBlockTypeToolUse, "n1", "/repo/sub", ""},
+		{ChatBlockTypeToolResult, "n1", "/repo/sub2", ""},
 	}, got)
 }
 

@@ -68,7 +68,7 @@ func ProjectBlocks(bs []blocks.ContentBlock) []ChatBlock {
 				attachSubagentStateToChatBlock(&cb, tb.Name, sb)
 			}
 			if rec := cwdByCall[tb.ID]; rec != nil {
-				cb.Cwd = rec.Cwd
+				cb.Cwd, cb.ResultCwd = rec.Cwd, rec.ResultCwd
 			}
 			out = append(out, cb)
 		case *blocks.ToolUseBlock:
@@ -77,7 +77,7 @@ func ProjectBlocks(bs []blocks.ContentBlock) []ChatBlock {
 				attachSubagentStateToChatBlock(&cb, tb.Name, sb)
 			}
 			if rec := cwdByCall[tb.ID]; rec != nil {
-				cb.Cwd = rec.Cwd
+				cb.Cwd, cb.ResultCwd = rec.Cwd, rec.ResultCwd
 			}
 			out = append(out, cb)
 		case blocks.ToolResultBlock:

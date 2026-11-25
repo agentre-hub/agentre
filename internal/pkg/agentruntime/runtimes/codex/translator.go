@@ -156,16 +156,10 @@ func codexPlanActions() []canonical.PlanAction {
 // commandCwd 取 command_execution 入参里 codex 报告的命令目录(每条命令开始时的 cwd),
 // 作为这次调用时 AI 所在位置;缺失 / 非绝对 / 其它工具 → ""(未知)。
 func commandCwd(name string, rawInput json.RawMessage) string {
-	if name != "command_execution" {
+	if name != shellloc.CodexCommandTool {
 		return ""
 	}
-	var in struct {
-		Cwd string `json:"cwd"`
-	}
-	if json.Unmarshal(rawInput, &in) != nil {
-		return ""
-	}
-	return shellloc.AbsDir(in.Cwd)
+	return shellloc.InputCwd(rawInput)
 }
 
 // recognizeCanonical 按工具名 + raw input JSON 识别 codex 已知 canonical 形状。

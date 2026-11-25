@@ -37,6 +37,9 @@ export interface TerminalPanelProps {
   // 设备)。原会话不可恢复(transport 不支持重连),本标签保留旧输出直到用户关闭。
   // 不传时红条只有「关闭」。
   onNewTerminal?: () => void;
+  // 宿主自己的快捷键:返回 true 的 keydown 不交给 xterm(它不处理、不拦冒泡),照常
+  // 冒到宿主的键盘监听上。不传时所有按键都归终端。
+  passThroughKey?: (ev: KeyboardEvent) => boolean;
 }
 
 export function TerminalPanel({
@@ -47,12 +50,18 @@ export function TerminalPanel({
   attach = false,
   onClose,
   onNewTerminal,
+  passThroughKey,
 }: TerminalPanelProps) {
   const { t } = useUiTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
+  // xterm 只在挂载时建一次,按键判定读最新的宿主回调。
+  const passThroughRef = useRef(passThroughKey);
+  useEffect(() => {
+    passThroughRef.current = passThroughKey;
+  }, [passThroughKey]);
 
   // Stable dismiss for the banner — calls onClose, which unmounts us.
   const dismissAndClose = useCallback(() => {
@@ -139,6 +148,7 @@ export function TerminalPanel({
       // 处理的按键，否则可能导致字符丢失 (W3C UI Events §5.4.3)。
       if (ev.isComposing || ev.keyCode === 229) return true;
       if (ev.type !== "keydown") return true;
+      if (passThroughRef.current?.(ev)) return false;
       const isCopyCombo =
         (ev.ctrlKey || ev.metaKey) &&
         !ev.shiftKey &&

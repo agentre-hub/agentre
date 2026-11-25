@@ -478,10 +478,51 @@ describe("tool-window-layout-store", () => {
       expect(shownWindows()).toEqual(["changes"]);
     });
 
-    it("Given 专注里记着的显示状态, Then 它不进本机布局", () => {
+    it("Given 在专注里重启, When 读回后再按专注, Then 恢复进入专注之前的显示", async () => {
+      useToolWindowLayout.getState().show("directory");
       useToolWindowLayout.getState().toggleFocusMode();
-      const raw = localStorage.getItem(TOOL_WINDOW_LAYOUT_KEY) ?? "";
-      expect(raw).not.toContain("focusSnapshot");
+      // 重启：内存里的状态没了，只剩本机存下的布局。
+      const saved = localStorage.getItem(TOOL_WINDOW_LAYOUT_KEY);
+      resetToDefaults();
+      localStorage.setItem(TOOL_WINDOW_LAYOUT_KEY, saved ?? "");
+      await rehydrate();
+      expect(shownWindows()).toEqual([]);
+
+      useToolWindowLayout.getState().toggleFocusMode();
+      expect(useToolWindowLayout.getState().shown).toEqual({
+        rightTop: "outline",
+        rightBottom: "directory",
+        bottomLeft: null,
+        bottomRight: null,
+      });
+    });
+
+    it("Given 读回的专注快照非法, Then 逐项回落：坏槽位不显示，整份不可读时不在专注", async () => {
+      persistLayout({
+        shown: {
+          rightTop: null,
+          rightBottom: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+        focusSnapshot: {
+          rightTop: "outline",
+          rightBottom: "nope",
+          bottomLeft: "outline",
+          bottomRight: null,
+        },
+      });
+      await rehydrate();
+      expect(useToolWindowLayout.getState().focusSnapshot).toEqual({
+        rightTop: "outline",
+        rightBottom: null,
+        bottomLeft: null,
+        bottomRight: null,
+      });
+
+      persistLayout({ focusSnapshot: "garbage" });
+      await rehydrate();
+      expect(useToolWindowLayout.getState().focusSnapshot).toBeNull();
     });
   });
 

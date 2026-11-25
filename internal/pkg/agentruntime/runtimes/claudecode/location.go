@@ -1,7 +1,6 @@
 package claudecode
 
 import (
-	"encoding/json"
 	"sync"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
@@ -26,8 +25,8 @@ import (
 // 据 ParentToolCallID 只认领),不移动主位置;子代理的调用不带目录。
 
 const (
-	toolEnterWorktree = "EnterWorktree"
-	toolExitWorktree  = "ExitWorktree"
+	toolEnterWorktree = agentruntime.ToolEnterWorktree
+	toolExitWorktree  = agentruntime.ToolExitWorktree
 )
 
 // SetHookLocations 由 bootstrap / agentred 在 gateway 起来后注入 hook 位置簿(与 SetSteerInbox
@@ -97,7 +96,7 @@ func (a *claudeActive) stampLocation(ev claudecode.Event, translated []agentrunt
 		}
 		var cwd, revoke string
 		if ev.Tool.Err == nil {
-			cwd, revoke = worktreeResultLocation(name, ev.Tool.ResultMeta)
+			cwd, revoke = agentruntime.WorktreeToolResultLocation(name, ev.Tool.ResultMeta)
 		}
 		if cwd == "" && hooked {
 			cwd = hook.Cwd
@@ -112,63 +111,11 @@ func (a *claudeActive) stampLocation(ev claudecode.Event, translated []agentrunt
 			if tr, ok := t.(agentruntime.ToolResult); ok && tr.ToolCallID == ev.Tool.ID {
 				tr.Cwd = cwd
 				if revoke != "" {
-					tr.Meta = withRevokeRoot(tr.Meta, revoke)
+					tr.Meta = agentruntime.WithRevokeRoot(tr.Meta, revoke)
 				}
 				translated[i] = tr
 			}
 		}
 	}
 	return translated
-}
-
-// worktreeResultLocation 从 EnterWorktree / ExitWorktree 的结果元数据取「跑完之后的目录」,
-// ExitWorktree 选择删除时另交回被删的 worktree 路径。其它工具、元数据缺失或解不开时为空。
-//
-// 形状(Claude Code 2.1.326):EnterWorktree {worktreePath, worktreeBranch?, message};
-// ExitWorktree {action:"keep"|"remove", originalCwd, worktreePath, restoredCwd?, …} ——
-// restoredCwd 是会话实际回到的目录(originalCwd 不在了时是回落目录),老版本不报时用
-// originalCwd。
-func worktreeResultLocation(name string, meta json.RawMessage) (cwd, revoke string) {
-	if len(meta) == 0 || (name != toolEnterWorktree && name != toolExitWorktree) {
-		return "", ""
-	}
-	var m struct {
-		Action       string `json:"action"`
-		WorktreePath string `json:"worktreePath"`
-		OriginalCwd  string `json:"originalCwd"`
-		RestoredCwd  string `json:"restoredCwd"`
-	}
-	if json.Unmarshal(meta, &m) != nil {
-		return "", ""
-	}
-	if name == toolEnterWorktree {
-		return m.WorktreePath, ""
-	}
-	cwd = m.RestoredCwd
-	if cwd == "" {
-		cwd = m.OriginalCwd
-	}
-	if m.Action == "remove" {
-		revoke = m.WorktreePath
-	}
-	return cwd, revoke
-}
-
-// withRevokeRoot 在结果元数据(一个 JSON 对象)里加上 agentruntime.RevokeRootMetaKey,其余字段原样保留。
-// 解不开时原样交回:标记丢了只是不撤销,不能把元数据弄坏。
-func withRevokeRoot(meta json.RawMessage, root string) json.RawMessage {
-	var m map[string]json.RawMessage
-	if json.Unmarshal(meta, &m) != nil || m == nil {
-		return meta
-	}
-	v, err := json.Marshal(root)
-	if err != nil {
-		return meta
-	}
-	m[agentruntime.RevokeRootMetaKey] = v
-	out, err := json.Marshal(m)
-	if err != nil {
-		return meta
-	}
-	return out
 }

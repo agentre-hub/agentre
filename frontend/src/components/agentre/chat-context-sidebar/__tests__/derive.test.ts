@@ -191,6 +191,27 @@ describe("deriveOutline", () => {
 describe("deriveSessionChanges", () => {
   const ROOT = "/Users/me/proj";
 
+  // 嵌在主根里的 worktree（<repo>/.claude/worktrees/x）是另一个工作根：它里面的文件归
+  // 包含它的最深的根（spec「文件链接」同一口径），不在主根的「本次会话」里再算一遍，
+  // 胶囊下拉里两个根的数字也就不重复。
+  it("leaves files of a nested worktree root out of the enclosing root's rows", () => {
+    const NESTED = `${ROOT}/.claude/worktrees/x`;
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        writeBlock("Write", `${ROOT}/a.go`, 1),
+        writeBlock("Write", `${NESTED}/b.go`, 2),
+      ]),
+    ];
+
+    expect(
+      deriveSessionChanges(msgs, ROOT, [], [NESTED]).map((r) => r.path),
+    ).toEqual(["a.go"]);
+    expect(deriveSessionChanges(msgs, NESTED).map((r) => r.path)).toEqual([
+      "b.go",
+    ]);
+  });
+
   it("lists one row per file the tools touched, biggest change first", () => {
     const msgs = [
       userMsg(1, "u1"),

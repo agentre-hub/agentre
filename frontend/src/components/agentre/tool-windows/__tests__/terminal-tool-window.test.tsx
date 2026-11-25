@@ -23,10 +23,17 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
   TerminalResize: vi.fn().mockResolvedValue(undefined),
   TerminalClose: vi.fn().mockResolvedValue(undefined),
 }));
+// 删除会话走相对路径的绑定（与会话列表、对话页同一处导入）。
+const deleteApi = vi.hoisted(() => ({ DeleteChatSession: vi.fn() }));
+vi.mock("../../../../../wailsjs/go/app/App", () => deleteApi);
 
 // 真 TerminalPanel 的 xterm 在 happy-dom 里跑不起来:换成一个按同样方式使用传输的替身
 // (挂载时 open、订阅退出,卸载时 close),并记下挂载 / 卸载次数。
-const panelLife = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
+const panelLife = vi.hoisted(() => ({
+  mounts: 0,
+  unmounts: 0,
+  passThroughKey: null as ((ev: KeyboardEvent) => boolean) | null,
+}));
 vi.mock("@agentre-hub/agentre-ui/terminal", async () => {
   const ui = await vi.importActual<typeof import("@agentre-hub/agentre-ui")>(
     "@agentre-hub/agentre-ui",
@@ -40,8 +47,12 @@ vi.mock("@agentre-hub/agentre-ui/terminal", async () => {
     attach?: boolean;
     onClose: () => void;
     onNewTerminal?: () => void;
+    passThroughKey?: (ev: KeyboardEvent) => boolean;
   }) {
     const transport = ui.useTerminalTransport();
+    R.useEffect(() => {
+      panelLife.passThroughKey = props.passThroughKey ?? null;
+    });
     R.useEffect(() => {
       panelLife.mounts += 1;
       if (props.attach) {
@@ -99,8 +110,12 @@ import {
 } from "@/stores/session-root-store";
 import { useSessionTerminalsStore } from "@/stores/session-terminals-store";
 
+import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
+
+import { deleteChatSession } from "../../session-index/delete-chat-session";
 import { SessionTerminalsHost } from "../session-terminals-host";
 import { TerminalToolWindow } from "../terminal-tool-window";
+import { ToolWindowFrame } from "../tool-window-frame";
 
 const CWD = "/work/demo-app";
 const WT = "/work/demo-app-dark-mode";
@@ -162,9 +177,101 @@ beforeEach(() => {
   listeners.clear();
   panelLife.mounts = 0;
   panelLife.unmounts = 0;
+  panelLife.passThroughKey = null;
   useSessionTerminalsStore.setState({ bySession: {}, viewing: {} });
   useSessionRootStore.setState({ bySession: {} });
   useChatTabsStore.setState({ tabs: [], activeTabId: null });
+});
+
+/** 与真实页面同构、再套上工具窗外壳：标签进标题栏、外壳的按键处理都在。 */
+function FramedHarness({ sessionId = 7 }: { sessionId?: number }) {
+  return (
+    <TooltipProvider>
+      <SessionTerminalsHost />
+      <ToolWindowFrame
+        window={{
+          id: "terminal",
+          label: "Terminal",
+          icon: (() => null) as never,
+          content: <TerminalToolWindow sessionId={sessionId} />,
+        }}
+      />
+    </TooltipProvider>
+  );
+}
+
+describe("TerminalToolWindow · 在工具窗外壳里", () => {
+  beforeEach(() => {
+    act(() =>
+      useToolWindowLayout.setState({
+        shown: {
+          rightTop: null,
+          rightBottom: null,
+          bottomLeft: "terminal",
+          bottomRight: null,
+        },
+        maximized: null,
+      }),
+    );
+  });
+
+  // Given 窗口里有终端标签, Then 标签在标题栏里（spec「终端与网页预览的标题栏同时承载各自的标签」）。
+  it("puts the terminal tabs in the window's title bar", async () => {
+    oneRoot();
+    render(<FramedHarness />);
+    await newTerminal();
+    const region = screen.getByRole("region", { name: "Terminal" });
+    const titleBar = region.querySelector("[data-tool-window-title-bar]");
+    expect(titleBar).not.toBeNull();
+    expect(within(titleBar as HTMLElement).getByRole("tablist")).toBeTruthy();
+    expect(
+      within(titleBar as HTMLElement).getByRole("tab", { name: /Terminal 1/ }),
+    ).toBeTruthy();
+  });
+
+  // Given 焦点在终端里, When 按 ⇧Esc, Then 隐藏终端工具窗（终端面板挂在常驻宿主里，按键要照样落到外壳）。
+  it("hides the window on shift+Esc pressed inside the terminal", async () => {
+    oneRoot();
+    render(<FramedHarness />);
+    await newTerminal();
+    const inside = within(screen.getByTestId("terminal-panel")).getByRole(
+      "button",
+      { name: "panel-close" },
+    );
+    act(() => {
+      inside.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(useToolWindowLayout.getState().shown.bottomLeft).toBeNull();
+  });
+});
+
+describe("TerminalToolWindow · 焦点在终端里时的工具窗快捷键", () => {
+  // Given 焦点在终端里, When 按 ⇧Esc / ⌃`（工具窗快捷键）, Then 终端不吞它们、交给应用；
+  // 单按 Esc 仍归终端（vim 等全屏程序要用它）。
+  it("lets tool-window shortcuts through to the app but keeps plain Esc in the terminal", async () => {
+    oneRoot();
+    render(<Harness />);
+    await newTerminal();
+    const pass = panelLife.passThroughKey;
+    expect(pass).not.toBeNull();
+    const key = (init: KeyboardEventInit) => new KeyboardEvent("keydown", init);
+    expect(pass!(key({ key: "Escape", code: "Escape", shiftKey: true }))).toBe(
+      true,
+    );
+    expect(pass!(key({ key: "`", code: "Backquote", ctrlKey: true }))).toBe(
+      true,
+    );
+    expect(pass!(key({ key: "Escape", code: "Escape" }))).toBe(false);
+    expect(pass!(key({ key: "c", code: "KeyC", ctrlKey: true }))).toBe(false);
+  });
 });
 
 describe("TerminalToolWindow · 新建终端在当前工作根", () => {
@@ -223,6 +330,44 @@ describe("TerminalToolWindow · 新建终端在当前工作根", () => {
     expect(openCalls()).toHaveLength(2);
     expect(openCalls()[1][2]).toBe(WT);
     expect(screen.getAllByRole("tab")).toHaveLength(2);
+  });
+});
+
+describe("TerminalToolWindow · 会话被删除", () => {
+  // Given 会话有在跑的终端, When 删除这个会话, Then 它的终端进程随之结束、标签消失；
+  // 别的会话的终端不受影响。
+  it("closes the deleted session's terminals and leaves other sessions alone", async () => {
+    oneRoot();
+    oneRoot(8);
+    const view = render(<Harness />);
+    await newTerminal();
+    view.rerender(<Harness sessionId={8} />);
+    await newTerminal();
+    vi.mocked(App.TerminalClose).mockClear();
+    deleteApi.DeleteChatSession.mockResolvedValueOnce(undefined);
+
+    await act(() => deleteChatSession(7));
+
+    expect(deleteApi.DeleteChatSession).toHaveBeenCalledWith({ sessionId: 7 });
+    expect(App.TerminalClose).toHaveBeenCalledTimes(1);
+    expect(useSessionTerminalsStore.getState().bySession[7]).toBeUndefined();
+    expect(useSessionTerminalsStore.getState().bySession[8]?.tabs).toHaveLength(
+      1,
+    );
+  });
+
+  // Given 删除失败, Then 终端照留（会话还在）。
+  it("keeps the terminals when the delete fails", async () => {
+    oneRoot();
+    render(<Harness />);
+    await newTerminal();
+    deleteApi.DeleteChatSession.mockRejectedValueOnce(new Error("nope"));
+
+    await expect(act(() => deleteChatSession(7))).rejects.toThrow("nope");
+
+    expect(useSessionTerminalsStore.getState().bySession[7]?.tabs).toHaveLength(
+      1,
+    );
   });
 });
 

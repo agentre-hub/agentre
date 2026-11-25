@@ -6,6 +6,7 @@ import {
   buildRenderItems,
   buildSettledTranscriptRows,
   buildTranscriptRows,
+  lastRecordedToolCwd,
   type TranscriptRow,
 } from "./transcript-rows";
 
@@ -157,5 +158,52 @@ describe("跨消息的这一轮开始时位置", () => {
 
     expect(cwdOf(textRows(before.rows, 2)[0])).toBe("/repo-wt");
     expect(cwdOf(textRows(after.rows, 2)[0])).toBe("/repo-wt2");
+  });
+});
+
+describe("加载窗口之前的位置", () => {
+  // spec「AI 当时所在目录」：没有同轮之前的工具块时用这一轮开始时的 AI 当前位置，且重新
+  // 加载后不变。转录只渲染正文已取全的那一段，窗口之前的位置由宿主从派生视图块算好递进来。
+  it("Given the turn's start location comes from before the loaded window, When the first loaded turn starts with text, Then that text takes it", () => {
+    const { rows } = buildTranscriptRows({
+      displayMessages: [
+        msg(2, [{ type: "text", text: "go on" }], "user"),
+        msg(3, [{ type: "text", text: "look at src/a.ts" }]),
+      ],
+      autonomousIds: new Set(),
+      initialCwd: "/repo-wt",
+    });
+
+    expect(cwdOf(textRows(rows, 3)[0])).toBe("/repo-wt");
+  });
+
+  it("Given earlier messages that only carry derived-view tool calls, When asked for the last recorded location, Then a call's recorded result directory wins over its call directory", () => {
+    expect(
+      lastRecordedToolCwd([
+        msg(1, [
+          { type: "tool_use", toolUseId: "a", toolName: "Bash", cwd: "/repo" },
+        ]),
+        msg(2, [
+          {
+            type: "tool_use",
+            toolUseId: "b",
+            toolName: "EnterWorktree",
+            cwd: "/repo",
+            resultCwd: "/repo-wt",
+          },
+          {
+            type: "tool_use",
+            toolUseId: "n",
+            toolName: "Bash",
+            cwd: "/elsewhere",
+            parentToolUseId: "b",
+          },
+        ]),
+        msg(3, [{ type: "text", text: "no tools" }], "user"),
+      ]),
+    ).toBe("/repo-wt");
+    expect(lastRecordedToolCwd([msg(1, [{ type: "text", text: "x" }])])).toBe(
+      undefined,
+    );
   });
 });

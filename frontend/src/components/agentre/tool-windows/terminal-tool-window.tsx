@@ -10,6 +10,10 @@ import {
 } from "@/stores/session-terminals-store";
 
 import { terminalContainer } from "./session-terminals-host";
+import {
+  ToolWindowTitleBarSlot,
+  useToolWindowFrameKeys,
+} from "./tool-window-frame";
 
 type Props = {
   sessionId: number;
@@ -82,55 +86,58 @@ export function TerminalToolWindow({ sessionId }: Props) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        role="tablist"
-        aria-label={t("terminalToolWindow.label")}
-        className="flex h-7 shrink-0 items-center gap-0.5 overflow-x-auto px-2"
-      >
-        {tabs.map((tab) => {
-          const label = labelOf(tab);
-          const selected = tab.id === activeId;
-          return (
-            <div
-              key={tab.id}
-              className={cn(
-                "group/terminal-tab flex h-6 shrink-0 items-center rounded-md text-xs",
-                selected
-                  ? "bg-button-fill text-foreground"
-                  : "text-muted-foreground hover:bg-rail-accent",
-                tab.exited && "opacity-60",
-              )}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                onClick={() => setActive(sessionId, tab.id)}
-                className="max-w-48 truncate pr-1 pl-2 outline-none focus-visible:focus-outline-inset"
-              >
-                {label}
-              </button>
-              <button
-                type="button"
-                aria-label={t("terminalToolWindow.close", { name: label })}
-                onClick={() => close(sessionId, tab.id)}
-                className="mr-0.5 flex size-4 items-center justify-center rounded-sm hover:bg-accent"
-              >
-                <X className="size-3" aria-hidden="true" />
-              </button>
-            </div>
-          );
-        })}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={t("terminalToolWindow.new")}
-          onClick={newTerminal}
+      {/* 标签在工具窗的标题栏里（spec「工具窗标题栏」）。 */}
+      <ToolWindowTitleBarSlot>
+        <div
+          role="tablist"
+          aria-label={t("terminalToolWindow.label")}
+          className="flex h-7 min-w-0 flex-1 items-center gap-0.5 overflow-x-auto px-1"
         >
-          <Plus aria-hidden="true" />
-        </Button>
-      </div>
+          {tabs.map((tab) => {
+            const label = labelOf(tab);
+            const selected = tab.id === activeId;
+            return (
+              <div
+                key={tab.id}
+                className={cn(
+                  "group/terminal-tab flex h-6 shrink-0 items-center rounded-md text-xs",
+                  selected
+                    ? "bg-button-fill text-foreground"
+                    : "text-muted-foreground hover:bg-rail-accent",
+                  tab.exited && "opacity-60",
+                )}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setActive(sessionId, tab.id)}
+                  className="max-w-48 truncate pr-1 pl-2 outline-none focus-visible:focus-outline-inset"
+                >
+                  {label}
+                </button>
+                <button
+                  type="button"
+                  aria-label={t("terminalToolWindow.close", { name: label })}
+                  onClick={() => close(sessionId, tab.id)}
+                  className="mr-0.5 flex size-4 items-center justify-center rounded-sm hover:bg-accent"
+                >
+                  <X className="size-3" aria-hidden="true" />
+                </button>
+              </div>
+            );
+          })}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={t("terminalToolWindow.new")}
+            onClick={newTerminal}
+          >
+            <Plus aria-hidden="true" />
+          </Button>
+        </div>
+      </ToolWindowTitleBarSlot>
       {activeId === null ? null : (
         <TerminalSlot
           key={`${sessionId}:${activeId}`}
@@ -160,5 +167,14 @@ function TerminalSlot({
       if (el.parentNode === slot) slot.removeChild(el);
     };
   }, [sessionId, terminalId]);
+  // 面板属于常驻宿主那棵 React 树，它的按键不经 React 冒到工具窗外壳：在这里用原生
+  // 监听交给外壳（⇧Esc 隐藏、⇧⌘' 最大化）。
+  const frameKeys = useToolWindowFrameKeys();
+  React.useEffect(() => {
+    const slot = ref.current;
+    if (!slot || !frameKeys) return;
+    slot.addEventListener("keydown", frameKeys);
+    return () => slot.removeEventListener("keydown", frameKeys);
+  }, [frameKeys]);
   return <div ref={ref} className="flex min-h-0 min-w-0 flex-1" />;
 }
