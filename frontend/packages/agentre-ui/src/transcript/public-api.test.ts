@@ -10,6 +10,8 @@ describe("转录的对外契约（手机形态新件）", () => {
   it("从 barrel 出得去", () => {
     const missing = [
       "ToolPermissionDock",
+      "UserAskCard",
+      "DecisionCardEnvProvider",
       "ShortcutHintsProvider",
       "isPendingToolPermission",
     ].filter((name) => !(name in pkg));

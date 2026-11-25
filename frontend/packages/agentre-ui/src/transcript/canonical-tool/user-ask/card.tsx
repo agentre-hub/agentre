@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "../../../ui/button";
 import { Input } from "../../../ui/input";
+import { Spinner } from "../../../ui/spinner";
 import { StatusMark } from "../../../ui/status-mark";
 import {
   SegmentedControl,
@@ -41,7 +42,11 @@ import type {
   CanonicalDTO,
   UserAskDTO,
 } from "../types";
+import { useDecisionCardEnv } from "../tool-permission/decision-card-env";
 import { useSubmitAnswer } from "./use-submit-answer";
+
+// 触屏命中区 ≥ 44px。
+const TOUCH_TARGET = "min-h-11";
 
 // OTHER_LABEL 与后端 canonical.OtherAnswerLabel 对齐。
 const OTHER_LABEL = "__other__";
@@ -70,15 +75,27 @@ function initialSelections(payload: UserAskDTO | undefined): Selection[] {
   });
 }
 
+export type UserAskCardProps = CanonicalCardProps & {
+  /** 触屏档:标题本地化为「Agent 在问你」,选项与按钮 ≥44px,不画回车键帽。不传保持桌面外观。 */
+  touch?: boolean;
+  /** 执行端连接未就绪:提交 / 跳过禁用并写明原因。选项仍可先选。 */
+  connecting?: boolean;
+};
+
 // UserAskCard 渲染 canonical.user.ask —— 结构化问答(claudecode AskUserQuestion /
 // codex request_user_input)。读 toolBlock.canonical.userAsk。
-export const UserAskCard: React.FC<CanonicalCardProps> = ({
+export const UserAskCard: React.FC<UserAskCardProps> = ({
   toolBlock,
   sessionId,
   uiStateKey,
   tabStateKey,
+  touch: touchProp,
+  connecting: connectingProp,
 }) => {
   const { t } = useUiTranslation();
+  const env = useDecisionCardEnv();
+  const touch = touchProp ?? env.touch;
+  const connecting = connectingProp ?? env.connecting;
   const submitAnswer = useSubmitAnswer();
   const payload = readUserAsk(toolBlock);
   const draftKey =
@@ -262,7 +279,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
         />
         <MessageSquareQuote className="h-3.5 w-3.5 shrink-0 text-primary" />
         <span className="font-mono text-xs font-semibold text-primary-text">
-          user_ask
+          {touch ? t("canonical.userAsk.askingTitle") : "user_ask"}
         </span>
         {headerLabel && (
           <>
@@ -306,6 +323,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                     sel={selections[activeQIdx]}
                     locked={isLocked}
                     answered={isAnswered && !isSkipped}
+                    touch={touch}
                     onToggle={toggleOption}
                     onOther={setOtherText}
                   />
@@ -322,6 +340,15 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                   )}
               </TranscriptCardBody>
 
+              {!isLocked && connecting && (
+                <p
+                  data-testid="user-ask-connecting"
+                  className="flex items-center gap-2 px-3.5 pt-2.5 text-aux text-muted-foreground"
+                >
+                  <Spinner className="size-3.5" />
+                  {t("canonical.userAsk.connecting")}
+                </p>
+              )}
               {!isLocked && (
                 <div className="flex items-center gap-2 px-3.5 py-2.5">
                   <div className="flex-1" />
@@ -329,7 +356,8 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={submitting}
+                    className={touch ? TOUCH_TARGET : undefined}
+                    disabled={submitting || connecting}
                     onClick={() => void handleSubmit(true)}
                   >
                     {t("common.skip")}
@@ -337,12 +365,12 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                   <Button
                     type="button"
                     size="sm"
-                    disabled={submitting}
+                    disabled={submitting || connecting}
                     onClick={() => void handleSubmit(false)}
-                    className="gap-1.5"
+                    className={cn("gap-1.5", touch && TOUCH_TARGET)}
                   >
                     {t("canonical.userAsk.submit")}
-                    <CornerDownLeft className="h-3 w-3" />
+                    {touch ? null : <CornerDownLeft className="h-3 w-3" />}
                   </Button>
                 </div>
               )}
@@ -428,6 +456,7 @@ function QuestionGroup({
   sel,
   locked,
   answered,
+  touch,
   onToggle,
   onOther,
 }: {
@@ -436,6 +465,7 @@ function QuestionGroup({
   sel: Selection | undefined;
   locked: boolean;
   answered: boolean;
+  touch: boolean;
   onToggle: (qIdx: number, label: string, multi: boolean) => void;
   onOther: (qIdx: number, text: string) => void;
 }) {
@@ -470,6 +500,7 @@ function QuestionGroup({
               onClick={() => onToggle(qIdx, opt.label, multi)}
               className={cn(
                 "flex w-full flex-col gap-1.5 rounded-md px-3.5 py-3 text-left transition-colors",
+                touch && TOUCH_TARGET,
                 selected
                   ? "bg-primary-soft"
                   : "bg-button-fill hover:bg-button-fill-hover",
@@ -515,6 +546,7 @@ function QuestionGroup({
           <div
             className={cn(
               "flex items-center gap-2.5 rounded-md px-3.5 py-2.5",
+              touch && TOUCH_TARGET,
               labels.includes(OTHER_LABEL)
                 ? "bg-primary-soft"
                 : "bg-button-fill",
@@ -535,7 +567,7 @@ function QuestionGroup({
               }}
               variant="inline"
               // 移动端 16px（iOS 聚焦小于 16px 的输入会放大视口），md 及以上 14px。
-              className="h-7 p-0 text-base md:text-sm"
+              className={cn("p-0 text-base md:text-sm", touch ? "h-11" : "h-7")}
             />
           </div>
         ) : null}

@@ -206,3 +206,117 @@ describe("ToolPermissionDock submits through the card's path", () => {
     await waitFor(() => expect(answerToolPermission).toHaveBeenCalledTimes(1));
   });
 });
+
+describe("ToolPermissionDock connecting / feedback (opt-in via connecting prop)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const names = ["Allow", "Always Allow This Session", "Reject"];
+
+  it("Given connecting, Then all three buttons are disabled and a spinner line says approval waits for the connection", () => {
+    renderDock(
+      <ToolPermissionDock toolBlock={bash()} sessionId={7} connecting />,
+    );
+    for (const name of names) {
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+    }
+    const note = screen.getByTestId("tool-permission-dock-connecting");
+    expect(note.textContent).toContain(
+      "Connecting. You can approve once it's connected",
+    );
+    expect(note.querySelector('[role="status"]')).not.toBeNull();
+  });
+
+  it("Given connecting={false} or no prop, Then buttons are enabled and there is no connecting line", () => {
+    renderDock(
+      <ToolPermissionDock
+        toolBlock={bash()}
+        sessionId={7}
+        connecting={false}
+      />,
+    );
+    expect(screen.queryByTestId("tool-permission-dock-connecting")).toBeNull();
+    for (const name of names) {
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    }
+  });
+
+  it("Given no new props, Then a pending submit shows no spinner and a failure has no Retry button", async () => {
+    answerToolPermission.mockRejectedValueOnce(new Error("boom"));
+    renderDock(<ToolPermissionDock toolBlock={bash()} sessionId={7} />);
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(document.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("When one button is tapped and pending, Then only that button shows a spinner", async () => {
+    answerToolPermission.mockImplementationOnce(() => new Promise(() => {}));
+    renderDock(
+      <ToolPermissionDock
+        toolBlock={bash()}
+        sessionId={7}
+        connecting={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Reject/ }));
+    const reject = screen.getByRole("button", { name: /Reject/ });
+    expect(reject.querySelector('[role="status"]')).not.toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: /^Allow$/ })
+        .querySelector('[role="status"]'),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Always Allow This Session" })
+        .querySelector('[role="status"]'),
+    ).toBeNull();
+  });
+
+  it("Given a failure, Then the reason is shown with a Retry that repeats the same decision", async () => {
+    answerToolPermission.mockRejectedValueOnce(new Error("no waiting"));
+    renderDock(
+      <ToolPermissionDock
+        toolBlock={bash()}
+        sessionId={7}
+        messageId={42}
+        connecting={false}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Always Allow This Session" }),
+    );
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Approval submission failed");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(answerToolPermission).toHaveBeenCalledTimes(2));
+    expect(answerToolPermission).toHaveBeenLastCalledWith({
+      sessionId: 7,
+      requestId: "req-1",
+      allow: true,
+      alwaysAllowSession: true,
+    });
+  });
+
+  it("Given the port times out, Then the copy says no confirmation arrived and it may already have taken effect", async () => {
+    const err = new Error("request timed out after 30000ms");
+    err.name = "ApiTimeoutError";
+    answerToolPermission.mockRejectedValueOnce(err);
+    renderDock(
+      <ToolPermissionDock
+        toolBlock={bash()}
+        sessionId={7}
+        connecting={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "No confirmation received. It may already have taken effect",
+    );
+  });
+});

@@ -193,12 +193,16 @@
       "allowSession": "本会话始终允许",
       "submitFailed": "审批提交失败",
       "dock": {
+        "connecting": "正在连接，连上后才能审批",
         "eyebrow": "需要你决定",
+        "timedOut": "没收到确认，可能已经生效",
         "titleCommand": "运行这条命令？",
         "titleTool": "允许使用 {{tool}}？"
       }
     },
     "userAsk": {
+      "askingTitle": "Agent 在问你",
+      "connecting": "正在连接，连上后才能回答",
       "errors": {
         "optionRequired": "请先选择一个选项再提交",
         "otherRequired": "已选「自定义答案」请填写内容",

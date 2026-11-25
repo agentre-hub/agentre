@@ -193,12 +193,16 @@
       "allowSession": "Always Allow This Session",
       "submitFailed": "Approval submission failed",
       "dock": {
+        "connecting": "Connecting. You can approve once it's connected",
         "eyebrow": "Decision needed",
+        "timedOut": "No confirmation received. It may already have taken effect",
         "titleCommand": "Run this command?",
         "titleTool": "Allow {{tool}}?"
       }
     },
     "userAsk": {
+      "askingTitle": "Agent is asking you",
+      "connecting": "Connecting. You can answer once it's connected",
       "errors": {
         "optionRequired": "Select an option before submitting",
         "otherRequired": "Fill in the custom answer you selected",
