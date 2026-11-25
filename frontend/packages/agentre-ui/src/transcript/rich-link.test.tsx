@@ -931,6 +931,24 @@ describe("RichLink", () => {
       );
     });
 
+    // 开发服务器常打印 0.0.0.0：它同样指向执行设备上的端口，也给「应用内预览」。
+    it("Given previewURL and a 0.0.0.0 link in a session, Then the popover offers in-app preview", async () => {
+      renderWithPorts(
+        <RichLink href="http://0.0.0.0:8000/" sessionId={7}>
+          dev
+        </RichLink>,
+        { ...testPorts, previewURL: previewURLMock },
+      );
+      const popover = await openPopover(/dev/);
+      fireEvent.click(
+        within(popover).getByRole("button", { name: "In-app preview" }),
+      );
+      expect(previewURLMock).toHaveBeenCalledExactlyOnceWith(
+        7,
+        "http://0.0.0.0:8000/",
+      );
+    });
+
     it("Given the host has no previewURL port, Then the popover has no in-app preview button", async () => {
       render(
         <RichLink href="http://localhost:3000/" sessionId={7}>

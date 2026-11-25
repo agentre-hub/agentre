@@ -90,6 +90,19 @@ func (r *rig) useStore(t *testing.T, ctrl *gomock.Controller, store *rootStore) 
 			store.rows = kept
 			return nil
 		})
+	repo.EXPECT().DeleteBySession(gomock.Any(), gomock.Any()).AnyTimes().
+		DoAndReturn(func(_ context.Context, sessionID int64) error {
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			kept := store.rows[:0]
+			for _, existing := range store.rows {
+				if existing.SessionID != sessionID {
+					kept = append(kept, existing)
+				}
+			}
+			store.rows = kept
+			return nil
+		})
 	prev := workspace_fs_repo.WorkRoot()
 	workspace_fs_repo.RegisterWorkRoot(repo)
 	t.Cleanup(func() { workspace_fs_repo.RegisterWorkRoot(prev) })
@@ -464,4 +477,55 @@ func TestRevoke(t *testing.T) {
 			assert.Equal(t, []string{wr.wt}, rootPaths(added))
 		})
 	})
+}
+
+// Given 一条会话认领过 worktree, When 会话被删除(ForgetSession), Then 库里的认领与本进程里
+// 的认领状态一并清掉:之后按同一会话号取工作根只剩主根,不靠内存里的旧集合。
+func TestForgetSession_DropsPersistedAndInMemoryClaims(t *testing.T) {
+	wr := newWorktreeRig(t)
+	r := newRig(t, 0, wr.main)
+	r.withWritten()
+	added, err := r.svc.Claim(r.ctx, 42, []string{wr.wt})
+	require.NoError(t, err)
+	require.Len(t, added, 1)
+
+	require.NoError(t, r.svc.ForgetSession(r.ctx, 42))
+
+	assert.Empty(t, r.store.paths(42))
+	roots, err := r.svc.WorkRoots(r.ctx, 42)
+	require.NoError(t, err)
+	assert.Equal(t, []string{wr.main}, rootPaths(roots))
+}
+
+// Given 库里有一行认领与已在集合里的工作树是同一个(另一种路径写法), When 读入持久化集合,
+// Then 这一行从库里删掉,不在之后每次启动都被读出来再跳过。
+func TestWorkRoots_DuplicatePersistedRowIsDeleted(t *testing.T) {
+	wr := newWorktreeRig(t)
+	r := newRig(t, 0, wr.main)
+	r.withWritten()
+	r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: wr.main + "-alias", Worktree: ""})
+
+	roots, err := r.svc.WorkRoots(r.ctx, 42)
+	require.NoError(t, err)
+	assert.Equal(t, []string{wr.main}, rootPaths(roots))
+	assert.Empty(t, r.store.paths(42))
+}
+
+// Given 一个已在集合里的认领根, When 按它读目录, Then 闸门直接按已知集合放行,不为每次读
+// 重扫会话写过的全部路径(那是取工作根时的补喂,不是读文件的前置)。
+func TestRootFor_KnownClaimedRootDoesNotRescanWrittenPaths(t *testing.T) {
+	wr := newWorktreeRig(t)
+	r := newRig(t, 0, wr.main)
+	r.withWritten()
+	_, err := r.svc.Claim(r.ctx, 42, []string{wr.wt})
+	require.NoError(t, err)
+	scans := 0
+	r.svc.writtenPaths = func(context.Context, int64) ([]WrittenPath, error) {
+		scans++
+		return nil, nil
+	}
+
+	_, err = r.svc.ListDir(r.ctx, 42, wr.wt, "", false)
+	require.NoError(t, err)
+	assert.Zero(t, scans)
 }

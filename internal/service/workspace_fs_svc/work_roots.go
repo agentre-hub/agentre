@@ -185,14 +185,21 @@ func (s *workspaceFsImpl) rootFor(ctx context.Context, sessionID int64, root str
 	if cleaned == cleanPath(cwd) {
 		return deviceID, cwd, nil
 	}
-	roots, err := s.claimedRoots(ctx, sessionID, deviceID, cwd)
+	// 先按已知集合放行:读文件 / 列目录不该每次都重扫会话写过的全部路径。不在已知集合里
+	// 时才补喂一遍写入路径再判(刚写进一个尚未认领的 worktree)。
+	roots, err := s.knownRoots(ctx, sessionID, deviceID, cwd)
 	if err != nil {
 		return 0, "", err
 	}
-	for _, r := range roots {
-		if cleanPath(r.Path) == cleaned {
-			return deviceID, r.Path, nil
-		}
+	if p, ok := matchRoot(roots, cleaned); ok {
+		return deviceID, p, nil
+	}
+	roots, err = s.claimedRoots(ctx, sessionID, deviceID, cwd)
+	if err != nil {
+		return 0, "", err
+	}
+	if p, ok := matchRoot(roots, cleaned); ok {
+		return deviceID, p, nil
 	}
 	// 越界是可见的:被拒的具体路径不进日志(与 ErrPathRefused 不回显原因同一
 	// 取舍,避免成为路径探测信道),只记会话与已认领根的个数。
@@ -200,6 +207,16 @@ func (s *workspaceFsImpl) rootFor(ctx context.Context, sessionID int64, root str
 		zap.Int64("sessionID", sessionID), zap.Int64("deviceID", deviceID),
 		zap.Int("claimedCount", len(roots)))
 	return 0, "", i18n.NewError(ctx, code.WorkspaceFsPathRefused)
+}
+
+// matchRoot 在集合里找与 cleaned(已 cleanPath)相同的根,交回集合里的写法。
+func matchRoot(roots []WorkRootView, cleaned string) (string, bool) {
+	for _, r := range roots {
+		if cleanPath(r.Path) == cleaned {
+			return r.Path, true
+		}
+	}
+	return "", false
 }
 
 // anchorWrittenPath 把一次写入补全成绝对路径:绝对路径原样(清理后)返回;相对
@@ -219,15 +236,36 @@ func anchorWrittenPath(w WrittenPath, cwd string) (string, bool) {
 	return joinPath(base, w.Path), true
 }
 
-// WrittenDir 给出一次写入所在的目录(认领候选):路径按 anchorWrittenPath 的规则补全
-// (相对路径按 w.Dir,缺失时按 fallback),再取它的上一级。补全不出绝对路径时 ok=false。
-// 取工作根时补喂写入路径与 chat_svc 实时认领写入目标走这同一个口径。
-func WrittenDir(w WrittenPath, fallback string) (string, bool) {
+// WrittenFile 给出一次写入的文件的绝对路径:按 anchorWrittenPath 的规则补全(相对路径按
+// w.Dir,缺失时按 fallback)。补全不出绝对路径时 ok=false。
+func WrittenFile(w WrittenPath, fallback string) (string, bool) {
 	p, ok := anchorWrittenPath(w, fallback)
 	if !ok || !isAbsPath(p) {
 		return "", false
 	}
+	return p, true
+}
+
+// WrittenDir 给出一次写入所在的目录(认领候选):WrittenFile 的上一级。取工作根时补喂写入
+// 路径与 chat_svc 实时认领写入目标走这同一个口径。
+func WrittenDir(w WrittenPath, fallback string) (string, bool) {
+	p, ok := WrittenFile(w, fallback)
+	if !ok {
+		return "", false
+	}
 	return dirOf(p), true
+}
+
+// SamePath 报告两条执行设备上的路径清理后是否相同。
+func SamePath(a, b string) bool { return cleanPath(a) == cleanPath(b) }
+
+// RelativeTo 把 p 显示成相对 root 的路径;p 不在 root 之内时原样交回。
+func RelativeTo(root, p string) string {
+	r, c := cleanPath(root), cleanPath(p)
+	if r == c || !isWithin(r, c) {
+		return p
+	}
+	return strings.TrimLeft(c[len(strings.TrimRight(r, `/\`)):], `/\`)
 }
 
 // CleanLocation 把一条位置信号(执行设备上的目录)清理成规范写法;不是绝对路径时

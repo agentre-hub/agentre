@@ -516,3 +516,11 @@ func TestWorkRoots_RemoteNegatives(t *testing.T) {
 		})
 	})
 }
+
+func TestRelativeTo(t *testing.T) {
+	assert.Equal(t, "a/b.go", RelativeTo("/r", "/r/a/b.go"))
+	assert.Equal(t, "a/b.go", RelativeTo("/r/", "/r/a/b.go"))
+	assert.Equal(t, "/rx/a.go", RelativeTo("/r", "/rx/a.go"), "a sibling with a shared prefix is not inside")
+	assert.Equal(t, "/elsewhere/a.go", RelativeTo("/r", "/elsewhere/a.go"))
+	assert.Equal(t, "a.go", RelativeTo("/", "/a.go"))
+}

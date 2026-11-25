@@ -6,13 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const appMocks = vi.hoisted(() => ({
   readFile: vi.fn(),
   gitFileContent: vi.fn(),
-  workRoots: vi.fn(),
 }));
 vi.mock("@/../wailsjs/go/app/App", () => ({
   WorkspaceFsReadFile: (...args: unknown[]) => appMocks.readFile(...args),
   WorkspaceFsGitFileContent: (...args: unknown[]) =>
     appMocks.gitFileContent(...args),
-  WorkspaceFsWorkRoots: (...args: unknown[]) => appMocks.workRoots(...args),
   OpenPath: vi.fn(),
   RevealPath: vi.fn(),
 }));
@@ -69,12 +67,6 @@ beforeEach(() => {
     }),
   );
   appMocks.gitFileContent.mockReset();
-  appMocks.workRoots.mockReset();
-  appMocks.workRoots.mockResolvedValue([
-    rootView(CWD, "repo", true),
-    rootView(WT, "repo-wt"),
-    rootView(OTHER, "repo-other"),
-  ]);
 });
 
 const open = (
@@ -152,6 +144,14 @@ describe("FilePreviewPanel · 标签绑定工作根", () => {
     open("", "a.ts");
     open("/repo-gone", "b.ts");
     render(<FilePreviewPanel sessionId={7} cwd={CWD} />);
+    act(() =>
+      useSessionRootStore
+        .getState()
+        .applyRoots(7, CWD, [
+          rootView(CWD, "repo", true),
+          rootView(WT, "repo-wt"),
+        ]),
+    );
 
     const tabs = await screen.findAllByRole("tab");
     await waitFor(() =>
@@ -165,9 +165,43 @@ describe("FilePreviewPanel · 标签绑定工作根", () => {
     expect(screen.queryByText(/content of b.ts/)).toBeNull();
   });
 
+  // Given 面板挂着时会话只认领了主根,
+  // When 轮次进行中一个 worktree 被认领（chat:workroots 推送 / 点链接认领落到会话根 store）
+  //      并在它里面打开一个文件,
+  // Then 这个标签不是「已移除」，照它自己的根取数——不必等到轮末重取。
+  it("treats a root claimed mid-turn as present without waiting for the turn end", async () => {
+    useSessionRootStore
+      .getState()
+      .applyRoots(7, CWD, [rootView(CWD, "repo", true)]);
+    open("", "a.ts");
+    render(<FilePreviewPanel sessionId={7} cwd={CWD} />);
+    await waitFor(() =>
+      expect(appMocks.readFile).toHaveBeenCalledWith(7, "", "a.ts"),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() =>
+      useSessionRootStore
+        .getState()
+        .applyRoots(7, CWD, [
+          rootView(CWD, "repo", true),
+          rootView(WT, "repo-wt"),
+        ]),
+    );
+    act(() => open(WT, "b.ts"));
+
+    await waitFor(() =>
+      expect(appMocks.readFile).toHaveBeenCalledWith(7, WT, "b.ts"),
+    );
+    const tabs = await screen.findAllByRole("tab");
+    expect(within(tabs[1]).queryByTestId("preview-tab-removed")).toBeNull();
+    expect(screen.queryByText("File not found")).toBeNull();
+  });
+
   // 根集合没取到（空）≠ 根被移除：不能把标签误判成已移除。
   it("does not mark tabs removed while the claimed roots are unknown", async () => {
-    appMocks.workRoots.mockResolvedValue([]);
     open("", "a.ts");
     open("/repo-gone", "b.ts");
     render(<FilePreviewPanel sessionId={7} cwd={CWD} />);

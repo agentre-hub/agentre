@@ -150,3 +150,29 @@ func TestSessionDispatch_DeleteBySessionReturnsDatabaseError(t *testing.T) {
 
 	assert.Error(t, session_dispatch_repo.NewSessionDispatch().DeleteBySession(ctx, 7))
 }
+
+// FinishUnfinished 把还没进入终态的行一次收成给定终态(进程重启后没人再跟踪它们)。
+func TestSessionDispatch_FinishUnfinishedClosesEveryOpenRow(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `session_dispatches` SET `finishtime`=\\?,`status`=\\? WHERE finishtime = 0").
+		WithArgs(int64(5000), "canceled").
+		WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectCommit()
+
+	n, err := session_dispatch_repo.NewSessionDispatch().FinishUnfinished(ctx, "canceled", 5000)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, n)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionDispatch_FinishUnfinishedReturnsDatabaseError(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `session_dispatches`").WillReturnError(errors.New("locked"))
+	mock.ExpectRollback()
+
+	_, err := session_dispatch_repo.NewSessionDispatch().FinishUnfinished(ctx, "canceled", 5000)
+	assert.Error(t, err)
+}

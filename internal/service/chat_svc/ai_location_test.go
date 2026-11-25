@@ -146,7 +146,7 @@ func TestObserveToolEvent_UnchangedCwdIsANoOp(t *testing.T) {
 }
 
 // pi / builtin / ACP 从命令文本识别出 `git worktree add <路径>` 时把路径放进入参的
-// shellloc.WorktreeAddKey:它是认领候选(位置不因此移动)。
+// shellloc.WorktreeAddKey:它在调用的结果到达后成为认领候选(位置不因此移动)。
 func TestObserveToolEvent_WorktreeAddPathIsClaimed(t *testing.T) {
 	svc, port, rec := newLocationSvc(t, cwdMsg(t, 1, "c0", locRepo, ""))
 	ctx := context.Background()
@@ -156,6 +156,7 @@ func TestObserveToolEvent_WorktreeAddPathIsClaimed(t *testing.T) {
 	input, err := json.Marshal(map[string]any{"command": "git worktree add .worktrees/y", shellloc.WorktreeAddKey: locWT2})
 	require.NoError(t, err)
 	svc.observeToolEvent(ctx, 7, agentruntime.ToolCall{ID: "c1", Name: "bash", Input: input, Cwd: locRepo})
+	svc.observeToolEvent(ctx, 7, agentruntime.ToolResult{ToolCallID: "c1", Cwd: locRepo})
 
 	assert.Equal(t, locRepo, location(t, svc))
 	require.Len(t, rec.events, 1)
@@ -185,6 +186,7 @@ func TestObserveToolEvent_WorktreeAddInPlainCommandTextIsClaimed(t *testing.T) {
 			input, err := json.Marshal(c.input)
 			require.NoError(t, err)
 			svc.observeToolEvent(ctx, 7, agentruntime.ToolCall{ID: "c1", Name: "Bash", Input: input, Cwd: c.cwd})
+			svc.observeToolEvent(ctx, 7, agentruntime.ToolResult{ToolCallID: "c1", Cwd: c.cwd})
 
 			assert.Equal(t, locRepo, location(t, svc), "creating a worktree does not move the AI")
 			require.Len(t, rec.events, 1)
@@ -352,4 +354,72 @@ func TestTurnRunApplyLive_ToolCallMovesLocationMidTurn(t *testing.T) {
 func withAIHere(v workspace_fs_svc.WorkRootView) workspace_fs_svc.WorkRootView {
 	v.AIHere = true
 	return v
+}
+
+// Given `git worktree add <路径>` 的调用刚到(命令还没跑,目录还不存在), Then 这时不认领它;
+// When 这次调用的结果到达, Then 才把那个路径交给认领 —— 判定发生在目录建好之后。
+func TestObserveToolEvent_WorktreeAddClaimedOnResultNotOnCall(t *testing.T) {
+	svc, port, rec := newLocationSvc(t, cwdMsg(t, 1, "c0", locRepo, ""))
+	ctx := context.Background()
+	resultSeen := false
+	port.EXPECT().Claim(gomock.Any(), int64(7), []string{locWT2}).DoAndReturn(
+		func(context.Context, int64, []string) ([]workspace_fs_svc.WorkRootView, error) {
+			assert.True(t, resultSeen, "claimed before the command ran: the worktree does not exist yet")
+			return []workspace_fs_svc.WorkRootView{wt2Root}, nil
+		})
+	port.EXPECT().WorkRoots(gomock.Any(), int64(7)).Return([]workspace_fs_svc.WorkRootView{withAIHere(primaryRoot), wt2Root}, nil)
+
+	input, err := json.Marshal(map[string]any{"command": "git worktree add .worktrees/y"})
+	require.NoError(t, err)
+	svc.observeToolEvent(ctx, 7, agentruntime.ToolCall{ID: "c1", Name: "Bash", Input: input, Cwd: locRepo})
+	resultSeen = true
+	svc.observeToolEvent(ctx, 7, agentruntime.ToolResult{ToolCallID: "c1", Cwd: locRepo})
+
+	require.Len(t, rec.events, 1)
+}
+
+// Given `git worktree add` 失败(结果是错误), Then 那个路径不成候选。
+func TestObserveToolEvent_FailedWorktreeAddIsNotClaimed(t *testing.T) {
+	svc, _, rec := newLocationSvc(t, cwdMsg(t, 1, "c0", locRepo, ""))
+	ctx := context.Background()
+
+	input, err := json.Marshal(map[string]any{"command": "git worktree add .worktrees/y"})
+	require.NoError(t, err)
+	svc.observeToolEvent(ctx, 7, agentruntime.ToolCall{ID: "c1", Name: "Bash", Input: input, Cwd: locRepo})
+	svc.observeToolEvent(ctx, 7, agentruntime.ToolResult{ToolCallID: "c1", IsError: true, Cwd: locRepo})
+
+	assert.Empty(t, rec.events)
+}
+
+// Given 某个目录交给认领时没认领出根(当时还不是工作树,或 git 判定一时失败), When AI 之后
+// 真的移到那个目录, Then 它再次成为认领候选 —— 一次没成的判定不把这个目录判死。
+func TestObserveToolEvent_LocationReofferedAfterUnclaimedAttempt(t *testing.T) {
+	svc, port, rec := newLocationSvc(t, cwdMsg(t, 1, "c0", locRepo, ""))
+	ctx := context.Background()
+	gomock.InOrder(
+		port.EXPECT().Claim(gomock.Any(), int64(7), []string{locWT2}).Return(nil, nil),
+		port.EXPECT().Claim(gomock.Any(), int64(7), []string{locWT2}).Return([]workspace_fs_svc.WorkRootView{wt2Root}, nil),
+	)
+	port.EXPECT().WorkRoots(gomock.Any(), int64(7)).Return([]workspace_fs_svc.WorkRootView{primaryRoot, withAIHere(wt2Root)}, nil)
+
+	svc.ObserveAILocation(ctx, 7, AILocationSignal{Dir: locWT2, FromSubagent: true})
+	svc.observeToolEvent(ctx, 7, agentruntime.ToolCall{ID: "c2", Name: "Bash", Cwd: locWT2})
+
+	assert.Equal(t, locWT2, location(t, svc))
+	require.Len(t, rec.events, 1)
+}
+
+// Given AI 已移到 worktree(本进程里记着位置), When 会话被删除, Then 本进程里的位置状态一并
+// 丢掉:之后再问按转录重新恢复(删除后转录为空 → 空串),不留已删会话的状态。
+func TestForgetAILocation_DropsTheSessionState(t *testing.T) {
+	svc, port, _ := newLocationSvc(t)
+	ctx := context.Background()
+	port.EXPECT().Claim(gomock.Any(), int64(7), []string{locWT}).Return(nil, nil)
+	port.EXPECT().WorkRoots(gomock.Any(), int64(7)).Return([]workspace_fs_svc.WorkRootView{primaryRoot}, nil)
+	svc.observeToolEvent(ctx, 7, agentruntime.ToolCall{ID: "c1", Cwd: locWT})
+	require.Equal(t, locWT, location(t, svc))
+
+	svc.aiLocations.forget(7)
+
+	assert.Equal(t, "", location(t, svc))
 }

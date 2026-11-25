@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+import { loopbackURLPort } from "@agentre-hub/agentre-ui";
+
 import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
 
 /**
@@ -33,9 +35,12 @@ export type PortEntry = { port: number; command: string };
 type State = { bySession: Record<number, SessionPreview> };
 
 type Actions = {
-  /** 用会话此刻监听的端口对齐标签：新端口开标签；消失的端口当前标签保留并标「不再监听」，其余移除。 */
+  /**
+   * 用会话此刻监听的端口对齐标签：新端口开标签（已有指向它的临时标签时由它变成端口
+   * 标签）；消失的端口当前标签保留并标「不再监听」，其余移除。
+   */
   syncPorts: (sessionId: number, ports: readonly PortEntry[]) => void;
-  /** 在窗口里打开一个地址：归到监听该端口的标签，没有就开临时标签，并设为当前。 */
+  /** 在窗口里打开一个地址：归到该端口的标签，没有就开临时标签，并设为当前。 */
   openUrl: (sessionId: number, url: string) => void;
   /** 当前标签跳到新地址（地址栏提交），截断前进历史。 */
   navigate: (sessionId: number, key: string, url: string) => void;
@@ -44,6 +49,8 @@ type Actions = {
   activate: (sessionId: number, key: string) => void;
   /** 关临时标签；端口标签随端口存亡，不可手动关。 */
   closeTab: (sessionId: number, key: string) => void;
+  /** 会话被删除：丢掉它的标签。 */
+  forget: (sessionId: number) => void;
 };
 
 const EMPTY: SessionPreview = { tabs: [], activeKey: null };
@@ -57,21 +64,6 @@ export function selectActiveTab(
 
 export function currentUrl(tab: PreviewTab): string {
   return tab.history[tab.index];
-}
-
-const LOOPBACK_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
-
-/** 地址指向的环回端口（没写端口按协议默认）；不是环回 http(s) 地址时为 null。 */
-function loopbackPort(raw: string): number | null {
-  try {
-    const u = new URL(raw);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    if (!LOOPBACK_HOSTS.includes(u.hostname)) return null;
-    if (u.port !== "") return Number(u.port);
-    return u.protocol === "https:" ? 443 : 80;
-  } catch {
-    return null;
-  }
 }
 
 function portTab(entry: PortEntry): PreviewTab {
@@ -162,15 +154,34 @@ export const useWebPreviewStore = create<State & Actions>((set) => ({
           changed = true; // 非当前标签随端口消失而移除
         }
       }
+      // 新出现的端口：若已有一个指向它的临时标签（端口出现之前点了「应用内预览」），
+      // 就由它变成这个端口的标签、保留地址历史，不另开一个。
+      let activeKey = session.activeKey;
       for (const entry of live.values()) {
         changed = true;
-        tabs.push(portTab(entry));
+        const adopt = tabs.findIndex(
+          (t) =>
+            t.port === null && loopbackURLPort(currentUrl(t)) === entry.port,
+        );
+        if (adopt < 0) {
+          tabs.push(portTab(entry));
+          continue;
+        }
+        const adhoc = tabs[adopt];
+        const adopted: PreviewTab = {
+          ...adhoc,
+          key: portTab(entry).key,
+          port: entry.port,
+          command: entry.command,
+          listening: true,
+        };
+        tabs[adopt] = adopted;
+        if (activeKey === adhoc.key) activeKey = adopted.key;
       }
       if (!changed) return s;
-      const activeKey =
-        session.activeKey !== null &&
-        tabs.some((t) => t.key === session.activeKey)
-          ? session.activeKey
+      activeKey =
+        activeKey !== null && tabs.some((t) => t.key === activeKey)
+          ? activeKey
           : (tabs[0]?.key ?? null);
       return {
         bySession: { ...s.bySession, [sessionId]: { tabs, activeKey } },
@@ -180,11 +191,11 @@ export const useWebPreviewStore = create<State & Actions>((set) => ({
   openUrl: (sessionId, url) =>
     set((s) => {
       const session = s.bySession[sessionId] ?? EMPTY;
-      const port = loopbackPort(url);
+      // 环回地址归该端口的标签——包括此刻标着「不再监听」的那个：另开临时标签的话，
+      // 端口回来时就成了同一个服务的两个标签。
+      const port = loopbackURLPort(url);
       const owner =
-        port === null
-          ? undefined
-          : session.tabs.find((t) => t.port === port && t.listening);
+        port === null ? undefined : session.tabs.find((t) => t.port === port);
       let tabs: PreviewTab[];
       let key: string;
       if (owner) {
@@ -244,6 +255,14 @@ export const useWebPreviewStore = create<State & Actions>((set) => ({
       return {
         bySession: { ...s.bySession, [sessionId]: { tabs, activeKey } },
       };
+    }),
+
+  forget: (sessionId) =>
+    set((s) => {
+      if (!(sessionId in s.bySession)) return s;
+      const bySession = { ...s.bySession };
+      delete bySession[sessionId];
+      return { bySession };
     }),
 }));
 

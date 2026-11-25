@@ -61,8 +61,7 @@ type Runtime struct {
 	cliModelMu    sync.Mutex
 	cliRecords    map[int64]*piCLIRecord
 
-	// locations 按会话跟踪 AI 当前位置(Pi 没有结构化位置信号,从 bash 命令文本识别),
-	// 让 cd 跨工具调用、跨轮保持。
+	// locations 按会话给工具事件标上所在目录(Pi 没有结构化位置信号,从 bash 命令文本识别)。
 	locations shellloc.Registry
 }
 
@@ -109,6 +108,8 @@ func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
 		held:       map[int64]*heldSteers{},
 		pool:       pool,
 		cliRecords: map[int64]*piCLIRecord{},
+		// Pi 的 bash 工具每条命令都在会话工作目录新起一个进程:cd 只作用于它所在的那次调用。
+		locations: shellloc.Registry{Fresh: true},
 	}
 }
 
@@ -526,6 +527,7 @@ func (r *Runtime) CloseSession(ctx context.Context, sessionID int64) {
 		return
 	}
 	r.forgetCLIModel(sessionID)
+	r.locations.Forget(sessionID)
 	r.mu.Lock()
 	owner := r.prepared[sessionID]
 	delete(r.held, sessionID)

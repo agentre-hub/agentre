@@ -7141,18 +7141,19 @@ describe("ChatPanel · 工具窗渲染在聊天内容页之外", () => {
     const aside = screen.getByRole("complementary", {
       name: "Right tool windows",
     });
-    expect(aside).toHaveStyle({ flexBasis: "30%" });
-
-    // 分隔条压在右侧列左边缘：拖到 x=1200，右侧占 (1600-1200)/1600 = 25%。
+    // 列宽按 splitAreaBasis 换算（calc()，happy-dom 读不到），这里看分隔条报的比例。
     const handle = within(aside).getByRole("separator", {
       name: "Resize right tool windows",
     });
+    expect(handle).toHaveAttribute("aria-valuenow", "30");
+
+    // 分隔条压在右侧列左边缘：拖到 x=1200，右侧占 (1600-1200)/1600 = 25%。
     fireEvent.pointerDown(handle, { button: 0, clientX: 1120 });
     fireEvent.pointerMove(document, { clientX: 1200 });
     fireEvent.pointerUp(document, { clientX: 1200 });
 
     expect(useToolWindowLayout.getState().ratios.right).toBeCloseTo(0.25);
-    expect(aside).toHaveStyle({ flexBasis: "25%" });
+    expect(handle).toHaveAttribute("aria-valuenow", "25");
     const saved = JSON.parse(
       localStorage.getItem(TOOL_WINDOW_LAYOUT_KEY) ?? "{}",
     ) as { state?: { ratios?: { right?: number } } };

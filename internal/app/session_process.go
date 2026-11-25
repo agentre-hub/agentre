@@ -99,7 +99,7 @@ func (a *App) ResolveSessionURL(sessionID int64, rawURL string) (string, error) 
 	return u.String(), nil
 }
 
-// parseLoopbackURL 只认指向 localhost / 127.0.0.1 / ::1 的 http(s) 链接,并交回它实际
+// parseLoopbackURL 只认指向 localhost / 127.0.0.1 / ::1(及 0.0.0.0 / ::)的 http(s) 链接,并交回它实际
 // 访问的端口(没写就是协议默认端口)。其余一律 ok=false,调用方原样放行。
 func parseLoopbackURL(rawURL string) (u *url.URL, port int, ok bool) {
 	u, err := url.Parse(rawURL)
@@ -107,7 +107,8 @@ func parseLoopbackURL(rawURL string) (u *url.URL, port int, ok bool) {
 		return nil, 0, false
 	}
 	switch u.Hostname() {
-	case "localhost", "127.0.0.1", "::1":
+	// 0.0.0.0 / :: 是开发服务器常打印的「绑定全部网卡」地址,访问到的仍是执行设备自己的端口。
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0", "::":
 	default:
 		return nil, 0, false
 	}

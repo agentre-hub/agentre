@@ -355,3 +355,40 @@ describe("变更行的本机操作跟着当前工作根走", () => {
     expect(revealPathMock).toHaveBeenCalledWith(`${WT}/internal/turn.go`);
   });
 });
+
+describe("嵌在主根里的 worktree（Windows 路径）", () => {
+  // Given Windows 会话的主根里嵌着一个 worktree（反斜杠路径）,
+  // When 「本次会话」按主根列行,
+  // Then worktree 里的文件归 worktree，不在主根的行里重复出现。
+  it("Given a worktree nested in a Windows primary root, When the session changes list the primary root, Then the worktree's files stay out of it", async () => {
+    const WIN_CWD = "C:\\code\\app";
+    const WIN_WT = "C:\\code\\app\\.worktrees\\feat";
+    workRootsMock.mockResolvedValue([
+      root(WIN_CWD, "app", { isPrimary: true, aiHere: true }),
+      root(WIN_WT, "feat", { isWorktree: true }),
+    ]);
+    showOnly("changes");
+    useChatSidebarStore.setState({ changesScope: "session" });
+    renderSidebar({
+      cwd: WIN_CWD,
+      messages: [
+        userMsg(1),
+        assistantMsg(2, [
+          editBlock(`${WIN_WT}\\x.go`),
+          editBlock(`${WIN_CWD}\\a.go`),
+        ]),
+      ],
+    });
+    await waitFor(() =>
+      expect(useSessionRootStore.getState().bySession[7]?.roots).toHaveLength(
+        2,
+      ),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId("change-row").map((r) => r.dataset.path),
+      ).toEqual(["a.go"]),
+    );
+  });
+});

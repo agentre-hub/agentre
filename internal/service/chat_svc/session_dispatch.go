@@ -108,6 +108,9 @@ type DispatchedItem struct {
 type DispatchSvc interface {
 	DispatchRecorder
 	ListSessionDispatches(ctx context.Context, sessionID int64) (*SessionDispatchesView, error)
+	// ReconcileAfterRestart 在进程启动时把上次运行留下、还没进入终态的派发收成「已停止」:
+	// 推进它们的是上个进程里跟着被派发那一轮的 goroutine,它们已经不在了。
+	ReconcileAfterRestart(ctx context.Context)
 }
 
 type dispatchSvc struct {
@@ -155,16 +158,41 @@ func (s *dispatchSvc) Finish(ctx context.Context, id int64, outcome DispatchOutc
 		return
 	}
 	s.update(ctx, id, session_dispatch_repo.StateChange{
-		Status:         string(outcome.Status),
+		Status:         dispatchStatusOf(outcome.Status),
 		Finishtime:     s.now(),
 		ReplyMessageID: outcome.ReplyMessageID,
 	})
+}
+
+// dispatchStatusOf 把子代理卡的终态词翻成 session_dispatches.status 的取值(两份词表在
+// 这一处对齐,不靠字符串碰巧相同)。
+func dispatchStatusOf(st CtlSendStatus) string {
+	switch st {
+	case CtlSendCompleted:
+		return session_dispatch_entity.StatusCompleted
+	case CtlSendCanceled:
+		return session_dispatch_entity.StatusCanceled
+	default:
+		return session_dispatch_entity.StatusFailed
+	}
 }
 
 func (s *dispatchSvc) update(ctx context.Context, id int64, change session_dispatch_repo.StateChange) {
 	if err := session_dispatch_repo.SessionDispatch().UpdateState(ctx, id, change); err != nil {
 		logger.Ctx(ctx).Warn("chat_svc.Dispatch.update: advance dispatch state failed",
 			zap.Int64("dispatchId", id), zap.String("status", change.Status), zap.Error(err))
+	}
+}
+
+func (s *dispatchSvc) ReconcileAfterRestart(ctx context.Context) {
+	n, err := session_dispatch_repo.SessionDispatch().FinishUnfinished(ctx, session_dispatch_entity.StatusCanceled, s.now())
+	if err != nil {
+		logger.Ctx(ctx).Warn("chat_svc.Dispatch.ReconcileAfterRestart: stop unfinished dispatches failed", zap.Error(err))
+		return
+	}
+	if n > 0 {
+		logger.Ctx(ctx).Info("chat_svc.Dispatch.ReconcileAfterRestart: stopped dispatches left unfinished by the previous run",
+			zap.Int64("count", n))
 	}
 }
 

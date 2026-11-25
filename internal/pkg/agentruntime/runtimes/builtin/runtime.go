@@ -81,14 +81,21 @@ type builtinActive struct {
 type Runtime struct {
 	mu     sync.Mutex
 	active map[int64]*builtinActive
-	// locations 按会话跟踪 AI 当前位置(builtin 没有结构化位置信号,从 bash 命令文本
-	// 识别),让 cd 跨工具调用、跨轮保持。
+	// locations 按会话给工具事件标上所在目录(builtin 没有结构化位置信号,从 bash 命令
+	// 文本识别)。
 	locations shellloc.Registry
 }
 
 // New 构造一个新 Runtime。
 func New() *Runtime {
-	return &Runtime{active: map[int64]*builtinActive{}}
+	// cago 的 bash 工具每次调用都是新进程、cwd 固定在会话工作目录:cd 只作用于它所在的那次调用。
+	return &Runtime{active: map[int64]*builtinActive{}, locations: shellloc.Registry{Fresh: true}}
+}
+
+// CloseSession 在会话被删除时由释放广播调到(agentruntime.CloseSessionEverywhere):
+// builtin 没有常驻子进程,只丢掉这条会话的位置跟踪。
+func (r *Runtime) CloseSession(_ context.Context, sessionID int64) {
+	r.locations.Forget(sessionID)
 }
 
 // Capabilities 返回 builtin runtime 的能力矩阵。

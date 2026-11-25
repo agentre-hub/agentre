@@ -946,8 +946,8 @@ func TestInitLetsASessionBeLinkedToAnIssue(t *testing.T) {
 	if rows, err := repo.ListBySession(ctx, 1); err != nil || len(rows) != 2 {
 		t.Fatalf("ListBySession(1) = %+v, %v; want two rows (duplicate link ignored)", rows, err)
 	}
-	if rows, err := repo.ListByIssue(ctx, 10); err != nil || len(rows) != 2 {
-		t.Fatalf("ListByIssue(10) = %+v, %v; want two rows", rows, err)
+	if rows, err := repo.ListByIssues(ctx, []int64{10}); err != nil || len(rows) != 2 {
+		t.Fatalf("ListByIssues(10) = %+v, %v; want two rows", rows, err)
 	}
 	if counts, err := repo.CountByIssues(ctx, []int64{10, 11, 12}); err != nil || counts[10] != 2 || counts[11] != 1 || len(counts) != 2 {
 		t.Fatalf("CountByIssues = %v, %v; want {10:2, 11:1}", counts, err)
@@ -970,7 +970,7 @@ func TestInitLetsASessionBeLinkedToAnIssue(t *testing.T) {
 	if err := repo.DeleteBySession(ctx, 3); err != nil {
 		t.Fatalf("DeleteBySession() error = %v", err)
 	}
-	if rows, _ := repo.ListByIssue(ctx, 20); len(rows) != 0 {
-		t.Fatalf("ListByIssue(20) after DeleteBySession(3) = %+v, want empty", rows)
+	if rows, _ := repo.ListByIssues(ctx, []int64{20}); len(rows) != 0 {
+		t.Fatalf("ListByIssues(20) after DeleteBySession(3) = %+v, want empty", rows)
 	}
 }

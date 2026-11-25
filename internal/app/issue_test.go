@@ -135,6 +135,7 @@ func TestToUpdateIssueRequest_CarriesStageAndExecution(t *testing.T) {
 // fakeLinkIssues 只实现会话 ↔ 任务关联这几个方法并记下入参(其余方法由内嵌的 nil 接口承接,
 // 一旦被误调用就 panic,正好证明绑定没有越界)。
 type fakeLinkIssues struct {
+	sessionsOfArgs []int64
 	issue_svc.IssueSvc
 	err error
 
@@ -170,12 +171,13 @@ func (f *fakeLinkIssues) ListBySession(_ context.Context, sessionID int64) ([]*i
 	}, nil
 }
 
-func (f *fakeLinkIssues) SessionsOf(_ context.Context, issueID int64) ([]*issue_svc.LinkedSessionView, error) {
+func (f *fakeLinkIssues) SessionsOfIssues(_ context.Context, issueIDs []int64) (map[int64][]*issue_svc.LinkedSessionView, error) {
+	f.sessionsOfArgs = issueIDs
 	if f.err != nil {
 		return nil, f.err
 	}
-	return []*issue_svc.LinkedSessionView{
-		{SessionID: 3, Title: "A", AgentID: 1, AgentName: "Alice", AgentStatus: "running"},
+	return map[int64][]*issue_svc.LinkedSessionView{
+		8: {{SessionID: 3, Title: "A", AgentID: 1, AgentName: "Alice", AgentStatus: "running"}},
 	}, nil
 }
 
@@ -219,7 +221,7 @@ func TestIssueLinkBindings_FailuresCarryTheBusinessCode(t *testing.T) {
 	assert.EqualError(t, err, want)
 	_, err = a.IssueListBySession(3)
 	assert.Error(t, err)
-	_, err = a.IssueSessionsOf(8)
+	_, err = a.IssueSessionsOfIssues([]int64{8})
 	assert.Error(t, err)
 	_, err = a.IssueSearchForSession(3, "x")
 	assert.Error(t, err)
@@ -250,13 +252,18 @@ func TestIssueListBySession_MapsNumberTitleStageAndOtherSessionCount(t *testing.
 	assert.Equal(t, &SessionLinkedIssue{ID: 8, Title: "登录", Stage: issue_entity.StageDoing, OtherSessionCount: 2}, got[0])
 }
 
-func TestIssueSessionsOf_MapsTitleAgentAndRunStatus(t *testing.T) {
-	a := useFakeLinkIssues(t, &fakeLinkIssues{})
+// 看板一次调用取全部卡片:每张有关联的卡一组(标题 / Agent / 运行状态),没有关联的卡不出现。
+func TestIssueSessionsOfIssues_OneCallForTheWholeBoard(t *testing.T) {
+	f := &fakeLinkIssues{}
+	a := useFakeLinkIssues(t, f)
 
-	got, err := a.IssueSessionsOf(8)
+	got, err := a.IssueSessionsOfIssues([]int64{8, 9})
 	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.Equal(t, &IssueLinkedSession{SessionID: 3, Title: "A", AgentID: 1, AgentName: "Alice", AgentStatus: "running"}, got[0])
+	assert.Equal(t, []int64{8, 9}, f.sessionsOfArgs)
+	assert.Equal(t, []*IssueSessionsGroup{{
+		IssueID:  8,
+		Sessions: []*IssueLinkedSession{{SessionID: 3, Title: "A", AgentID: 1, AgentName: "Alice", AgentStatus: "running"}},
+	}}, got)
 }
 
 func TestIssueSearchForSession_MapsStageAndLinkedFlag(t *testing.T) {

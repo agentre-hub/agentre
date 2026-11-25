@@ -165,8 +165,8 @@ func TestResolveSessionURL(t *testing.T) {
 		assert.True(t, listenerAlive(t, base))
 	})
 
-	t.Run("127.0.0.1 与 [::1] 同样改写", func(t *testing.T) {
-		for _, raw := range []string{"http://127.0.0.1:5173/x", "http://[::1]:5173/x"} {
+	t.Run("127.0.0.1、[::1] 与开发服务器常打印的 0.0.0.0 / [::] 同样改写", func(t *testing.T) {
+		for _, raw := range []string{"http://127.0.0.1:5173/x", "http://[::1]:5173/x", "http://0.0.0.0:5173/x", "http://[::]:5173/x"} {
 			pf := &stubPortForwardSvc{mapping: &port_forward_svc.MappingView{ID: "11", Port: 5173, Enabled: true}}
 			a, _ := withRemoteSession(t, pf)
 

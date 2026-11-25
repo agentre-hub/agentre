@@ -128,7 +128,7 @@ func isAssignment(s string) bool {
 	}
 	for j := 0; j < i; j++ {
 		c := s[j]
-		if !(c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || j > 0 && c >= '0' && c <= '9') {
+		if c != '_' && (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (j == 0 || c < '0' || c > '9') {
 			return false
 		}
 	}

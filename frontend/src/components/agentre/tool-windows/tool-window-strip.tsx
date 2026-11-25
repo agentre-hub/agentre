@@ -18,6 +18,7 @@ import {
   type ToolWindowId,
 } from "@/stores/tool-window-layout-store";
 
+import { usePanelShown } from "../chat-panel/panel-shown";
 import { useOptionalShortcutsContext } from "../shortcuts/shortcuts-provider";
 import { formatToolWindowToggle } from "../shortcuts/tool-window-shortcuts";
 import { ToolWindowMenuContent } from "./tool-window-menu";
@@ -62,9 +63,15 @@ function ToolWindowStripImpl({ windows, onDragTargetChange }: Props) {
   React.useEffect(() => {
     onTargetRef.current = onDragTargetChange;
   }, [onDragTargetChange]);
-  // 挂着图标条时工具窗快捷键才生效（与点击图标相同；没有图标的页面上不改写布局）。
+  // 页面上有图标条时工具窗快捷键才生效（与点击图标相同；没有图标的页面上不改写布局）。
+  // 宿主切走面板只用 CSS 藏起来、不卸载（非当前 Tab、离开 /chat），那时的图标条
+  // 看不见也点不到，不计入。
+  const panelShown = usePanelShown();
   const mountStrip = useToolWindowLayout((s) => s.mountStrip);
-  React.useEffect(() => mountStrip(), [mountStrip]);
+  React.useEffect(
+    () => (panelShown ? mountStrip() : undefined),
+    [mountStrip, panelShown],
+  );
 
   const begin = React.useCallback(
     (id: ToolWindowId, down: React.PointerEvent) => {

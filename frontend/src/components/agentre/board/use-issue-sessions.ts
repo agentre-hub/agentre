@@ -5,7 +5,7 @@ import type { BoardLinkedSession } from "@agentre-hub/agentre-ui";
 import { useIssueLinksStore } from "@/stores/issue-links-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { IssueSessionsOf } from "../../../../wailsjs/go/app/App";
+import { IssueSessionsOfIssues } from "../../../../wailsjs/go/app/App";
 import type { app } from "../../../../wailsjs/go/models";
 
 type Row = app.IssueLinkedSession;
@@ -17,9 +17,9 @@ function toStatus(raw: string | undefined): BoardLinkedSession["status"] {
 }
 
 /**
- * 看板卡片下方的关联会话：对每张可见的卡取 `IssueSessionsOf`，在卡片集合变化或关联
- * 变化（`useIssueLinksStore`）时重取；运行状态叠上会话运行态 store 的实时值，
- * 跑起来 / 出错不必等下一次重取。
+ * 看板卡片下方的关联会话：整面看板一次 `IssueSessionsOfIssues`，在卡片集合变化或关联
+ * 变化（`useIssueLinksStore`）时重取——卡片换列 / 换序不改变集合，不重取；运行状态叠上
+ * 会话运行态 store 的实时值，跑起来 / 出错不必等下一次重取。
  */
 export function useIssueSessions(
   issueIds: number[],
@@ -29,24 +29,28 @@ export function useIssueSessions(
   const [rows, setRows] = React.useState<ReadonlyMap<number, Row[]>>(
     () => new Map(),
   );
-  const idsKey = issueIds.join(",");
+  const idsKey = [...new Set(issueIds)].sort((a, b) => a - b).join(",");
 
   React.useEffect(() => {
     const ids = idsKey ? idsKey.split(",").map(Number) : [];
     let cancelled = false;
-    void Promise.all(
-      ids.map(async (id): Promise<[number, Row[]]> => {
-        try {
-          return [id, (await IssueSessionsOf(id)) ?? []];
-        } catch (cause) {
-          // 取不到就不画这一块，不拖累看板本身。
-          console.error("[board] issue sessions load failed", id, cause);
-          return [id, []];
-        }
-      }),
-    ).then((entries) => {
-      if (!cancelled) setRows(new Map(entries));
-    });
+    if (ids.length === 0) {
+      setRows(new Map());
+      return;
+    }
+    IssueSessionsOfIssues(ids).then(
+      (groups) => {
+        if (cancelled) return;
+        setRows(
+          new Map((groups ?? []).map((g) => [g.issueID, g.sessions ?? []])),
+        );
+      },
+      (cause) => {
+        // 取不到就不画这一块，不拖累看板本身。
+        console.error("[board] issue sessions load failed", cause);
+        if (!cancelled) setRows(new Map());
+      },
+    );
     return () => {
       cancelled = true;
     };

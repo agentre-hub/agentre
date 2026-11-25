@@ -195,8 +195,8 @@ function canonicalTouches(block: ChangeSourceBlock): Touch[] {
  * 「写入」），`±N` 累计本会话的调用、并在每一次全量写入处重新起算（见
  * ChangeRow.plus），行按变动规模降序、同规模按路径排序。
  *
- * `nested` 是落在 root 之内的其它工作根（嵌在主 checkout 里的 worktree）：它们里面的
- * 文件归包含它的最深的根，不在 root 的行里再出现一次。
+ * `nested` 是会话的其它工作根；其中落在 root 之内的（嵌在主 checkout 里的 worktree）
+ * 里面的文件归包含它的最深的根，不在 root 的行里再出现一次。不在 root 之内的根被忽略。
  */
 export function deriveSessionChanges(
   messages: Msg[],

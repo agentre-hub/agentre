@@ -2,7 +2,7 @@ import * as React from "react";
 import { Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Button, cn } from "@agentre-hub/agentre-ui";
+import { Button, cn, pathBasename } from "@agentre-hub/agentre-ui";
 import { useSessionRoot, type WorkRoot } from "@/stores/session-root-store";
 import {
   useSessionTerminalsStore,
@@ -19,11 +19,6 @@ type Props = {
   sessionId: number;
 };
 
-function baseName(path: string): string {
-  const parts = path.split(/[\\/]+/).filter(Boolean);
-  return parts[parts.length - 1] ?? path;
-}
-
 /**
  * 标签名：接入的进程用它的命令，其余是「终端 N」；会话有两个以上工作根时再带上这个
  * 终端起始根的根名，区分各个 worktree 里的终端（spec「终端工具窗」）。
@@ -38,7 +33,7 @@ function useTerminalLabel(roots: readonly WorkRoot[]) {
       if (roots.length < 2 || tab.rootPath === "") return title;
       const name =
         roots.find((r) => r.path === tab.rootPath)?.name ??
-        baseName(tab.rootPath);
+        pathBasename(tab.rootPath);
       return t("terminalToolWindow.withRoot", { title, root: name });
     },
     [roots, t],

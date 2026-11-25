@@ -56,6 +56,20 @@ func (mr *MockWorkRootsPortMockRecorder) Claim(ctx, sessionID, candidates any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Claim", reflect.TypeOf((*MockWorkRootsPort)(nil).Claim), ctx, sessionID, candidates)
 }
 
+// ForgetSession mocks base method.
+func (m *MockWorkRootsPort) ForgetSession(ctx context.Context, sessionID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ForgetSession", ctx, sessionID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ForgetSession indicates an expected call of ForgetSession.
+func (mr *MockWorkRootsPortMockRecorder) ForgetSession(ctx, sessionID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForgetSession", reflect.TypeOf((*MockWorkRootsPort)(nil).ForgetSession), ctx, sessionID)
+}
+
 // Revoke mocks base method.
 func (m *MockWorkRootsPort) Revoke(ctx context.Context, sessionID int64, root string) (bool, error) {
 	m.ctrl.T.Helper()

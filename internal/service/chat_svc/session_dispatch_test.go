@@ -266,3 +266,20 @@ func TestDispatchOutcomeOfTurn(t *testing.T) {
 	assert.Equal(t, DispatchOutcome{Status: CtlSendCanceled, ReplyMessageID: 4}, DispatchOutcomeOfTurn(TurnResult{AssistantMessageID: 4, Aborted: true}))
 	assert.Equal(t, DispatchOutcome{Status: CtlSendFailed, ReplyMessageID: 4}, DispatchOutcomeOfTurn(TurnResult{AssistantMessageID: 4, Err: errors.New("x"), Aborted: true}))
 }
+
+// Given 上次运行留下还在「等待 / 运行中」的派发(跟踪它的进程已经不在了), When 本进程启动时
+// 收尾, Then 它们一次收成「已停止」并记下完成时间,不再永远显示运行中、时长一直涨。
+func TestDispatch_ReconcileAfterRestartStopsUnfinishedRows(t *testing.T) {
+	rig := newDispatchRig(t)
+	rig.repo.EXPECT().FinishUnfinished(gomock.Any(), session_dispatch_entity.StatusCanceled, int64(10_000)).Return(int64(2), nil)
+
+	rig.svc.ReconcileAfterRestart(context.Background())
+}
+
+// 收尾失败只记日志,不阻断启动。
+func TestDispatch_ReconcileAfterRestartFailureIsLoggedOnly(t *testing.T) {
+	rig := newDispatchRig(t)
+	rig.repo.EXPECT().FinishUnfinished(gomock.Any(), gomock.Any(), gomock.Any()).Return(int64(0), errors.New("locked"))
+
+	rig.svc.ReconcileAfterRestart(context.Background())
+}

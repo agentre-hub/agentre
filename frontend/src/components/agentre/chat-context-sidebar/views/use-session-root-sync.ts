@@ -3,6 +3,7 @@ import * as React from "react";
 import { WorkspaceFsWorkRoots } from "@/../wailsjs/go/app/App";
 import { EventsOn } from "@/../wailsjs/runtime/runtime";
 import {
+  readSessionRootsRev,
   useSessionRootStore,
   type WorkRoot,
 } from "@/stores/session-root-store";
@@ -28,7 +29,8 @@ type WorkRootsEvent = { sessionId: number; roots: WorkRoot[] };
  */
 export function useSessionRootSync({ sessionId, cwd }: Params): void {
   const doneTick = useSessionStatus(sessionId)?.doneTick ?? 0;
-  // 推送与取数共用一个代际：推送比在途的取数新，取数晚到时必须作废。
+  // 取数的代际：换会话 / 换目录 / 重取时，更早发出的那次作废。比在途取数更新的集合
+  // （推送、点链接认领）由 store 的 rev 判：取数发出之后 rev 变了，结果就是旧的。
   const genRef = React.useRef(0);
 
   React.useEffect(() => {
@@ -36,7 +38,6 @@ export function useSessionRootSync({ sessionId, cwd }: Params): void {
     return EventsOn(`chat:workroots:${sessionId}`, (payload: unknown) => {
       const roots = (payload as WorkRootsEvent | null)?.roots;
       if (!Array.isArray(roots)) return;
-      genRef.current += 1;
       useSessionRootStore.getState().applyRoots(sessionId, cwd, roots);
     });
   }, [sessionId, cwd]);
@@ -52,9 +53,11 @@ export function useSessionRootSync({ sessionId, cwd }: Params): void {
     genRef.current += 1;
     const gen = genRef.current;
     if (sessionId <= 0 || cwd === "") return;
+    const rev = readSessionRootsRev(sessionId);
     WorkspaceFsWorkRoots(sessionId).then(
       (views) => {
         if (genRef.current !== gen) return;
+        if (readSessionRootsRev(sessionId) !== rev) return;
         useSessionRootStore.getState().applyRoots(sessionId, cwd, views ?? []);
       },
       () => {

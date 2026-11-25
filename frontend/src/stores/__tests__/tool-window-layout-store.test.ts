@@ -478,6 +478,22 @@ describe("tool-window-layout-store", () => {
       expect(shownWindows()).toEqual(["changes"]);
     });
 
+    // 窄窗口下失焦收起的工具窗在保存的布局里仍是「显示」：专注把它藏起再恢复时，
+    // 恢复就是让它重新出现（与点图标显示同一口径），不能仍旧收着——否则两次按键都
+    // 看不到任何变化。
+    it("Given 窄窗口下大纲已失焦收起, When 进入专注再退出, Then 大纲重新出现（不再收着）", () => {
+      useToolWindowLayout.getState().collapseNarrow("outline");
+      expect(useToolWindowLayout.getState().narrowCollapsed.outline).toBe(true);
+
+      useToolWindowLayout.getState().toggleFocusMode();
+      useToolWindowLayout.getState().toggleFocusMode();
+
+      expect(shownWindows()).toEqual(["outline"]);
+      expect(
+        useToolWindowLayout.getState().narrowCollapsed.outline,
+      ).toBeUndefined();
+    });
+
     it("Given 在专注里重启, When 读回后再按专注, Then 恢复进入专注之前的显示", async () => {
       useToolWindowLayout.getState().show("directory");
       useToolWindowLayout.getState().toggleFocusMode();

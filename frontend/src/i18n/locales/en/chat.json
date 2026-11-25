@@ -608,6 +608,12 @@
       "forwardFailed": "The port forward didn't complete: {{detail}}",
       "unreachable": "The page can't be reached: {{detail}}",
       "noLoad": "The page did not load. It may be unreachable or too slow."
+    },
+    "forwardFailures": {
+      "tlsVerification": "the https target's certificate failed verification on the execution device, and this port forward does not ignore certificate errors",
+      "noListener": "nothing accepted the connection on the execution device",
+      "nameResolution": "the target host name did not resolve on the execution device",
+      "deviceUnreachable": "the execution device is not reachable right now"
     }
   }
 }

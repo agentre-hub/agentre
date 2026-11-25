@@ -144,12 +144,12 @@ function ChatContextToolWindowsImpl({
   const outline = React.useMemo(() => deriveOutline(messages), [messages]);
   const roots = sessionRoot.roots;
   const removedRoots = sessionRoot.removed;
-  // 每个根之内的其它根（嵌在主 checkout 里的 worktree，含已移除的）：那些文件归最深的
+  // 每个根之外的其它根（含已移除的）：嵌在它里面的那些（主 checkout 里的 worktree）
+  // 由 deriveSessionChanges 按与行同一套、认分隔符的归属判定挑出——那些文件归最深的
   // 根，不在外层根的「本次会话」里重复出现，各根的数字也就不重叠。
   const nestedIn = React.useMemo(() => {
     const all = [...roots, ...removedRoots].map((r) => r.path);
-    return (path: string) =>
-      all.filter((p) => p !== path && p.startsWith(`${path}/`));
+    return (path: string) => all.filter((p) => p !== path);
   }, [roots, removedRoots]);
   // 「本次会话」的行只从 canonical 块派生，当前工作根之外的路径在这里就被挡掉
   // （spec「归属过滤」）——不读 git，因此与有没有提交无关。

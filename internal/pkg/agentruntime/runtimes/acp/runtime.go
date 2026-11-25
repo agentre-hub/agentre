@@ -471,6 +471,7 @@ func (r *Runtime) CloseSession(_ context.Context, sessionID int64) {
 		return
 	}
 	r.cache.Remove(sessionKey(sessionID))
+	r.locations.Forget(sessionID)
 }
 
 // CloseAllSessions 宿主关机时调,收掉所有常驻 agent 进程。

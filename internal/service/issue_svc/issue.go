@@ -45,7 +45,7 @@ type IssueSvc interface {
 	UnlinkSession(ctx context.Context, sessionID, issueID int64) error
 	CreateLinked(ctx context.Context, req *CreateLinkedRequest) (*IssueDetail, error)
 	ListBySession(ctx context.Context, sessionID int64) ([]*LinkedIssueView, error)
-	SessionsOf(ctx context.Context, issueID int64) ([]*LinkedSessionView, error)
+	SessionsOfIssues(ctx context.Context, issueIDs []int64) (map[int64][]*LinkedSessionView, error)
 	SearchForSession(ctx context.Context, sessionID int64, keyword string) ([]*LinkCandidate, error)
 }
 

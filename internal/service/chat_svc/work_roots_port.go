@@ -10,12 +10,14 @@ import (
 
 // WorkRootsPort 是本服务对「会话工作根认领集合」的窄依赖(ISP + DIP):AI 当前位置
 // 变化、写入目标、`git worktree add` 的路径都要交给认领方判定,ExitWorktree 选择删除
-// 时撤销那个根,变化之后取一份完整集合推给前端。实现方是 workspace_fs_svc(本机走叶子
+// 时撤销那个根,变化之后取一份完整集合推给前端,会话删除时清掉它的认领。实现方是 workspace_fs_svc(本机走叶子
 // 包、远端走 agentred 的 git 判定);单测注入 mockgen 桩。
 type WorkRootsPort interface {
 	WorkRoots(ctx context.Context, sessionID int64) ([]workspace_fs_svc.WorkRootView, error)
 	Claim(ctx context.Context, sessionID int64, candidates []string) ([]workspace_fs_svc.WorkRootView, error)
 	Revoke(ctx context.Context, sessionID int64, root string) (bool, error)
+	// ForgetSession 在会话被删除时清掉它的认领(库里的行与认领方的进程内状态)。
+	ForgetSession(ctx context.Context, sessionID int64) error
 }
 
 // workRootsPort 交回本服务此刻用的认领方:单测注入的桩优先,否则走 workspace_fs_svc

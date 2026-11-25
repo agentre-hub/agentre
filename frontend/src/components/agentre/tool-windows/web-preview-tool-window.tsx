@@ -91,6 +91,25 @@ function useProbe(
   return settled?.key === requestKey ? settled.result : "loading";
 }
 
+/**
+ * 端口转发这一层报的失败种类（portforwardhost.FailureKind 的 token）→ 原因里的那句细节。
+ * Go 只交种类、不出给人看的句子；没有专门文案的种类原样显示 token。
+ */
+function forwardFailureDetail(t: TFunction, kind: string): string {
+  switch (kind) {
+    case "tls-verification":
+      return t("webPreviewToolWindow.forwardFailures.tlsVerification");
+    case "no-listener":
+      return t("webPreviewToolWindow.forwardFailures.noListener");
+    case "name-resolution":
+      return t("webPreviewToolWindow.forwardFailures.nameResolution");
+    case "device-unreachable":
+      return t("webPreviewToolWindow.forwardFailures.deviceUnreachable");
+    default:
+      return kind;
+  }
+}
+
 /** 预检结论 → 文案。key 写成静态字面量，i18n 覆盖守卫才数得到它们。 */
 function reasonMessage(t: TFunction, reason: string, detail: string): string {
   switch (reason) {
@@ -106,6 +125,16 @@ function reasonMessage(t: TFunction, reason: string, detail: string): string {
 }
 
 const NO_DRAFT = { for: "", text: "" };
+
+const IFRAME_SANDBOX = [
+  "allow-scripts",
+  "allow-same-origin",
+  "allow-forms",
+  "allow-modals",
+  "allow-popups",
+  "allow-popups-to-escape-sandbox",
+  "allow-downloads",
+].join(" ");
 
 function isHttpUrl(raw: string): boolean {
   try {
@@ -361,7 +390,9 @@ export function WebPreviewToolWindow({
                 message={reasonMessage(
                   t,
                   result.probe.reason,
-                  result.probe.detail,
+                  result.probe.forwardFailure
+                    ? forwardFailureDetail(t, result.probe.forwardFailure)
+                    : result.probe.detail,
                 )}
                 onOpenInBrowser={openInBrowser}
                 onOpenForwardSettings={
@@ -418,6 +449,9 @@ function PreviewFrame({
     <iframe
       title={title}
       src={src}
+      // 嵌进来的是任意 http(s) 页面：脚本、表单、弹窗、下载照常，但不给顶层导航——
+      // 它不能把整个应用窗口导航到别处。
+      sandbox={IFRAME_SANDBOX}
       onLoad={() => {
         loaded.current = true;
       }}

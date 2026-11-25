@@ -59,8 +59,17 @@ func TestRun_BashCommandsSetToolCwd(t *testing.T) {
 			cwds["result:"+e.ToolCallID] = e.Cwd
 		}
 	}
-	assert.Equal(t, "/tmp/shellloc-a", cwds["call:b1"], "cd moves the location")
-	assert.Equal(t, "/tmp/shellloc-a", cwds["call:b2"], "and persists into the next call")
+	assert.Equal(t, "/tmp/shellloc-a", cwds["call:b1"], "cd moves the call it appears in")
+	assert.Equal(t, start, cwds["call:b2"], "the bash tool starts every call in the session directory")
 	assert.Equal(t, "/tmp/shellloc-a", cwds["result:b1"])
-	assert.Equal(t, "/tmp/shellloc-a", cwds["result:b2"])
+	assert.Equal(t, start, cwds["result:b2"])
+}
+
+// Given 会话被删除(释放广播调到 CloseSession), Then 它的位置跟踪一并丢掉:同一会话号之后
+// 从新给的工作目录重新起算,不留已删会话的状态。
+func TestCloseSession_ForgetsTheSessionLocation(t *testing.T) {
+	r := New()
+	r.locations.For(77, "/old").Call("x", []byte(`{"command":"cd /moved"}`))
+	r.CloseSession(context.Background(), 77)
+	assert.Equal(t, "/new", r.locations.For(77, "/new").Dir())
 }

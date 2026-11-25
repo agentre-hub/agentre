@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"strconv"
-	"strings"
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
@@ -60,13 +59,13 @@ func (a *App) TerminalOpenForSession(terminalID string, sessionID int64, root st
 	if deviceID != 0 {
 		device = strconv.FormatInt(deviceID, 10)
 	}
-	return a.terminalSvc.Open(a.ctx, terminalID, device, start, cols, rows)
+	return a.terminalSvc.OpenForChatSession(a.ctx, sessionID, terminalID, device, start, cols, rows)
 }
 
 // claimedTerminalRoot 把前端传来的 root 解析成起始目录:空串或等于会话 cwd 即 cwd,
-// 其余必须是已认领工作根(精确相等,只容忍末尾分隔符)。
+// 其余必须是已认领工作根(清理写法后精确相等,与 workspace_fs 读路径的闸门同一口径)。
 func (a *App) claimedTerminalRoot(ctx context.Context, sessionID int64, cwd, root string) (string, error) {
-	if root == "" || trimRootSep(root) == trimRootSep(cwd) {
+	if root == "" || workspace_fs_svc.SamePath(root, cwd) {
 		return cwd, nil
 	}
 	roots, err := workspace_fs_svc.Default().WorkRoots(ctx, sessionID)
@@ -74,18 +73,11 @@ func (a *App) claimedTerminalRoot(ctx context.Context, sessionID int64, cwd, roo
 		return "", err
 	}
 	for _, r := range roots {
-		if trimRootSep(r.Path) == trimRootSep(root) {
+		if workspace_fs_svc.SamePath(r.Path, root) {
 			return r.Path, nil
 		}
 	}
 	return "", i18n.NewError(ctx, code.WorkspaceFsPathRefused)
-}
-
-func trimRootSep(p string) string {
-	if t := strings.TrimRight(p, `/\`); t != "" {
-		return t
-	}
-	return p
 }
 
 // ResolveLocalCommandScope 只读解析已有会话或预会话目标的命令执行设备/cwd。

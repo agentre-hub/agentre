@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
   Switch,
   cn,
+  pathBasename,
 } from "@agentre-hub/agentre-ui";
 
 import {
@@ -29,13 +30,6 @@ type CapsuleProps = {
   /** 胶囊外层，供下方的提示对齐到它。 */
   ref?: React.Ref<HTMLSpanElement>;
 };
-
-/** 路径末段：集合还没取回、只有 cwd 时的显示名。 */
-function basename(path: string): string {
-  const trimmed = path.replace(/[\\/]+$/, "");
-  const i = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  return i < 0 ? trimmed : trimmed.slice(i + 1);
-}
 
 /**
  * WorkRootCapsule 是对话标题栏副标题里的工作根胶囊（spec「标题栏工作根胶囊」），
@@ -59,7 +53,7 @@ export function WorkRootCapsule({ sessionId, cwd, ref }: CapsuleProps) {
   });
 
   const root = sessionRoot.currentRoot;
-  const name = root?.name || basename(sessionRoot.current || cwd);
+  const name = root?.name || pathBasename(sessionRoot.current || cwd);
   const isWorktree = root?.isWorktree ?? false;
   const branch = git && !git.notARepo ? git.branch : "";
   const clickable = sessionRoot.roots.length >= 2;

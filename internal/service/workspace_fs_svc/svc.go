@@ -73,6 +73,8 @@ type WorkspaceFsSvc interface {
 	// Revoke 撤销本会话已认领的根 root(不再出现在集合里,也不再持久化)。主根不能
 	// 撤销;root 不是已认领的根时什么也不做。返回是否真的撤销了一个根。
 	Revoke(ctx context.Context, sessionID int64, root string) (bool, error)
+	// ForgetSession 在会话被删除时清掉它的认领:库里的行与本进程里的认领状态。
+	ForgetSession(ctx context.Context, sessionID int64) error
 	// ListDir 列出 root 下 relPath 这一层(relPath 为空即 root 本身)。root 为
 	// 空串表示会话 cwd;非空时必须命中本会话已认领的工作根集合,否则拒绝。
 	ListDir(ctx context.Context, sessionID int64, root, relPath string, includeIgnored bool) (*ListDirView, error)

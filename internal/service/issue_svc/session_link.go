@@ -105,24 +105,45 @@ func (s *issueSvc) ListBySession(ctx context.Context, sessionID int64) ([]*Linke
 	return out, nil
 }
 
-// SessionsOf 看板卡片上某任务的关联会话(先关联的在前)。已不存在的会话跳过。
-func (s *issueSvc) SessionsOf(ctx context.Context, issueID int64) ([]*LinkedSessionView, error) {
-	links, err := session_issue_link_repo.SessionIssueLink().ListByIssue(ctx, issueID)
+// SessionsOfIssues 看板卡片上各任务的关联会话(每张卡里先关联的在前),整面看板一次取完:
+// 关联一条查询、会话一条查询,同一个 Agent 只查一次名字。已不存在的会话跳过;没有关联的
+// 任务不在结果里。
+func (s *issueSvc) SessionsOfIssues(ctx context.Context, issueIDs []int64) (map[int64][]*LinkedSessionView, error) {
+	out := map[int64][]*LinkedSessionView{}
+	links, err := session_issue_link_repo.SessionIssueLink().ListByIssues(ctx, issueIDs)
+	if err != nil || len(links) == 0 {
+		return out, err
+	}
+	ids := make([]int64, 0, len(links))
+	seen := make(map[int64]struct{}, len(links))
+	for _, l := range links {
+		if _, dup := seen[l.SessionID]; !dup {
+			seen[l.SessionID] = struct{}{}
+			ids = append(ids, l.SessionID)
+		}
+	}
+	rows, err := chat_repo.Session().FindByIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*LinkedSessionView, 0, len(links))
+	sessions := make(map[int64]*chat_entity.Session, len(rows))
+	for _, sess := range rows {
+		sessions[sess.ID] = sess
+	}
+	names := map[int64]string{}
 	for _, l := range links {
-		sess, err := chat_repo.Session().Find(ctx, l.SessionID)
-		if err != nil {
-			return nil, err
-		}
-		if sess == nil {
+		sess, ok := sessions[l.SessionID]
+		if !ok {
 			continue
 		}
-		out = append(out, &LinkedSessionView{
+		name, known := names[sess.AgentID]
+		if !known {
+			name = agentName(ctx, sess.AgentID)
+			names[sess.AgentID] = name
+		}
+		out[l.IssueID] = append(out[l.IssueID], &LinkedSessionView{
 			SessionID: sess.ID, Title: sess.Title,
-			AgentID: sess.AgentID, AgentName: agentName(ctx, sess.AgentID),
+			AgentID: sess.AgentID, AgentName: name,
 			AgentStatus: sess.AgentStatus,
 		})
 	}

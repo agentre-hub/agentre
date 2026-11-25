@@ -9,7 +9,8 @@ import {
   useToolWindowLayout,
 } from "@/stores/tool-window-layout-store";
 
-import { ToolWindowLayout } from "../tool-window-layout";
+import { PanelShownContext } from "../../chat-panel/panel-shown";
+import { ToolWindowLayout, splitAreaBasis } from "../tool-window-layout";
 import type { ToolWindowDefinition } from "../types";
 
 function windows(changesCount: number | null = 3): ToolWindowDefinition[] {
@@ -71,7 +72,46 @@ describe("ToolWindowLayout", () => {
     });
   });
 
+  describe("区域宽度", () => {
+    // happy-dom 不解析 calc()，DOM 上读不到这个值，只能按换算函数断言。
+    // 右侧比例与拖它的分隔条按同一个容器换算：图标条之外的工具窗区域。
+    it("Given 右侧比例 0.5, Then 右侧区域是图标条之外区域的一半；底部区域按编辑区列", () => {
+      expect(splitAreaBasis("right", 0.5)).toBe("calc(0.5 * (100% - 38px))");
+      expect(splitAreaBasis("bottom", 0.3)).toBe("30%");
+    });
+  });
+
   describe("图标条", () => {
+    // 宿主切走面板只用 CSS 藏起来、不卸载（非当前 Tab invisible，离开 /chat 时
+    // display:none）：那样的图标条用户看不见也点不到，不算「页面上有图标条」，
+    // 工具窗快捷键不该因它改写保存的布局。
+    it("Given 面板此刻没摆在眼前（PanelShownContext=false）, When 渲染, Then 它的图标条不计入挂载数；显示出来后才计入", () => {
+      useToolWindowLayout.setState({ stripMounts: 0 });
+      const view = render(
+        <TooltipProvider>
+          <PanelShownContext.Provider value={false}>
+            <ToolWindowLayout windows={windows()}>
+              <main>editor</main>
+            </ToolWindowLayout>
+          </PanelShownContext.Provider>
+        </TooltipProvider>,
+      );
+      expect(useToolWindowLayout.getState().stripMounts).toBe(0);
+
+      view.rerender(
+        <TooltipProvider>
+          <PanelShownContext.Provider value={true}>
+            <ToolWindowLayout windows={windows()}>
+              <main>editor</main>
+            </ToolWindowLayout>
+          </PanelShownContext.Provider>
+        </TooltipProvider>,
+      );
+      expect(useToolWindowLayout.getState().stripMounts).toBe(1);
+      view.unmount();
+      expect(useToolWindowLayout.getState().stripMounts).toBe(0);
+    });
+
     it("Given 三个已注册的工具窗, When 渲染, Then 图标条是竖向工具栏，按槽位分组：右上一组（大纲、变更）、右下一组（目录）", () => {
       renderLayout();
 

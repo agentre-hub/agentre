@@ -530,7 +530,18 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
       toggleFocusMode: () =>
         set((s) => {
           if (s.focusSnapshot !== null) {
-            return { shown: s.focusSnapshot, focusSnapshot: null };
+            // 恢复 = 让它们重新出现：窄窗口下此前失焦收起的也一并展开。
+            let narrowCollapsed = s.narrowCollapsed;
+            for (const id of Object.values(s.focusSnapshot)) {
+              if (id !== null) {
+                narrowCollapsed = withoutCollapsed(narrowCollapsed, id);
+              }
+            }
+            return {
+              shown: s.focusSnapshot,
+              focusSnapshot: null,
+              narrowCollapsed,
+            };
           }
           if (SLOT_IDS.every((slot) => s.shown[slot] === null)) return s;
           return {

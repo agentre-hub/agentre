@@ -361,18 +361,34 @@ func (a *App) IssueListBySession(sessionID int64) ([]*SessionLinkedIssue, error)
 	return out, nil
 }
 
-// IssueSessionsOf 看板卡片上某任务的关联会话(标题 / Agent / 运行状态)。
-func (a *App) IssueSessionsOf(issueID int64) ([]*IssueLinkedSession, error) {
-	views, err := issue_svc.Default().SessionsOf(a.ctx, issueID)
+// IssueSessionsGroup 是看板上一张卡的关联会话。
+type IssueSessionsGroup struct {
+	IssueID  int64                 `json:"issueID"`
+	Sessions []*IssueLinkedSession `json:"sessions"`
+}
+
+// IssueSessionsOfIssues 看板卡片上各任务的关联会话(标题 / Agent / 运行状态),整面看板一次
+// 调用。有关联的卡各一组,按传入顺序;没有关联的卡不出现。
+func (a *App) IssueSessionsOfIssues(issueIDs []int64) ([]*IssueSessionsGroup, error) {
+	byIssue, err := issue_svc.Default().SessionsOfIssues(a.ctx, issueIDs)
 	if err != nil {
 		return nil, codedError(err)
 	}
-	out := make([]*IssueLinkedSession, 0, len(views))
-	for _, v := range views {
-		out = append(out, &IssueLinkedSession{
-			SessionID: v.SessionID, Title: v.Title, AgentID: v.AgentID,
-			AgentName: v.AgentName, AgentStatus: v.AgentStatus,
-		})
+	out := make([]*IssueSessionsGroup, 0, len(byIssue))
+	for _, id := range issueIDs {
+		views, ok := byIssue[id]
+		if !ok {
+			continue
+		}
+		group := &IssueSessionsGroup{IssueID: id, Sessions: make([]*IssueLinkedSession, 0, len(views))}
+		for _, v := range views {
+			group.Sessions = append(group.Sessions, &IssueLinkedSession{
+				SessionID: v.SessionID, Title: v.Title, AgentID: v.AgentID,
+				AgentName: v.AgentName, AgentStatus: v.AgentStatus,
+			})
+		}
+		out = append(out, group)
+		delete(byIssue, id) // 重复传入的同一张卡只出一组
 	}
 	return out, nil
 }

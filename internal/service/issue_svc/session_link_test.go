@@ -141,14 +141,17 @@ func TestManyToMany_OtherSessionCountAndBothDirections(t *testing.T) {
 	assert.EqualValues(t, 9, got[1].Issue.ID)
 	assert.EqualValues(t, 0, got[1].OtherSessionCount)
 
-	r.links.EXPECT().ListByIssue(r.ctx, int64(8)).Return([]*session_issue_link_entity.SessionIssueLink{link(3, 8), link(5, 8)}, nil)
-	r.sessions.EXPECT().Find(r.ctx, int64(3)).Return(&chat_entity.Session{ID: 3, Title: "A", AgentID: 1, AgentStatus: "running"}, nil)
-	r.sessions.EXPECT().Find(r.ctx, int64(5)).Return(&chat_entity.Session{ID: 5, Title: "B", AgentID: 2, AgentStatus: "idle"}, nil)
+	r.links.EXPECT().ListByIssues(r.ctx, []int64{8}).Return([]*session_issue_link_entity.SessionIssueLink{link(3, 8), link(5, 8)}, nil)
+	r.sessions.EXPECT().FindByIDs(r.ctx, []int64{3, 5}).Return([]*chat_entity.Session{
+		{ID: 3, Title: "A", AgentID: 1, AgentStatus: "running"},
+		{ID: 5, Title: "B", AgentID: 2, AgentStatus: "idle"},
+	}, nil)
 	r.agents.EXPECT().Find(r.ctx, int64(1)).Return(&agent_entity.Agent{ID: 1, Name: "Alice"}, nil)
 	r.agents.EXPECT().Find(r.ctx, int64(2)).Return(&agent_entity.Agent{ID: 2, Name: "Bob"}, nil)
 
-	sessions, err := r.svc.SessionsOf(r.ctx, 8)
+	byIssue, err := r.svc.SessionsOfIssues(r.ctx, []int64{8})
 	require.NoError(t, err)
+	sessions := byIssue[8]
 	require.Len(t, sessions, 2)
 	assert.EqualValues(t, 3, sessions[0].SessionID)
 	assert.Equal(t, "A", sessions[0].Title)
@@ -158,52 +161,89 @@ func TestManyToMany_OtherSessionCountAndBothDirections(t *testing.T) {
 	assert.Equal(t, "Bob", sessions[1].AgentName)
 }
 
+// Given 看板上有多张卡, When 取它们的关联会话, Then 一次取完:关联一条查询、会话一条查询,
+// 同一个 Agent 只查一次名字;每张卡的会话按关联先后排列,没有关联的卡不在结果里。
+func TestSessionsOfIssues_BatchesAllCardsInFixedQueries(t *testing.T) {
+	r := newLinkRig(t)
+	r.links.EXPECT().ListByIssues(r.ctx, []int64{8, 9, 10}).Return([]*session_issue_link_entity.SessionIssueLink{
+		link(3, 8), link(4, 9), link(5, 8),
+	}, nil)
+	r.sessions.EXPECT().FindByIDs(r.ctx, []int64{3, 4, 5}).Return([]*chat_entity.Session{
+		{ID: 5, Title: "C", AgentID: 1, AgentStatus: "idle"},
+		{ID: 3, Title: "A", AgentID: 1, AgentStatus: "running"},
+		{ID: 4, Title: "B", AgentID: 1, AgentStatus: "waiting"},
+	}, nil)
+	r.agents.EXPECT().Find(r.ctx, int64(1)).Return(&agent_entity.Agent{ID: 1, Name: "Alice"}, nil).Times(1)
+
+	got, err := r.svc.SessionsOfIssues(r.ctx, []int64{8, 9, 10})
+	require.NoError(t, err)
+	require.Len(t, got[8], 2)
+	assert.EqualValues(t, 3, got[8][0].SessionID)
+	assert.EqualValues(t, 5, got[8][1].SessionID)
+	require.Len(t, got[9], 1)
+	assert.Equal(t, "waiting", got[9][0].AgentStatus)
+	assert.Equal(t, "Alice", got[9][0].AgentName)
+	_, has10 := got[10]
+	assert.False(t, has10)
+}
+
 // 卡片上的运行状态直接取会话自己的 agent_status(与会话列表同一来源):运行中 / 空闲 / 出错
 // 原样透出,不被合并或改写。
-func TestSessionsOf_CarriesTheSessionRunStatus(t *testing.T) {
+func TestSessionsOfIssues_CarriesTheSessionRunStatus(t *testing.T) {
 	r := newLinkRig(t)
-	r.links.EXPECT().ListByIssue(r.ctx, int64(8)).Return([]*session_issue_link_entity.SessionIssueLink{link(1, 8), link(2, 8), link(3, 8), link(4, 8)}, nil)
-	for id, st := range map[int64]string{1: "running", 2: "idle", 3: "error", 4: "waiting"} {
-		r.sessions.EXPECT().Find(r.ctx, id).Return(&chat_entity.Session{ID: id, AgentStatus: st}, nil)
+	r.links.EXPECT().ListByIssues(r.ctx, []int64{8}).Return([]*session_issue_link_entity.SessionIssueLink{link(1, 8), link(2, 8), link(3, 8), link(4, 8)}, nil)
+	statuses := map[int64]string{1: "running", 2: "idle", 3: "error", 4: "waiting"}
+	rows := make([]*chat_entity.Session, 0, len(statuses))
+	for id, st := range statuses {
+		rows = append(rows, &chat_entity.Session{ID: id, AgentStatus: st})
 	}
+	r.sessions.EXPECT().FindByIDs(r.ctx, []int64{1, 2, 3, 4}).Return(rows, nil)
 
-	got, err := r.svc.SessionsOf(r.ctx, 8)
+	got, err := r.svc.SessionsOfIssues(r.ctx, []int64{8})
 	require.NoError(t, err)
-	require.Len(t, got, 4)
+	require.Len(t, got[8], 4)
 	want := []string{"running", "idle", "error", "waiting"}
 	for i, w := range want {
-		assert.Equal(t, w, got[i].AgentStatus)
+		assert.Equal(t, w, got[8][i].AgentStatus)
 	}
 }
 
 // 已不存在(软删)的会话不出现在卡片上;其余照常。
-func TestSessionsOf_SkipsSessionsThatNoLongerExist(t *testing.T) {
+func TestSessionsOfIssues_SkipsSessionsThatNoLongerExist(t *testing.T) {
 	r := newLinkRig(t)
-	r.links.EXPECT().ListByIssue(r.ctx, int64(8)).Return([]*session_issue_link_entity.SessionIssueLink{link(3, 8), link(5, 8)}, nil)
-	r.sessions.EXPECT().Find(r.ctx, int64(3)).Return(nil, nil)
-	r.sessions.EXPECT().Find(r.ctx, int64(5)).Return(&chat_entity.Session{ID: 5, AgentStatus: "idle"}, nil)
+	r.links.EXPECT().ListByIssues(r.ctx, []int64{8}).Return([]*session_issue_link_entity.SessionIssueLink{link(3, 8), link(5, 8)}, nil)
+	r.sessions.EXPECT().FindByIDs(r.ctx, []int64{3, 5}).Return([]*chat_entity.Session{{ID: 5, AgentStatus: "idle"}}, nil)
 
-	got, err := r.svc.SessionsOf(r.ctx, 8)
+	got, err := r.svc.SessionsOfIssues(r.ctx, []int64{8})
 	require.NoError(t, err)
-	require.Len(t, got, 1)
-	assert.EqualValues(t, 5, got[0].SessionID)
+	require.Len(t, got[8], 1)
+	assert.EqualValues(t, 5, got[8][0].SessionID)
 }
 
-func TestSessionsOf_NoLinksReturnsEmptyList(t *testing.T) {
+func TestSessionsOfIssues_NoLinksReturnsEmptyMap(t *testing.T) {
 	r := newLinkRig(t)
-	r.links.EXPECT().ListByIssue(r.ctx, int64(8)).Return(nil, nil)
+	r.links.EXPECT().ListByIssues(r.ctx, []int64{8}).Return(nil, nil)
 
-	got, err := r.svc.SessionsOf(r.ctx, 8)
+	got, err := r.svc.SessionsOfIssues(r.ctx, []int64{8})
 	require.NoError(t, err)
 	assert.NotNil(t, got)
 	assert.Empty(t, got)
 }
 
-func TestSessionsOf_ReturnsRepoError(t *testing.T) {
+func TestSessionsOfIssues_ReturnsRepoError(t *testing.T) {
 	r := newLinkRig(t)
-	r.links.EXPECT().ListByIssue(r.ctx, int64(8)).Return(nil, errors.New("boom"))
+	r.links.EXPECT().ListByIssues(r.ctx, []int64{8}).Return(nil, errors.New("boom"))
 
-	_, err := r.svc.SessionsOf(r.ctx, 8)
+	_, err := r.svc.SessionsOfIssues(r.ctx, []int64{8})
+	assert.Error(t, err)
+}
+
+func TestSessionsOfIssues_ReturnsSessionLookupError(t *testing.T) {
+	r := newLinkRig(t)
+	r.links.EXPECT().ListByIssues(r.ctx, []int64{8}).Return([]*session_issue_link_entity.SessionIssueLink{link(3, 8)}, nil)
+	r.sessions.EXPECT().FindByIDs(r.ctx, []int64{3}).Return(nil, errors.New("boom"))
+
+	_, err := r.svc.SessionsOfIssues(r.ctx, []int64{8})
 	assert.Error(t, err)
 }
 

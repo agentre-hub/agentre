@@ -177,6 +177,21 @@ func (mr *MockSessionRepoMockRecorder) FindByConversationID(ctx, conversationID 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByConversationID", reflect.TypeOf((*MockSessionRepo)(nil).FindByConversationID), ctx, conversationID)
 }
 
+// FindByIDs mocks base method.
+func (m *MockSessionRepo) FindByIDs(ctx context.Context, ids []int64) ([]*chat_entity.Session, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindByIDs", ctx, ids)
+	ret0, _ := ret[0].([]*chat_entity.Session)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindByIDs indicates an expected call of FindByIDs.
+func (mr *MockSessionRepoMockRecorder) FindByIDs(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindByIDs", reflect.TypeOf((*MockSessionRepo)(nil).FindByIDs), ctx, ids)
+}
+
 // ListActive mocks base method.
 func (m *MockSessionRepo) ListActive(ctx context.Context, agentStatuses []string) ([]*chat_entity.Session, error) {
 	m.ctrl.T.Helper()

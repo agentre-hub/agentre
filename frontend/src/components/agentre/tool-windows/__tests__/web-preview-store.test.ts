@@ -117,4 +117,40 @@ describe("web preview store · openUrl", () => {
       "http://localhost:9999/y",
     ]);
   });
+
+  // 「应用内预览」在第一次取端口之前（或服务稍后才起来）点开：先是临时标签；端口
+  // 随后出现时由它变成该端口的标签，不再另开一个——一个服务一个标签。
+  it("Given an ad-hoc tab for a localhost port, When that port later shows up as listening, Then the ad-hoc tab becomes the port tab instead of a second tab", () => {
+    st().openUrl(S, "http://localhost:5173/docs");
+    st().syncPorts(S, [{ port: 5173, command: "vite" }]);
+
+    expect(tabs().map((t) => [t.key, t.port, t.command, t.listening])).toEqual([
+      ["port:5173", 5173, "vite", true],
+    ]);
+    const active = selectActiveTab(st().bySession[S]);
+    expect(active?.key).toBe("port:5173");
+    expect(active?.history).toEqual(["http://localhost:5173/docs"]);
+  });
+
+  // 端口标签此刻「不再监听」时再点它的地址：仍归那个端口标签，不另开临时标签——
+  // 端口回来时才不会出现两个同端口的标签。
+  it("Given the port tab is flagged not listening, When a URL on that port is opened, Then it goes to that port tab", () => {
+    st().syncPorts(S, [{ port: 3000, command: "a" }]);
+    st().syncPorts(S, []);
+    st().openUrl(S, "http://localhost:3000/again");
+    st().syncPorts(S, [{ port: 3000, command: "a" }]);
+
+    expect(tabs().map((t) => t.key)).toEqual(["port:3000"]);
+    expect(selectActiveTab(st().bySession[S])?.history.at(-1)).toBe(
+      "http://localhost:3000/again",
+    );
+  });
+
+  // 开发服务器常打印 0.0.0.0（绑定全部网卡）：它也指向本会话执行设备上的那个端口。
+  it("Given a 0.0.0.0 URL on a listening port, Then that port tab navigates", () => {
+    st().syncPorts(S, [{ port: 8000, command: "python" }]);
+    st().openUrl(S, "http://0.0.0.0:8000/");
+
+    expect(tabs().map((t) => t.key)).toEqual(["port:8000"]);
+  });
 });

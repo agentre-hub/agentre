@@ -51,6 +51,31 @@ func TestSessionRepo_Find(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
+// FindByIDs 一条 IN 查询取一组仍在的会话(已软删的不返回),派生字段照 Find 补齐。
+func TestSessionRepo_FindByIDs(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+
+	mock.ExpectQuery("SELECT \\* FROM `chat_sessions` WHERE id IN \\(\\?,\\?\\) AND status = \\?").
+		WithArgs(int64(1), int64(2), consts.ACTIVE).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "agent_id", "title", "agent_status", "status"}).
+			AddRow(1, 7, "hi", "waiting", consts.ACTIVE))
+
+	got, err := chat_repo.NewSession().FindByIDs(ctx, []int64{1, 2})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, int64(7), got[0].AgentID)
+	assert.True(t, got[0].NeedsAttention)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionRepo_FindByIDsEmptyDoesNotQuery(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	got, err := chat_repo.NewSession().FindByIDs(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
 // recentWindowSQL / attentionWindowSQL 是 ListRecentByAgents / ListAttentionByAgents
 // 生产代码里 sessionsWindowSQL(...) 的正则化版本：按 agent_id 分区、组内
 // last_message_at DESC, id DESC 取前 N 条，外层再按 agent_id 排回好分组。

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 
@@ -33,6 +34,16 @@ const (
 	webPreviewMaxRedirects = 5
 )
 
+// webPreviewHostScheme 是承载 iframe 的父页面的协议:Wails 在 Windows(WebView2)上是
+// http://wails.localhost,在 macOS / Linux 上是 wails://wails。frame-ancestors 的 `*` 是否
+// 放行取决于它(见 allowsWails)。单测替换。
+var webPreviewHostScheme = func() string {
+	if runtime.GOOS == "windows" {
+		return "http"
+	}
+	return "wails"
+}()
+
 // WebPreviewProbe 是网页预览预检的结果。不含响应正文。
 type WebPreviewProbe struct {
 	// URL 是 iframe 该加载的地址:远端会话的 localhost 地址已换成本机转发地址。
@@ -41,7 +52,11 @@ type WebPreviewProbe struct {
 	Forwarded  bool   `json:"forwarded"`
 	Embeddable bool   `json:"embeddable"`
 	Reason     string `json:"reason"`
-	Detail     string `json:"detail"`
+	// Detail 是原样的技术细节(被拒的响应头、传输层错误),没有时为空。
+	Detail string `json:"detail"`
+	// ForwardFailure 是端口转发这一层报的失败种类(portforwardhost.FailureKind 的 token,
+	// 如 tls-verification / no-listener / device-unreachable);给人看的句子由前端按语言出。
+	ForwardFailure string `json:"forwardFailure,omitempty"`
 }
 
 // ProbeSessionWebPreview 先按会话解析地址(远端会话的 localhost 经端口转发),再对解析后的
@@ -120,22 +135,18 @@ func probeWebPreview(ctx context.Context, rawURL string, forwarded bool) (*WebPr
 	return &WebPreviewProbe{Embeddable: true}, nil
 }
 
-// forwardFailureProbe 把转发层报的失败种类(portforwardhost.FailureKind.Token)翻成预检原因。
-// 证书没过单独成一类(spec「网页预览工具窗」https:显示失败原因与「打开端口转发设置」);
-// 目标连不上与设备够不着说成访问不到;其余是转发这一层没能完成。
+// forwardFailureProbe 把转发层报的失败种类(portforwardhost.FailureKind.Token)翻成预检原因,
+// 种类本身原样交给前端出文案。证书没过单独成一类(spec「网页预览工具窗」https:显示失败原因
+// 与「打开端口转发设置」);目标连不上与设备够不着说成访问不到;其余是转发这一层没能完成。
 func forwardFailureProbe(kind string) *WebPreviewProbe {
+	reason := webPreviewForwardFailed
 	switch kind {
 	case "tls-verification":
-		return &WebPreviewProbe{Reason: webPreviewCertificate,
-			Detail: "the https target's certificate failed verification on the execution device, and this port forward does not ignore certificate errors"}
-	case "no-listener":
-		return &WebPreviewProbe{Reason: webPreviewUnreachable, Detail: "nothing accepted the connection on the execution device"}
-	case "name-resolution":
-		return &WebPreviewProbe{Reason: webPreviewUnreachable, Detail: "the target host name did not resolve on the execution device"}
-	case "device-unreachable":
-		return &WebPreviewProbe{Reason: webPreviewUnreachable, Detail: "the execution device is not reachable right now"}
+		reason = webPreviewCertificate
+	case "no-listener", "name-resolution", "device-unreachable":
+		reason = webPreviewUnreachable
 	}
-	return &WebPreviewProbe{Reason: webPreviewForwardFailed, Detail: "port forward: " + kind}
+	return &WebPreviewProbe{Reason: reason, ForwardFailure: kind}
 }
 
 func failedProbe(err error) *WebPreviewProbe {
@@ -154,8 +165,8 @@ func failedProbe(err error) *WebPreviewProbe {
 }
 
 // frameBlocked 判最终响应是否禁止被嵌入。frame-ancestors 存在时覆盖 X-Frame-Options。
-// 父页面的来源是 wails://wails,所以只有 `*` 或点名 wails 的列表放行,'self' / 'none' / 具体
-// 站点都不放行。
+// 父页面的来源是 Wails 的页面(见 webPreviewHostScheme),所以只有点名它的列表(以及父页面是
+// http 时的 `*`)放行,'self' / 'none' / 具体站点都不放行。
 func frameBlocked(h http.Header) (bool, string) {
 	if sources, ok := frameAncestors(h.Values("Content-Security-Policy")); ok {
 		if allowsWails(sources) {
@@ -197,11 +208,23 @@ func frameAncestors(headers []string) ([]string, bool) {
 	return found, ok
 }
 
+// allowsWails 报告 frame-ancestors 的来源列表是否放行 Wails 的父页面。CSP3 里 `*` 只匹配
+// http(s) / ws(s) 与受保护页面自己的协议,所以 wails://wails 不被 `*` 放行。
 func allowsWails(sources []string) bool {
 	for _, s := range sources {
 		switch strings.ToLower(s) {
-		case "*", "wails:", "wails://wails", "wails://*":
-			return true
+		case "wails:", "wails://wails", "wails://*":
+			if webPreviewHostScheme == "wails" {
+				return true
+			}
+		case "http:", "http://wails.localhost", "http://*.localhost":
+			if webPreviewHostScheme == "http" {
+				return true
+			}
+		case "*":
+			if webPreviewHostScheme == "http" {
+				return true
+			}
 		}
 	}
 	return false

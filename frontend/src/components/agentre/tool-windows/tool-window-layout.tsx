@@ -272,6 +272,23 @@ function holdsFocus(id: ToolWindowId): boolean {
  * 同侧两个槽位：右侧（上下分）或底部（左右分），与编辑区之间、两个槽位之间各有
  * 一条可拖的分隔条。
  */
+/** 图标条的宽度（tool-window-strip 的 w-[38px]，覆盖层的 right-[38px]）。 */
+const STRIP_WIDTH_PX = 38;
+
+/**
+ * 区域的 flex-basis。比例相对的是拖它的分隔条换算用的容器（outerRef）：底部区域就在
+ * 那个容器里；右侧区域与图标条同在一行、百分比按整行算，要扣掉图标条那 38px，
+ * 列边才跟着指针走（按整行算会多出 ratio×38px）。
+ */
+export function splitAreaBasis(
+  kind: "right" | "bottom",
+  ratio: number,
+): string {
+  return kind === "right"
+    ? `calc(${ratio} * (100% - ${STRIP_WIDTH_PX}px))`
+    : `${ratio * 100}%`;
+}
+
 function SplitArea({
   kind,
   label,
@@ -298,7 +315,7 @@ function SplitArea({
     <aside
       ref={innerRef}
       aria-label={label}
-      style={{ flexBasis: `${ratio * 100}%` }}
+      style={{ flexBasis: splitAreaBasis(kind, ratio) }}
       className={cn(
         "relative flex min-h-0 min-w-0 shrink-0 grow-0 bg-chrome pb-2",
         right ? "min-w-48 flex-col" : "min-h-24 pr-2",

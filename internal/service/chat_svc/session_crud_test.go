@@ -113,6 +113,26 @@ func TestDelete_FiresSessionDeletedHookWithoutBlocking(t *testing.T) {
 	close(release)
 }
 
+// Given 宿主登记了「会话删除后的善后」(如关掉这条会话开的终端), When 删除成功, Then 它收到
+// 被删会话的 ID(任何删除入口 —— 用户删除、批量清理、入站删除 —— 都走 Delete)。
+func TestDelete_RunsRegisteredSessionCleanupWithTheSessionID(t *testing.T) {
+	m := setupChatTest(t)
+	expectDeleteCleanup(m, 9)
+
+	got := make(chan int64, 1)
+	unregister := chat_svc.RegisterSessionDeletedCleanup(func(_ context.Context, sessionID int64) { got <- sessionID })
+	t.Cleanup(unregister)
+
+	_, err := m.svc.Delete(m.ctx, &chat_svc.DeleteRequest{SessionID: 9})
+	require.NoError(t, err)
+	select {
+	case id := <-got:
+		assert.Equal(t, int64(9), id)
+	case <-time.After(2 * time.Second):
+		t.Fatal("cleanup was not invoked")
+	}
+}
+
 // 钩子报错不得让删除失败。
 func TestDelete_HookFailureDoesNotFailDelete(t *testing.T) {
 	m := setupChatTest(t)

@@ -17,9 +17,16 @@ const WorktreeAddKey = "agentre_worktree_add"
 // Tracker follows the AI's current directory across the shell calls of one
 // session, for backends with no structured location signal. Safe for
 // concurrent use.
+//
+// A persistent tracker models a shell whose `cd` carries into later calls. A
+// fresh-shell tracker (NewFreshTracker) models a shell tool that starts every
+// call as a new process in the session working directory (builtin's cago bash
+// tool, Pi's bash tool): a `cd` moves only the call it appears in, and every
+// other call is stamped with the directory it really runs in.
 type Tracker struct {
 	mu    sync.Mutex
 	dir   string
+	fresh bool
 	calls map[string]callRec // call id -> what it recorded, until its result
 }
 
@@ -30,7 +37,12 @@ func NewTracker(start string) *Tracker {
 	return &Tracker{dir: start, calls: map[string]callRec{}}
 }
 
-// Dir is the current location.
+// NewFreshTracker is a tracker for a shell tool that starts every call in start.
+func NewFreshTracker(start string) *Tracker {
+	return &Tracker{dir: start, fresh: true, calls: map[string]callRec{}}
+}
+
+// Dir is the current location (for a fresh-shell tracker, always its start).
 func (t *Tracker) Dir() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -53,10 +65,13 @@ func (t *Tracker) Call(id string, input []byte) (cwd string, out []byte) {
 		}
 		if json.Unmarshal(input, &args) == nil && args.Command != nil {
 			dir, wt, ok := ParseShellLocation(*args.Command, t.dir)
-			if ok {
+			if !ok {
+				dir = t.dir
+			}
+			if !t.fresh {
 				t.dir = dir
 			}
-			rec = callRec{dir: t.dir, worktreeAdd: wt}
+			rec = callRec{dir: dir, worktreeAdd: wt}
 		}
 		t.calls[id] = rec
 	}
@@ -149,13 +164,14 @@ func withWorktreeAdd(in []byte, p string) []byte {
 }
 
 // Registry keeps one Tracker per session key so a cd survives across turns.
-// The zero value is ready to use.
+// The zero value is ready to use and hands out persistent trackers; set Fresh
+// for a shell tool that starts every call in the session working directory.
 type Registry struct {
+	Fresh bool
+
 	mu sync.Mutex
 	m  map[int64]*Tracker
 }
-
-func NewRegistry() *Registry { return &Registry{m: map[int64]*Tracker{}} }
 
 // For returns the session's tracker, creating it at start on first use.
 func (r *Registry) For(key int64, start string) *Tracker {
@@ -167,7 +183,15 @@ func (r *Registry) For(key int64, start string) *Tracker {
 	t, ok := r.m[key]
 	if !ok {
 		t = NewTracker(start)
+		t.fresh = r.Fresh
 		r.m[key] = t
 	}
 	return t
+}
+
+// Forget drops the session's tracker (the session is gone).
+func (r *Registry) Forget(key int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.m, key)
 }

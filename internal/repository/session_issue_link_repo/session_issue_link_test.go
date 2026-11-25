@@ -93,25 +93,36 @@ func TestSessionIssueLink_ListBySessionReturnsDatabaseError(t *testing.T) {
 }
 
 // 按任务列:一个任务关联的多个会话。
-func TestSessionIssueLink_ListByIssueReturnsThatIssuesLinksOldestFirst(t *testing.T) {
+// 看板一次取全部卡片的关联:一条 IN 查询,先关联的在前。
+func TestSessionIssueLink_ListByIssuesReturnsTheirLinksOldestFirstInOneQuery(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
-	mock.ExpectQuery("SELECT \\* FROM `session_issue_links` WHERE issue_id = \\? ORDER BY id ASC").
-		WithArgs(int64(8)).
-		WillReturnRows(sqlmock.NewRows(linkCols).AddRow(1, 3, 8, 100).AddRow(4, 5, 8, 300))
+	mock.ExpectQuery("SELECT \\* FROM `session_issue_links` WHERE issue_id IN \\(\\?,\\?\\) ORDER BY id ASC").
+		WithArgs(int64(8), int64(9)).
+		WillReturnRows(sqlmock.NewRows(linkCols).AddRow(1, 3, 8, 100).AddRow(2, 6, 9, 200).AddRow(4, 5, 8, 300))
 
-	got, err := session_issue_link_repo.NewSessionIssueLink().ListByIssue(ctx, 8)
+	got, err := session_issue_link_repo.NewSessionIssueLink().ListByIssues(ctx, []int64{8, 9})
 	require.NoError(t, err)
-	require.Len(t, got, 2)
+	require.Len(t, got, 3)
 	assert.EqualValues(t, 3, got[0].SessionID)
-	assert.EqualValues(t, 5, got[1].SessionID)
+	assert.EqualValues(t, 6, got[1].SessionID)
+	assert.EqualValues(t, 5, got[2].SessionID)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestSessionIssueLink_ListByIssueReturnsDatabaseError(t *testing.T) {
+// 没有任务 → 不查库。
+func TestSessionIssueLink_ListByIssuesEmptyDoesNotQuery(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	got, err := session_issue_link_repo.NewSessionIssueLink().ListByIssues(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestSessionIssueLink_ListByIssuesReturnsDatabaseError(t *testing.T) {
 	ctx, _, mock := testutils.Database(t)
 	mock.ExpectQuery("SELECT \\* FROM `session_issue_links`").WillReturnError(errors.New("boom"))
 
-	_, err := session_issue_link_repo.NewSessionIssueLink().ListByIssue(ctx, 8)
+	_, err := session_issue_link_repo.NewSessionIssueLink().ListByIssues(ctx, []int64{8})
 	assert.Error(t, err)
 }
 

@@ -98,19 +98,19 @@ func (mr *MockSessionIssueLinkRepoMockRecorder) Link(ctx, sessionID, issueID any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Link", reflect.TypeOf((*MockSessionIssueLinkRepo)(nil).Link), ctx, sessionID, issueID)
 }
 
-// ListByIssue mocks base method.
-func (m *MockSessionIssueLinkRepo) ListByIssue(ctx context.Context, issueID int64) ([]*session_issue_link_entity.SessionIssueLink, error) {
+// ListByIssues mocks base method.
+func (m *MockSessionIssueLinkRepo) ListByIssues(ctx context.Context, issueIDs []int64) ([]*session_issue_link_entity.SessionIssueLink, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByIssue", ctx, issueID)
+	ret := m.ctrl.Call(m, "ListByIssues", ctx, issueIDs)
 	ret0, _ := ret[0].([]*session_issue_link_entity.SessionIssueLink)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListByIssue indicates an expected call of ListByIssue.
-func (mr *MockSessionIssueLinkRepoMockRecorder) ListByIssue(ctx, issueID any) *gomock.Call {
+// ListByIssues indicates an expected call of ListByIssues.
+func (mr *MockSessionIssueLinkRepoMockRecorder) ListByIssues(ctx, issueIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByIssue", reflect.TypeOf((*MockSessionIssueLinkRepo)(nil).ListByIssue), ctx, issueID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByIssues", reflect.TypeOf((*MockSessionIssueLinkRepo)(nil).ListByIssues), ctx, issueIDs)
 }
 
 // ListBySession mocks base method.

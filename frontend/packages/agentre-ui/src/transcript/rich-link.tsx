@@ -27,6 +27,8 @@ import {
   type LinkClass,
   type LinkRoot,
 } from "../lib/link-classify";
+import { loopbackURLPort } from "../lib/loopback-url";
+import { pathBasename } from "../lib/work-root-path";
 import { previewKind } from "../lib/previewable";
 import { toastOpenPathFailure } from "./open-path-failure";
 import { useTranscriptPorts } from "./ports-context";
@@ -231,19 +233,6 @@ function openURL(
   });
 }
 
-/** 指向本机环回（localhost / 127.0.0.1 / ::1）的 http(s) 地址。 */
-function isLoopbackURL(raw: string): boolean {
-  try {
-    const u = new URL(raw);
-    return (
-      (u.protocol === "http:" || u.protocol === "https:") &&
-      ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)
-    );
-  } catch {
-    return false;
-  }
-}
-
 function openLocalInternal(
   kind: Extract<LinkClass, { kind: "local-internal" }>,
   t: TFunction,
@@ -370,13 +359,7 @@ const POPOVER_BUTTON =
 
 /** 根名标签：宿主给的名字，缺省取路径最后一段。 */
 function rootName(root: LinkRoot): string {
-  if (root.name) return root.name;
-  return (
-    root.path
-      .replace(/[\\/]+$/, "")
-      .split(/[\\/]/)
-      .pop() || root.path
-  );
+  return root.name || pathBasename(root.path);
 }
 
 function lineLabel(kind: LinkClass): string | null {
@@ -579,7 +562,7 @@ export function RichLink({
     kind.kind === "url" &&
     sessionId !== undefined &&
     ports.previewURL !== undefined &&
-    isLoopbackURL(kind.url)
+    loopbackURLPort(kind.url) !== null
       ? () => {
           setOpen(false);
           ports.previewURL?.(sessionId, kind.url);

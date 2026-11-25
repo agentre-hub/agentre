@@ -144,6 +144,18 @@ func (mr *MockDispatchSvcMockRecorder) ListSessionDispatches(ctx, sessionID any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSessionDispatches", reflect.TypeOf((*MockDispatchSvc)(nil).ListSessionDispatches), ctx, sessionID)
 }
 
+// ReconcileAfterRestart mocks base method.
+func (m *MockDispatchSvc) ReconcileAfterRestart(ctx context.Context) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ReconcileAfterRestart", ctx)
+}
+
+// ReconcileAfterRestart indicates an expected call of ReconcileAfterRestart.
+func (mr *MockDispatchSvcMockRecorder) ReconcileAfterRestart(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileAfterRestart", reflect.TypeOf((*MockDispatchSvc)(nil).ReconcileAfterRestart), ctx)
+}
+
 // Started mocks base method.
 func (m *MockDispatchSvc) Started(ctx context.Context, id int64) {
 	m.ctrl.T.Helper()

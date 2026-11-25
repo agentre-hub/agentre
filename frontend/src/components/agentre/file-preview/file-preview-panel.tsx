@@ -3,6 +3,7 @@ import * as React from "react";
 import {
   FilePreviewPanel as SharedFilePreviewPanel,
   cn,
+  pathBasename,
   previewNeedsMonaco,
   useUiTranslation,
   type FilePreviewFailure,
@@ -14,13 +15,13 @@ import {
 import {
   WorkspaceFsGitFileContent,
   WorkspaceFsReadFile,
-  WorkspaceFsWorkRoots,
 } from "@/../wailsjs/go/app/App";
-import type { chat_svc, workspace_fs_svc } from "@/../wailsjs/go/models";
+import type { chat_svc } from "@/../wailsjs/go/models";
 import {
   selectActivePreviewTab,
   useFilePreviewTabsStore,
 } from "@/stores/file-preview-tabs-store";
+import { useSessionRoot } from "@/stores/session-root-store";
 import { useSessionStatus } from "@/stores/session-status-store";
 
 import { useOpenFile } from "../chat-context-sidebar/views/use-open-file";
@@ -47,43 +48,6 @@ type Props = {
    */
   actions?: React.ReactNode;
 };
-
-/** 路径最后一段，作为没有登记名的根的显示名。 */
-function rootBasename(root: string): string {
-  const trimmed = root.replace(/[\\/]+$/, "");
-  return trimmed.slice(
-    Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\")) + 1,
-  );
-}
-
-/**
- * 会话当前认领的工作根集合，随轮次结束重取（worktree 可能在轮中被加入或移除）。
- * 取不到时返回空数组：空集合表示「不知道」，调用方不得据此把任何标签判成已移除。
- */
-function useSessionWorkRoots(
-  sessionId: number,
-  cwd: string,
-  refreshToken: number,
-): workspace_fs_svc.WorkRootView[] {
-  const [roots, setRoots] = React.useState<workspace_fs_svc.WorkRootView[]>([]);
-  React.useEffect(() => {
-    let live = true;
-    setRoots([]);
-    if (cwd === "") return;
-    WorkspaceFsWorkRoots(sessionId).then(
-      (views) => {
-        if (live) setRoots(views ?? []);
-      },
-      () => {
-        if (live) setRoots([]);
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [sessionId, cwd, refreshToken]);
-  return roots;
-}
 
 /** 文件身份图标是宿主的资产（扩展名目录 + 色调 token），经 props 交给包里那份面板。 */
 function renderFileIcon(path: string, slot: "tab" | "overflow" | "header") {
@@ -147,7 +111,9 @@ export function FilePreviewPanel({
   );
 
   const doneTick = useSessionStatus(sessionId)?.doneTick ?? 0;
-  const workRoots = useSessionWorkRoots(sessionId, cwd, doneTick);
+  // 认领集合只有一份：会话根 store（对话页挂着它的取数与 chat:workroots 推送，点链接
+  // 认领也落在那里）。空集合是「还没取到 / 取不到」，不据此判任何标签已移除。
+  const workRoots = useSessionRoot(sessionId).roots;
 
   // 活动标签自己的根——不看侧栏当前选的是哪个根。
   // 侧栏打开的标签绑的是绝对路径形式的主根：后端约定主根传空串，在这一个边界
@@ -166,7 +132,7 @@ export function FilePreviewPanel({
       if (claimed?.isPrimary) return tab;
       return {
         ...tab,
-        rootLabel: claimed?.name || rootBasename(tab.root),
+        rootLabel: claimed?.name || pathBasename(tab.root),
         removed: known && !claimed,
       };
     });

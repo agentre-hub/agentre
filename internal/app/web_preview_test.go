@@ -32,6 +32,9 @@ func withHeaders(kv ...string) http.HandlerFunc {
 
 // Given 一个目标站, When 预检, Then 按 X-Frame-Options / frame-ancestors 判能否内嵌。
 func TestProbeWebPreviewFrameHeaders(t *testing.T) {
+	prev := webPreviewHostScheme
+	webPreviewHostScheme = "wails"
+	t.Cleanup(func() { webPreviewHostScheme = prev })
 	cases := []struct {
 		name       string
 		headers    []string
@@ -43,7 +46,7 @@ func TestProbeWebPreviewFrameHeaders(t *testing.T) {
 		{"XFO SAMEORIGIN refused", []string{"X-Frame-Options", "sameorigin"}, false, webPreviewFrameBlocked},
 		{"frame-ancestors none refused", []string{"Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'"}, false, webPreviewFrameBlocked},
 		{"frame-ancestors self refused", []string{"Content-Security-Policy", "frame-ancestors 'self'"}, false, webPreviewFrameBlocked},
-		{"frame-ancestors overrides XFO", []string{"X-Frame-Options", "DENY", "Content-Security-Policy", "frame-ancestors *"}, true, ""},
+		{"frame-ancestors overrides XFO", []string{"X-Frame-Options", "DENY", "Content-Security-Policy", "frame-ancestors wails://wails"}, true, ""},
 		{"frame-ancestors none beats a lax XFO", []string{"X-Frame-Options", "ALLOW-FROM https://x", "Content-Security-Policy", "frame-ancestors 'none'"}, false, webPreviewFrameBlocked},
 		{"CSP without frame-ancestors leaves XFO in charge", []string{"X-Frame-Options", "DENY", "Content-Security-Policy", "default-src 'self'"}, false, webPreviewFrameBlocked},
 		{"frame-ancestors naming wails is allowed", []string{"Content-Security-Policy", "frame-ancestors wails://wails"}, true, ""},
@@ -58,6 +61,30 @@ func TestProbeWebPreviewFrameHeaders(t *testing.T) {
 			if !c.embeddable {
 				assert.NotEmpty(t, got.Detail)
 			}
+		})
+	}
+}
+
+// CSP3 里 frame-ancestors 的 `*` 只匹配 http(s) / ws(s) 与受保护页面自己的协议:父页面是
+// wails://wails(macOS / Linux)时它不放行;父页面是 http://wails.localhost(Windows)时放行。
+func TestProbeWebPreviewStarFrameAncestorsDependsOnHostScheme(t *testing.T) {
+	srv := serve(t, withHeaders("Content-Security-Policy", "frame-ancestors *"))
+	cases := []struct {
+		scheme     string
+		embeddable bool
+	}{
+		{"wails", false},
+		{"http", true},
+	}
+	for _, c := range cases {
+		t.Run(c.scheme, func(t *testing.T) {
+			prev := webPreviewHostScheme
+			webPreviewHostScheme = c.scheme
+			t.Cleanup(func() { webPreviewHostScheme = prev })
+
+			got, err := probeWebPreview(context.Background(), srv.URL, false)
+			require.NoError(t, err)
+			assert.Equal(t, c.embeddable, got.Embeddable)
 		})
 	}
 }
@@ -136,7 +163,9 @@ func TestProbeWebPreviewForwardFailureKinds(t *testing.T) {
 			require.NoError(t, err)
 			assert.False(t, got.Embeddable)
 			assert.Equal(t, tc.reason, got.Reason)
-			assert.NotEmpty(t, got.Detail)
+			// 种类原样交给前端按语言翻;Go 不产出给人看的句子。
+			assert.Equal(t, tc.token, got.ForwardFailure)
+			assert.Empty(t, got.Detail)
 		})
 	}
 

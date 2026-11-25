@@ -30,7 +30,7 @@ func drainWithLocation(t *testing.T, loc *shellloc.Tracker, events ...pkgpi.Even
 }
 
 func TestDrainStream_BashCommandsSetToolCwd(t *testing.T) {
-	loc := shellloc.NewTracker("/w")
+	loc := NewWithPool(nil).locations.For(1, "/w")
 	got := drainWithLocation(t, loc,
 		piTool(pkgpi.EventPreToolUse, "a", "bash", `{"command":"cd sub && ls"}`),
 		piTool(pkgpi.EventPostToolUse, "a", "bash", ``),
@@ -52,21 +52,23 @@ func TestDrainStream_BashCommandsSetToolCwd(t *testing.T) {
 		}
 	}
 	require.Len(t, calls, 4)
-	assert.Equal(t, "/w/sub", calls["a"].Cwd, "cd persists")
+	// Pi's bash tool spawns every command as a new process in the session directory:
+	// a cd moves only the call it appears in.
+	assert.Equal(t, "/w/sub", calls["a"].Cwd, "cd moves its own call")
 	assert.Equal(t, "/w/sub", results["a"].Cwd)
-	assert.Equal(t, "/w/sub", calls["b"].Cwd, "a non-shell call carries the current location")
-	assert.Equal(t, "/w/sub", results["b"].Cwd)
-	assert.Equal(t, "/w/sub", calls["c"].Cwd, "an unreadable cd keeps the previous location")
-	assert.Equal(t, "/w/sub", calls["d"].Cwd, "worktree add does not move the AI")
-	assert.JSONEq(t, `{"command":"git worktree add ../wt -b feat","`+shellloc.WorktreeAddKey+`":"/w/wt"}`, string(calls["d"].Input))
-	assert.Equal(t, "/w/sub", loc.Dir())
+	assert.Equal(t, "/w", calls["b"].Cwd, "a non-shell call runs in the session directory")
+	assert.Equal(t, "/w", results["b"].Cwd)
+	assert.Equal(t, "/w", calls["c"].Cwd, "an unreadable cd keeps the call's starting directory")
+	assert.Equal(t, "/w", calls["d"].Cwd, "worktree add does not move the AI")
+	assert.JSONEq(t, `{"command":"git worktree add ../wt -b feat","`+shellloc.WorktreeAddKey+`":"/wt"}`, string(calls["d"].Input))
+	assert.Equal(t, "/w", loc.Dir())
 }
 
 // 决策 16:子代理的位置变化只参与认领,不移动主会话的位置。子代理嵌套的 bash `cd`
 // 仍让它自己的调用带上它的目录(chat_svc 据 ParentToolCallID 只认领),但主 agent
 // 之后的调用还在主位置。
 func TestDrainStream_SubagentCdDoesNotMoveMainLocation(t *testing.T) {
-	loc := shellloc.NewTracker("/w")
+	loc := shellloc.NewFreshTracker("/w")
 	got := drainWithLocation(t, loc,
 		pkgpi.Event{Kind: pkgpi.EventPreToolUse, Tool: pkgpi.ToolEvent{
 			ID: "outer", Name: "subagent", Input: []byte(`{"agent":"worker","task":"inspect"}`),
@@ -102,7 +104,7 @@ func TestDrainStream_SubagentCdDoesNotMoveMainLocation(t *testing.T) {
 	assert.Equal(t, "/wt", nested[0].Cwd, "the subagent's own location still rides its call (claim-only)")
 	require.NotNil(t, nestedResult)
 	assert.Equal(t, "/wt", nestedResult.Cwd)
-	assert.Equal(t, "/wt", nested[1].Cwd, "a cd persists within the subagent's own run")
+	assert.Equal(t, "/w", nested[1].Cwd, "the subagent's next call runs in the directory its run started in")
 	require.NotNil(t, mainCall)
 	assert.Equal(t, "/w", mainCall.Cwd, "the main agent stays where it was")
 	assert.Equal(t, "/w", loc.Dir())
@@ -115,4 +117,13 @@ func TestDrainStream_NilTrackerLeavesCwdUnknown(t *testing.T) {
 			assert.Empty(t, call.Cwd)
 		}
 	}
+}
+
+// Given 会话被删除(释放广播调到 CloseSession), Then 它的位置跟踪一并丢掉:同一会话号之后
+// 从新给的工作目录重新起算,不留已删会话的状态。
+func TestCloseSession_ForgetsTheSessionLocation(t *testing.T) {
+	r := NewWithPool(nil)
+	r.locations.For(77, "/old").Call("x", []byte(`{"command":"cd /moved"}`))
+	r.CloseSession(context.Background(), 77)
+	assert.Equal(t, "/new", r.locations.For(77, "/new").Dir())
 }

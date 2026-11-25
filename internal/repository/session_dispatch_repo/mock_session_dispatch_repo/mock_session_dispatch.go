@@ -70,6 +70,21 @@ func (mr *MockSessionDispatchRepoMockRecorder) DeleteBySession(ctx, sessionID an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteBySession", reflect.TypeOf((*MockSessionDispatchRepo)(nil).DeleteBySession), ctx, sessionID)
 }
 
+// FinishUnfinished mocks base method.
+func (m *MockSessionDispatchRepo) FinishUnfinished(ctx context.Context, status string, finishtime int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FinishUnfinished", ctx, status, finishtime)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FinishUnfinished indicates an expected call of FinishUnfinished.
+func (mr *MockSessionDispatchRepoMockRecorder) FinishUnfinished(ctx, status, finishtime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FinishUnfinished", reflect.TypeOf((*MockSessionDispatchRepo)(nil).FinishUnfinished), ctx, status, finishtime)
+}
+
 // ListByDispatched mocks base method.
 func (m *MockSessionDispatchRepo) ListByDispatched(ctx context.Context, sessionID int64) ([]*session_dispatch_entity.SessionDispatch, error) {
 	m.ctrl.T.Helper()

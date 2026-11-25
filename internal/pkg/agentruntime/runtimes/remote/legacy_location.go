@@ -45,7 +45,11 @@ func (l *legacyLocations) noteRun(sid int64, backend agent_backend_entity.Backen
 	st := l.stateLocked(sid)
 	st.backend = backend
 	if st.shell == nil && textLocated(backend) {
-		st.shell = shellloc.NewTracker(cwd)
+		if freshShell(backend) {
+			st.shell = shellloc.NewFreshTracker(cwd)
+		} else {
+			st.shell = shellloc.NewTracker(cwd)
+		}
 	}
 }
 
@@ -68,6 +72,12 @@ func textLocated(b agent_backend_entity.BackendType) bool {
 		return true
 	}
 	return false
+}
+
+// freshShell 报告后端的 shell 工具是否每次调用都在会话工作目录新起进程(pi / builtin):
+// cd 只作用于它所在的那次调用。ACP 的 shell 由各 agent 自己实现,按 cd 延续处理。
+func freshShell(b agent_backend_entity.BackendType) bool {
+	return b == agent_backend_entity.TypePiAgent || b == agent_backend_entity.TypeBuiltin
 }
 
 // infer 给没带 Cwd 的工具事件补上位置;其它事件原样交回。

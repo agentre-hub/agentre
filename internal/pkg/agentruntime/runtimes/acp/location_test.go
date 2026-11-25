@@ -101,3 +101,12 @@ func TestRun_NonShellToolCarriesCurrentLocation(t *testing.T) {
 	)
 	assert.Equal(t, "/srv/wt", cwdsByID(got)["call:r"], "only execute-kind calls are parsed as shell")
 }
+
+// Given 会话被删除(释放广播调到 CloseSession), Then 它的位置跟踪一并丢掉:同一会话号之后
+// 从新给的工作目录重新起算,不留已删会话的状态。
+func TestCloseSession_ForgetsTheSessionLocation(t *testing.T) {
+	r := New()
+	r.locations.For(77, "/old").Call("x", []byte(`{"command":"cd /moved"}`))
+	r.CloseSession(context.Background(), 77)
+	assert.Equal(t, "/new", r.locations.For(77, "/new").Dir())
+}

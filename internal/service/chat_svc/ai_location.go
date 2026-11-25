@@ -74,11 +74,15 @@ type aiLocationState struct {
 	mu       sync.Mutex
 	restored bool
 	dir      string
-	// offered 记已交给认领的候选目录:同一目录不重复认领。撤销一个根之后整份清空 ——
-	// 同一路径之后可能又被建成 worktree。
-	offered  map[string]struct{}
-	jobs     []workRootsJob
-	draining bool
+	// offered 记已交给认领的候选目录(写入目标所在目录、子代理位置):同一目录不重复认领。
+	// 撤销一个根之后整份清空 —— 同一路径之后可能又被建成 worktree。主位置的移动不查它:
+	// 一次没认领出根的目录(当时还不是工作树、git 判定一时失败)在 AI 真的移进去时要再判。
+	offered map[string]struct{}
+	// pendingAdds 记命令里有 `git worktree add <路径>`、结果还没到的调用(调用 ID → 路径):
+	// 调用到达时目录还不存在,结果到了(且没失败)才交给认领。
+	pendingAdds map[string]string
+	jobs        []workRootsJob
+	draining    bool
 }
 
 // workRootsJob 是一条信号要做的认领工作。
@@ -99,10 +103,18 @@ func (b *aiLocationBook) state(sessionID int64) *aiLocationState {
 	}
 	st, ok := b.sessions[sessionID]
 	if !ok {
-		st = &aiLocationState{offered: map[string]struct{}{}}
+		st = &aiLocationState{offered: map[string]struct{}{}, pendingAdds: map[string]string{}}
 		b.sessions[sessionID] = st
 	}
 	return st
+}
+
+// forget 丢掉会话在本进程里的位置状态(会话被删除)。还在排队的认领照旧跑完,只是不再
+// 有人记得这个会话。
+func (b *aiLocationBook) forget(sessionID int64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.sessions, sessionID)
 }
 
 // offer 报告 dir 是否是本会话第一次交给认领的候选,并记下它。调用方持有 st.mu。
@@ -214,7 +226,7 @@ func (s *chatSvc) ObserveAILocation(ctx context.Context, sessionID int64, sig AI
 			logger.Ctx(ctx).Debug("chat_svc.ObserveAILocation: ai location moved",
 				zap.Int64("sessionId", sessionID))
 		}
-		if (job.moved || sig.FromSubagent) && st.offer(dir) {
+		if job.moved || (sig.FromSubagent && st.offer(dir)) {
 			job.candidates = append(job.candidates, dir)
 		}
 	}
@@ -306,10 +318,21 @@ func (s *chatSvc) observeToolEvent(ctx context.Context, sessionID int64, ev agen
 	switch e := ev.(type) {
 	case agentruntime.ToolCall:
 		sig.Dir, sig.FromSubagent = e.Cwd, e.ParentToolCallID != "" || e.SubagentRunID != ""
-		sig.Candidates = toolCallCandidates(e, func() string { return s.anchorFor(ctx, sessionID, e.Cwd, sig.FromSubagent) })
+		anchor := func() string { return s.anchorFor(ctx, sessionID, e.Cwd, sig.FromSubagent) }
+		sig.Candidates = writtenDirCandidates(e, anchor)
+		if p := worktreeAddOfCall(e, anchor); p != "" {
+			if e.ID == "" {
+				sig.Candidates = append(sig.Candidates, p) // 没有调用 ID 对不上结果,只能当场交
+			} else {
+				s.aiLocations.state(sessionID).holdWorktreeAdd(e.ID, p)
+			}
+		}
 	case agentruntime.ToolResult:
 		sig.Dir, sig.FromSubagent = e.Cwd, e.ParentToolCallID != "" || e.SubagentRunID != ""
 		sig.RevokeRoot = revokeRootOf(e.Meta)
+		if p := s.aiLocations.state(sessionID).releaseWorktreeAdd(e.ToolCallID); p != "" && !e.IsError {
+			sig.Candidates = append(sig.Candidates, p)
+		}
 	default:
 		return
 	}
@@ -321,7 +344,7 @@ func (s *chatSvc) observeToolEvent(ctx context.Context, sessionID int64, ev agen
 
 // revokeRootOf 取工具结果 Meta 里执行侧标出的要撤销的根;没有标记或解不开时为空。
 func revokeRootOf(meta json.RawMessage) string {
-	// 同 toolCallCandidates:先字节级预筛,普通结果的 Meta 不整份解析。
+	// 同 worktreeAddOfCall:先字节级预筛,普通结果的 Meta 不整份解析。
 	if !bytes.Contains(meta, []byte(agentruntime.RevokeRootMetaKey)) {
 		return ""
 	}
@@ -350,10 +373,26 @@ func (s *chatSvc) anchorFor(ctx context.Context, sessionID int64, cwd string, fr
 	return dir
 }
 
-// toolCallCandidates 取一次工具调用的认领候选:写入目标所在目录(file.write / file.edit,
-// 与 SessionWrittenPaths 同一口径)与 shellloc 标出的 `git worktree add` 路径。
-// anchor 只在遇到相对写入路径或命令文本里的 `git worktree add` 时才被调用(它可能要读转录恢复位置)。
-func toolCallCandidates(call agentruntime.ToolCall, anchor func() string) []string {
+// holdWorktreeAdd 记下一次调用里 `git worktree add` 的路径,等它的结果到达再认领。
+func (st *aiLocationState) holdWorktreeAdd(callID, path string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.pendingAdds[callID] = path
+}
+
+// releaseWorktreeAdd 取走并清掉某次调用挂着的 `git worktree add` 路径;没有时为空串。
+func (st *aiLocationState) releaseWorktreeAdd(callID string) string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	p := st.pendingAdds[callID]
+	delete(st.pendingAdds, callID)
+	return p
+}
+
+// writtenDirCandidates 取一次工具调用的写入目标所在目录(file.write / file.edit,与
+// SessionWrittenPaths 同一口径)作为认领候选。anchor 只在遇到相对写入路径时才被调用
+// (它可能要读转录恢复位置)。`git worktree add` 的路径不在这里:它等结果到达再交。
+func writtenDirCandidates(call agentruntime.ToolCall, anchor func() string) []string {
 	var out []string
 	if call.Canonical != nil {
 		for _, p := range writtenPathsOfCanonical(call.Canonical) {
@@ -365,9 +404,6 @@ func toolCallCandidates(call agentruntime.ToolCall, anchor func() string) []stri
 				out = append(out, dir)
 			}
 		}
-	}
-	if p := worktreeAddOfCall(call, anchor); p != "" {
-		out = append(out, p)
 	}
 	return out
 }

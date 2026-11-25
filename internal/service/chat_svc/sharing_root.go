@@ -2,9 +2,6 @@ package chat_svc
 
 import (
 	"context"
-	"path"
-	"path/filepath"
-	"strings"
 
 	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/logger"
@@ -80,7 +77,7 @@ func (s *chatSvc) ListSessionsSharingRoot(ctx context.Context, sessionID int64) 
 			continue
 		}
 		root, ok := aiHereRoot(roots)
-		if !ok || cleanRootPath(root.Path) != cleanRootPath(selfRoot.Path) {
+		if !ok || !workspace_fs_svc.SamePath(root.Path, selfRoot.Path) {
 			continue
 		}
 		item := &SharingRootSession{
@@ -191,11 +188,9 @@ func (s *chatSvc) writtenFiles(ctx context.Context, sessionID int64, roots []wor
 	}
 	out := make([]string, 0, len(paths))
 	for _, p := range paths {
-		dir, ok := workspace_fs_svc.WrittenDir(p, fallback)
-		if !ok {
-			continue
+		if f, ok := workspace_fs_svc.WrittenFile(p, fallback); ok {
+			out = append(out, f)
 		}
-		out = append(out, joinWritten(dir, p.Path))
 	}
 	return out
 }
@@ -222,39 +217,9 @@ func overlapWith(self map[string]struct{}, other []string, root string) (string,
 			continue
 		}
 		if n == 0 {
-			first = relativeTo(root, f)
+			first = workspace_fs_svc.RelativeTo(root, f)
 		}
 		n++
 	}
 	return first, n
-}
-
-// 路径是执行设备上的路径,远端不能按本机规则切(同 workspace_fs_svc 的路径工具):以 "/"
-// 开头的一律按 POSIX 处理,其余交给 filepath。
-
-func cleanRootPath(p string) string {
-	if strings.HasPrefix(p, "/") {
-		return path.Clean(p)
-	}
-	return filepath.Clean(p)
-}
-
-// joinWritten 把写入路径的文件名接回它所在的目录(dir 已是 WrittenDir 补全并取上一级的结果)。
-func joinWritten(dir, p string) string {
-	if strings.HasPrefix(dir, "/") {
-		return path.Join(dir, path.Base(filepath.ToSlash(p)))
-	}
-	return filepath.Join(dir, filepath.Base(p))
-}
-
-func relativeTo(root, file string) string {
-	sep := string(filepath.Separator)
-	if strings.HasPrefix(root, "/") {
-		sep = "/"
-	}
-	prefix := strings.TrimSuffix(cleanRootPath(root), sep) + sep
-	if rest, ok := strings.CutPrefix(file, prefix); ok {
-		return rest
-	}
-	return file
 }

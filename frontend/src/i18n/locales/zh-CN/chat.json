@@ -608,6 +608,12 @@
       "forwardFailed": "端口转发没能完成：{{detail}}",
       "unreachable": "无法访问这个页面：{{detail}}",
       "noLoad": "页面没有加载出来，可能无法访问或响应太慢。"
+    },
+    "forwardFailures": {
+      "tlsVerification": "执行设备上 https 目标的证书没有通过校验，而这条端口转发不忽略证书错误",
+      "noListener": "执行设备上没有服务接受这个连接",
+      "nameResolution": "执行设备上解析不到目标主机名",
+      "deviceUnreachable": "此刻连不上执行设备"
     }
   }
 }

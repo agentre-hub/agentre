@@ -120,6 +120,17 @@ func (s *workspaceFsImpl) claimedRoots(ctx context.Context, sessionID, deviceID 
 	return st.snapshot(), nil
 }
 
+// knownRoots 返回已读入 / 已认领的集合,不补喂写入路径(读路径闸门的快路径)。
+func (s *workspaceFsImpl) knownRoots(ctx context.Context, sessionID, deviceID int64, cwd string) ([]WorkRootView, error) {
+	st := s.stateFor(sessionID, deviceID, cwd)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if err := s.ensureLoaded(ctx, sessionID, st); err != nil {
+		return nil, err
+	}
+	return st.snapshot(), nil
+}
+
 func (s *workspaceFsImpl) Claim(ctx context.Context, sessionID int64, candidates []string) ([]WorkRootView, error) {
 	deviceID, cwd, err := s.workspace(ctx, sessionID)
 	if err != nil {
@@ -194,6 +205,18 @@ func (s *workspaceFsImpl) Revoke(ctx context.Context, sessionID int64, root stri
 	return false, nil
 }
 
+func (s *workspaceFsImpl) ForgetSession(ctx context.Context, sessionID int64) error {
+	if err := s.workRootRepo().DeleteBySession(ctx, sessionID); err != nil {
+		logger.Ctx(ctx).Error("workspace_fs_svc.ForgetSession: delete claimed roots failed",
+			zap.Int64("sessionID", sessionID), zap.Error(err))
+		return err
+	}
+	s.claimsMu.Lock()
+	delete(s.claims, sessionID)
+	s.claimsMu.Unlock()
+	return nil
+}
+
 // ensureLoaded 判定主根(判成 git 仓库后缓存),读入持久化的认领(每进程一次),并
 // 校验尚未校验成功的持久化根。主根的 git 判定失败照旧让整次取数失败。
 func (s *workspaceFsImpl) ensureLoaded(ctx context.Context, sessionID int64, st *claimState) error {
@@ -217,6 +240,11 @@ func (s *workspaceFsImpl) ensureLoaded(ctx context.Context, sessionID int64, st 
 		}
 		for _, row := range rows {
 			if _, dup := st.identity[row.Worktree]; dup {
+				// 同一个工作树已在集合里(另一种路径写法,或它就是主根):这一行永远不会被用到。
+				if err := s.workRootRepo().Delete(ctx, sessionID, row.Path); err != nil {
+					logger.Ctx(ctx).Warn("workspace_fs_svc.ensureLoaded: delete duplicate claimed root failed",
+						zap.Int64("sessionID", sessionID), zap.Error(err))
+				}
 				continue
 			}
 			st.add(WorkRootView{Path: row.Path, Name: baseOf(row.Path), IsWorktree: row.Worktree != ""}, row.Worktree)

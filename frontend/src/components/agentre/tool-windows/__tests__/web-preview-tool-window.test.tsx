@@ -125,6 +125,26 @@ describe("WebPreviewToolWindow · tabs", () => {
     );
   });
 
+  // 嵌进来的是任意 http(s) 页面：它可以跑脚本、提交表单、弹窗，但不能把整个应用窗口
+  // 导航走（top.location）——那会把 Agentre 自己的界面换成那个页面。
+  it("Given a loaded page, Then the iframe is sandboxed without top-level navigation", async () => {
+    sync([3000, "npm run dev"]);
+    mountWindow();
+
+    const frame = await findFrame(":3000 npm run dev");
+    const sandbox = (frame.getAttribute("sandbox") ?? "").split(/\s+/);
+    expect(frame.hasAttribute("sandbox")).toBe(true);
+    expect(sandbox).toEqual(
+      expect.arrayContaining([
+        "allow-scripts",
+        "allow-same-origin",
+        "allow-forms",
+      ]),
+    );
+    expect(sandbox).not.toContain("allow-top-navigation");
+    expect(sandbox).not.toContain("allow-top-navigation-by-user-activation");
+  });
+
   it("Given no port yet, Then it shows the empty state and never probes", () => {
     mountWindow();
     expect(screen.getByText(/No listening ports yet/)).toBeInTheDocument();
@@ -421,6 +441,46 @@ describe("WebPreviewToolWindow · cannot embed", () => {
       screen.getByText("The port forward didn't complete: remote dial refused"),
     ).toBeInTheDocument();
   });
+
+  // 转发这一层的失败只交回种类（Go 不出给人看的句子），句子按界面语言在这里出。
+  it.each([
+    [
+      "tls-verification",
+      "certificate",
+      "The certificate failed verification: the https target's certificate failed verification on the execution device, and this port forward does not ignore certificate errors",
+    ],
+    [
+      "no-listener",
+      "unreachable",
+      "The page can't be reached: nothing accepted the connection on the execution device",
+    ],
+    [
+      "device-unreachable",
+      "unreachable",
+      "The page can't be reached: the execution device is not reachable right now",
+    ],
+    [
+      "upstream-gone",
+      "forwardFailed",
+      "The port forward didn't complete: upstream-gone",
+    ],
+  ])(
+    "Given the forward reports %s, Then the reason is written in the UI language",
+    async (kind, reason, text) => {
+      api.ProbeSessionWebPreview.mockResolvedValue(
+        probeFor("http://127.0.0.1:45123/", {
+          embeddable: false,
+          reason,
+          detail: "",
+          forwarded: true,
+          forwardFailure: kind,
+        }),
+      );
+      sync([3000, "a"]);
+      mountWindow({ remote: true, deviceName: "build-box" });
+      expect(await screen.findByText(text)).toBeInTheDocument();
+    },
+  );
 
   it("Given a local certificate failure, Then the reason shows without a forward-settings entry", async () => {
     api.ProbeSessionWebPreview.mockResolvedValue(

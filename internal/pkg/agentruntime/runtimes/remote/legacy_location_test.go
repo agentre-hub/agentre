@@ -115,7 +115,16 @@ func TestLegacyAgentred_ShellCommandTextMovesTheLocation(t *testing.T) {
 	calls, results := callsAndResults(got)
 	assert.Equal(t, "/wt", calls["b1"].Cwd)
 	assert.Equal(t, "/wt", results["b1"].Cwd)
-	assert.Equal(t, "/wt", calls["b2"].Cwd)
+	assert.Equal(t, "/w", calls["b2"].Cwd, "builtin's bash starts every call in the session directory")
 	assert.Empty(t, calls["n1"].Cwd, "nested subagent events are not inferred here")
-	assert.Equal(t, "/wt", calls["b3"].Cwd, "a subagent's cd does not move the main location")
+	assert.Equal(t, "/w", calls["b3"].Cwd, "a subagent's cd does not move the main location")
+}
+
+func TestLegacyAgentred_ACPShellCdCarriesIntoLaterCalls(t *testing.T) {
+	got := runLegacy(t, agent_backend_entity.TypeACP,
+		agentruntime.ToolCall{ID: "b1", Name: "Run", Input: json.RawMessage(`{"command":"cd ../wt && ls"}`)},
+		agentruntime.ToolCall{ID: "b2", Name: "Read", Input: json.RawMessage(`{"path":"a.go"}`)},
+	)
+	calls, _ := callsAndResults(got)
+	assert.Equal(t, "/wt", calls["b2"].Cwd)
 }

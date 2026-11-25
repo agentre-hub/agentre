@@ -4,6 +4,7 @@ import (
 	"context"
 	"html"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -23,7 +24,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/session_dispatch_repo"
 	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
-	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 )
 
@@ -82,10 +82,40 @@ var sessionDeletedHook SessionDeletedHook
 // RegisterSessionDeletedHook 由 bootstrap 注入;传 nil 清除。
 func RegisterSessionDeletedHook(h SessionDeletedHook) { sessionDeletedHook = h }
 
-// fireSessionDeleted 异步触发钩子:不阻塞 Delete,钩子的 panic/错误都吞掉并记日志。
+// SessionDeletedCleanup 是宿主持有的、属于某条会话的资源的善后(如这条会话开的终端):
+// 会话被删除后以它的 ID 调用,跑在 fireSessionDeleted 的 goroutine 里。
+type SessionDeletedCleanup func(ctx context.Context, sessionID int64)
+
+var (
+	sessionCleanupsMu  sync.Mutex
+	sessionCleanups    = map[int]SessionDeletedCleanup{}
+	sessionCleanupNext int
+)
+
+// RegisterSessionDeletedCleanup 登记一份会话删除后的善后,交回注销函数。
+func RegisterSessionDeletedCleanup(fn SessionDeletedCleanup) (unregister func()) {
+	sessionCleanupsMu.Lock()
+	defer sessionCleanupsMu.Unlock()
+	id := sessionCleanupNext
+	sessionCleanupNext++
+	sessionCleanups[id] = fn
+	return func() {
+		sessionCleanupsMu.Lock()
+		defer sessionCleanupsMu.Unlock()
+		delete(sessionCleanups, id)
+	}
+}
+
+// fireSessionDeleted 异步跑会话的善后与钩子:不阻塞 Delete,panic/错误都吞掉并记日志。
 func fireSessionDeleted(ctx context.Context, sessionID int64) {
+	sessionCleanupsMu.Lock()
+	cleanups := make([]SessionDeletedCleanup, 0, len(sessionCleanups))
+	for _, fn := range sessionCleanups {
+		cleanups = append(cleanups, fn)
+	}
+	sessionCleanupsMu.Unlock()
 	h := sessionDeletedHook
-	if h == nil {
+	if h == nil && len(cleanups) == 0 {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
@@ -95,6 +125,12 @@ func fireSessionDeleted(ctx context.Context, sessionID int64) {
 				logger.Ctx(ctx).Warn("chat_svc.fireSessionDeleted: hook panicked", zap.Int64("sessionId", sessionID), zap.Any("panic", r))
 			}
 		}()
+		for _, fn := range cleanups {
+			fn(ctx, sessionID)
+		}
+		if h == nil {
+			return
+		}
 		if err := h(ctx); err != nil {
 			logger.Ctx(ctx).Warn("chat_svc.fireSessionDeleted: hook failed", zap.Int64("sessionId", sessionID), zap.Error(err))
 		}
@@ -129,10 +165,12 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 	if _, err := chat_repo.ReplacementRecoveryCleanup().DeleteReplacementRecovery(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
-	// 会话认领的工作根集合(spec 2026-11-24「会话删除时关联清理」)。
-	if err := workspace_fs_repo.WorkRoot().DeleteBySession(ctx, req.SessionID); err != nil {
+	// 会话认领的工作根集合(spec 2026-11-24「会话删除时关联清理」):库里的行与认领方、
+	// 本服务在本进程里为它记着的认领 / 位置状态。
+	if err := s.workRootsPort().ForgetSession(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
+	s.aiLocations.forget(req.SessionID)
 	// 派发关系(本会话派发出去的与派发了本会话的,spec 2026-11-24 决策 21)。
 	if err := session_dispatch_repo.SessionDispatch().DeleteBySession(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)

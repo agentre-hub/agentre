@@ -188,6 +188,11 @@ func (a *App) Startup(ctx context.Context) {
 	a.ccUsageStop = a.startCCUsage()
 
 	a.terminalSvc = newTerminalService(a.ctx)
+	// 会话终端归属于对话:任何入口删掉对话(用户删除、批量清理、入站删除)都关掉它开的终端。
+	terminals := a.terminalSvc
+	chat_svc.RegisterSessionDeletedCleanup(func(ctx context.Context, sessionID int64) {
+		terminals.CloseChatSession(ctx, sessionID)
+	})
 
 	// 更新检查:5s 后首次判定,随后常驻 tick 到 a.ctx 结束。
 	go a.startAutoUpdateCheck()

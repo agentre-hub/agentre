@@ -29,6 +29,11 @@ type SessionRootEntry = {
   notice: RootNotice | null;
   /** 本次运行里从集合中消失、至今没被认领回来的根（变更窗的「已移除」分组）。 */
   removed: WorkRoot[];
+  /**
+   * 集合每落一次加一（取数、推送、点链接认领都走 applyRoots）。在途的取数据此判断
+   * 自己发出之后有没有更新的集合落下——晚到的旧结果必须作废。
+   */
+  rev: number;
 };
 
 type State = {
@@ -47,6 +52,8 @@ type State = {
   /** 已跟随提示上的「留在 <原根>」：回到原根并关闭跟随。 */
   stay: (sessionId: number) => void;
   dismissNotice: (sessionId: number, id: number) => void;
+  /** 会话被删除：丢掉它的整份状态。 */
+  forget: (sessionId: number) => void;
 };
 
 function freshEntry(cwd: string): SessionRootEntry {
@@ -58,6 +65,7 @@ function freshEntry(cwd: string): SessionRootEntry {
     follow: true,
     notice: null,
     removed: [],
+    rev: 0,
   };
 }
 
@@ -100,7 +108,13 @@ function reduceRoots(
     ),
     ...gone,
   ];
-  const next: SessionRootEntry = { ...prev, roots, loaded: true, removed };
+  const next: SessionRootEntry = {
+    ...prev,
+    roots,
+    loaded: true,
+    removed,
+    rev: prev.rev + 1,
+  };
 
   if (!prev.loaded) {
     if (prev.follow && ai) next.selected = ai.path;
@@ -191,6 +205,13 @@ export const useSessionRootStore = create<State>()((set) => {
       update(sessionId, (e) =>
         e.notice?.id === id ? { ...e, notice: null } : e,
       ),
+    forget: (sessionId) =>
+      set((state) => {
+        if (!(sessionId in state.bySession)) return state;
+        const bySession = { ...state.bySession };
+        delete bySession[sessionId];
+        return { bySession };
+      }),
   };
 });
 
@@ -237,6 +258,11 @@ export function readSessionRoot(sessionId: number): {
     arg: rootArgOf(entry),
     path: currentRootOf(entry)?.path ?? entry.cwd,
   };
+}
+
+/** 会话集合的当前版本（见 SessionRootEntry.rev）；没有状态的会话为 0。 */
+export function readSessionRootsRev(sessionId: number): number {
+  return useSessionRootStore.getState().bySession[sessionId]?.rev ?? 0;
 }
 
 /** 只要当前根的规范标识时用它：列表的每一行都订阅，不该为别的字段变化重渲染。 */

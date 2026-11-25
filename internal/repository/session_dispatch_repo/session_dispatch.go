@@ -25,6 +25,8 @@ type SessionDispatchRepo interface {
 	Create(ctx context.Context, row *session_dispatch_entity.SessionDispatch) error
 	// UpdateState 推进一条还没进入终态的记录;已进入终态(finishtime>0)的行不改,没有这一行不算错。
 	UpdateState(ctx context.Context, id int64, change StateChange) error
+	// FinishUnfinished 把所有还没进入终态(finishtime=0)的记录收成 status,交回改了几行。
+	FinishUnfinished(ctx context.Context, status string, finishtime int64) (int64, error)
 	// ListByDispatcher 交回本会话派发出去的记录,先派发的在前。
 	ListByDispatcher(ctx context.Context, sessionID int64) ([]*session_dispatch_entity.SessionDispatch, error)
 	// ListByDispatched 交回派发了本会话的记录,先派发的在前。
@@ -59,6 +61,13 @@ func (r *sessionDispatchRepo) UpdateState(ctx context.Context, id int64, change 
 	return db.Ctx(ctx).Model(&session_dispatch_entity.SessionDispatch{}).
 		Where("id = ? AND finishtime = 0", id).
 		Updates(updates).Error
+}
+
+func (r *sessionDispatchRepo) FinishUnfinished(ctx context.Context, status string, finishtime int64) (int64, error) {
+	res := db.Ctx(ctx).Model(&session_dispatch_entity.SessionDispatch{}).
+		Where("finishtime = 0").
+		Updates(map[string]any{"status": status, "finishtime": finishtime})
+	return res.RowsAffected, res.Error
 }
 
 func (r *sessionDispatchRepo) ListByDispatcher(ctx context.Context, sessionID int64) ([]*session_dispatch_entity.SessionDispatch, error) {

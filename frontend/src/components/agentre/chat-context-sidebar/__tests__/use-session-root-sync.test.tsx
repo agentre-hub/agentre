@@ -115,6 +115,20 @@ describe("useSessionRootSync", () => {
     expect(result.current.current).toBe(WT);
   });
 
+  // Given 一次取数还在途, When 点链接当场认领了 worktree（认领结果直接落进会话根 store，
+  // 不经推送）, Then 晚到的旧取数不会把刚认领的根冲掉、记成「已移除」。
+  it("drops a fetch that lands after a claim applied straight to the store", async () => {
+    let land: (v: unknown) => void = () => {};
+    workRootsMock.mockReturnValue(new Promise((r) => (land = r)));
+    const { result } = renderSync();
+
+    act(() => useSessionRootStore.getState().applyRoots(7, CWD, roots("main")));
+    await act(async () => land([roots("main")[0]]));
+
+    expect(result.current.roots.map((r) => r.path)).toEqual([CWD, WT]);
+    expect(result.current.removed).toEqual([]);
+  });
+
   // Given 轮次结束, Then 重取一次（worktree 被移除只在重取里看得到）。
   it("refetches when a turn settles", async () => {
     renderSync();

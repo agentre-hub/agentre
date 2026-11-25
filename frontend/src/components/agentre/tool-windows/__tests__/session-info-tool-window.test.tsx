@@ -72,6 +72,7 @@ function seedRoots(
         follow: true,
         notice: null,
         removed: [],
+        rev: 1,
       },
     },
   });

@@ -22,7 +22,7 @@ const appMocks = vi.hoisted(() => ({
   IssueUpdate: vi.fn(),
   IssueDelete: vi.fn(),
   IssueMove: vi.fn(),
-  IssueSessionsOf: vi.fn(),
+  IssueSessionsOfIssues: vi.fn(),
   IssueLinkSession: vi.fn(),
   IssueCreateLabel: vi.fn(),
   IssueUpdateLabel: vi.fn(),
@@ -90,7 +90,7 @@ beforeEach(() => {
     },
   ]);
   appMocks.ListChatAgents.mockResolvedValue([]);
-  appMocks.IssueSessionsOf.mockResolvedValue([]);
+  appMocks.IssueSessionsOfIssues.mockResolvedValue([]);
   appMocks.IssueLinkSession.mockResolvedValue(undefined);
   useChatTabsStore.setState({ tabs: [], activeTabId: null });
   appMocks.SyncStatus.mockResolvedValue({
@@ -633,22 +633,27 @@ describe("IssuesPage 开始会话与关联会话", () => {
   });
 
   it("Given linked sessions, When the board renders, Then the card lists them with status, title and agent and clicking opens the session", async () => {
-    appMocks.IssueSessionsOf.mockImplementation(async (id: number) =>
-      id === 142
+    appMocks.IssueSessionsOfIssues.mockImplementation(async (ids: number[]) =>
+      ids.includes(142)
         ? [
             {
-              sessionID: 31,
-              title: "修 OAuth",
-              agentID: 7,
-              agentName: "Reviewer",
-              agentStatus: "running",
-            },
-            {
-              sessionID: 32,
-              title: "补测试",
-              agentID: 7,
-              agentName: "Reviewer",
-              agentStatus: "error",
+              issueID: 142,
+              sessions: [
+                {
+                  sessionID: 31,
+                  title: "修 OAuth",
+                  agentID: 7,
+                  agentName: "Reviewer",
+                  agentStatus: "running",
+                },
+                {
+                  sessionID: 32,
+                  title: "补测试",
+                  agentID: 7,
+                  agentName: "Reviewer",
+                  agentStatus: "error",
+                },
+              ],
             },
           ]
         : [],
@@ -667,12 +672,15 @@ describe("IssuesPage 开始会话与关联会话", () => {
     expect(newTabMeta()).toEqual({ kind: "session", sessionId: 32 });
   });
 
-  it("Given no linked sessions, When the board renders, Then no sessions block is shown", async () => {
+  it("Given no linked sessions, When the board renders, Then the whole board is fetched in one call and no sessions block is shown", async () => {
     render(<IssuesPage />);
     await screen.findByTestId("board-card-142");
     await waitFor(() =>
-      expect(appMocks.IssueSessionsOf).toHaveBeenCalledWith(142),
+      expect(appMocks.IssueSessionsOfIssues).toHaveBeenCalledWith(
+        expect.arrayContaining([142]),
+      ),
     );
+    expect(appMocks.IssueSessionsOfIssues).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("board-card-sessions-142")).toBeNull();
   });
 

@@ -29,7 +29,7 @@ func (s *locationStamper) trackerFor(parent, run string) *shellloc.Tracker {
 	key := parent + "\x00" + run
 	t, ok := s.runs[key]
 	if !ok {
-		t = shellloc.NewTracker(s.main.Dir())
+		t = shellloc.NewFreshTracker(s.main.Dir())
 		s.runs[key] = t
 	}
 	return t
