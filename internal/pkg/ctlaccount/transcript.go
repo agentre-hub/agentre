@@ -1,4 +1,4 @@
-package ctlcmd
+package ctlaccount
 
 import (
 	"context"
@@ -23,6 +23,32 @@ import (
 
 // 账号模式的对话内容：messages（执行端在线读它的持久帧，离线退回 server 的镜像）与 tail
 // （按游标跟随持久帧）。两条来路都先折成同一种中性帧，再走同一套投影，因此输出一致。
+
+// MessageBlock 是 --full 时一条消息里的块。
+type MessageBlock struct {
+	Type  string         `json:"type"`
+	Text  string         `json:"text,omitempty"`
+	Name  string         `json:"name,omitempty"`
+	Input map[string]any `json:"input,omitempty"`
+	// IsError 标记出错的工具结果。
+	IsError bool `json:"isError,omitempty"`
+}
+
+// MessageRow 是一条消息。
+type MessageRow struct {
+	Role   string         `json:"role"`
+	At     string         `json:"at,omitempty"`
+	Text   string         `json:"text"`
+	Blocks []MessageBlock `json:"blocks,omitempty"`
+}
+
+// MessagesPage 是 messages 的一页（与桌面 /ctl/v1/messages 同形）。
+type MessagesPage struct {
+	Session  string       `json:"session"`
+	Messages []MessageRow `json:"messages"`
+	HasMore  bool         `json:"hasMore"`
+	Before   string       `json:"before,omitempty"`
+}
 
 // frame 是一条持久帧里 agrctl 关心的那部分。
 type frame struct {
@@ -116,7 +142,7 @@ func frameOfMirror(m mirrorFrame) frame {
 // turn 是一个用户回合：用户那句话加上助手的回答。seq 是它第一行的帧号。
 type turn struct {
 	seq  int64
-	rows []messageRow
+	rows []MessageRow
 }
 
 // projectTurns 把按帧号升序的帧折成回合。一轮助手回答合成一条消息：文本是全部文本块的
@@ -124,7 +150,7 @@ type turn struct {
 func projectTurns(frames []frame, full bool) []turn {
 	var turns []turn
 	var cur *turn
-	var asst *messageRow
+	var asst *MessageRow
 	var asstSeq int64
 	flush := func() {
 		if asst == nil {
@@ -139,7 +165,7 @@ func projectTurns(frames []frame, full bool) []turn {
 	}
 	ensure := func(f frame) {
 		if asst == nil {
-			asst = &messageRow{Role: "assistant", At: rfc3339Ms(f.at)}
+			asst = &MessageRow{Role: "assistant", At: rfc3339Ms(f.at)}
 			asstSeq = f.seq
 		}
 	}
@@ -147,7 +173,7 @@ func projectTurns(frames []frame, full bool) []turn {
 		switch f.kind {
 		case "user_message":
 			flush()
-			turns = append(turns, turn{seq: f.seq, rows: []messageRow{{Role: "user", At: rfc3339Ms(f.at), Text: f.text}}})
+			turns = append(turns, turn{seq: f.seq, rows: []MessageRow{{Role: "user", At: rfc3339Ms(f.at), Text: f.text}}})
 			cur = &turns[len(turns)-1]
 		case "text":
 			ensure(f)
@@ -156,18 +182,18 @@ func projectTurns(frames []frame, full bool) []turn {
 				if n := len(asst.Blocks); n > 0 && asst.Blocks[n-1].Type == "text" {
 					asst.Blocks[n-1].Text += f.text
 				} else {
-					asst.Blocks = append(asst.Blocks, messageBlock{Type: "text", Text: f.text})
+					asst.Blocks = append(asst.Blocks, MessageBlock{Type: "text", Text: f.text})
 				}
 			}
 		case "tool_use":
 			ensure(f)
 			if full {
-				asst.Blocks = append(asst.Blocks, messageBlock{Type: "tool_use", Name: f.name, Input: f.input})
+				asst.Blocks = append(asst.Blocks, MessageBlock{Type: "tool_use", Name: f.name, Input: f.input})
 			}
 		case "tool_result":
 			ensure(f)
 			if full {
-				asst.Blocks = append(asst.Blocks, messageBlock{Type: "tool_result", Text: f.text, IsError: f.isError})
+				asst.Blocks = append(asst.Blocks, MessageBlock{Type: "tool_result", Text: f.text, IsError: f.isError})
 			}
 		case "turn_done":
 			flush()
@@ -179,12 +205,12 @@ func projectTurns(frames []frame, full bool) []turn {
 
 // pageTurns 取 before 之前的最后 n 个回合（before = 0 不设上界）。more 报告 have 之外是否
 // 还有更早的回合（moreBefore：来源自己说还有）。
-func pageTurns(turns []turn, n int, moreBefore bool) (page messagesPage) {
+func pageTurns(turns []turn, n int, moreBefore bool) (page MessagesPage) {
 	hasMore := moreBefore
 	if len(turns) > n {
 		turns, hasMore = turns[len(turns)-n:], true
 	}
-	page.Messages = []messageRow{}
+	page.Messages = []MessageRow{}
 	for _, t := range turns {
 		page.Messages = append(page.Messages, t.rows...)
 	}
@@ -198,19 +224,19 @@ func pageTurns(turns []turn, n int, moreBefore bool) (page messagesPage) {
 // defaultLastTurns 是 messages --last 的缺省回合数。
 const defaultLastTurns = 20
 
-// messages 读一条会话的最后 n 个回合：执行端在线就读它的持久帧；设备离线、会话保存过就读
+// Messages 读一条会话的最后 n 个回合：执行端在线就读它的持久帧；设备离线、会话保存过就读
 // server 的镜像；镜像里没有内容时如实说设备离线。
-func (a *accountChat) messages(ctx context.Context, id string, last int, before int64, full bool) (messagesPage, error) {
+func (a *Client) Messages(ctx context.Context, id string, last int, before int64, full bool) (MessagesPage, error) {
 	if last <= 0 {
 		last = defaultLastTurns
 	}
 	h, err := a.openSession(ctx, id)
 	switch {
 	case err == nil:
-		defer h.conn.Close()
+		defer func() { _ = h.conn.Close() }()
 		frames, err := pullAll(ctx, h, id, before)
 		if err != nil {
-			return messagesPage{}, a.reachErr(err, h.device, id)
+			return MessagesPage{}, a.ReachErr(err, h.device, id)
 		}
 		page := pageTurns(projectTurns(frames, full), last, false)
 		page.Session = id
@@ -218,14 +244,14 @@ func (a *accountChat) messages(ctx context.Context, id string, last int, before 
 	case errors.Is(err, relaypeer.ErrTargetOffline):
 		page, ok, merr := a.mirrorMessages(ctx, id, last, before, full)
 		if merr != nil {
-			return messagesPage{}, merr
+			return MessagesPage{}, merr
 		}
 		if !ok {
-			return messagesPage{}, a.reachErr(err, a.deviceOf(ctx, id), id)
+			return MessagesPage{}, a.ReachErr(err, a.deviceOf(ctx, id), id)
 		}
 		return page, nil
 	default:
-		return messagesPage{}, a.reachErr(err, "", id)
+		return MessagesPage{}, a.ReachErr(err, "", id)
 	}
 }
 
@@ -256,15 +282,15 @@ const mirrorPages = 200
 
 // mirrorMessages 从 server 镜像里从最新往回翻，直到手里有 last+1 个回合（最老那个可能被页
 // 边界截断，不算完整）或没有更早的了。ok = false 表示镜像里没有这条会话的任何内容。
-func (a *accountChat) mirrorMessages(ctx context.Context, id string, last int, before int64, full bool) (page messagesPage, ok bool, err error) {
+func (a *Client) mirrorMessages(ctx context.Context, id string, last int, before int64, full bool) (page MessagesPage, ok bool, err error) {
 	var frames []frame
 	upper := before
 	hasBefore := false
 	for range mirrorPages {
 		q := url.Values{"conversation_id": {id}, "direction": {"backward"}, "cursor": {strconv.FormatInt(upper, 10)}}
-		raw, gerr := a.acct.GetRaw(ctx, "/v1/agent-sessions/transcript?"+q.Encode())
+		raw, gerr := a.srv.GetRaw(ctx, "/v1/agent-sessions/transcript?"+q.Encode())
 		if gerr != nil {
-			return page, false, serverErr(gerr)
+			return page, false, ServerErr(gerr)
 		}
 		var resp struct {
 			Frames    []mirrorFrame `json:"frames"`
@@ -297,6 +323,9 @@ func (a *accountChat) mirrorMessages(ctx context.Context, id string, last int, b
 
 const tailCursorPrefix = "v1:"
 
+// TailCursor 是 seq 这一帧之后的 tail 游标（与桌面执行者同一写法）。
+func TailCursor(seq int64) string { return tailCursorPrefix + strconv.FormatInt(seq, 10) }
+
 func parseTailCursor(s string) (int64, bool) {
 	raw, ok := strings.CutPrefix(strings.TrimSpace(s), tailCursorPrefix)
 	if !ok {
@@ -306,8 +335,8 @@ func parseTailCursor(s string) (int64, bool) {
 	return seq, err == nil && seq >= 0
 }
 
-// tailOut 是 tail 输出的一行（形状与桌面执行者相同）。
-type tailOut struct {
+// TailLine 是 tail 输出的一行（形状与桌面执行者相同）。
+type TailLine struct {
 	Cursor string          `json:"cursor"`
 	Type   string          `json:"type"`
 	Kind   string          `json:"kind,omitempty"`
@@ -356,7 +385,7 @@ func marshalData(m proto.Message, kind string) json.RawMessage {
 }
 
 // tailLineOf 把一条持久通知译成一行输出；不是会话事件的通知交回 ok = false。
-func tailLineOf(n *agentrewire.DurableNotification) (line tailOut, ok bool) {
+func tailLineOf(n *agentrewire.DurableNotification) (line TailLine, ok bool) {
 	line.Cursor = tailCursorPrefix + strconv.FormatInt(n.GetSeq(), 10)
 	var ev *agentrewire.RuntimeEventNotification
 	switch p := n.GetPayload().GetPayload().(type) {
@@ -399,43 +428,96 @@ func tailLineOf(n *agentrewire.DurableNotification) (line tailOut, ok bool) {
 	return line, true
 }
 
-var errCursorGone = errors.New("cursor is no longer valid; read the history with agrctl messages")
-
-// tail 按游标跟随一条会话的持久帧到 w：from 给出时先补它之后错过的，之后是新的；untilIdle 时
-// 空闲 / 失败收尾（nil）、等待输入以退出码 4 收尾。断线从最后一个游标重连续接。
-func (a *accountChat) tail(ctx context.Context, w io.Writer, id, from string, untilIdle bool) error {
+// Tail 按游标跟随一条会话的持久帧到 w：from 给出时先补它之后错过的，之后是新的；untilIdle 时
+// 空闲 / 失败收尾（nil）、等待输入以 *WaitingError 收尾。断线从最后一个游标重连续接。
+func (a *Client) Tail(ctx context.Context, w io.Writer, id, from string, untilIdle bool) error {
 	cursor, resume := int64(0), false
 	if from != "" {
 		seq, ok := parseTailCursor(from)
 		if !ok {
-			return usageErrorf("invalid cursor %q: use one printed by agrctl tail, or read the history with agrctl messages %s", from, id)
+			return Usagef("invalid cursor %q: use one printed by agrctl tail, or read the history with agrctl messages %s", from, id)
 		}
 		cursor, resume = seq, true
 	}
+	lastStatus := ""
+	status, err := a.follow(ctx, id, cursor, resume, followSink{
+		note: func(n *agentrewire.DurableNotification) error {
+			if line, ok := tailLineOf(n); ok {
+				return writeLine(w, line)
+			}
+			return nil
+		},
+		status: func(cursor int64, status string) error {
+			if status == lastStatus {
+				return nil
+			}
+			lastStatus = status
+			return writeLine(w, TailLine{Cursor: tailCursorPrefix + strconv.FormatInt(cursor, 10), Type: "status", Status: status})
+		},
+		done: func(status string) bool { return untilIdle && status != StatusRunning },
+	})
+	if err != nil {
+		return err
+	}
+	if status == StatusWaiting {
+		return &WaitingError{Session: id}
+	}
+	return nil
+}
+
+// Follow 把一条会话 from 之后的每一条持久帧按序交给 fn，直到这条会话空闲或失败（等待输入
+// 不算收口），交回那时的状态。断线从最后一个帧号重连续接；ctx 取消时交回空状态、nil。
+func (a *Client) Follow(ctx context.Context, id string, from int64, fn func(*agentrewire.DurableNotification)) (string, error) {
+	return a.follow(ctx, id, from, true, followSink{
+		note:   func(n *agentrewire.DurableNotification) error { fn(n); return nil },
+		status: func(int64, string) error { return nil },
+		done:   func(status string) bool { return status == StatusIdle || status == StatusFailed },
+	})
+}
+
+// LatestSeq 是一条会话此刻最新的持久帧号（续聊前取，之后只跟随它之后的帧）。
+func (a *Client) LatestSeq(ctx context.Context, id string) (int64, error) {
+	h, err := a.openSession(ctx, id)
+	if err != nil {
+		return 0, a.ReachErr(err, "", id)
+	}
+	defer func() { _ = h.conn.Close() }()
+	return h.summary.GetLatestSeq(), nil
+}
+
+// followSink 是 follow 的出口：每条持久帧、每次读到的状态、读到哪个状态就收尾。
+type followSink struct {
+	note   func(*agentrewire.DurableNotification) error
+	status func(cursor int64, status string) error
+	done   func(status string) bool
+}
+
+// follow 是 Tail 与 Follow 共用的跟随循环：resume = false 时从会话此刻最新的帧之后开始。
+// 交回收尾时的状态；ctx 取消交回空状态、nil。
+func (a *Client) follow(ctx context.Context, id string, cursor int64, resume bool, sink followSink) (string, error) {
 	var h *session
 	defer func() {
 		if h != nil {
 			_ = h.conn.Close()
 		}
 	}()
-	lastStatus := ""
 	failures := 0
 	connected := false
 	for {
 		if ctx.Err() != nil {
-			return nil
+			return "", nil
 		}
 		if h == nil {
 			var err error
 			if h, err = a.openSession(ctx, id); err != nil {
 				if ctx.Err() != nil {
-					return nil
+					return "", nil
 				}
-				if !transient(err) || (!connected && errors.Is(err, relaypeer.ErrRelayUnavailable)) || failures >= maxReconnects {
-					return a.reachErr(err, "", id)
+				if !transient(err) || (!connected && errors.Is(err, relaypeer.ErrRelayUnavailable)) || failures >= MaxReconnects {
+					return "", a.ReachErr(err, "", id)
 				}
 				failures++
-				time.Sleep(reconnectDelay)
+				time.Sleep(a.opts.ReconnectDelay)
 				continue
 			}
 			connected = true
@@ -443,43 +525,40 @@ func (a *accountChat) tail(ctx context.Context, w io.Writer, id, from string, un
 				cursor, resume = h.summary.GetLatestSeq(), true
 			}
 		}
-		status, err := a.tailCycle(ctx, w, h, id, &cursor, &lastStatus)
+		status, err := a.followCycle(ctx, h, id, &cursor, sink)
 		if err != nil {
 			_ = h.conn.Close()
 			h = nil
 			if ctx.Err() != nil {
-				return nil
+				return "", nil
 			}
-			if errors.Is(err, errCursorGone) {
-				return err
+			if errors.Is(err, ErrCursorGone) {
+				return "", err
 			}
-			if !transient(err) || failures >= maxReconnects {
-				return a.reachErr(err, "", id)
+			if !transient(err) || failures >= MaxReconnects {
+				return "", a.ReachErr(err, "", id)
 			}
 			failures++
-			time.Sleep(reconnectDelay)
+			time.Sleep(a.opts.ReconnectDelay)
 			continue
 		}
 		failures = 0
-		if untilIdle && status != statusRunning {
-			if status == statusWaiting {
-				return &cliError{code: exitWaiting, msg: "session " + id + " is waiting for input"}
-			}
-			return nil
+		if sink.done(status) {
+			return status, nil
 		}
 		select {
 		case <-ctx.Done():
-			return nil
+			return "", nil
 		case <-h.conn.Done():
 			h = nil
-		case <-time.After(accountPollInterval):
+		case <-time.After(a.opts.PollInterval):
 		}
 	}
 }
 
-// tailCycle 读一次状态、补齐游标之后的持久帧、状态变了就写一行 status。先读状态再读帧：
-// 状态说空闲时，那之前的帧都已经在手里。
-func (a *accountChat) tailCycle(ctx context.Context, w io.Writer, h *session, id string, cursor *int64, lastStatus *string) (string, error) {
+// followCycle 读一次状态、补齐游标之后的持久帧、再报状态。先读状态再读帧：状态说空闲时，
+// 那之前的帧都已经在手里。
+func (a *Client) followCycle(ctx context.Context, h *session, id string, cursor *int64, sink followSink) (string, error) {
 	status, _, err := a.state(ctx, h, id)
 	if err != nil {
 		return "", err
@@ -491,13 +570,11 @@ func (a *accountChat) tailCycle(ctx context.Context, w io.Writer, h *session, id
 			return "", err
 		}
 		if o := resp.GetOldestSeq(); o > 0 && len(resp.GetNotifications()) > 0 && o > *cursor+1 {
-			return "", errCursorGone
+			return "", ErrCursorGone
 		}
 		for _, n := range resp.GetNotifications() {
-			if line, ok := tailLineOf(n); ok {
-				if err := writeLine(w, line); err != nil {
-					return "", err
-				}
+			if err := sink.note(n); err != nil {
+				return "", err
 			}
 			*cursor = max(*cursor, n.GetSeq())
 		}
@@ -506,16 +583,13 @@ func (a *accountChat) tailCycle(ctx context.Context, w io.Writer, h *session, id
 		}
 		*cursor = max(*cursor, resp.GetCursor())
 	}
-	if status != *lastStatus {
-		*lastStatus = status
-		if err := writeLine(w, tailOut{Cursor: tailCursorPrefix + strconv.FormatInt(*cursor, 10), Type: "status", Status: status}); err != nil {
-			return "", err
-		}
+	if err := sink.status(*cursor, status); err != nil {
+		return "", err
 	}
 	return status, nil
 }
 
-func writeLine(w io.Writer, line tailOut) error {
+func writeLine(w io.Writer, line TailLine) error {
 	raw, err := json.Marshal(line)
 	if err != nil {
 		return err

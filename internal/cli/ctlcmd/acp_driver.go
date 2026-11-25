@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"strconv"
 	"strings"
 
+	"github.com/agentre-hub/agentre/internal/pkg/ctlaccount"
 	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
 )
 
@@ -56,7 +56,7 @@ type PromptRequest struct {
 
 // AccountDriver 用账号执行者（个人 token）驱动会话。
 type AccountDriver struct {
-	chat *accountChat
+	chat *ctlaccount.Client
 }
 
 // ResolveACPExecutor 为 acp 选执行者：显式 --endpoint、Agentre 会话注入或桌面握手 → 桌面端点；
@@ -88,25 +88,24 @@ then set it in the editor's agent server configuration, for example:
   {"command": "agrctl", "args": ["acp", "--agent", "<name>"], "env": {"AGENTRE_TOKEN": "<the token>"}}
 (AGENTRE_SERVER_URL selects another server.)`
 
-func (d *AccountDriver) Close() { d.chat.close() }
+func (d *AccountDriver) Close() { d.chat.Close() }
 
 // Prompt 发送 prompt 并流式交回这一轮的事件。返回会话号；events 在本轮收尾（最后一条是 done
 // 或 error）或 ctx 取消时关闭。续聊时只交回这条 prompt 之后的帧。
 func (d *AccountDriver) Prompt(ctx context.Context, req PromptRequest) (string, <-chan TurnEvent, error) {
-	in := sendInput{text: req.Text, session: req.Conversation, agent: req.Agent, agentID: req.AgentID, project: req.Project}
+	in := ctlaccount.SendInput{Text: req.Text, Session: req.Conversation, Agent: req.Agent, AgentID: req.AgentID, Project: req.Project}
 	for _, u := range req.Images {
-		in.images = append(in.images, sendImage{DataURL: u})
+		in.Images = append(in.Images, sendImage{DataURL: u})
 	}
 	var from int64
 	if req.Conversation != "" {
-		h, err := d.chat.openSession(ctx, req.Conversation)
+		seq, err := d.chat.LatestSeq(ctx, req.Conversation)
 		if err != nil {
-			return "", nil, d.chat.reachErr(err, "", req.Conversation)
+			return "", nil, err
 		}
-		from = h.summary.GetLatestSeq()
-		_ = h.conn.Close()
+		from = seq
 	}
-	reply, err := d.chat.send(ctx, in)
+	reply, err := d.chat.Send(ctx, in)
 	if err != nil {
 		return "", nil, err
 	}
@@ -117,7 +116,7 @@ func (d *AccountDriver) Prompt(ctx context.Context, req PromptRequest) (string, 
 	go func() {
 		defer close(events)
 		defer cancel()
-		err := d.chat.tail(tailCtx, w, id, tailCursorPrefix+strconv.FormatInt(from, 10), false)
+		err := d.chat.Tail(tailCtx, w, id, ctlaccount.TailCursor(from), false)
 		if err != nil && !w.finished {
 			select {
 			case events <- TurnEvent{Kind: TurnError, Error: err.Error()}:
@@ -130,13 +129,13 @@ func (d *AccountDriver) Prompt(ctx context.Context, req PromptRequest) (string, 
 
 // Stop 停掉会话当前这一轮。
 func (d *AccountDriver) Stop(ctx context.Context, id string) error {
-	_, err := d.chat.stop(ctx, id)
+	_, err := d.chat.Stop(ctx, id)
 	return err
 }
 
 // Answer 批准或拒绝一条 TurnPermission。
 func (d *AccountDriver) Answer(ctx context.Context, id, requestID string, allow bool) error {
-	_, err := d.chat.answer(ctx, answerInput{session: id, item: requestID, allow: allow, deny: !allow})
+	_, err := d.chat.Answer(ctx, ctlaccount.AnswerInput{Session: id, Item: requestID, Allow: allow, Deny: !allow})
 	return err
 }
 
@@ -157,7 +156,7 @@ func (w *turnWriter) Write(p []byte) (int, error) {
 			w.buf.Write(raw) // 半行留到下次
 			return len(p), nil
 		}
-		var line tailOut
+		var line ctlaccount.TailLine
 		if json.Unmarshal(raw, &line) != nil {
 			continue
 		}
@@ -178,7 +177,7 @@ func (w *turnWriter) Write(p []byte) (int, error) {
 }
 
 // turnEventOf 把 tail 的一行译成 acp 关心的事件。
-func turnEventOf(line tailOut) (TurnEvent, bool) {
+func turnEventOf(line ctlaccount.TailLine) (TurnEvent, bool) {
 	var d struct {
 		Kind       string          `json:"kind"`
 		Text       string          `json:"text"`

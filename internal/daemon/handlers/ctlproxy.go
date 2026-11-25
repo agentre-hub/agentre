@@ -17,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/pkg/ctlaccount"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/ctlbind"
 	"github.com/agentre-hub/agentre/internal/pkg/tunnelheader"
@@ -35,16 +36,17 @@ import (
 //   - 控制台拥有:读直连 server(设备 Bearer);写先 `?preview=1` 让 server 算变更清单,
 //     在本会话里出一张 toolKey=ctl 的审批卡(落进转录 + 实时推出),批准后才提交 server,
 //     拒绝 403、4 分钟无人处理 504。OpenClaw 后端绑在这台 agentred 上时,它的 token 由
-//     这里写进本机的设备本地凭据,不交 server(见 ctlproxy_localtoken.go)。
+//     这里写进本机的设备本地凭据,不交 server(见 ctlproxy_localtoken.go)。会话命令(send、
+//     会话的读取 / 等待 / 跟随)由这台 agentred 以账号对端身份执行(ctlproxy_console.go)。
 //
 // 契约与桌面端执行者一致(ctl_svc):请求是 protojson 的 CtlRequest,失败是 {"error": …}。
 
 const (
 	ctlResourcesPath = "/ctl/v1/resources"
 	ctlSendPath      = "/ctl/v1/send"
-	// serverResourcesPath / serverSendPath 是 server 执行者的设备 Bearer 接口。
+	// serverResourcesPath 是 server 执行者的设备 Bearer 接口。send 不经 server:控制台拥有的
+	// 会话由这台 agentred 自己以账号对端身份执行(ctlproxy_console.go)。
 	serverResourcesPath = "/v1/ctl/resources"
-	serverSendPath      = "/v1/ctl/send"
 	// serverDevicesPath 是账号设备列表(与桌面端 server_svc.ListDevices、directCredential-
 	// Reconciler.fetchDevices 同一个接口),同样接受这台 agentred 自己的设备 Bearer。
 	// planConsoleWrite 用它把 --device 给的名字解析成指纹,判断是不是本机
@@ -94,6 +96,10 @@ type CtlProxyDeps struct {
 	Cards *SubagentCardInjector
 	// Self 是这台 agentred 的设备指纹:后端的 device_fingerprint 与它相同 = 绑在本机。
 	Self devicefp.Carrier
+	// Relay 是控制台拥有的会话里 agrctl 会话命令的账号对端接线(见 CtlRelay)。
+	Relay CtlRelay
+	// Account 为一次请求造账号对端;nil = 用 Server + Relay 造 ctlaccount.Client(生产)。
+	Account func() (CtlAccount, error)
 	// OpenClawTokens 是本机的设备本地凭据(BackendCredentialHandlers,按后端 syncId 存
 	// OpenClaw token);nil = 不在本地读写 token。
 	OpenClawTokens CtlOpenClawTokens
@@ -125,6 +131,14 @@ func (p *ctlProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeCtlErr(w, http.StatusUnauthorized, "invalid or unknown session token")
 		return
 	}
+	if !owner.hasDesktop && r.URL.Path == ctlTailPath {
+		if r.Method != http.MethodGet {
+			writeCtlErr(w, http.StatusMethodNotAllowed, "tail requires GET")
+			return
+		}
+		p.serveConsoleTail(w, r, owner)
+		return
+	}
 	if r.Method != http.MethodPost {
 		writeCtlErr(w, http.StatusMethodNotAllowed, "ctl requires POST")
 		return
@@ -142,9 +156,13 @@ func (p *ctlProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case ctlResourcesPath:
 		p.serveConsoleResources(w, r, owner, body)
 	case ctlSendPath:
-		p.relayServer(w, r.Context(), owner, serverSendPath, body)
+		p.serveConsoleSend(w, r, owner, body)
 	default:
-		// 会话级 token 做不了 answer-permission / stop 这类控制(spec「会话级 token」)。
+		if isConsoleReadPath(r.URL.Path) {
+			p.serveConsoleRead(w, r, owner, r.URL.Path, body)
+			return
+		}
+		// 会话级 token 做不了 answer / stop 这类控制(spec「会话级 token」)。
 		writeCtlErr(w, http.StatusForbidden, "not allowed with a session token")
 	}
 }
@@ -224,36 +242,62 @@ func (p *ctlProxy) settleDroppedSend(ctx context.Context, owner ctlSession, tool
 		zap.String("conversationId", owner.conversationID), zap.String("toolUseId", toolCallID))
 }
 
-// ctlSendBody 是 send 请求里绑定要看的那几项(与桌面端 ctl_svc.sendRequest 同形)。
+// ctlSendBody 是 send 请求(与桌面端 ctl_svc.sendRequest 同形):绑定要看其中几项,控制台
+// 拥有的会话据它交给账号对端。
 type ctlSendBody struct {
-	SessionID int64  `json:"sessionId"`
-	Agent     string `json:"agent"`
-	AgentID   int64  `json:"agentId"`
-	Text      string `json:"text"`
-	Wait      bool   `json:"wait"`
+	// ConversationID 非空 = 继续这条会话;空 = 按 agent / agentId 建新会话。
+	ConversationID string             `json:"conversationId"`
+	Agent          string             `json:"agent"`
+	AgentID        int64              `json:"agentId"`
+	ProjectID      int64              `json:"projectId"`
+	Title          string             `json:"title,omitempty"`
+	Text           string             `json:"text"`
+	Images         []ctlaccount.Image `json:"images,omitempty"`
+	Steer          bool               `json:"steer,omitempty"`
+	Wait           bool               `json:"wait"`
+	TimeoutMs      int64              `json:"timeoutMs,omitempty"`
+	Isolated       bool               `json:"isolated"`
+	Model          string             `json:"model,omitempty"`
+	CLIModel       string             `json:"cliModel,omitempty"`
+	Effort         string             `json:"effort,omitempty"`
+	PermissionMode string             `json:"permissionMode,omitempty"`
+	Device         string             `json:"device,omitempty"`
+	Backend        string             `json:"backend,omitempty"`
 }
+
+func (r ctlSendBody) continuing() bool { return strings.TrimSpace(r.ConversationID) != "" }
 
 // bindSend 在转发一次 send 之前,于这条会话当前这一轮里匹配发出它的那条外层 shell 调用
 // (spec 2026-10-27「agrctl send 子代理卡」Remote sessions 第 1 条、Design 12:父轮的宿主
 // 负责绑定),绑上就把调用 ID 与是否后台写进转给桌面端的请求头,交回被占住的调用 ID。
-// 那条调用还没出现时至多等 SendBindWait(见 awaitCtlSendBinding)。
-// 不绑定时记一条 info 说明原因并交回空串 —— 桌面端照今天的流程执行,父转录不变。
-// 只在桌面端拥有的路径上调用:控制台拥有的会话不绑(Design 4)。
+// 不绑定时交回空串 —— 桌面端照今天的流程执行,父转录不变。
 func (p *ctlProxy) bindSend(ctx context.Context, owner ctlSession, body []byte, headers map[string][]string) string {
-	notBound := func(reason string) string {
-		logger.Ctx(ctx).Info("handlers.ctlProxy.forwardToDesktop: subagent card not bound",
-			zap.String("conversationId", owner.conversationID), zap.String("reason", reason))
-		return ""
-	}
 	var req ctlSendBody
 	if err := json.Unmarshal(body, &req); err != nil {
-		return notBound("invalid_body") // 桌面端会照样以 400 拒绝它
+		logCtlNotBound(ctx, "handlers.ctlProxy.forwardToDesktop", owner, "invalid_body") // 桌面端会照样以 400 拒绝它
+		return ""
 	}
+	binding, ok := p.matchSend(ctx, "handlers.ctlProxy.forwardToDesktop", owner, req)
+	if !ok {
+		return ""
+	}
+	headers[ctlBindToolCallHeader] = []string{binding.ToolCallID}
+	if binding.Background {
+		headers[ctlBindBackgroundHeader] = []string{"true"}
+	}
+	return binding.ToolCallID
+}
+
+// matchSend 是两条路径共用的绑定判定:只绑 --wait 的新会话;那条调用还没出现时至多等
+// SendBindWait(见 awaitCtlSendBinding)。不绑定时以 where 为前缀记一条 info 说明原因。
+func (p *ctlProxy) matchSend(ctx context.Context, where string, owner ctlSession, req ctlSendBody) (ctlbind.Binding, bool) {
 	switch {
 	case !req.Wait:
-		return notBound(ctlSendNoWait)
-	case req.SessionID > 0:
-		return notBound(ctlSendExistingSession)
+		logCtlNotBound(ctx, where, owner, ctlSendNoWait)
+		return ctlbind.Binding{}, false
+	case req.continuing():
+		logCtlNotBound(ctx, where, owner, ctlSendExistingSession)
+		return ctlbind.Binding{}, false
 	}
 	target := ctlbind.Target{Task: req.Text}
 	if req.AgentID > 0 {
@@ -263,17 +307,19 @@ func (p *ctlProxy) bindSend(ctx context.Context, owner ctlSession, body []byte, 
 	}
 	binding, reason := p.deps.Sessions.awaitCtlSendBinding(ctx, owner, target, p.deps.SendBindWait)
 	if reason != "" {
-		return notBound(reason)
+		logCtlNotBound(ctx, where, owner, reason)
+		return ctlbind.Binding{}, false
 	}
-	headers[ctlBindToolCallHeader] = []string{binding.ToolCallID}
-	if binding.Background {
-		headers[ctlBindBackgroundHeader] = []string{"true"}
-	}
-	logger.Ctx(ctx).Info("handlers.ctlProxy.forwardToDesktop: subagent card bound",
+	logger.Ctx(ctx).Info(where+": subagent card bound",
 		zap.String("conversationId", owner.conversationID),
 		zap.String("toolCallId", binding.ToolCallID),
 		zap.Bool("background", binding.Background))
-	return binding.ToolCallID
+	return binding, true
+}
+
+func logCtlNotBound(ctx context.Context, where string, owner ctlSession, reason string) {
+	logger.Ctx(ctx).Info(where+": subagent card not bound",
+		zap.String("conversationId", owner.conversationID), zap.String("reason", reason))
 }
 
 // awaitsCtlApproval 判断请求是不是一次要审批的写入(要发等待行)。记忆写入在会话里免审批
@@ -455,15 +501,6 @@ func (p *ctlProxy) relayConsoleRead(w http.ResponseWriter, ctx context.Context, 
 	}
 	if status == http.StatusOK && (req.GetList().GetKind() == agentrewire.CtlKind_CTL_KIND_BACKEND || req.GetGet().GetKind() == agentrewire.CtlKind_CTL_KIND_BACKEND) {
 		raw = p.overlayLocalTokenState(ctx, raw)
-	}
-	writeCtlRaw(w, status, raw)
-}
-
-func (p *ctlProxy) relayServer(w http.ResponseWriter, ctx context.Context, owner ctlSession, path string, body []byte) {
-	status, raw, err := p.postServer(ctx, path, body)
-	if err != nil {
-		p.writeServerErr(w, ctx, owner, err)
-		return
 	}
 	writeCtlRaw(w, status, raw)
 }

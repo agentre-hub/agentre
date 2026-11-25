@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/agentre-hub/agentre/internal/pkg/ctlaccount"
 )
 
 // sessionStatuses 是 list sessions --status 接受的值。
@@ -44,17 +46,8 @@ var (
 // isSessionResource 报告 list / get 的资源名是不是会话(会话不是 ctl 资源,走会话端点)。
 func isSessionResource(name string) bool { return name == "session" || name == "sessions" }
 
-// sessionRow 是 list sessions 一行。
-type sessionRow struct {
-	ID             string `json:"id"`
-	Title          string `json:"title"`
-	Agent          string `json:"agent"`
-	Device         string `json:"device"`
-	Status         string `json:"status"`
-	LastActivityAt string `json:"lastActivityAt,omitempty"`
-	// DeviceOffline 只在账号模式出现：承载设备此刻离线，这一行是它最后已知的状态。
-	DeviceOffline bool `json:"deviceOffline,omitempty"`
-}
+// sessionRow 是 list sessions 一行（与账号执行者同形）。
+type sessionRow = ctlaccount.SessionRow
 
 // runListSessions:`agrctl list sessions [--agent …] [-o json]`。
 func runListSessions(args []string, s *sys) error {
@@ -138,14 +131,14 @@ func printSessionRows(s *sys, sessions []sessionRow, asJSON bool) error {
 
 // listAccountSessions 是账号执行者的 list sessions：筛选在客户端做（账号索引加在线设备的会话）。
 func listAccountSessions(s *sys, x *executor, args []string, p parsedArgs, asJSON bool) error {
-	f := sessionFilter{agent: last(p, "agent"), project: last(p, "project"), device: last(p, "device"),
-		status: last(p, "status"), mine: p.on("mine"), limit: 50}
+	f := ctlaccount.SessionFilter{Agent: last(p, "agent"), Project: last(p, "project"), Device: last(p, "device"),
+		Status: last(p, "status"), Mine: p.on("mine"), Limit: 50}
 	if p.has("limit") {
-		f.limit, _ = strconv.Atoi(last(p, "limit"))
+		f.Limit, _ = strconv.Atoi(last(p, "limit"))
 	}
 	chat := newAccountChat(s, x, append([]string{"list", "sessions"}, args...))
-	defer chat.close()
-	rows, err := chat.listSessions(context.Background(), f)
+	defer chat.Close()
+	rows, err := chat.ListSessions(context.Background(), f)
 	if err != nil {
 		return err
 	}
@@ -174,8 +167,8 @@ func runGetSession(args []string, s *sys) error {
 	}
 	if x.kind == execAccount {
 		chat := newAccountChat(s, x, append([]string{"get", "session"}, args...))
-		defer chat.close()
-		d, err := chat.getSession(context.Background(), id)
+		defer chat.Close()
+		d, err := chat.GetSession(context.Background(), id)
 		if err != nil {
 			return err
 		}
@@ -189,28 +182,9 @@ func runGetSession(args []string, s *sys) error {
 	return printJSON(s.stdout, out)
 }
 
-type messageBlock struct {
-	Type  string         `json:"type"`
-	Text  string         `json:"text,omitempty"`
-	Name  string         `json:"name,omitempty"`
-	Input map[string]any `json:"input,omitempty"`
-	// IsError 标记出错的工具结果。
-	IsError bool `json:"isError,omitempty"`
-}
+type messageRow = ctlaccount.MessageRow
 
-type messageRow struct {
-	Role   string         `json:"role"`
-	At     string         `json:"at,omitempty"`
-	Text   string         `json:"text"`
-	Blocks []messageBlock `json:"blocks,omitempty"`
-}
-
-type messagesPage struct {
-	Session  string       `json:"session"`
-	Messages []messageRow `json:"messages"`
-	HasMore  bool         `json:"hasMore"`
-	Before   string       `json:"before,omitempty"`
-}
+type messagesPage = ctlaccount.MessagesPage
 
 // runMessages:`agrctl messages <session> [--last n] [--before cursor] [--full] [-o json]`。
 func runMessages(args []string, s *sys) error {
@@ -250,7 +224,7 @@ func runMessages(args []string, s *sys) error {
 	var page messagesPage
 	if x.kind == execAccount {
 		chat := newAccountChat(s, x, append([]string{"messages"}, args...))
-		defer chat.close()
+		defer chat.Close()
 		n, _ := body["last"].(int)
 		var beforeSeq int64
 		if v, ok := body["before"].(string); ok {
@@ -258,7 +232,7 @@ func runMessages(args []string, s *sys) error {
 				return usageErrorf("invalid --before cursor %q", v)
 			}
 		}
-		if page, err = chat.messages(context.Background(), id, n, beforeSeq, p.on("full")); err != nil {
+		if page, err = chat.Messages(context.Background(), id, n, beforeSeq, p.on("full")); err != nil {
 			return err
 		}
 	} else if err := x.ep.Post("/ctl/v1/messages", body, &page); err != nil {
@@ -302,27 +276,10 @@ func writeMessage(w io.Writer, m messageRow, full bool) {
 	}
 }
 
-type pendingQuestion struct {
-	Question string `json:"question"`
-	Options  []struct {
-		Label string `json:"label"`
-	} `json:"options"`
-}
+type pendingItem = ctlaccount.PendingItem
 
-type pendingItem struct {
-	ID        string            `json:"id"`
-	Session   string            `json:"session"`
-	Kind      string            `json:"kind"`
-	Tool      string            `json:"tool,omitempty"`
-	Input     json.RawMessage   `json:"input,omitempty"`
-	Questions []pendingQuestion `json:"questions,omitempty"`
-	// Title / Summary 只有账号模式的审批卡（kind "approval"）带。
-	Title   string          `json:"title,omitempty"`
-	Summary json.RawMessage `json:"summary,omitempty"`
-}
-
-// summary 是 pending 表格最后一列:提问的第一道题,或工具名加输入。
-func (it pendingItem) summary() string {
+// pendingSummary 是 pending 表格最后一列:提问的第一道题,或工具名加输入。
+func pendingSummary(it pendingItem) string {
 	if len(it.Questions) > 0 {
 		return it.Questions[0].Question
 	}
@@ -364,9 +321,9 @@ func runPending(args []string, s *sys) error {
 	}
 	if x.kind == execAccount {
 		chat := newAccountChat(s, x, append([]string{"pending"}, args...))
-		defer chat.close()
+		defer chat.Close()
 		id, _ := body["conversationId"].(string)
-		if out.Items, err = chat.pending(context.Background(), id); err != nil {
+		if out.Items, err = chat.Pending(context.Background(), id); err != nil {
 			return err
 		}
 	} else if err := x.ep.Post("/ctl/v1/pending", body, &out); err != nil {
@@ -380,7 +337,7 @@ func runPending(args []string, s *sys) error {
 	}
 	rows := make([][]string, 0, len(out.Items))
 	for _, it := range out.Items {
-		rows = append(rows, []string{it.ID, it.Session, it.Kind, it.summary()})
+		rows = append(rows, []string{it.ID, it.Session, it.Kind, pendingSummary(it)})
 	}
 	return printTable(s.stdout, []string{"ID", "SESSION", "KIND", "SUMMARY"}, rows)
 }
@@ -441,9 +398,9 @@ func runAnswer(args []string, s *sys) error {
 	}
 	if x.kind == execAccount {
 		chat := newAccountChat(s, x, append([]string{"answer"}, args...))
-		defer chat.close()
-		out.Kind, err = chat.answer(context.Background(), answerInput{session: session, item: item, options: options, text: text,
-			hasText: p.has("text"), allow: allow, deny: deny, message: last(p, "message")})
+		defer chat.Close()
+		out.Kind, err = chat.Answer(context.Background(), ctlaccount.AnswerInput{Session: session, Item: item, Options: options, Text: text,
+			HasText: p.has("text"), Allow: allow, Deny: deny, Message: last(p, "message")})
 		if err != nil {
 			return err
 		}

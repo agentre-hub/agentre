@@ -181,12 +181,12 @@ func runWait(args []string, s *sys) error {
 	}
 	if x.kind == execAccount {
 		chat := newAccountChat(s, x, append([]string{"wait"}, args...))
-		defer chat.close()
-		out, err := chat.wait(context.Background(), id, timeout, nil)
+		defer chat.Close()
+		out, err := chat.Wait(context.Background(), id, timeout)
 		if err != nil {
 			return err
 		}
-		return printOutcome(s, out.outcome(), asJSON)
+		return printOutcome(s, conversationReply(out).outcome(), asJSON)
 	}
 	ep := x.ep
 	start := time.Now()
@@ -243,8 +243,8 @@ func runTail(args []string, s *sys) error {
 	defer stop()
 	if x.kind == execAccount {
 		chat := newAccountChat(s, x, append([]string{"tail"}, args...))
-		defer chat.close()
-		return chat.tail(ctx, s.stdout, id, last(p, "from"), untilIdle)
+		defer chat.Close()
+		return chat.Tail(ctx, s.stdout, id, last(p, "from"), untilIdle)
 	}
 	ep := x.ep
 	cursor := last(p, "from")
@@ -344,8 +344,8 @@ func runStop(args []string, s *sys) error {
 	}
 	if x.kind == execAccount {
 		chat := newAccountChat(s, x, append([]string{"stop"}, args...))
-		defer chat.close()
-		r, err := chat.stop(context.Background(), id)
+		defer chat.Close()
+		r, err := chat.Stop(context.Background(), id)
 		if err != nil {
 			return err
 		}

@@ -1,7 +1,8 @@
-package ctlcmd
+package ctlaccount
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -25,11 +26,54 @@ import (
 // errPendingGone 与桌面执行者同一句话。
 const errPendingGone = "the pending item no longer exists (already answered elsewhere or timed out)"
 
-// sessionFilter 是 list sessions 的筛选。
-type sessionFilter struct {
-	agent, project, device, status string
-	mine                           bool
-	limit                          int
+// SessionFilter 是 list sessions 的筛选（Project 是名字、父/子 路径或 id）。
+type SessionFilter struct {
+	Agent, Project, Device, Status string
+	Mine                           bool
+	Limit                          int
+}
+
+// SessionRow 是 list sessions 的一行（与桌面 /ctl/v1/conversations 的 sessions[] 同形）。
+type SessionRow struct {
+	ID             string `json:"id"`
+	Title          string `json:"title"`
+	Agent          string `json:"agent"`
+	Device         string `json:"device"`
+	Status         string `json:"status"`
+	LastActivityAt string `json:"lastActivityAt,omitempty"`
+	// DeviceOffline 只在账号模式出现：承载设备此刻离线，这一行是它最后已知的状态。
+	DeviceOffline bool `json:"deviceOffline,omitempty"`
+}
+
+// PendingQuestion 是待处理提问卡里的一道题。
+type PendingQuestion struct {
+	Question string `json:"question"`
+	Options  []struct {
+		Label string `json:"label"`
+	} `json:"options"`
+}
+
+// PendingItem 是一条待处理项（与桌面 /ctl/v1/pending 的 items[] 同形）。
+type PendingItem struct {
+	ID        string            `json:"id"`
+	Session   string            `json:"session"`
+	Kind      string            `json:"kind"`
+	Tool      string            `json:"tool,omitempty"`
+	Input     json.RawMessage   `json:"input,omitempty"`
+	Questions []PendingQuestion `json:"questions,omitempty"`
+	// Title / Summary 只有账号模式的审批卡（kind "approval"）带。
+	Title   string          `json:"title,omitempty"`
+	Summary json.RawMessage `json:"summary,omitempty"`
+}
+
+// AnswerInput 是一次作答。
+type AnswerInput struct {
+	Session, Item string
+	Options       []string
+	Text          string
+	HasText       bool
+	Allow, Deny   bool
+	Message       string
 }
 
 // savedSession 是账号会话索引（GET /v1/agent-sessions）的一行。
@@ -50,7 +94,7 @@ type savedSession struct {
 // savedIndexPages 是翻索引的页数上限（一页的大小由 server 定）。
 const savedIndexPages = 50
 
-func (a *accountChat) savedIndex(ctx context.Context) ([]savedSession, error) {
+func (a *Client) savedIndex(ctx context.Context) ([]savedSession, error) {
 	var all []savedSession
 	cursor := ""
 	for range savedIndexPages {
@@ -58,9 +102,9 @@ func (a *accountChat) savedIndex(ctx context.Context) ([]savedSession, error) {
 		if cursor != "" {
 			q.Set("cursor", cursor)
 		}
-		raw, err := a.acct.GetRaw(ctx, "/v1/agent-sessions?"+q.Encode())
+		raw, err := a.srv.GetRaw(ctx, "/v1/agent-sessions?"+q.Encode())
 		if err != nil {
-			return nil, serverErr(err)
+			return nil, ServerErr(err)
 		}
 		var page struct {
 			Items   []savedSession `json:"items"`
@@ -80,10 +124,10 @@ func (a *accountChat) savedIndex(ctx context.Context) ([]savedSession, error) {
 }
 
 // savedRow 按会话号精确读索引里的一行（没保存过 = nil）。
-func (a *accountChat) savedRow(ctx context.Context, id string) (*savedSession, error) {
-	raw, err := a.acct.GetRaw(ctx, "/v1/agent-sessions?conversation_id="+url.QueryEscape(id))
+func (a *Client) savedRow(ctx context.Context, id string) (*savedSession, error) {
+	raw, err := a.srv.GetRaw(ctx, "/v1/agent-sessions?conversation_id="+url.QueryEscape(id))
 	if err != nil {
-		return nil, serverErr(err)
+		return nil, ServerErr(err)
 	}
 	var page struct {
 		Items []savedSession `json:"items"`
@@ -108,7 +152,7 @@ type liveSession struct {
 
 // liveSessions 逐台读在线设备（agentred / 桌面）上的会话。某台读不动只报警告，不挡其余的。
 // 交回的 closer 关掉所有通道。
-func (a *accountChat) liveSessions(ctx context.Context, devices []accountDevice) ([]liveSession, func()) {
+func (a *Client) liveSessions(ctx context.Context, devices []accountDevice) ([]liveSession, func()) {
 	var out []liveSession
 	var conns []*relaypeer.Conn
 	for _, d := range devices {
@@ -117,13 +161,13 @@ func (a *accountChat) liveSessions(ctx context.Context, devices []accountDevice)
 		}
 		conn, err := a.peer.Open(ctx, relaypeer.MachineTarget(d.Fingerprint))
 		if err != nil {
-			_, _ = fmt.Fprintf(a.s.stderr, "warning: could not read the sessions of %s: %v\n", d.label(), a.reachErr(err, d.label(), ""))
+			a.warnf("could not read the sessions of %s: %v", d.label(), a.ReachErr(err, d.label(), ""))
 			continue
 		}
 		conns = append(conns, conn)
 		resp, err := wirecall.SessionList(ctx, conn, &agentrewire.SessionListRequest{})
 		if err != nil {
-			_, _ = fmt.Fprintf(a.s.stderr, "warning: could not read the sessions of %s: %v\n", d.label(), a.reachErr(err, d.label(), ""))
+			a.warnf("could not read the sessions of %s: %v", d.label(), a.ReachErr(err, d.label(), ""))
 			continue
 		}
 		for _, s := range resp.GetSessions() {
@@ -141,13 +185,13 @@ func (a *accountChat) liveSessions(ctx context.Context, devices []accountDevice)
 func sessionStatus(lifecycle string, waiting bool) string {
 	switch {
 	case lifecycle == lifecycleFailed:
-		return statusFailed
+		return StatusFailed
 	case waiting:
-		return statusWaiting
+		return StatusWaiting
 	case lifecycle == lifecycleRunning:
-		return statusRunning
+		return StatusRunning
 	default:
-		return statusIdle
+		return StatusIdle
 	}
 }
 
@@ -161,14 +205,14 @@ func rfc3339Ms(ms int64) string {
 // names 是目录里 sync id → 名字的对照（agent、项目）；读不到时留空，显示退回 sync id。
 type names struct{ agents, projects map[string]string }
 
-func (a *accountChat) names() names {
+func (a *Client) names() names {
 	n := names{agents: map[string]string{}, projects: map[string]string{}}
-	if items, err := a.cat.list(agentrewire.CtlKind_CTL_KIND_AGENT); err == nil {
+	if items, err := a.cat.List(agentrewire.CtlKind_CTL_KIND_AGENT); err == nil {
 		for _, it := range items {
 			n.agents[it.GetAgent().GetSyncId()] = it.GetAgent().GetName()
 		}
 	}
-	if items, err := a.cat.list(agentrewire.CtlKind_CTL_KIND_PROJECT); err == nil {
+	if items, err := a.cat.List(agentrewire.CtlKind_CTL_KIND_PROJECT); err == nil {
 		for _, it := range items {
 			n.projects[it.GetProject().GetSyncId()] = it.GetProject().GetName()
 		}
@@ -188,7 +232,7 @@ func orSync(m map[string]string, syncID string) string {
 
 // sessionEntry 是合并之后的一条会话。
 type sessionEntry struct {
-	row                  sessionRow
+	row                  SessionRow
 	peer, agent, project string
 	deviceFP             string
 	at                   int64
@@ -203,7 +247,7 @@ func deviceByFP(devices []accountDevice, fp string) (label string, online bool) 
 	return "", false
 }
 
-func (a *accountChat) listSessions(ctx context.Context, f sessionFilter) ([]sessionRow, error) {
+func (a *Client) ListSessions(ctx context.Context, f SessionFilter) ([]SessionRow, error) {
 	devices, err := a.devices(ctx)
 	if err != nil {
 		return nil, err
@@ -221,7 +265,7 @@ func (a *accountChat) listSessions(ctx context.Context, f sessionFilter) ([]sess
 	for _, it := range saved {
 		label, online := deviceByFP(devices, it.DeviceFingerprint)
 		byID[it.ConversationID] = &sessionEntry{
-			row: sessionRow{ID: it.ConversationID, Title: it.Title, Agent: nm.agent(it.AgentSyncID), Device: label,
+			row: SessionRow{ID: it.ConversationID, Title: it.Title, Agent: nm.agent(it.AgentSyncID), Device: label,
 				Status: sessionStatus(it.LifecycleState, it.WaitingForInput), LastActivityAt: rfc3339Ms(it.LastMessageAt), DeviceOffline: !online},
 			peer: it.PeerFingerprint, agent: it.AgentSyncID, project: it.ProjectSyncID, deviceFP: it.DeviceFingerprint, at: it.LastMessageAt,
 		}
@@ -237,11 +281,11 @@ func (a *accountChat) listSessions(ctx context.Context, f sessionFilter) ([]sess
 			byID[s.GetConversationId()] = e
 			order = append(order, s.GetConversationId())
 		}
-		e.row = sessionRow{ID: s.GetConversationId(), Title: s.GetTitle(), Agent: nm.agent(s.GetAgentSyncId()), Device: l.device.label(),
+		e.row = SessionRow{ID: s.GetConversationId(), Title: s.GetTitle(), Agent: nm.agent(s.GetAgentSyncId()), Device: l.device.label(),
 			Status: sessionStatus(s.GetLifecycleState(), s.GetWaitingForInput()), LastActivityAt: rfc3339Ms(s.GetLastMessageAt())}
 		e.peer, e.agent, e.project, e.deviceFP, e.at = s.GetPeerFingerprint(), s.GetAgentSyncId(), s.GetProjectSyncId(), l.device.Fingerprint, s.GetLastMessageAt()
 	}
-	if f.mine && self == "" {
+	if f.Mine && self == "" {
 		return nil, errors.New("cannot tell which sessions are yours: no online device to ask (--mine needs one)")
 	}
 
@@ -253,20 +297,20 @@ func (a *accountChat) listSessions(ctx context.Context, f sessionFilter) ([]sess
 	for _, id := range order {
 		e := byID[id]
 		switch {
-		case f.status != "" && e.row.Status != f.status,
-			f.mine && e.peer != self,
+		case f.Status != "" && e.row.Status != f.Status,
+			f.Mine && e.peer != self,
 			agentSync != "" && e.agent != agentSync,
 			projectSync != "" && e.project != projectSync,
-			f.device != "" && !deviceRefMatches(devices, e.deviceFP, e.row.Device, f.device):
+			f.Device != "" && !deviceRefMatches(devices, e.deviceFP, e.row.Device, f.Device):
 			continue
 		}
 		entries = append(entries, e)
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].at > entries[j].at })
-	if f.limit > 0 && len(entries) > f.limit {
-		entries = entries[:f.limit]
+	if f.Limit > 0 && len(entries) > f.Limit {
+		entries = entries[:f.Limit]
 	}
-	rows := make([]sessionRow, 0, len(entries))
+	rows := make([]SessionRow, 0, len(entries))
 	for _, e := range entries {
 		rows = append(rows, e.row)
 	}
@@ -285,9 +329,9 @@ func deviceRefMatches(devices []accountDevice, fp, label, ref string) bool {
 	return false
 }
 
-func (a *accountChat) filterRefs(f sessionFilter) (agentSync, projectSync string, err error) {
-	if f.agent != "" {
-		it, err := a.cat.locate(kindAgent, f.agent)
+func (a *Client) filterRefs(f SessionFilter) (agentSync, projectSync string, err error) {
+	if f.Agent != "" {
+		it, err := a.cat.Locate(agentrewire.CtlKind_CTL_KIND_AGENT, f.Agent)
 		if err != nil {
 			return "", "", err
 		}
@@ -295,8 +339,8 @@ func (a *accountChat) filterRefs(f sessionFilter) (agentSync, projectSync string
 			return "", "", missingSyncID("agent")
 		}
 	}
-	if f.project != "" {
-		it, err := a.cat.locate(kindProject, f.project)
+	if f.Project != "" {
+		it, err := a.cat.Locate(agentrewire.CtlKind_CTL_KIND_PROJECT, f.Project)
 		if err != nil {
 			return "", "", err
 		}
@@ -309,8 +353,8 @@ func (a *accountChat) filterRefs(f sessionFilter) (agentSync, projectSync string
 
 // ─── get ───
 
-// accountSessionDetail 是账号模式 get session 的响应：拿不到的字段省略，不编造。
-type accountSessionDetail struct {
+// SessionDetail 是账号模式 get session 的响应：拿不到的字段省略，不编造。
+type SessionDetail struct {
 	ID             string `json:"id"`
 	Title          string `json:"title"`
 	Agent          string `json:"agent"`
@@ -324,23 +368,23 @@ type accountSessionDetail struct {
 	Pending        *int   `json:"pending,omitempty"`
 }
 
-func (a *accountChat) getSession(ctx context.Context, id string) (*accountSessionDetail, error) {
+func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, error) {
 	nm := a.names()
 	h, err := a.openSession(ctx, id)
 	switch {
 	case err == nil:
-		defer h.conn.Close()
+		defer func() { _ = h.conn.Close() }()
 		s := h.summary
 		p, err := wirecall.SessionPendingWaiters(ctx, h.conn, &agentrewire.SessionPendingWaitersRequest{ConversationId: id, PeerFingerprint: h.origin()})
 		if err != nil {
-			return nil, a.reachErr(err, h.device, id)
+			return nil, a.ReachErr(err, h.device, id)
 		}
 		device := h.device
 		if device == "" {
 			device = a.deviceOf(ctx, id)
 		}
 		n := len(p.GetToolPermissions()) + len(p.GetAskUserQuestions()) + len(p.GetApprovals())
-		return &accountSessionDetail{ID: id, Title: s.GetTitle(), Agent: nm.agent(s.GetAgentSyncId()), Project: nm.project(s.GetProjectSyncId()),
+		return &SessionDetail{ID: id, Title: s.GetTitle(), Agent: nm.agent(s.GetAgentSyncId()), Project: nm.project(s.GetProjectSyncId()),
 			Device: device, Backend: s.GetBackendType(), Model: s.GetModelKey(), LastActivityAt: rfc3339Ms(s.GetLastMessageAt()),
 			Status: sessionStatus(s.GetLifecycleState(), s.GetWaitingForInput() || n > 0), Pending: &n}, nil
 	case errors.Is(err, relaypeer.ErrTargetOffline):
@@ -349,23 +393,23 @@ func (a *accountChat) getSession(ctx context.Context, id string) (*accountSessio
 			return nil, rerr
 		}
 		if row == nil {
-			return nil, a.reachErr(err, "", id)
+			return nil, a.ReachErr(err, "", id)
 		}
 		devices, derr := a.devices(ctx)
 		if derr != nil {
 			return nil, derr
 		}
 		label, _ := deviceByFP(devices, row.DeviceFingerprint)
-		return &accountSessionDetail{ID: id, Title: row.Title, Agent: nm.agent(row.AgentSyncID), Project: nm.project(row.ProjectSyncID),
+		return &SessionDetail{ID: id, Title: row.Title, Agent: nm.agent(row.AgentSyncID), Project: nm.project(row.ProjectSyncID),
 			Device: label, DeviceOffline: true, Backend: row.BackendType, Model: row.ModelKey, LastActivityAt: rfc3339Ms(row.LastMessageAt),
 			Status: sessionStatus(row.LifecycleState, row.WaitingForInput)}, nil
 	default:
-		return nil, a.reachErr(err, "", id)
+		return nil, a.ReachErr(err, "", id)
 	}
 }
 
 // deviceOf 是承载一条保存过的会话的设备名（不知道时为空）。
-func (a *accountChat) deviceOf(ctx context.Context, id string) string {
+func (a *Client) deviceOf(ctx context.Context, id string) string {
 	row, err := a.savedRow(ctx, id)
 	if err != nil || row == nil {
 		return ""
@@ -380,15 +424,15 @@ func (a *accountChat) deviceOf(ctx context.Context, id string) string {
 
 // ─── pending / answer ───
 
-func pendingItemsOf(session string, p *agentrewire.SessionPendingWaitersResponse) []pendingItem {
-	var out []pendingItem
+func pendingItemsOf(session string, p *agentrewire.SessionPendingWaitersResponse) []PendingItem {
+	out := make([]PendingItem, 0, len(p.GetToolPermissions())+len(p.GetAskUserQuestions())+len(p.GetApprovals()))
 	for _, t := range p.GetToolPermissions() {
-		out = append(out, pendingItem{ID: t.GetRequestId(), Session: session, Kind: "tool_permission", Tool: t.GetToolName(), Input: rawJSON(t.GetInput())})
+		out = append(out, PendingItem{ID: t.GetRequestId(), Session: session, Kind: "tool_permission", Tool: t.GetToolName(), Input: rawJSON(t.GetInput())})
 	}
 	for _, q := range p.GetAskUserQuestions() {
-		it := pendingItem{ID: q.GetRequestId(), Session: session, Kind: "question"}
+		it := PendingItem{ID: q.GetRequestId(), Session: session, Kind: "question"}
 		for _, aq := range q.GetQuestions() {
-			pq := pendingQuestion{Question: aq.GetQuestion()}
+			pq := PendingQuestion{Question: aq.GetQuestion()}
 			for _, o := range aq.GetOptions() {
 				pq.Options = append(pq.Options, struct {
 					Label string `json:"label"`
@@ -399,21 +443,21 @@ func pendingItemsOf(session string, p *agentrewire.SessionPendingWaitersResponse
 		out = append(out, it)
 	}
 	for _, ap := range p.GetApprovals() {
-		out = append(out, pendingItem{ID: ap.GetRequestId(), Session: session, Kind: "approval", Title: ap.GetTitle(), Summary: rawJSON(ap.GetSummary())})
+		out = append(out, PendingItem{ID: ap.GetRequestId(), Session: session, Kind: "approval", Title: ap.GetTitle(), Summary: rawJSON(ap.GetSummary())})
 	}
 	return out
 }
 
-func (a *accountChat) pending(ctx context.Context, id string) ([]pendingItem, error) {
+func (a *Client) Pending(ctx context.Context, id string) ([]PendingItem, error) {
 	if id != "" {
 		h, err := a.openSession(ctx, id)
 		if err != nil {
-			return nil, a.reachErr(err, "", id)
+			return nil, a.ReachErr(err, "", id)
 		}
-		defer h.conn.Close()
+		defer func() { _ = h.conn.Close() }()
 		p, err := wirecall.SessionPendingWaiters(ctx, h.conn, &agentrewire.SessionPendingWaitersRequest{ConversationId: id, PeerFingerprint: h.origin()})
 		if err != nil {
-			return nil, a.reachErr(err, h.device, id)
+			return nil, a.ReachErr(err, h.device, id)
 		}
 		return pendingItemsOf(id, p), nil
 	}
@@ -424,7 +468,7 @@ func (a *accountChat) pending(ctx context.Context, id string) ([]pendingItem, er
 	live, closeAll := a.liveSessions(ctx, devices)
 	defer closeAll()
 	sort.SliceStable(live, func(i, j int) bool { return live[i].summary.GetLastMessageAt() > live[j].summary.GetLastMessageAt() })
-	var out []pendingItem
+	var out []PendingItem
 	for _, l := range live {
 		s := l.summary
 		if s.GetLifecycleState() != lifecycleRunning && !s.GetWaitingForInput() {
@@ -435,79 +479,69 @@ func (a *accountChat) pending(ctx context.Context, id string) ([]pendingItem, er
 			if rpcCode(err) == rpcerror.CodeScopeDenied { // 个人 token 看不到别人发起的会话的待处理项
 				continue
 			}
-			return nil, a.reachErr(err, l.device.label(), s.GetConversationId())
+			return nil, a.ReachErr(err, l.device.label(), s.GetConversationId())
 		}
 		out = append(out, pendingItemsOf(s.GetConversationId(), p)...)
 	}
 	return out, nil
 }
 
-// answerInput 是 `agrctl answer` 解析之后交给执行者的那一份。
-type answerInput struct {
-	session, item string
-	options       []string
-	text          string
-	hasText       bool
-	allow, deny   bool
-	message       string
-}
-
-// answer 按卡的种类把答案交给承载会话的机器，交回卡的种类。
-func (a *accountChat) answer(ctx context.Context, in answerInput) (string, error) {
-	h, err := a.openSession(ctx, in.session)
+// Answer 按卡的种类把答案交给承载会话的机器，交回卡的种类。
+func (a *Client) Answer(ctx context.Context, in AnswerInput) (string, error) {
+	h, err := a.openSession(ctx, in.Session)
 	if err != nil {
-		return "", a.reachErr(err, "", in.session)
+		return "", a.ReachErr(err, "", in.Session)
 	}
-	defer h.conn.Close()
-	p, err := wirecall.SessionPendingWaiters(ctx, h.conn, &agentrewire.SessionPendingWaitersRequest{ConversationId: in.session, PeerFingerprint: h.origin()})
+	defer func() { _ = h.conn.Close() }()
+	p, err := wirecall.SessionPendingWaiters(ctx, h.conn, &agentrewire.SessionPendingWaitersRequest{ConversationId: in.Session, PeerFingerprint: h.origin()})
 	if err != nil {
-		return "", a.reachErr(err, h.device, in.session)
+		return "", a.ReachErr(err, h.device, in.Session)
 	}
-	decision := in.allow || in.deny
+	decision := in.Allow || in.Deny
 	for _, q := range p.GetAskUserQuestions() {
-		if q.GetRequestId() != in.item {
+		if q.GetRequestId() != in.Item {
 			continue
 		}
 		if decision {
-			return "", usageErrorf("a question is answered with --option or --text, not --allow / --deny")
+			return "", Usagef("a question is answered with --option or --text, not --allow / --deny")
 		}
 		answers, err := questionAnswers(q, in)
 		if err != nil {
 			return "", err
 		}
-		_, err = wirecall.RuntimeSubmitAnswer(ctx, h.conn, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: in.session,
-			PeerFingerprint: h.origin(), RequestId: in.item, Questions: q.GetQuestions(), Answers: answers})
+		_, err = wirecall.RuntimeSubmitAnswer(ctx, h.conn, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: in.Session,
+			PeerFingerprint: h.origin(), RequestId: in.Item, Questions: q.GetQuestions(), Answers: answers})
 		return "question", a.answerErr(err, h, in)
 	}
 	for _, t := range p.GetToolPermissions() {
-		if t.GetRequestId() != in.item {
+		if t.GetRequestId() != in.Item {
 			continue
 		}
 		if !decision {
-			return "", usageErrorf("a tool permission is answered with --allow or --deny, not --option / --text")
+			return "", Usagef("a tool permission is answered with --allow or --deny, not --option / --text")
 		}
-		_, err := wirecall.RuntimeSubmitToolPermission(ctx, h.conn, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: in.session,
-			PeerFingerprint: h.origin(), RequestId: in.item, Allow: in.allow, DenyReason: in.message})
+		_, err := wirecall.RuntimeSubmitToolPermission(ctx, h.conn, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: in.Session,
+			PeerFingerprint: h.origin(), RequestId: in.Item, Allow: in.Allow, DenyReason: in.Message})
 		return "tool_permission", a.answerErr(err, h, in)
 	}
 	for _, ap := range p.GetApprovals() {
-		if ap.GetRequestId() != in.item {
+		if ap.GetRequestId() != in.Item {
 			continue
 		}
 		if !decision {
-			return "", usageErrorf("an approval card is answered with --allow or --deny, not --option / --text")
+			return "", Usagef("an approval card is answered with --allow or --deny, not --option / --text")
 		}
-		if in.message != "" {
-			return "", usageErrorf("an approval card takes no --message")
+		if in.Message != "" {
+			return "", Usagef("an approval card takes no --message")
 		}
-		_, err := wirecall.ToolApprovalAnswer(ctx, h.conn, &agentrewire.ToolApprovalAnswerRequest{ConversationId: in.session, RequestId: in.item, Allow: in.allow})
+		_, err := wirecall.ToolApprovalAnswer(ctx, h.conn, &agentrewire.ToolApprovalAnswerRequest{ConversationId: in.Session, RequestId: in.Item, Allow: in.Allow})
 		return "approval", a.answerErr(err, h, in)
 	}
 	return "", errors.New(errPendingGone)
 }
 
 // answerErr 把作答的失败说成人话：执行端说卡已不挂起，与展示时就找不到是同一句。
-func (a *accountChat) answerErr(err error, h *session, in answerInput) error {
+func (a *Client) answerErr(err error, h *session, in AnswerInput) error {
 	if err == nil {
 		return nil
 	}
@@ -515,34 +549,34 @@ func (a *accountChat) answerErr(err error, h *session, in answerInput) error {
 	if errors.As(err, &rpcErr) && rpcErr.Code == rpcerror.CodeInvalidParams && strings.Contains(rpcErr.Message, "no pending") {
 		return errors.New(errPendingGone)
 	}
-	return a.reachErr(err, h.device, in.session)
+	return a.ReachErr(err, h.device, in.Session)
 }
 
 // otherAnswerLabel 是提问卡「其它」答案的标签（与执行端 agentruntime.OtherAnswerLabel 同值）。
 const otherAnswerLabel = "__other__"
 
-func questionAnswers(q *agentrewire.PendingAskUserQuestion, in answerInput) ([]*agentrewire.AskAnswer, error) {
+func questionAnswers(q *agentrewire.PendingAskUserQuestion, in AnswerInput) ([]*agentrewire.AskAnswer, error) {
 	if len(q.GetQuestions()) != 1 {
-		return nil, usageErrorf("this card asks %d questions; answer it in the console or the desktop app", len(q.GetQuestions()))
+		return nil, Usagef("this card asks %d questions; answer it in the console or the desktop app", len(q.GetQuestions()))
 	}
 	one := q.GetQuestions()[0]
-	if in.hasText {
+	if in.HasText {
 		if one.GetDisallowOther() {
-			return nil, usageErrorf("this question only accepts its listed options (--option)")
+			return nil, Usagef("this question only accepts its listed options (--option)")
 		}
-		return []*agentrewire.AskAnswer{{QuestionIndex: 0, Labels: []string{otherAnswerLabel}, OtherText: in.text}}, nil
+		return []*agentrewire.AskAnswer{{QuestionIndex: 0, Labels: []string{otherAnswerLabel}, OtherText: in.Text}}, nil
 	}
-	if len(in.options) > 1 && !one.GetMultiSelect() {
-		return nil, usageErrorf("this question takes a single option")
+	if len(in.Options) > 1 && !one.GetMultiSelect() {
+		return nil, Usagef("this question takes a single option")
 	}
 	var labels, names []string
 	for _, o := range one.GetOptions() {
 		names = append(names, o.GetLabel())
 	}
-	for _, o := range in.options {
+	for _, o := range in.Options {
 		label, ok := matchOption(names, o)
 		if !ok {
-			return nil, usageErrorf("--option %q is not one of: %s", o, strings.Join(names, ", "))
+			return nil, Usagef("--option %q is not one of: %s", o, strings.Join(names, ", "))
 		}
 		labels = append(labels, label)
 	}

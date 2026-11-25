@@ -50,6 +50,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/procscan"
 	"github.com/agentre-hub/agentre/internal/pkg/pty"
 	"github.com/agentre-hub/agentre/internal/pkg/pty/local"
+	"github.com/agentre-hub/agentre/internal/pkg/relaypeer"
 	localsync "github.com/agentre-hub/agentre/internal/pkg/syncwire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
@@ -767,6 +768,42 @@ func (d *Daemon) currentAccessToken() string {
 	return d.state.Snapshot().Credential.AccessToken
 }
 
+// ctlAccountToken 是账号对端(控制台会话里的 agrctl 会话命令)用的设备凭据:与中继同一份。
+func (d *Daemon) ctlAccountToken(context.Context) (string, error) {
+	if tok := d.currentAccessToken(); tok != "" {
+		return tok, nil
+	}
+	return "", handlers.ErrCtlServerUnavailable
+}
+
+// ctlAccountReauthorize 在 relay 拒收旧凭据之后走共享的单飞刷新,交回刷新后的那份。
+func (d *Daemon) ctlAccountReauthorize(ctx context.Context, _ string) (string, error) {
+	if err := d.credRefresher.refreshNow(ctx); err != nil {
+		return "", err
+	}
+	return d.ctlAccountToken(ctx)
+}
+
+// dialSelf 开一条到本机的进程内通道:服务端与 LAN / 中继连接同形(同一份注册表与连接级
+// handler),客户端照常 auth.account,所以身份与范围判定与经 relay 来的对端一致。
+func (d *Daemon) dialSelf(ctx context.Context) (*relaypeer.Conn, error) {
+	tok, err := d.ctlAccountToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+	client, server := relaypeer.Pipe()
+	conn := protorpc.NewConn(protorpc.NewPayloadFrameConn(server), d.protobufRegistry.Clone())
+	d.bindProtobufConn(conn)
+	go conn.Serve(dbpkg.WithContextDB(context.Background(), d.db))
+	return relaypeer.OpenChannel(ctx, client, tok)
+}
+
+// hostsConversation 报告这条对话是否在本机的会话表里(账号对端据此不经 relay 访问它)。
+func (d *Daemon) hostsConversation(ctx context.Context, conversationID string) bool {
+	_, ok, err := d.sessionStore.OwnerOf(ctx, conversationID)
+	return err == nil && ok
+}
+
 // relayServerURL 在每次 dial 前重新解析中转端点，返回 "" 表示这台 daemon 还没有
 // 账号可连。HubLink 收到空值会退避重试而不是把链路当作不存在。
 //
@@ -961,6 +998,15 @@ func New(opts Options) (*Daemon, error) {
 			ServerURL:   d.relayServerURL,
 			AccessToken: d.currentAccessToken,
 			Refresh:     d.credRefresher.refreshNow,
+		},
+		// 控制台拥有的会话里的会话命令:这台 agentred 以账号对端身份(同一份设备凭据)经 relay
+		// 派发与查询;目标就是本机时走进程内通道,不经 relay 自拨。
+		Relay: handlers.CtlRelay{
+			ServerURL:         d.relayServerURL,
+			Token:             d.ctlAccountToken,
+			Reauthorize:       d.ctlAccountReauthorize,
+			DialSelf:          d.dialSelf,
+			HostsConversation: d.hostsConversation,
 		},
 		Self:           identity.DaemonFingerprint(st.InstanceUUID()),
 		OpenClawTokens: d.backendCredentials,

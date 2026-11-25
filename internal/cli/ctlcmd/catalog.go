@@ -12,9 +12,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"google.golang.org/protobuf/encoding/protojson"
-
-	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
+	"github.com/agentre-hub/agentre/internal/pkg/ctlaccount"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -31,8 +29,9 @@ type catalog struct {
 	// args 是本次调用的原始参数，歧义时据此拼出可直接改用的示例命令。
 	args []string
 	// site 是正在解析的定位写在 args 里的下标（-1 = 不来自命令行），歧义示例只替换这一处。
-	site  int
-	lists map[agentrewire.CtlKind][]*agentrewire.CtlResource
+	site int
+	// res 是列表缓存与名字 / 路径匹配（与 agentred 的 ctl 代理同一份）。
+	res *ctlaccount.ResourceCatalog
 }
 
 // parsedArgsOffset 是 parseArgs 的输入在 catalog.args 里的起点：args 以动词与资源名开头。
@@ -53,7 +52,7 @@ func connect(s *sys, args []string) (*catalog, error) {
 }
 
 func newCatalog(x *executor, args []string) *catalog {
-	return &catalog{x: x, args: args, site: -1, lists: map[agentrewire.CtlKind][]*agentrewire.CtlResource{}}
+	return &catalog{x: x, args: args, site: -1, res: ctlaccount.NewResourceCatalog(x.postResources)}
 }
 
 // supports 挡住执行者不提供的资源：记忆只在 Agentre 会话与本机桌面里有，账号 server 上没有。
@@ -81,37 +80,11 @@ func (c *catalog) caller(s *sys) agentrewire.CtlCaller {
 }
 
 func (c *catalog) call(ctx context.Context, req *agentrewire.CtlRequest) (*agentrewire.CtlResponse, error) {
-	body, err := protojson.Marshal(req)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := c.x.postResources(ctx, body)
-	if err != nil {
-		var se *ctlclient.ServerError
-		if errors.As(err, &se) {
-			// 执行者的消息原样透出（spec：服务层的拒绝原样展示）。
-			return nil, errors.New(se.Message)
-		}
-		return nil, err
-	}
-	var resp agentrewire.CtlResponse
-	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(raw, &resp); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-	return &resp, nil
+	return c.res.Call(ctx, req)
 }
 
 func (c *catalog) list(kind agentrewire.CtlKind) ([]*agentrewire.CtlResource, error) {
-	if items, ok := c.lists[kind]; ok {
-		return items, nil
-	}
-	resp, err := c.call(context.Background(), &agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_List{List: &agentrewire.CtlListRequest{Kind: kind}}})
-	if err != nil {
-		return nil, err
-	}
-	items := resp.GetList().GetItems()
-	c.lists[kind] = items
-	return items, nil
+	return c.res.List(kind)
 }
 
 func (c *catalog) get(kind agentrewire.CtlKind, id int64) (*agentrewire.CtlResource, error) {
@@ -155,53 +128,12 @@ func waitingLine(where string) string {
 
 // byID 在已列出的条目里按 id 找；找不到返回 nil。
 func (c *catalog) byID(kind agentrewire.CtlKind, id int64) *agentrewire.CtlResource {
-	if id == 0 {
-		return nil
-	}
-	items, err := c.list(kind)
-	if err != nil {
-		return nil
-	}
-	for _, it := range items {
-		if docOf(it).id == id {
-			return it
-		}
-	}
-	return nil
+	return c.res.ByID(kind, id)
 }
 
 // path 是资源的完整定位：项目 / 部门是从根开始的 父/子 路径，模型是 提供方/ModelID，
 // 其它是名字。列表取不到时退回 #id。
-func (c *catalog) path(kind agentrewire.CtlKind, id int64) string {
-	it := c.byID(kind, id)
-	if it == nil {
-		if id == 0 {
-			return ""
-		}
-		return "#" + strconv.FormatInt(id, 10)
-	}
-	d := docOf(it)
-	switch kind {
-	case agentrewire.CtlKind_CTL_KIND_PROJECT, agentrewire.CtlKind_CTL_KIND_DEPARTMENT:
-		segs := []string{d.name}
-		seen := map[int64]bool{d.id: true}
-		for p := d.parentID; p != 0 && !seen[p]; {
-			seen[p] = true
-			parent := c.byID(kind, p)
-			if parent == nil {
-				break
-			}
-			pd := docOf(parent)
-			segs = append([]string{pd.name}, segs...)
-			p = pd.parentID
-		}
-		return strings.Join(segs, "/")
-	case agentrewire.CtlKind_CTL_KIND_MODEL:
-		return c.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, d.providerID) + "/" + d.name
-	default:
-		return d.name
-	}
-}
+func (c *catalog) path(kind agentrewire.CtlKind, id int64) string { return c.res.Path(kind, id) }
 
 // label 是资源在表格与结果行里的短名：模型是 提供方/ModelID，其它是名字。
 // 完整路径（path）只在需要消歧的地方用：JSON 视图、歧义提示。
@@ -263,28 +195,7 @@ func (c *catalog) locate(spec *kindSpec, ref string) (*agentrewire.CtlResource, 
 }
 
 func (c *catalog) matches(spec *kindSpec, it *agentrewire.CtlResource, ref string) bool {
-	d := docOf(it)
-	switch spec.kind {
-	case agentrewire.CtlKind_CTL_KIND_PROJECT, agentrewire.CtlKind_CTL_KIND_DEPARTMENT:
-		// 路径按后缀匹配：docs、agentre/docs、root/agentre/docs 都能定位同一个项目。
-		full := strings.Split(c.path(spec.kind, d.id), "/")
-		want := strings.Split(ref, "/")
-		if len(want) > len(full) {
-			return false
-		}
-		for i := range want {
-			if full[len(full)-len(want)+i] != want[i] {
-				return false
-			}
-		}
-		return true
-	case agentrewire.CtlKind_CTL_KIND_MODEL:
-		// 按第一个 / 切：前面是提供方，后面整段是 ModelID（ModelID 自己可以带 /）。
-		provider, modelID, _ := strings.Cut(ref, "/")
-		return d.name == modelID && c.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, d.providerID) == provider
-	default:
-		return d.name == ref
-	}
+	return c.res.Matches(spec.kind, it, ref)
 }
 
 func (c *catalog) ambiguous(spec *kindSpec, ref string, matches []*agentrewire.CtlResource) error {
@@ -360,23 +271,6 @@ type doc struct {
 }
 
 func docOf(r *agentrewire.CtlResource) doc {
-	switch d := r.GetDoc().(type) {
-	case *agentrewire.CtlResource_Agent:
-		return doc{id: d.Agent.GetId(), name: d.Agent.GetName()}
-	case *agentrewire.CtlResource_Department:
-		return doc{id: d.Department.GetId(), name: d.Department.GetName(), parentID: d.Department.GetParentId()}
-	case *agentrewire.CtlResource_Project:
-		return doc{id: d.Project.GetId(), name: d.Project.GetName(), parentID: d.Project.GetParentId()}
-	case *agentrewire.CtlResource_Provider:
-		return doc{id: d.Provider.GetId(), name: d.Provider.GetName()}
-	case *agentrewire.CtlResource_Model:
-		// 模型对用户的名字是 ModelID；Key 是服务生成的 ModelKey（UUID），不参与定位。
-		return doc{id: d.Model.GetId(), name: d.Model.GetModelId(), providerID: d.Model.GetProviderId()}
-	case *agentrewire.CtlResource_Backend:
-		return doc{id: d.Backend.GetId(), name: d.Backend.GetName()}
-	case *agentrewire.CtlResource_Memory:
-		// 记忆没有名字：按编号定位（locateMemory），名字一栏放摘要只供展示。
-		return doc{id: d.Memory.GetId(), name: d.Memory.GetSummary()}
-	}
-	return doc{}
+	d := ctlaccount.DocOf(r)
+	return doc{id: d.ID, name: d.Name, parentID: d.ParentID, providerID: d.ProviderID}
 }

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/agentre-hub/agentre/internal/pkg/ctlaccount"
 )
 
 // sendFlags 是 `agrctl send` 接受的 flag;它们同时是 help 的数据源。
@@ -93,10 +95,12 @@ func runSend(args []string, s *sys) error {
 			return err
 		}
 		chat := newAccountChat(s, x, append([]string{"send"}, args...))
-		defer chat.close()
-		if out, err = chat.send(context.Background(), in); err != nil {
+		defer chat.Close()
+		reply, err := chat.Send(context.Background(), in)
+		if err != nil {
 			return err
 		}
+		out = conversationReply(reply)
 	} else if out, err = desktopSend(x, p, args, text, images, timeout); err != nil {
 		return err
 	}
@@ -150,19 +154,19 @@ func desktopSend(x *executor, p parsedArgs, args []string, text string, images [
 }
 
 // sendInputFrom 把解析好的 send flag 交给账号执行者。
-func sendInputFrom(p parsedArgs, text string, images []sendImage, timeout time.Duration) (sendInput, error) {
-	in := sendInput{
-		text: text, images: images, session: last(p, "session"), steer: p.on("steer"), wait: p.on("wait"), timeout: timeout,
-		agent: last(p, "agent"), project: last(p, "project"), title: last(p, "title"), device: last(p, "device"),
-		backend: last(p, "backend"), isolated: p.on("isolated"), model: last(p, "model"), cliModel: last(p, "cli-model"),
-		effort: last(p, "effort"), permissionMode: last(p, "permission-mode"),
+func sendInputFrom(p parsedArgs, text string, images []sendImage, timeout time.Duration) (ctlaccount.SendInput, error) {
+	in := ctlaccount.SendInput{
+		Text: text, Images: images, Session: last(p, "session"), Steer: p.on("steer"), Wait: p.on("wait"), Timeout: timeout,
+		Agent: last(p, "agent"), Project: last(p, "project"), Title: last(p, "title"), Device: last(p, "device"),
+		Backend: last(p, "backend"), Isolated: p.on("isolated"), Model: last(p, "model"), CLIModel: last(p, "cli-model"),
+		Effort: last(p, "effort"), PermissionMode: last(p, "permission-mode"),
 	}
 	if v := last(p, "agent-id"); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
-			return sendInput{}, usageErrorf("send: --agent-id must be a positive number, got %q", v)
+			return ctlaccount.SendInput{}, usageErrorf("send: --agent-id must be a positive number, got %q", v)
 		}
-		in.agentID = id
+		in.AgentID = id
 	}
 	return in, nil
 }
@@ -228,10 +232,7 @@ func waitTimeout(p parsedArgs, verb string, waiting bool) (time.Duration, error)
 }
 
 // sendImage 是 /ctl/v1/send 的图片附件。
-type sendImage struct {
-	Name    string `json:"name,omitempty"`
-	DataURL string `json:"dataUrl"`
-}
+type sendImage = ctlaccount.Image
 
 // supportedImageTypes 是 --image 接受的格式(按文件内容判断,不看扩展名)。
 var supportedImageTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}

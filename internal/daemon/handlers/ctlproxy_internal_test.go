@@ -25,6 +25,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/pkg/ctlaccount"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
@@ -363,16 +364,25 @@ func TestCtlProxy_GivenConsoleOwnedSession_WhenReading_ThenServerAnswersDirectly
 	assert.Empty(t, begun, "reads need no approval")
 }
 
-func TestCtlProxy_GivenConsoleOwnedSession_WhenSending_ThenServerExplainsItIsUnsupported(t *testing.T) {
+func TestCtlProxy_GivenConsoleOwnedSession_WhenSending_ThenTheServerIsNeverAskedToDispatch(t *testing.T) {
+	// 控制台拥有的会话里的 send 由这台 agentred 以账号对端身份执行(Design 12),不再交给
+	// server 的 /v1/ctl/send。
 	server := &fakeCtlServer{answer: func(string) (int, string) {
 		return http.StatusUnprocessableEntity, `{"error":"send is not supported"}`
 	}}
-	_, _, tok, srv := consoleOwned(t, server, time.Minute)
+	acct := newFakeAccount()
+	acct.reply = ctlaccount.Reply{ConversationID: consoleChild, Agent: "reviewer", Status: ctlaccount.StatusRunning}
+	c := NewCtlSessions(func() string { return "http://gw" })
+	c.bind(ctlTestRID, "sha256:browser", ctlTestConversation, DesktopCtlSession{}, false)
+	srv := httptest.NewServer(NewCtlProxyHandler(CtlProxyDeps{
+		Sessions: c, Server: server, Account: func() (CtlAccount, error) { return acct, nil },
+	}))
+	t.Cleanup(srv.Close)
 
-	status, got, _ := postCtl(t, srv.URL+"/ctl/v1/send", tok, `{"agentId":1,"text":"hi"}`)
-	assert.Equal(t, http.StatusUnprocessableEntity, status)
-	assert.JSONEq(t, `{"error":"send is not supported"}`, got)
-	assert.Equal(t, []string{"/v1/ctl/send"}, server.paths())
+	status, got, _ := postCtl(t, srv.URL+"/ctl/v1/send", c.Credentials(7, ctlTestRID).Token, `{"agentId":1,"text":"hi"}`)
+	assert.Equal(t, http.StatusOK, status, got)
+	assert.NotContains(t, server.paths(), "/v1/ctl/send")
+	assert.Equal(t, []ctlaccount.SendInput{{Text: "hi", AgentID: 1}}, acct.snapshotSends())
 }
 
 func TestCtlProxy_GivenSessionToken_WhenCallingAControlOnlyVerb_Then403(t *testing.T) {
@@ -855,7 +865,8 @@ func TestCtlProxy_GivenSessionToken_WhenAnsweringItsOwnApproval_ThenRefusedAndCa
 	requestID := <-sink.begunC
 
 	body := `{"conversationId":"` + ctlTestConversation + `","requestId":"` + requestID + `","allow":true}`
-	for _, path := range []string{"/ctl/v1/answer", "/ctl/v1/answer-permission", "/ctl/v1/approvals/answer", "/ctl/v1/pending"} {
+	// 列出待处理项是读(Design 18,会话级 token 可以),回答不是。
+	for _, path := range []string{"/ctl/v1/answer", "/ctl/v1/answer-permission", "/ctl/v1/approvals/answer"} {
 		status, _, _ := postCtl(t, srv.URL+path, tok, body)
 		assert.Equal(t, http.StatusForbidden, status, path)
 	}

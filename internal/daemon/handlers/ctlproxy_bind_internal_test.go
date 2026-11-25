@@ -21,6 +21,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/ctlaccount"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
@@ -184,7 +185,7 @@ func TestCtlProxy_GivenNoSafeBinding_WhenSendIsForwarded_ThenNoBindingTravelsAnd
 			shellCall("sh-1", bindTestCommand, false), shellCall("sh-2", bindTestCommand, false),
 		}, reviewerWaitBody, "ambiguous"},
 		{"existing session", []agentruntime.ToolCall{shellCall("sh-1", bindTestCommand, false)},
-			`{"sessionId":12,"agent":"reviewer","text":"审一下 PR 42","wait":true}`, "existing_session"},
+			`{"conversationId":"00000000-0000-7000-8000-000000000012","text":"审一下 PR 42","wait":true}`, "existing_session"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -262,26 +263,33 @@ func TestCtlProxy_GivenNextTurnStarted_WhenSendWaitArrives_ThenOnlyTheNewTurnIsM
 	assert.Equal(t, []string{"sh-2"}, tunnel.forwarded(t, 1).Headers[ctlBindToolCallHeader])
 }
 
-func TestCtlProxy_GivenConsoleOwnedSession_WhenSendWaitArrives_ThenItIsNeverBound(t *testing.T) {
+func TestCtlProxy_GivenConsoleOwnedSession_WhenSendWaitArrives_ThenItIsBoundHereAndNeverRelayedToTheServer(t *testing.T) {
+	// 控制台拥有的会话由这台 agentred 自己执行 send(Design 12,取代 2026-10-27 决策 4):
+	// 那条 shell 调用在这里绑定、升级成子代理卡,server 不再经手。
 	logs := observeHandlerLogs(t)
 	server := &fakeCtlServer{answer: func(string) (int, string) { return http.StatusOK, `{"done":true}` }}
-	c, _, tok, srv := consoleOwned(t, server, time.Minute)
-	c.attachTurn(ctlTestRID, bindTurn(t, shellCall("sh-1", bindTestCommand, false)))
+	tt := bindTurn(t, shellCall("sh-1", bindTestCommand, false))
+	acct := newFakeAccount()
+	acct.reply = ctlaccount.Reply{ConversationID: consoleChild, Agent: "reviewer", Status: ctlaccount.StatusRunning}
+	acct.wait = func(context.Context) (ctlaccount.Reply, error) {
+		<-acct.followed
+		return ctlaccount.Reply{ConversationID: consoleChild, Status: ctlaccount.StatusIdle, Text: "ok"}, nil
+	}
+	rid := runtimeSessionID(ctlTestConversation)
+	c := NewCtlSessions(func() string { return "http://gw" })
+	c.bind(rid, "sha256:browser", ctlTestConversation, DesktopCtlSession{}, false)
+	c.attachTurn(rid, tt)
+	srv := httptest.NewServer(NewCtlProxyHandler(CtlProxyDeps{
+		Sessions: c, Server: server, Cards: &SubagentCardInjector{Ctl: c},
+		Account: func() (CtlAccount, error) { return acct, nil },
+	}))
+	t.Cleanup(srv.Close)
 
-	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/send", tok, reviewerWaitBody)
+	status, _, _ := postCtl(t, srv.URL+"/ctl/v1/send", c.Credentials(7, rid).Token, reviewerWaitBody)
 	require.Equal(t, http.StatusOK, status)
-	assert.Equal(t, []string{"/v1/ctl/send"}, server.paths())
-	assert.Empty(t, logs.FilterMessage("handlers.ctlProxy.forwardToDesktop: subagent card bound").All())
-
-	// 那条调用也没有被占住:之后若这条会话改由桌面端拥有,它照样能绑。
-	tunnel := &recordingCtlTunnel{}
-	c.bind(ctlTestRID, ctlTestPeer, ctlTestConversation, DesktopCtlSession{DesktopSessionID: 55, Token: ctlTestDesktopToken}, true)
-	h := NewCtlProxyHandler(CtlProxyDeps{Sessions: c, Tunnel: func(devicefp.Initiator, string) NotifierPort { return tunnel }})
-	srv2 := httptest.NewServer(h)
-	defer srv2.Close()
-	status, _, _ = postCtl(t, srv2.URL+"/ctl/v1/send", tok, reviewerWaitBody)
-	require.Equal(t, http.StatusOK, status)
-	assert.Equal(t, []string{"sh-1"}, tunnel.forwarded(t, 0).Headers[ctlBindToolCallHeader])
+	assert.Empty(t, server.paths(), "the server never dispatches a session's send")
+	assert.NotEmpty(t, logs.FilterMessage("handlers.ctlProxy.serveConsoleSend: subagent card bound").All())
+	assert.Equal(t, "completed", agrctlCardOf(t, tt, "sh-1").Status)
 }
 
 func logText(logs *observer.ObservedLogs) string {

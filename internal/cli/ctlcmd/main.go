@@ -143,6 +143,7 @@ func report(s *sys, err error) int {
 	if err == nil {
 		return exitOK
 	}
+	err = accountErr(err)
 	var ce *cliError
 	if errors.As(err, &ce) {
 		prefix := "Error: "
