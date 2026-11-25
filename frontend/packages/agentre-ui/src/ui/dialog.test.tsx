@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import * as React from "react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -68,5 +69,60 @@ describe("Dialog", () => {
     openDialog();
 
     expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+  });
+});
+
+describe("Dialog · 关闭后焦点回到触发它的控件", () => {
+  function Host({
+    onCloseAutoFocus,
+  }: {
+    onCloseAutoFocus?: (e: Event) => void;
+  }) {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          打开
+        </button>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
+            <DialogTitle>标题</DialogTitle>
+            <DialogDescription>说明</DialogDescription>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  // iOS Safari 点按钮不会让它拿到焦点：activeElement 仍是 body，
+  // Radix 没有 Trigger 可回，关闭后焦点就落在 body 上。
+  function openLikeIosTap() {
+    const opener = screen.getByRole("button", { name: "打开" });
+    fireEvent.pointerDown(opener);
+    fireEvent.click(opener);
+    return opener;
+  }
+
+  it("点按不带焦点的触发钮打开，关闭后焦点回到它", async () => {
+    render(<Host />);
+    const opener = openLikeIosTap();
+    expect(opener).not.toHaveFocus();
+    await screen.findByRole("dialog");
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    expect(opener).toHaveFocus();
+  });
+
+  it("宿主在 onCloseAutoFocus 里 preventDefault 就不回焦点", async () => {
+    render(<Host onCloseAutoFocus={(e) => e.preventDefault()} />);
+    const opener = openLikeIosTap();
+    await screen.findByRole("dialog");
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    expect(opener).not.toHaveFocus();
   });
 });

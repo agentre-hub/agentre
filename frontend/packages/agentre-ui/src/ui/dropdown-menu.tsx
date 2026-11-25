@@ -3,6 +3,7 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 
 import { cn } from "../lib/utils";
+import { TOUCH_MENU_ROW, TouchProvider, useTouch } from "./touch";
 
 function DropdownMenu({
   ...props
@@ -35,8 +36,14 @@ function DropdownMenuContent({
   avoidCollisions = true,
   collisionPadding = 8,
   sticky = "always",
+  touch,
+  children,
   ...props
-}: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
+}: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
+  /** 触屏档：菜单行 44px、15px 字。不传则跟随最近的 TouchProvider。 */
+  touch?: boolean;
+}) {
+  const inherited = useTouch();
   return (
     <DropdownMenuPrimitive.Portal>
       <DropdownMenuPrimitive.Content
@@ -50,7 +57,9 @@ function DropdownMenuContent({
           className,
         )}
         {...props}
-      />
+      >
+        <TouchProvider touch={touch ?? inherited}>{children}</TouchProvider>
+      </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
   );
 }
@@ -81,6 +90,7 @@ function DropdownMenuItem({
   variant?: "default" | "destructive";
   current?: boolean;
 }) {
+  const touch = useTouch();
   return (
     <DropdownMenuPrimitive.Item
       data-slot="dropdown-menu-item"
@@ -89,6 +99,7 @@ function DropdownMenuItem({
       aria-current={current ? "true" : undefined}
       className={cn(
         "relative flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 data-[variant=destructive]:text-destructive-text data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:hover:text-destructive-text data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive-text dark:data-[variant=destructive]:hover:bg-destructive/20 dark:data-[variant=destructive]:focus:bg-destructive/20 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground data-[variant=destructive]:*:[svg]:text-destructive-text!",
+        touch && TOUCH_MENU_ROW,
         current && "bg-field-fill font-medium",
         className,
       )}
@@ -103,11 +114,13 @@ function DropdownMenuCheckboxItem({
   checked,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.CheckboxItem>) {
+  const touch = useTouch();
   return (
     <DropdownMenuPrimitive.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
       className={cn(
         "relative flex cursor-pointer items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        touch && TOUCH_MENU_ROW,
         className,
       )}
       checked={checked}
@@ -139,11 +152,13 @@ function DropdownMenuRadioItem({
   children,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
+  const touch = useTouch();
   return (
     <DropdownMenuPrimitive.RadioItem
       data-slot="dropdown-menu-radio-item"
       className={cn(
         "relative flex cursor-pointer items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        touch && TOUCH_MENU_ROW,
         className,
       )}
       {...props}
@@ -221,12 +236,14 @@ function DropdownMenuSubTrigger({
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger> & {
   inset?: boolean;
 }) {
+  const touch = useTouch();
   return (
     <DropdownMenuPrimitive.SubTrigger
       data-slot="dropdown-menu-sub-trigger"
       data-inset={inset}
       className={cn(
         "flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[inset]:pl-8 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        touch && TOUCH_MENU_ROW,
         className,
       )}
       {...props}

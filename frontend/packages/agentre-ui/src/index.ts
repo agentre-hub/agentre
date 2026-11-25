@@ -216,6 +216,7 @@ export {
 } from "./ui/table";
 export { Textarea } from "./ui/textarea";
 export { Toggle } from "./ui/toggle";
+export { TouchProvider, useTouch } from "./ui/touch";
 export {
   Tooltip,
   TooltipContent,

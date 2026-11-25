@@ -146,3 +146,31 @@ describe("DropdownMenu", () => {
     );
   });
 });
+
+describe("DropdownMenu 触屏档", () => {
+  function row(touch?: boolean) {
+    render(
+      <DropdownMenu open>
+        <DropdownMenuTrigger>更多</DropdownMenuTrigger>
+        <DropdownMenuContent touch={touch}>
+          <DropdownMenuItem>重命名</DropdownMenuItem>
+          <DropdownMenuCheckboxItem checked>勾选</DropdownMenuCheckboxItem>
+        </DropdownMenuContent>
+      </DropdownMenu>,
+    );
+    return screen.getByRole("menuitem", { name: "重命名" });
+  }
+
+  it("touch：菜单行 44px 高、15px 字", () => {
+    const item = row(true);
+    expect(item).toHaveClass("min-h-11");
+    expect(item).toHaveClass("text-prose");
+    expect(screen.getByRole("menuitemcheckbox")).toHaveClass("min-h-11");
+  });
+
+  it("不传 touch：桌面行不变", () => {
+    const item = row();
+    expect(item).not.toHaveClass("min-h-11");
+    expect(item).toHaveClass("text-sm");
+  });
+});

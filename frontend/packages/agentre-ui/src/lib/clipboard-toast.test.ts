@@ -30,6 +30,20 @@ describe("copyTextWithToast", () => {
     vi.clearAllMocks();
   });
 
+  it("成功与失败的提示都不写死位置，由宿主的 Toaster 决定", async () => {
+    installClipboard(vi.fn().mockResolvedValue(undefined));
+    await copyTextWithToast("a", { successTitle: "ok" });
+    installClipboard(vi.fn().mockRejectedValue(new Error("denied")));
+    await copyTextWithToast("a", { successTitle: "ok" });
+
+    const options = [
+      ...sonnerMocks.toast.success.mock.calls,
+      ...sonnerMocks.toast.error.mock.calls,
+    ].map((call) => call[1]);
+    expect(options).toHaveLength(2);
+    for (const o of options) expect(o).not.toHaveProperty("position");
+  });
+
   afterEach(() => {
     restoreClipboardEnv();
   });
@@ -50,7 +64,6 @@ describe("copyTextWithToast", () => {
       expect.objectContaining({
         description: "粘贴到终端即可运行",
         duration: COPY_TOAST_DURATION_MS,
-        position: "bottom-right",
       }),
     );
     expect(sonnerMocks.toast.error).not.toHaveBeenCalled();
@@ -71,7 +84,6 @@ describe("copyTextWithToast", () => {
       expect.objectContaining({
         description: "Copy did not go through this time. Please try again.",
         duration: COPY_TOAST_ERROR_DURATION_MS,
-        position: "bottom-right",
       }),
     );
     expect(sonnerMocks.toast.success).not.toHaveBeenCalled();
@@ -124,7 +136,6 @@ describe("copyTextWithToast", () => {
       expect.objectContaining({
         description: "粘贴到终端即可运行",
         duration: COPY_TOAST_DURATION_MS,
-        position: "bottom-right",
       }),
     );
     expect(sonnerMocks.toast.error).not.toHaveBeenCalled();
@@ -147,7 +158,6 @@ describe("copyTextWithToast", () => {
       expect.objectContaining({
         description: "Copying requires HTTPS or localhost",
         duration: COPY_TOAST_ERROR_DURATION_MS,
-        position: "bottom-right",
       }),
     );
     expect(sonnerMocks.toast.success).not.toHaveBeenCalled();
@@ -169,7 +179,6 @@ describe("copyTextWithToast", () => {
       expect.objectContaining({
         description: "Copying requires HTTPS or localhost",
         duration: COPY_TOAST_ERROR_DURATION_MS,
-        position: "bottom-right",
       }),
     );
     expect(document.body.childElementCount).toBe(0);
