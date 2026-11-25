@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -14,6 +15,9 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -246,4 +250,49 @@ func TestDaemonScope_GivenACLIDevice_ThenItKeepsFullAccountTrust(t *testing.T) {
 	err = rig.call(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER, &agentrewire.RuntimeSteerRequest{ConversationId: convID(1), Text: "more", PeerFingerprint: otherInitiator}, &agentrewire.RuntimeSteerResponse{})
 	requireNotScopeDenied(t, err)
 	requireCode(t, err, -32010, "")
+}
+
+// steerRecordingRT is a claudecode runtime that only records the steers it is
+// handed: whatever reaches it reached the backend of that session.
+type steerRecordingRT struct {
+	mu     sync.Mutex
+	steers []string
+}
+
+func (*steerRecordingRT) Capabilities() capability.Capabilities { return capability.Capabilities{} }
+
+func (*steerRecordingRT) Run(context.Context, agentruntime.RunRequest) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+	return nil, nil, agentruntime.ErrUnsupported
+}
+
+func (r *steerRecordingRT) Steer(_ context.Context, _ int64, _, text string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.steers = append(r.steers, text)
+	return nil
+}
+
+func (r *steerRecordingRT) recorded() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.steers...)
+}
+
+// Given a chat token that attached (a read) to another initiator's session, When
+// it then steers that session without naming the initiator, Then the steer never
+// reaches the session's backend: following another session's output must not
+// adopt it as the token's own to act on.
+func TestDaemonScope_GivenAChatTokenAttachedToAnotherInitiatorsSession_WhenItSteersWithoutNamingIt_ThenTheBackendNeverSeesIt(t *testing.T) {
+	rt := &steerRecordingRT{}
+	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
+	rig := newScopeRig(t, nil).as(t, auth.KindPersonalToken, "chat")
+	foreign := convID(7)
+	seedSession(t, rig.ctx, rig.daemon.sessionStore, devicefp.Initiator(otherInitiator), foreign, "running")
+
+	err := rig.call(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH, &agentrewire.SessionAttachRequest{ConversationId: foreign, PeerFingerprint: otherInitiator}, &agentrewire.SessionAttachResponse{})
+	require.NoError(t, err, "following another initiator's output is a read")
+
+	_ = rig.call(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER, &agentrewire.RuntimeSteerRequest{ConversationId: foreign, Text: "hijack"}, &agentrewire.RuntimeSteerResponse{})
+
+	assert.Empty(t, rt.recorded())
 }

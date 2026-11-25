@@ -99,13 +99,13 @@ type service struct {
 	// refreshGen 每成功刷新一次 +1。调用方发请求前取一次，撞 401 后拿它比对：
 	// 代次变了就说明别人已经把凭据续上了，直接用新的重试，别再刷一次。
 	refreshGen uint64
+	// agrctlMu 串行化桌面代签与回收（agrctl_peer.go）；agrctlEpoch 在每次回收时 +1，
+	// 让排队中 / 铸造中的代签发现桌面已退出而自行作废。
+	agrctlMu    sync.Mutex
+	agrctlEpoch atomic.Uint64
 	// introspectOnce/introspector 懒建这台桌面端唯一的 auth.Introspector 实例
 	// (introspect.go 的 accountIntrospector)。必须只建一份：H2 的 60 秒成功缓存
 	// 挂在实例内部，每次调用都新建就等于从不命中缓存。
-	// agrctlMu 串行化桌面代签与回收（agrctl_peer.go）；agrctlEpoch 在每次回收时 +1，
-	// 让排队中 / 铸造中的代签发现桌面已退出而自行作废。
-	agrctlMu       sync.Mutex
-	agrctlEpoch    atomic.Uint64
 	introspectOnce sync.Once
 	introspector   *auth.Introspector
 }

@@ -799,8 +799,9 @@ func TestCtlProxy_GivenConsoleOwnedCascadeDelete_ThenCardStatesCascadeCounts(t *
 }
 
 func pendingIDs(c *CtlSessions) []string {
-	var ids []string
-	for _, a := range c.PendingApprovals(ctlTestConversation) {
+	approvals := c.PendingApprovals(ctlTestConversation)
+	ids := make([]string, 0, len(approvals))
+	for _, a := range approvals {
 		ids = append(ids, a.RequestID)
 	}
 	return ids

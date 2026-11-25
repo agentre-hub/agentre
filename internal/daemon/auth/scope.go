@@ -133,18 +133,27 @@ func WithMethodScope(ctx context.Context, scope Scope) context.Context {
 // sessions the token started (the sessions recorded under its fingerprint).
 // A call without a recorded scope class counts as an action — closed by default.
 func RequireOwnSession(ctx context.Context, originPeer string) error {
-	conn := protorpc.ConnFromContext(ctx)
-	if conn == nil {
-		return nil
-	}
-	state := conn.Auth()
-	if state.Kind != KindPersonalToken || originPeer == "" || originPeer == state.DeviceFingerprint {
+	if MayActOnSession(ctx, originPeer) {
 		return nil
 	}
 	if scope, _ := ctx.Value(methodScopeKey{}).(Scope); scope == ScopeRead {
 		return nil
 	}
 	return ErrForeignSession
+}
+
+// MayActOnSession reports whether the calling connection may act (chat or
+// approve, not just read) on the session recorded under originPeer: always,
+// except a personal token on a session another initiator started. A read that
+// reaches such a session — session.attach following its output — must not
+// hand the token anything it can act on afterwards.
+func MayActOnSession(ctx context.Context, originPeer string) bool {
+	conn := protorpc.ConnFromContext(ctx)
+	if conn == nil {
+		return true
+	}
+	state := conn.Auth()
+	return state.Kind != KindPersonalToken || originPeer == "" || originPeer == state.DeviceFingerprint
 }
 
 // IsPersonalToken reports whether the calling connection is a personal token,

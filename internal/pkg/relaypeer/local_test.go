@@ -2,6 +2,7 @@ package relaypeer
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -60,4 +61,21 @@ func TestOpenChannel_GivenTheOtherEndIsGone_WhenOpened_ThenItFailsAsUnavailable(
 
 	_, err := OpenChannel(context.Background(), client, "device-token")
 	assert.ErrorIs(t, err, ErrRelayUnavailable)
+}
+
+// Given one end wrote its last payload and then closed the pipe, When the other
+// end reads, Then it gets that payload before io.EOF — a reply written just
+// before the close (the relay's error frame, a final answer) is never dropped.
+func TestPipe_GivenAPayloadWrittenBeforeClose_ThenTheReaderGetsItBeforeEOF(t *testing.T) {
+	for range 200 {
+		a, b := Pipe()
+		require.NoError(t, a.WritePayload([]byte("last")))
+		require.NoError(t, a.Close())
+
+		got, err := b.ReadPayload()
+		require.NoError(t, err)
+		assert.Equal(t, []byte("last"), got)
+		_, err = b.ReadPayload()
+		require.ErrorIs(t, err, io.EOF)
+	}
 }

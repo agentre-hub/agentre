@@ -166,3 +166,27 @@ func TestLock_GivenALockLeftByACrashedProcessThenItIsBrokenAfterItGoesStale(t *t
 	}
 	unlock()
 }
+
+// Given a lock whose holder is still inside its refresh round trip (45 seconds
+// in, which the account HTTP client still allows: it gives up only after 60), When
+// another process wants the lock, Then it waits instead of breaking it — breaking
+// it lets the second process replay the refresh token the first is spending, and
+// the server answers a replay by revoking the whole login.
+func TestLock_GivenAHolderStillInsideItsRefreshRoundTripThenTheLockIsNotBroken(t *testing.T) {
+	restore := lockWait
+	lockWait = 100 * time.Millisecond
+	t.Cleanup(func() { lockWait = restore })
+	dir := t.TempDir()
+	path := filepath.Join(dir, lockName)
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	busy := time.Now().Add(-45 * time.Second)
+	if err := os.Chtimes(path, busy, busy); err != nil {
+		t.Fatal(err)
+	}
+	if unlock, err := Lock(dir); err == nil {
+		unlock()
+		t.Fatal("Lock broke a lock whose holder may still be refreshing")
+	}
+}

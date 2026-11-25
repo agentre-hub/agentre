@@ -53,7 +53,7 @@ func collect(t *testing.T, events <-chan TurnEvent) []TurnEvent {
 }
 
 func kinds(evs []TurnEvent) []string {
-	var out []string
+	out := make([]string, 0, len(evs))
 	for _, e := range evs {
 		out = append(out, e.Kind)
 	}

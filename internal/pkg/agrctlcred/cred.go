@@ -20,11 +20,14 @@ const FileName = "agrctl-credentials.json"
 // lockName 是刷新时跨进程互斥用的锁文件名。
 const lockName = "agrctl-credentials.lock"
 
-// staleLockAge 之后锁文件视为持有者已崩溃，可以被打破。一次刷新是一个 HTTP 往返，远短于它。
-const staleLockAge = 30 * time.Second
+// staleLockAge 之后锁文件视为持有者已崩溃，可以被打破。它必须长过持有者在锁里做的最长一件事：
+// agrctl 刷新与桌面代签都在锁里走一个 HTTP 往返，账号 HTTP 客户端最多等 60 秒。短于它，
+// 一次慢刷新的锁会被别的进程打破，后者拿同一枚还没换掉的 refresh token 再刷一次——server
+// 把这当成重放，吊销整条登录。
+const staleLockAge = 2 * time.Minute
 
-// lockWait 是等锁的上限；超过就报错而不是一直挂着。
-const lockWait = 20 * time.Second
+// lockWait 是等锁的上限；超过就报错而不是一直挂着。变量只为测试缩短它。
+var lockWait = 20 * time.Second
 
 // Credentials 是本机 agrctl 作为账号下一台 `cli` 设备的登录态。
 //

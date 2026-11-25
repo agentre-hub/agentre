@@ -26,7 +26,7 @@ func TestHeadlessAgrctlAccountPeerSmoke(t *testing.T) {
 	assert.True(t, cli.credentialsFileIs0600(t), "credentials are stored 0600 under the isolated data dir")
 
 	// send（异步）：stdout 只有会话 UUID，agrctl 立即退出，这一轮在设备上继续。
-	send := cli.run(t, true, "send", "--agent", "reviewer", "ask: which flavour?")
+	send := cli.run(t, true, "send", "--agent", "reviewer", "ask: which flavor?")
 	require.Equal(t, 0, send.code, send.stderr)
 	id := strings.TrimSpace(send.stdout)
 	require.NoError(t, conversationid.Validate(id), "stdout is the minted conversation id, got %q", send.stdout)
@@ -49,7 +49,7 @@ func TestHeadlessAgrctlAccountPeerSmoke(t *testing.T) {
 	assert.Equal(t, "ask-1", item["id"])
 	assert.Equal(t, "question", item["kind"])
 	assert.Equal(t, id, item["session"])
-	assert.Contains(t, pending.stdout, "Which flavour?")
+	assert.Contains(t, pending.stdout, "Which flavor?")
 
 	// answer：按选项文本回答。
 	answer := cli.run(t, true, "answer", id, "ask-1", "--option", "Vanilla")
@@ -65,6 +65,6 @@ func TestHeadlessAgrctlAccountPeerSmoke(t *testing.T) {
 	// messages：用户那句与助手最终文本。
 	messages := cli.run(t, false, "messages", id)
 	require.Equal(t, 0, messages.code, messages.stderr)
-	assert.Contains(t, messages.stdout, "ask: which flavour?")
+	assert.Contains(t, messages.stdout, "ask: which flavor?")
 	assert.Contains(t, messages.stdout, "You chose Vanilla.")
 }

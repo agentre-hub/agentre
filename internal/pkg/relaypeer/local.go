@@ -47,12 +47,20 @@ type pipeEnd struct {
 	peer    *pipeEnd
 }
 
+// ReadPayload drains what the other end wrote before it closed, then reports
+// io.EOF: a select over both would pick at random once both are ready and drop
+// the last reply.
 func (p *pipeEnd) ReadPayload() ([]byte, error) {
 	select {
 	case payload := <-p.inbound:
 		return payload, nil
 	case <-p.state.done:
-		return nil, io.EOF
+		select {
+		case payload := <-p.inbound:
+			return payload, nil
+		default:
+			return nil, io.EOF
+		}
 	}
 }
 

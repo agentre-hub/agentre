@@ -248,7 +248,7 @@ func TestAccountTail_GivenFromThenMissedFramesComeFirstAndUntilIdleExitsZero(t *
 	r := runWith([]string{"tail", sessA, "--from", "v1:0", "--until-idle"}, envMap(), term{})
 	require.Equal(t, exitOK, r.code, r.stderr)
 	lines := tailLines(t, r.stdout)
-	var types []string
+	types := make([]string, 0, len(lines))
 	for _, l := range lines {
 		types = append(types, l["type"].(string))
 	}
@@ -261,8 +261,9 @@ func TestAccountTail_GivenFromThenMissedFramesComeFirstAndUntilIdleExitsZero(t *
 	// 从中间的游标续：只补它之后的。
 	again := runWith([]string{"tail", sessA, "--from", lines[3]["cursor"].(string), "--until-idle"}, envMap(), term{})
 	require.Equal(t, exitOK, again.code, again.stderr)
-	var rest []string
-	for _, l := range tailLines(t, again.stdout) {
+	restLines := tailLines(t, again.stdout)
+	rest := make([]string, 0, len(restLines))
+	for _, l := range restLines {
 		rest = append(rest, l["type"].(string))
 	}
 	assert.Equal(t, []string{"turn_done", "status"}, rest)

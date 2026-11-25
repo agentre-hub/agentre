@@ -85,7 +85,7 @@ func (a *Agentred) registry() *protorpc.Registry {
 			if strings.Contains(req.GetUserText(), "ask:") {
 				s.summary.WaitingForInput = true
 				s.pending = &agentrewire.SessionPendingWaitersResponse{AskUserQuestions: []*agentrewire.PendingAskUserQuestion{{
-					RequestId: "ask-1", Questions: []*agentrewire.AskQuestion{{Question: "Which flavour?",
+					RequestId: "ask-1", Questions: []*agentrewire.AskQuestion{{Question: "Which flavor?",
 						Options: []*agentrewire.AskOption{{Label: "Vanilla"}, {Label: "Chocolate"}}}}}}}
 			} else {
 				a.finish(s, id, "Done.")

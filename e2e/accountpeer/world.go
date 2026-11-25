@@ -21,7 +21,7 @@ const (
 	boxFingerprint = "sha256:e2e-build-box"
 	cliFingerprint = "sha256:e2e-cli" // what the box's auth.account reports for the logged-in agrctl
 	accessToken    = "e2e-access-token"
-	refreshToken   = "e2e-refresh-token"
+	refreshToken   = "e2e-refresh-token" //nolint:gosec // G101: the fake account server's test token, not a credential
 )
 
 // World is the loopback fake account server + relay + agentred.
@@ -104,7 +104,7 @@ func (w *World) deviceToken(rw http.ResponseWriter, r *http.Request) {
 		"refresh_expires_in": 86400, "device_id": 42})
 }
 
-// ctlResources serves the account's catalogue: one agent (reviewer) bound to one backend
+// ctlResources serves the account's catalog: one agent (reviewer) bound to one backend
 // (codex on build-box). Every other kind is empty.
 func (w *World) ctlResources(rw http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)

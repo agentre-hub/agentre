@@ -20,23 +20,27 @@ import (
 // （决策 17）。token 明文只在创建 / 轮换那一次打印，list 从不显示 token 字符。
 
 const (
+	//nolint:gosec // G101: usage text, not a credential.
 	tokenCreateUsage = `agrctl create token --name <name> --scope <s>[,<s>...] [--expires <duration>|never]
 
 Creates a personal token on the account server for a program that must drive agrctl without a
 person: set it as AGENTRE_TOKEN (or pass --token). Needs agrctl login and a person at a terminal.
 Scopes: read, chat, approve, resources:write, devices:write. --expires takes a duration such as
 30m, 12h or 90d (default 30d) or "never". The secret is printed once and cannot be shown again.`
+	//nolint:gosec // G101: usage text, not a credential.
 	tokenRotateUsage = `agrctl rotate token <name> [--expires <duration>|never]
 
 Replaces the secret of the named token: name, scopes and the sessions it started stay, the old
 secret stops working at once (open relay connections within 60 seconds). Without --expires the
 old lifetime rule restarts from now. The new secret is printed once. Needs agrctl login and a
 person at a terminal.`
+	//nolint:gosec // G101: usage text, not a credential.
 	tokenListUsage = `agrctl list tokens [-o json]
 
 Lists the account's personal tokens: name, scopes, created, expires (or "never"), last used, last
 rotated and the device that created it. Never shows token characters. Needs agrctl login and a
 person at a terminal.`
+	//nolint:gosec // G101: usage text, not a credential.
 	tokenDeleteUsage = `agrctl delete token <name>
 
 Revokes the named personal token. Needs agrctl login and a person at a terminal.`

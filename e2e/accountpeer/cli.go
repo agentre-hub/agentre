@@ -38,7 +38,7 @@ func newCLI(t *testing.T, _ *World) *cli {
 	t.Helper()
 	root := t.TempDir()
 	bin := filepath.Join(root, "agrctl")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/agrctl")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/agrctl") //nolint:gosec // G204: builds into this test's private TempDir
 	build.Dir = repoRoot(t)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build agrctl: %v\n%s", err, out)
@@ -69,7 +69,7 @@ func (c *cli) run(t *testing.T, tty bool, args ...string) result {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, c.bin, args...)
+	cmd := exec.CommandContext(ctx, c.bin, args...) //nolint:gosec // G204: the agrctl this test just built, with the test's own arguments
 	cmd.Env = c.env()
 	cmd.Dir = c.home
 	var out, errb bytes.Buffer
@@ -79,7 +79,7 @@ func (c *cli) run(t *testing.T, tty bool, args ...string) result {
 		if err != nil {
 			t.Fatalf("open pty: %v", err)
 		}
-		defer master.Close()
+		defer func() { _ = master.Close() }()
 		cmd.Stdin = slave
 		err = cmd.Start()
 		_ = slave.Close()

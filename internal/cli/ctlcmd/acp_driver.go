@@ -83,6 +83,8 @@ func ResolveACPExecutor(endpoint, token string, desktop bool, lookupEnv func(str
 }
 
 // acpNeedsToken 是账号模式没配个人 token 时 acp 的报错（含编辑器里的配置写法）。
+//
+//nolint:gosec // G101: usage text with a "<the token>" placeholder, not a credential.
 const acpNeedsToken = `agrctl acp talks to your account with a personal token that has the chat and approve scopes.
 Create one at your own terminal:  agrctl create token --name editor --scope chat,approve
 then set it in the editor's agent server configuration, for example:
@@ -152,11 +154,11 @@ type turnWriter struct {
 func (w *turnWriter) Write(p []byte) (int, error) {
 	w.buf.Write(p)
 	for {
-		raw, err := w.buf.ReadBytes('\n')
-		if err != nil {
-			w.buf.Write(raw) // 半行留到下次
-			return len(p), nil
+		end := bytes.IndexByte(w.buf.Bytes(), '\n')
+		if end < 0 {
+			return len(p), nil // 半行留到下次
 		}
+		raw := w.buf.Next(end + 1)
 		var line ctlaccount.TailLine
 		if json.Unmarshal(raw, &line) != nil {
 			continue
