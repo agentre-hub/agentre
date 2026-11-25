@@ -49,7 +49,10 @@ import {
   selectActivePreviewTab,
   useFilePreviewTabsStore,
 } from "@/stores/file-preview-tabs-store";
-import { useSessionRootStore } from "@/stores/session-root-store";
+import {
+  SESSION_ROOTS_STORAGE_KEY,
+  useSessionRootStore,
+} from "@/stores/session-root-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { ChatContextToolWindows } from "../index";
@@ -184,5 +187,128 @@ describe("变更 · 被移除的 worktree", () => {
       expect(screen.getAllByTestId("change-row")).toHaveLength(2),
     );
     expect(screen.queryByTestId("removed-root-group")).toBeNull();
+  });
+});
+
+// 嵌在主 checkout 里的 worktree（<repo>/.claude/worktrees/feat-x）：路径字符串落在主根
+// 之内，被移除后它的文件也不能当主根的普通行列出来。
+const NESTED = `${CWD}/.claude/worktrees/feat-x`;
+
+const nestedMessages: Msg[] = [
+  { id: 1, role: "user", blocks: [{ type: "text", text: "go" }] },
+  {
+    id: 2,
+    role: "assistant",
+    blocks: [editBlock(`${NESTED}/src/b.ts`)],
+  },
+] as unknown as Msg[];
+
+function nestedRoots(withWorktree: boolean) {
+  const main = {
+    path: CWD,
+    name: "demo-app",
+    isPrimary: true,
+    isWorktree: false,
+    aiHere: !withWorktree,
+  };
+  if (!withWorktree) return [main];
+  return [
+    main,
+    {
+      path: NESTED,
+      name: "feat-x",
+      isPrimary: false,
+      isWorktree: true,
+      aiHere: true,
+    },
+  ];
+}
+
+/**
+ * 页面重新加载：内存里的 store 状态全丢，只剩本机存储。先把存储里的快照留下，清空
+ * 内存状态（这一步也会写存储），再放回快照，让 store 像刚启动一样从存储读回。
+ */
+async function reloadSessionRootStore() {
+  const saved = localStorage.getItem(SESSION_ROOTS_STORAGE_KEY);
+  useSessionRootStore.setState({ bySession: {} });
+  if (saved !== null) localStorage.setItem(SESSION_ROOTS_STORAGE_KEY, saved);
+  await useSessionRootStore.persist.rehydrate();
+}
+
+function renderNested() {
+  return render(
+    <ChatContextToolWindows
+      sessionId={7}
+      messages={nestedMessages}
+      activeMessageId={null}
+      onJumpToMessage={() => {}}
+      cwd={CWD}
+      remote={false}
+    />,
+  );
+}
+
+describe("变更 · 被移除的嵌套 worktree", () => {
+  // Given AI 在嵌套 worktree feat-x 里写了 src/b.ts, When 同一页上 feat-x 被移除,
+  // Then b.ts 落在「feat-x（已移除）」分组里，主根没有一行 .claude/worktrees/... 。
+  it("groups the nested worktree's files as removed while the page stays open", async () => {
+    workRootsMock.mockResolvedValue(nestedRoots(true));
+    renderNested();
+    await waitFor(() =>
+      expect(screen.getAllByTestId("change-row")).toHaveLength(1),
+    );
+
+    act(() =>
+      runtime.handlers.get("chat:workroots:7")!({
+        sessionId: 7,
+        roots: nestedRoots(false),
+      }),
+    );
+
+    const group = await screen.findByTestId("removed-root-group");
+    expect(group).toHaveTextContent("feat-x (removed)");
+    expect(
+      within(group)
+        .getAllByTestId("change-row")
+        .map((r) => r.getAttribute("data-path")),
+    ).toEqual(["src/b.ts"]);
+    expect(
+      screen
+        .getAllByTestId("change-row")
+        .map((r) => r.getAttribute("data-path")),
+    ).toEqual(["src/b.ts"]);
+  });
+
+  // Given feat-x 在这一页上被移除过, When 页面重新加载、后端集合里已没有 feat-x,
+  // Then「feat-x（已移除）」分组仍在，b.ts 不作为主根下 .claude/worktrees/feat-x/src 的行。
+  it("keeps the removed group across a reload instead of listing the file under the main root", async () => {
+    workRootsMock.mockResolvedValue(nestedRoots(true));
+    const first = renderNested();
+    await waitFor(() =>
+      expect(screen.getAllByTestId("change-row")).toHaveLength(1),
+    );
+    act(() =>
+      runtime.handlers.get("chat:workroots:7")!({
+        sessionId: 7,
+        roots: nestedRoots(false),
+      }),
+    );
+    await screen.findByTestId("removed-root-group");
+    first.unmount();
+
+    await act(reloadSessionRootStore);
+    workRootsMock.mockResolvedValue(nestedRoots(false));
+    renderNested();
+
+    const group = await screen.findByTestId("removed-root-group");
+    expect(group).toHaveTextContent("feat-x (removed)");
+    expect(
+      screen
+        .getAllByTestId("change-row")
+        .map((r) => r.getAttribute("data-path")),
+    ).toEqual(["src/b.ts"]);
+    expect(
+      screen.queryByText(".claude/worktrees/feat-x/src"),
+    ).not.toBeInTheDocument();
   });
 });

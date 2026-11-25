@@ -1,5 +1,6 @@
 import * as React from "react";
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 import type { workspace_fs_svc } from "@/../wailsjs/go/models";
 
@@ -7,6 +8,9 @@ export type WorkRoot = workspace_fs_svc.WorkRootView;
 
 /** 「已跟随 / 已移除」提示在胶囊下方停留多久（spec：约 5 秒）。 */
 export const SESSION_ROOT_NOTICE_MS = 5000;
+
+/** 本机存储里这份状态的键。只存「已移除」清单，见 persist 配置。 */
+export const SESSION_ROOTS_STORAGE_KEY = "session-roots-state";
 
 /**
  * 胶囊下方的一次性提示。`id` 让到期计时只收它自己那一条：计时期间换上来的新提示
@@ -27,7 +31,11 @@ type SessionRootEntry = {
   selected: string | null;
   follow: boolean;
   notice: RootNotice | null;
-  /** 本次运行里从集合中消失、至今没被认领回来的根（变更窗的「已移除」分组）。 */
+  /**
+   * 从集合中消失、至今没被认领回来的根（变更窗的「已移除」分组）。后端在根消失时
+   * 删掉它的认领行，「它曾是一个根」只有这里看见过，所以这一项跨重新加载与重启
+   * 保存在本机；其余字段不保存（spec：跟随与当前根重启后回到默认）。
+   */
   removed: WorkRoot[];
   /**
    * 集合每落一次加一（取数、推送、点链接认领都走 applyRoots）。在途的取数据此判断
@@ -70,6 +78,42 @@ function freshEntry(cwd: string): SessionRootEntry {
 }
 
 const EMPTY_ENTRY = freshEntry("");
+
+/** 存进本机的那一部分：会话 cwd（目录变了清单作废）与已移除的根。 */
+type PersistedEntry = { cwd: string; removed: WorkRoot[] };
+
+function isWorkRoot(v: unknown): v is WorkRoot {
+  const r = v as Partial<WorkRoot> | null;
+  return (
+    typeof r === "object" &&
+    r !== null &&
+    typeof r.path === "string" &&
+    r.path !== "" &&
+    typeof r.name === "string"
+  );
+}
+
+/** 读回的值可能来自更早的版本或被手改过：逐项丢掉坏值，只留下有已移除根的会话。 */
+function restoreEntries(saved: unknown): Record<number, SessionRootEntry> {
+  const out: Record<number, SessionRootEntry> = {};
+  if (typeof saved !== "object" || saved === null) return out;
+  for (const [key, value] of Object.entries(saved)) {
+    const id = Number(key);
+    const e = value as Partial<PersistedEntry> | null;
+    if (!Number.isInteger(id) || typeof e !== "object" || e === null) continue;
+    if (typeof e.cwd !== "string" || !Array.isArray(e.removed)) continue;
+    const removed = e.removed.filter(isWorkRoot).map((r) => ({
+      path: r.path,
+      name: r.name,
+      isWorktree: r.isWorktree === true,
+      isPrimary: false,
+      aiHere: false,
+    }));
+    if (removed.length === 0) continue;
+    out[id] = { ...freshEntry(e.cwd), removed };
+  }
+  return out;
+}
 
 /** 当前根：被选中且仍在集合里的那个根；否则主根（还没有集合时为 null）。 */
 function currentRootOf(entry: SessionRootEntry): WorkRoot | null {
@@ -140,80 +184,105 @@ function reduceRoots(
   return next;
 }
 
-export const useSessionRootStore = create<State>()((set) => {
-  const update = (
-    sessionId: number,
-    fn: (entry: SessionRootEntry) => SessionRootEntry,
-  ) =>
-    set((state) => {
-      const entry = state.bySession[sessionId];
-      if (!entry) return state;
-      return { bySession: { ...state.bySession, [sessionId]: fn(entry) } };
-    });
+export const useSessionRootStore = create<State>()(
+  persist(
+    (set) => {
+      const update = (
+        sessionId: number,
+        fn: (entry: SessionRootEntry) => SessionRootEntry,
+      ) =>
+        set((state) => {
+          const entry = state.bySession[sessionId];
+          if (!entry) return state;
+          return { bySession: { ...state.bySession, [sessionId]: fn(entry) } };
+        });
 
-  return {
-    bySession: {},
-    attach: (sessionId, cwd) =>
-      set((state) =>
-        state.bySession[sessionId]?.cwd === cwd
-          ? state
-          : {
-              bySession: { ...state.bySession, [sessionId]: freshEntry(cwd) },
-            },
-      ),
-    applyRoots: (sessionId, cwd, roots) =>
-      set((state) => {
-        const existing = state.bySession[sessionId];
-        const prev =
-          existing && existing.cwd === cwd ? existing : freshEntry(cwd);
-        return {
-          bySession: {
-            ...state.bySession,
-            [sessionId]: reduceRoots(prev, roots),
-          },
-        };
-      }),
-    select: (sessionId, path) =>
-      update(sessionId, (e) => ({
-        ...e,
-        selected: path,
-        follow: false,
-        notice: null,
-      })),
-    setFollow: (sessionId, on) =>
-      update(sessionId, (e) => {
-        if (!on) return { ...e, follow: false };
-        const ai = e.roots.find((r) => r.aiHere);
-        return {
-          ...e,
-          follow: true,
-          selected: ai ? ai.path : e.selected,
-          notice: null,
-        };
-      }),
-    stay: (sessionId) =>
-      update(sessionId, (e) => {
-        if (e.notice?.kind !== "followed") return e;
-        return {
-          ...e,
-          selected: e.notice.from.path,
-          follow: false,
-          notice: null,
-        };
-      }),
-    dismissNotice: (sessionId, id) =>
-      update(sessionId, (e) =>
-        e.notice?.id === id ? { ...e, notice: null } : e,
-      ),
-    forget: (sessionId) =>
-      set((state) => {
-        if (!(sessionId in state.bySession)) return state;
-        const bySession = { ...state.bySession };
-        delete bySession[sessionId];
+      return {
+        bySession: {},
+        attach: (sessionId, cwd) =>
+          set((state) =>
+            state.bySession[sessionId]?.cwd === cwd
+              ? state
+              : {
+                  bySession: {
+                    ...state.bySession,
+                    [sessionId]: freshEntry(cwd),
+                  },
+                },
+          ),
+        applyRoots: (sessionId, cwd, roots) =>
+          set((state) => {
+            const existing = state.bySession[sessionId];
+            const prev =
+              existing && existing.cwd === cwd ? existing : freshEntry(cwd);
+            return {
+              bySession: {
+                ...state.bySession,
+                [sessionId]: reduceRoots(prev, roots),
+              },
+            };
+          }),
+        select: (sessionId, path) =>
+          update(sessionId, (e) => ({
+            ...e,
+            selected: path,
+            follow: false,
+            notice: null,
+          })),
+        setFollow: (sessionId, on) =>
+          update(sessionId, (e) => {
+            if (!on) return { ...e, follow: false };
+            const ai = e.roots.find((r) => r.aiHere);
+            return {
+              ...e,
+              follow: true,
+              selected: ai ? ai.path : e.selected,
+              notice: null,
+            };
+          }),
+        stay: (sessionId) =>
+          update(sessionId, (e) => {
+            if (e.notice?.kind !== "followed") return e;
+            return {
+              ...e,
+              selected: e.notice.from.path,
+              follow: false,
+              notice: null,
+            };
+          }),
+        dismissNotice: (sessionId, id) =>
+          update(sessionId, (e) =>
+            e.notice?.id === id ? { ...e, notice: null } : e,
+          ),
+        forget: (sessionId) =>
+          set((state) => {
+            if (!(sessionId in state.bySession)) return state;
+            const bySession = { ...state.bySession };
+            delete bySession[sessionId];
+            return { bySession };
+          }),
+      };
+    },
+    {
+      name: SESSION_ROOTS_STORAGE_KEY,
+      partialize: (state) => {
+        const bySession: Record<number, PersistedEntry> = {};
+        for (const [id, e] of Object.entries(state.bySession)) {
+          if (e.removed.length > 0) {
+            bySession[Number(id)] = { cwd: e.cwd, removed: e.removed };
+          }
+        }
         return { bySession };
+      },
+      merge: (persisted, current) => ({
+        ...current,
+        bySession: restoreEntries(
+          (persisted as { bySession?: unknown } | null)?.bySession,
+        ),
       }),
-  };
-});
+    },
+  ),
+);
 
 /**
  * 会话级当前工作根（spec 决策 7、12）。
