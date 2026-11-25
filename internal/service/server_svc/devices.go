@@ -50,6 +50,9 @@ func (s *service) ListDevices(ctx context.Context) ([]Device, error) {
 		}
 		resp = make([]Device, 0, len(env.Data.Devices))
 		for _, d := range env.Data.Devices {
+			if d.Kind == "cli" {
+				continue // agrctl 是账号的客户端，不是执行目标；面板与选择器都从这里取清单
+			}
 			resp = append(resp, Device(d))
 		}
 		return nil

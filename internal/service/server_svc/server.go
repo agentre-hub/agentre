@@ -3,6 +3,7 @@ package server_svc
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/agentre-hub/agentre/internal/daemon/auth"
@@ -101,6 +102,10 @@ type service struct {
 	// introspectOnce/introspector 懒建这台桌面端唯一的 auth.Introspector 实例
 	// (introspect.go 的 accountIntrospector)。必须只建一份：H2 的 60 秒成功缓存
 	// 挂在实例内部，每次调用都新建就等于从不命中缓存。
+	// agrctlMu 串行化桌面代签与回收（agrctl_peer.go）；agrctlEpoch 在每次回收时 +1，
+	// 让排队中 / 铸造中的代签发现桌面已退出而自行作废。
+	agrctlMu       sync.Mutex
+	agrctlEpoch    atomic.Uint64
 	introspectOnce sync.Once
 	introspector   *auth.Introspector
 }
