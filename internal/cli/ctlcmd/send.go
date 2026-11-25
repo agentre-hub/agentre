@@ -1,6 +1,7 @@
 package ctlcmd
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -9,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
 )
 
 // sendFlags 是 `agrctl send` 接受的 flag;它们同时是 help 的数据源。
@@ -19,7 +18,7 @@ var sendFlags = []*flagDef{
 	{name: "agent-id", value: "<id>", usage: "new session: target agent by id (same as --agent <id>)"},
 	{name: "project", value: "<ref>", usage: "new session: project by name, parent/child path or id (default: free session)"},
 	{name: "title", value: "<title>", usage: "new session: its title"},
-	{name: "isolated", usage: "new session: one-shot isolated session (not shown in the sidebar)"},
+	{name: "isolated", usage: "new session: one-shot session (desktop: not in the sidebar; account: not saved to the account)"},
 	{name: "session", value: "<id>", usage: "continue this session (its full UUID) instead of starting one"},
 	{name: "steer", usage: "the session is running: interject into the current turn (no --image)"},
 	{name: "image", value: "<file>", usage: "attach a local image (png, jpeg, gif, webp); repeatable", repeat: true},
@@ -83,35 +82,23 @@ func runSend(args []string, s *sys) error {
 	if err != nil {
 		return err
 	}
-	ep, err := conversationEndpoint(s, p, true, "sending to a session")
+	x, err := conversationExecutor(s, p, true, "sending to a session")
 	if err != nil {
 		return err
 	}
-	body := map[string]any{"text": text, "wait": p.on("wait")}
-	if session != "" {
-		body["conversationId"] = session
-	} else {
-		if err := newSessionBody(body, p, ep, args); err != nil {
+	var out conversationReply
+	if x.kind == execAccount {
+		in, err := sendInputFrom(p, text, images, timeout)
+		if err != nil {
 			return err
 		}
-	}
-	if p.on("steer") {
-		body["steer"] = true
-	}
-	for flagName, field := range map[string]string{"model": "model", "cli-model": "cliModel", "effort": "effort", "permission-mode": "permissionMode"} {
-		if v := last(p, flagName); v != "" {
-			body[field] = v
+		chat := newAccountChat(s, x, append([]string{"send"}, args...))
+		defer chat.close()
+		if out, err = chat.send(context.Background(), in); err != nil {
+			return err
 		}
-	}
-	if len(images) > 0 {
-		body["images"] = images
-	}
-	if timeout > 0 {
-		body["timeoutMs"] = timeout.Milliseconds()
-	}
-	var out conversationReply
-	if err := ep.Post("/ctl/v1/send", body, &out); err != nil {
-		return conversationErr(err)
+	} else if out, err = desktopSend(x, p, args, text, images, timeout); err != nil {
+		return err
 	}
 	if p.on("wait") {
 		return printOutcome(s, out.outcome(), asJSON)
@@ -132,8 +119,56 @@ func runSend(args []string, s *sys) error {
 	return nil
 }
 
+// desktopSend 把一次 send 交给会话 / 桌面执行者的 /ctl/v1/send。
+func desktopSend(x *executor, p parsedArgs, args []string, text string, images []sendImage, timeout time.Duration) (conversationReply, error) {
+	session := last(p, "session")
+	body := map[string]any{"text": text, "wait": p.on("wait")}
+	if session != "" {
+		body["conversationId"] = session
+	} else if err := newSessionBody(body, p, x, args); err != nil {
+		return conversationReply{}, err
+	}
+	if p.on("steer") {
+		body["steer"] = true
+	}
+	for flagName, field := range map[string]string{"model": "model", "cli-model": "cliModel", "effort": "effort", "permission-mode": "permissionMode"} {
+		if v := last(p, flagName); v != "" {
+			body[field] = v
+		}
+	}
+	if len(images) > 0 {
+		body["images"] = images
+	}
+	if timeout > 0 {
+		body["timeoutMs"] = timeout.Milliseconds()
+	}
+	var out conversationReply
+	if err := x.ep.Post("/ctl/v1/send", body, &out); err != nil {
+		return conversationReply{}, conversationErr(err)
+	}
+	return out, nil
+}
+
+// sendInputFrom 把解析好的 send flag 交给账号执行者。
+func sendInputFrom(p parsedArgs, text string, images []sendImage, timeout time.Duration) (sendInput, error) {
+	in := sendInput{
+		text: text, images: images, session: last(p, "session"), steer: p.on("steer"), wait: p.on("wait"), timeout: timeout,
+		agent: last(p, "agent"), project: last(p, "project"), title: last(p, "title"), device: last(p, "device"),
+		backend: last(p, "backend"), isolated: p.on("isolated"), model: last(p, "model"), cliModel: last(p, "cli-model"),
+		effort: last(p, "effort"), permissionMode: last(p, "permission-mode"),
+	}
+	if v := last(p, "agent-id"); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id <= 0 {
+			return sendInput{}, usageErrorf("send: --agent-id must be a positive number, got %q", v)
+		}
+		in.agentID = id
+	}
+	return in, nil
+}
+
 // newSessionBody 填新会话的定位:agent(名字或 id)、项目(名字 / 路径 / id)、标题、隔离。
-func newSessionBody(body map[string]any, p parsedArgs, ep ctlclient.Endpoint, args []string) error {
+func newSessionBody(body map[string]any, p parsedArgs, x *executor, args []string) error {
 	if v := last(p, "agent-id"); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
@@ -146,7 +181,7 @@ func newSessionBody(body map[string]any, p parsedArgs, ep ctlclient.Endpoint, ar
 	if ref := last(p, "project"); ref != "" {
 		id, err := strconv.ParseInt(ref, 10, 64)
 		if err != nil || id <= 0 {
-			cat := newCatalog(endpointExecutor(ep), append([]string{"send"}, args...))
+			cat := newCatalog(x, append([]string{"send"}, args...))
 			if id, err = refID(cat, kindProject, ref); err != nil {
 				return err
 			}

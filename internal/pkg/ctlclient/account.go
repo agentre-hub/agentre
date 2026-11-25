@@ -204,6 +204,35 @@ func (a *Account) PostRaw(ctx context.Context, path string, body []byte) ([]byte
 	return a.authed(ctx, http.MethodPost, path, body)
 }
 
+// GetRaw 发一个带 Bearer 的 GET，返回原始响应体（cago 外壳由调用方解）；非 2xx 返回 *ServerError。
+func (a *Account) GetRaw(ctx context.Context, pathAndQuery string) ([]byte, error) {
+	return a.authed(ctx, http.MethodGet, pathAndQuery, nil)
+}
+
+// Bearer 交出此刻该用的那枚凭据：relay 握手（Authorization 与 auth.account 的 credential）
+// 用的就是它。登录态快过期时先刷新。
+func (a *Account) Bearer(ctx context.Context) (string, error) { return a.bearer(ctx) }
+
+// Reauthorize 在对端拒收 stale（relay 回 401）之后换一枚新的。个人 token 不刷新，
+// 返回 ErrTokenRejected。
+func (a *Account) Reauthorize(ctx context.Context, stale string) (string, error) {
+	if a.PersonalToken() {
+		return "", ErrTokenRejected
+	}
+	return a.refresh(ctx, stale)
+}
+
+// DeviceName 是本执行者在对端那里的来源名（会话里「来自 <设备>」）：登录态是这台 cli
+// 设备的名字，个人 token 没有设备，记作 agrctl。
+func (a *Account) DeviceName() string {
+	if !a.PersonalToken() {
+		if c, err := agrctlcred.Load(a.dir); err == nil && strings.TrimSpace(c.DeviceName) != "" {
+			return c.DeviceName
+		}
+	}
+	return "agrctl"
+}
+
 // Revoke 在 server 吊销 deviceID（agrctl logout 用它吊销本 `cli` 设备）。
 func (a *Account) Revoke(ctx context.Context, deviceID int64) error {
 	body, _ := json.Marshal(map[string]int64{"device_id": deviceID})

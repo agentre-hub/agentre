@@ -175,10 +175,20 @@ func runWait(args []string, s *sys) error {
 	if err != nil {
 		return err
 	}
-	ep, err := conversationEndpoint(s, p, false, "")
+	x, err := conversationExecutor(s, p, false, "")
 	if err != nil {
 		return err
 	}
+	if x.kind == execAccount {
+		chat := newAccountChat(s, x, append([]string{"wait"}, args...))
+		defer chat.close()
+		out, err := chat.wait(context.Background(), id, timeout, nil)
+		if err != nil {
+			return err
+		}
+		return printOutcome(s, out.outcome(), asJSON)
+	}
+	ep := x.ep
 	start := time.Now()
 	connected := false
 	for attempt := 0; ; attempt++ {
@@ -317,7 +327,7 @@ func runStop(args []string, s *sys) error {
 	if err := checkSessionRef(id); err != nil {
 		return err
 	}
-	ep, err := conversationEndpoint(s, p, true, "stopping a session")
+	x, err := conversationExecutor(s, p, true, "stopping a session")
 	if err != nil {
 		return err
 	}
@@ -326,7 +336,15 @@ func runStop(args []string, s *sys) error {
 		Running       bool `json:"running"`
 		DroppedSteers int  `json:"droppedSteers"`
 	}
-	if err := ep.Post("/ctl/v1/stop", map[string]any{"conversationId": id}, &out); err != nil {
+	if x.kind == execAccount {
+		chat := newAccountChat(s, x, append([]string{"stop"}, args...))
+		defer chat.close()
+		r, err := chat.stop(context.Background(), id)
+		if err != nil {
+			return err
+		}
+		out.Stopped, out.Running, out.DroppedSteers = r.Stopped, r.Running, r.DroppedSteers
+	} else if err := x.ep.Post("/ctl/v1/stop", map[string]any{"conversationId": id}, &out); err != nil {
 		return conversationErr(err)
 	}
 	if asJSON {

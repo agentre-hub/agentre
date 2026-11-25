@@ -32,6 +32,8 @@ type fakeServer struct {
 	t    *testing.T
 	exec *fakeExecutor
 	srv  *httptest.Server
+	// mux 是 srv 的路由，会话命令的测试在上面再挂 relay / 派发计划 / 设备 / 保存接口。
+	mux *http.ServeMux
 
 	mu         sync.Mutex
 	authorize  map[string]any
@@ -128,6 +130,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 		r.Body = io.NopCloser(strings.NewReader(string(raw)))
 		f.exec.serve(w, r)
 	})
+	f.mux = mux
 	f.srv = httptest.NewServer(mux)
 	t.Cleanup(f.srv.Close)
 	return f

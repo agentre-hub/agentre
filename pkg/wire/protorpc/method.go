@@ -28,7 +28,7 @@ func RegisterMethod[Req proto.Message, Resp proto.Message](
 	registry.methods[methodID] = func(ctx context.Context, payload []byte) (_ []byte, err error) {
 		// 守卫挂在这里而不是每个 handler 里:handler 跑在自己的 goroutine 上,
 		// 漏一处就等于没有(见 recoverHandler)。
-		defer recoverHandler(fmt.Sprintf("method %d", methodID), &err)
+		defer recoverHandler(ctx, fmt.Sprintf("method %d", methodID), &err)
 		request := newRequest()
 		if err := proto.Unmarshal(payload, request); err != nil {
 			return nil, &Error{Code: CodeInvalidParams, Message: err.Error()}
@@ -61,7 +61,7 @@ func (r *Registry) dispatchMethod(ctx context.Context, methodID uint32, payload 
 // runGuard calls the guard under the same panic shield as a handler: it runs on
 // the request goroutine, and a panic there must refuse the call, not the process.
 func runGuard(ctx context.Context, guard MethodGuard, methodID uint32) (_ context.Context, err error) {
-	defer recoverHandler(fmt.Sprintf("method guard %d", methodID), &err)
+	defer recoverHandler(ctx, fmt.Sprintf("method guard %d", methodID), &err)
 	return guard(ctx, methodID)
 }
 

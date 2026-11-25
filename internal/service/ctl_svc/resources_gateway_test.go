@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
 	"github.com/agentre-hub/agentre/internal/service/llm_provider_svc"
@@ -43,12 +44,13 @@ func TestDepartmentDocFrom(t *testing.T) {
 
 func TestProjectDocFrom(t *testing.T) {
 	got := projectDocFrom(
-		&project_entity.Project{ID: 1, ParentID: 0, Name: "agentre", Icon: "i", Color: "c", Description: "d", Path: "/src/agentre"},
+		&project_entity.Project{ID: 1, ParentID: 0, Name: "agentre", Icon: "i", Color: "c", Description: "d", Path: "/src/agentre",
+			SyncMeta: syncmeta_entity.SyncMeta{SyncID: "01PROJ"}},
 		[]*project_svc.ProjectAgentMember{{AgentID: 3}, {AgentID: 4}},
 		[]*project_location_svc.ProjectLocationView{{DeviceFingerprint: "sha256:ab", DeviceName: "box", Path: "/srv/agentre"}},
 	)
 	assert.Equal(t, &agentrewire.CtlProject{
-		Id: 1, Name: "agentre", Icon: "i", Color: "c", Description: "d", Path: "/src/agentre",
+		Id: 1, Name: "agentre", Icon: "i", Color: "c", Description: "d", Path: "/src/agentre", SyncId: "01PROJ",
 		MemberAgentIds: []int64{3, 4},
 		Locations:      []*agentrewire.CtlProjectLocation{{DeviceId: "sha256:ab", DeviceName: "box", Path: "/srv/agentre"}},
 	}, got)
@@ -56,13 +58,13 @@ func TestProjectDocFrom(t *testing.T) {
 
 func TestProviderDocFrom_UsesServiceMask(t *testing.T) {
 	got := providerDocFrom(&llm_provider_svc.ProviderItem{ //nolint:gosec // 掩码后的假数据，不是凭据。
-		ID: 1, Name: "anthropic", Type: "anthropic", BaseURL: "https://x", Enabled: true,
+		ID: 1, ProviderKey: "pk-1", Name: "anthropic", Type: "anthropic", BaseURL: "https://x", Enabled: true,
 		MaskedAPIKey: "sk-a••••••1111", HasAPIKey: true, DefaultModelKey: "mk-1",
 	}, 2)
 	assert.Equal(t, &agentrewire.CtlProvider{ //nolint:gosec // 掩码后的假数据，不是凭据。
 		Id: 1, Name: "anthropic", Type: "anthropic", BaseUrl: "https://x", Enabled: true,
-		ApiKey: "sk-a••••••1111", ApiKeySet: true, DefaultModelKey: "mk-1", BackendRefs: 2,
-	}, got)
+		ApiKey: "sk-a••••••1111", ApiKeySet: true, DefaultModelKey: "mk-1", BackendRefs: 2, SyncId: "pk-1",
+	}, got, "provider key 就是提供方的同步标识")
 }
 
 func TestModelDocFrom(t *testing.T) {

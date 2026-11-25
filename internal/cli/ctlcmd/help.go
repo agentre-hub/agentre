@@ -86,6 +86,9 @@ agent's order. A --device or --backend that is not one of the agent's fails with
 listed (exit 2); one that is offline, or has no path for the project, fails with the reason (exit 1).
 An unsupported --model / --cli-model / --effort / --permission-mode value fails with the
 choices listed (exit 2); the values apply to this session from the next turn on.
+Against the account the session runs on the chosen device and is saved to the account (the
+console and the desktop see it) unless --isolated; a device that is offline, or on another
+release ("device <name> needs to be upgraded"), fails with exit 1.
 
 `)
 	b.WriteString(shellTimeoutNote)

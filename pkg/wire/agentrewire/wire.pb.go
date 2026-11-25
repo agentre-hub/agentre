@@ -18141,7 +18141,9 @@ type CtlAgent struct {
 	AvatarColor string  `protobuf:"bytes,7,opt,name=avatar_color,json=avatarColor,proto3" json:"avatar_color,omitempty"`
 	AvatarIcon  string  `protobuf:"bytes,8,opt,name=avatar_icon,json=avatarIcon,proto3" json:"avatar_icon,omitempty"`
 	// 只读：非空表示系统 Agent。
-	SystemBadge   string `protobuf:"bytes,9,opt,name=system_badge,json=systemBadge,proto3" json:"system_badge,omitempty"`
+	SystemBadge string `protobuf:"bytes,9,opt,name=system_badge,json=systemBadge,proto3" json:"system_badge,omitempty"`
+	// 只读：Agent 的账号级同步标识；账号执行者据它向 server 取派发计划、在执行端开会话。
+	SyncId        string `protobuf:"bytes,10,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -18235,6 +18237,13 @@ func (x *CtlAgent) GetAvatarIcon() string {
 func (x *CtlAgent) GetSystemBadge() string {
 	if x != nil {
 		return x.SystemBadge
+	}
+	return ""
+}
+
+func (x *CtlAgent) GetSyncId() string {
+	if x != nil {
+		return x.SyncId
 	}
 	return ""
 }
@@ -18410,7 +18419,9 @@ type CtlProject struct {
 	// 成员 Agent。创建时是初始成员；更新时用 CtlWriteRequest 的 add/remove 字段增减。
 	MemberAgentIds []int64 `protobuf:"varint,8,rep,packed,name=member_agent_ids,json=memberAgentIds,proto3" json:"member_agent_ids,omitempty"`
 	// 只读：各设备上的路径。
-	Locations     []*CtlProjectLocation `protobuf:"bytes,9,rep,name=locations,proto3" json:"locations,omitempty"`
+	Locations []*CtlProjectLocation `protobuf:"bytes,9,rep,name=locations,proto3" json:"locations,omitempty"`
+	// 只读：项目的账号级同步标识；账号执行者据它向 server 取派发计划（含该设备上的路径）。
+	SyncId        string `protobuf:"bytes,10,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -18508,6 +18519,13 @@ func (x *CtlProject) GetLocations() []*CtlProjectLocation {
 	return nil
 }
 
+func (x *CtlProject) GetSyncId() string {
+	if x != nil {
+		return x.SyncId
+	}
+	return ""
+}
+
 // CtlProvider 是一个 LLM 提供方。
 type CtlProvider struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
@@ -18523,7 +18541,9 @@ type CtlProvider struct {
 	// 默认模型的 key。
 	DefaultModelKey string `protobuf:"bytes,8,opt,name=default_model_key,json=defaultModelKey,proto3" json:"default_model_key,omitempty"`
 	// 只读：引用它的后端数。
-	BackendRefs   int32 `protobuf:"varint,9,opt,name=backend_refs,json=backendRefs,proto3" json:"backend_refs,omitempty"`
+	BackendRefs int32 `protobuf:"varint,9,opt,name=backend_refs,json=backendRefs,proto3" json:"backend_refs,omitempty"`
+	// 只读：提供方的账号级同步标识（即 provider key）；账号执行者据它钉会话的模型目标。
+	SyncId        string `protobuf:"bytes,10,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -18619,6 +18639,13 @@ func (x *CtlProvider) GetBackendRefs() int32 {
 		return x.BackendRefs
 	}
 	return 0
+}
+
+func (x *CtlProvider) GetSyncId() string {
+	if x != nil {
+		return x.SyncId
+	}
+	return ""
 }
 
 // CtlModel 是提供方下的一个模型，用 `提供方/模型key` 定位。
@@ -21632,7 +21659,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x06events\x18\t \x03(\tR\x06events\x12J\n" +
 	"\x0fopenclaw_agents\x18\n" +
 	" \x03(\v2!.agentre.wire.OpenClawAgentOptionR\x0eopenclawAgents\x12J\n" +
-	"\x0fopenclaw_models\x18\v \x03(\v2!.agentre.wire.OpenClawModelOptionR\x0eopenclawModels\"\x95\x02\n" +
+	"\x0fopenclaw_models\x18\v \x03(\v2!.agentre.wire.OpenClawModelOptionR\x0eopenclawModels\"\xae\x02\n" +
 	"\bCtlAgent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
@@ -21644,7 +21671,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\favatar_color\x18\a \x01(\tR\vavatarColor\x12\x1f\n" +
 	"\vavatar_icon\x18\b \x01(\tR\n" +
 	"avatarIcon\x12!\n" +
-	"\fsystem_badge\x18\t \x01(\tR\vsystemBadge\"\xcd\x01\n" +
+	"\fsystem_badge\x18\t \x01(\tR\vsystemBadge\x12\x17\n" +
+	"\async_id\x18\n" +
+	" \x01(\tR\x06syncId\"\xcd\x01\n" +
 	"\rCtlDepartment\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12 \n" +
@@ -21657,7 +21686,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x1f\n" +
 	"\vdevice_name\x18\x02 \x01(\tR\n" +
 	"deviceName\x12\x12\n" +
-	"\x04path\x18\x03 \x01(\tR\x04path\"\x97\x02\n" +
+	"\x04path\x18\x03 \x01(\tR\x04path\"\xb0\x02\n" +
 	"\n" +
 	"CtlProject\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1b\n" +
@@ -21668,7 +21697,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x12\x12\n" +
 	"\x04path\x18\a \x01(\tR\x04path\x12(\n" +
 	"\x10member_agent_ids\x18\b \x03(\x03R\x0ememberAgentIds\x12>\n" +
-	"\tlocations\x18\t \x03(\v2 .agentre.wire.CtlProjectLocationR\tlocations\"\x82\x02\n" +
+	"\tlocations\x18\t \x03(\v2 .agentre.wire.CtlProjectLocationR\tlocations\x12\x17\n" +
+	"\async_id\x18\n" +
+	" \x01(\tR\x06syncId\"\x9b\x02\n" +
 	"\vCtlProvider\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
@@ -21678,7 +21709,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\aapi_key\x18\x06 \x01(\tR\x06apiKey\x12\x1e\n" +
 	"\vapi_key_set\x18\a \x01(\bR\tapiKeySet\x12*\n" +
 	"\x11default_model_key\x18\b \x01(\tR\x0fdefaultModelKey\x12!\n" +
-	"\fbackend_refs\x18\t \x01(\x05R\vbackendRefs\"\x9e\x02\n" +
+	"\fbackend_refs\x18\t \x01(\x05R\vbackendRefs\x12\x17\n" +
+	"\async_id\x18\n" +
+	" \x01(\tR\x06syncId\"\x9e\x02\n" +
 	"\bCtlModel\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x1f\n" +
 	"\vprovider_id\x18\x02 \x01(\x03R\n" +

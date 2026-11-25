@@ -212,6 +212,11 @@ when it contains spaces.
   {{AGRCTL_PATH}} send --agent-id 12 --isolated "summarize the release notes"
   ```
 
+  Against the account (after `agrctl login`, outside an Agentre session) `send`, `wait` and
+  `stop` reach the device running the session directly; a session is saved to the account
+  (the console and the desktop list it) unless `--isolated`, which keeps it out of the account.
+  A device on another release fails with `device <name> needs to be upgraded …` (exit `1`).
+
 - Continue a session, or interject into its running turn:
 
   ```

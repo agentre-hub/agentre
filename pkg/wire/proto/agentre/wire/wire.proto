@@ -1904,6 +1904,8 @@ message CtlAgent {
   string avatar_icon = 8;
   // 只读：非空表示系统 Agent。
   string system_badge = 9;
+  // 只读：Agent 的账号级同步标识；账号执行者据它向 server 取派发计划、在执行端开会话。
+  string sync_id = 10;
 }
 
 // CtlDepartment 是一个部门；名字只在同一父部门下唯一。
@@ -1941,6 +1943,8 @@ message CtlProject {
   repeated int64 member_agent_ids = 8;
   // 只读：各设备上的路径。
   repeated CtlProjectLocation locations = 9;
+  // 只读：项目的账号级同步标识；账号执行者据它向 server 取派发计划（含该设备上的路径）。
+  string sync_id = 10;
 }
 
 // CtlProvider 是一个 LLM 提供方。
@@ -1958,6 +1962,8 @@ message CtlProvider {
   string default_model_key = 8;
   // 只读：引用它的后端数。
   int32 backend_refs = 9;
+  // 只读：提供方的账号级同步标识（即 provider key）；账号执行者据它钉会话的模型目标。
+  string sync_id = 10;
 }
 
 // CtlModel 是提供方下的一个模型，用 `提供方/模型key` 定位。
