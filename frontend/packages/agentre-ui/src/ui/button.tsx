@@ -44,8 +44,10 @@ const buttonVariants = cva(
 // 触屏按下态：底色比静止 / 悬停再深一档。触屏没有悬停，hover 类只剩「点完粘住」，
 // 所以只在宿主打开触屏档时才带这些类，桌面外观不变。
 const BUTTON_PRESSED: Record<string, string> = {
-  default: "active:bg-primary/80",
-  destructive: "active:bg-destructive/80",
+  default: "active:bg-primary-pressed",
+  // 深色下静止是 /60，按下沿用同一不透明度、换更深的底色。
+  destructive:
+    "active:bg-destructive-pressed dark:active:bg-destructive-pressed/60",
   outline: "active:bg-foreground/20",
   secondary: "active:bg-foreground/20",
   ghost: "active:bg-foreground/15",

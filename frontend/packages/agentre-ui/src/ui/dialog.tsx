@@ -62,6 +62,20 @@ function OpenerKeeper({
   return null;
 }
 
+// 关闭时把焦点还给记下的打开者。宿主 preventDefault 就是接管焦点，不再插手。
+// DialogShell 共用这一份。
+function focusOpenerOnClose(
+  event: Event,
+  openerRef: React.RefObject<HTMLElement | null>,
+) {
+  if (event.defaultPrevented) return;
+  const opener = openerRef.current;
+  if (opener && document.contains(opener)) {
+    event.preventDefault();
+    opener.focus();
+  }
+}
+
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
 const DialogPortal = DialogPrimitive.Portal;
@@ -110,13 +124,7 @@ function DialogContent({
         data-slot="dialog-content"
         onCloseAutoFocus={(event) => {
           onCloseAutoFocus?.(event);
-          // 宿主 preventDefault 就是接管焦点，不再插手。
-          if (event.defaultPrevented) return;
-          const opener = openerRef.current;
-          if (opener && document.contains(opener)) {
-            event.preventDefault();
-            opener.focus();
-          }
+          focusOpenerOnClose(event, openerRef);
         }}
         className={cn(
           "fixed left-[50%] top-[50%] z-50 grid w-[calc(100%-2rem)] max-w-[520px] translate-x-[-50%] translate-y-[-50%] gap-0 rounded-xl bg-card text-card-foreground shadow-overlay outline-none motion-safe:data-[state=open]:animate-in motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0 motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=closed]:zoom-out-95 motion-safe:data-[state=open]:zoom-in-95 motion-safe:data-[state=closed]:slide-out-to-top-[2%] motion-safe:data-[state=open]:slide-in-from-top-[2%]",
@@ -213,3 +221,6 @@ export {
   DialogTitle,
   DialogDescription,
 };
+
+// 包内共用（DialogShell），不进公共入口。
+export { OpenerKeeper, focusOpenerOnClose };

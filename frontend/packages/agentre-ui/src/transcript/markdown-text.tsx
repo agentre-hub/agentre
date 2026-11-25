@@ -14,6 +14,7 @@ import {
 import { remarkDisableGfmUrlAutolinks } from "./remark-disable-gfm-url-autolinks";
 
 import { cn } from "../lib/utils";
+import { useTouch } from "../ui/touch";
 
 import { CodeBlock } from "./code-block";
 import { MarkdownImage } from "./markdown-image";
@@ -161,9 +162,32 @@ function whitelistUrl(url: string, key: string): string {
 //
 // `a` 不在这里定义——它需要 cwd 上下文，所以在 MarkdownText 的 useMemo 里动态构建。
 // 表格单元格在窄屏下换行:长路径 / 行内代码可在任意处断开,整表不超出容器宽度。
-// overflow-wrap:anywhere 会降低最小内容宽度,表格自动布局因此能收窄;宽屏下内容放得下,
-// 渲染与原来一致。
+// overflow-wrap:anywhere 会降低最小内容宽度,表格自动布局因此能收窄。只在宿主打开
+// 触屏档时生效:桌面放不下的宽表仍在外层 overflow-auto 里横向滚动,与原来一致。
 const CELL_WRAP = "[overflow-wrap:anywhere] [&_code]:[overflow-wrap:anywhere]";
+
+function MarkdownTable({ className, ...props }: React.ComponentProps<"table">) {
+  const touch = useTouch();
+  return (
+    <table
+      {...props}
+      className={cn(
+        "w-full border-collapse text-aux",
+        touch && "max-w-full",
+        className,
+      )}
+    />
+  );
+}
+
+function MarkdownCell({
+  as: Cell,
+  className,
+  ...props
+}: React.ComponentProps<"td"> & { as: "td" | "th" }) {
+  const touch = useTouch();
+  return <Cell {...props} className={cn(className, touch && CELL_WRAP)} />;
+}
 
 const markdownComponentsStatic: Components = {
   blockquote: ({ node: _node, className, ...props }) => (
@@ -267,26 +291,21 @@ const markdownComponentsStatic: Components = {
   },
   table: ({ node: _node, className, ...props }) => (
     <div className="my-2 overflow-auto">
-      <table
-        {...props}
-        className={cn("w-full max-w-full border-collapse text-aux", className)}
-      />
+      <MarkdownTable {...props} className={className} />
     </div>
   ),
   td: ({ node: _node, className, ...props }) => (
-    <td
+    <MarkdownCell
+      as="td"
       {...props}
-      className={cn("px-2 py-1 align-top", CELL_WRAP, className)}
+      className={cn("px-2 py-1 align-top", className)}
     />
   ),
   th: ({ node: _node, className, ...props }) => (
-    <th
+    <MarkdownCell
+      as="th"
       {...props}
-      className={cn(
-        "bg-muted px-2 py-1 text-left font-semibold",
-        CELL_WRAP,
-        className,
-      )}
+      className={cn("bg-muted px-2 py-1 text-left font-semibold", className)}
     />
   ),
   ul: ({ node: _node, className, ...props }) => (

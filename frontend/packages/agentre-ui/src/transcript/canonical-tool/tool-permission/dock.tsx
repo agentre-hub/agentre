@@ -60,6 +60,8 @@ export function ToolPermissionDock({
   const managed = connecting !== undefined;
   const notReady = !!connecting;
   const busy = submitting || notReady;
+  // 连接断了时上一次的失败已经过时：只留「正在连接」一条，不叠失败与灰掉的「重试」。
+  const hideStaleError = managed && notReady;
   const spin = (allow: boolean, always: boolean) =>
     managed &&
     pending?.allow === allow &&
@@ -133,18 +135,31 @@ export function ToolPermissionDock({
           {t("common.reject")}
         </Button>
       </div>
-      {error ? (
+      {error && !hideStaleError ? (
         <p
           role="alert"
           title={errorDetail}
-          className="text-aux text-destructive-text"
+          className={cn(
+            "text-aux text-destructive-text",
+            managed && "flex flex-col gap-0.5",
+          )}
         >
-          {managed && timedOut
-            ? t("canonical.toolPermission.dock.timedOut")
-            : error}
+          {managed && timedOut ? (
+            t("canonical.toolPermission.dock.timedOut")
+          ) : managed && errorDetail ? (
+            // 宿主级反馈：原因要看得见（触屏没有 title 悬停）。
+            <>
+              <span>{error}</span>
+              <span className="break-words text-muted-foreground">
+                {errorDetail}
+              </span>
+            </>
+          ) : (
+            error
+          )}
         </p>
       ) : null}
-      {managed && error ? (
+      {managed && error && !hideStaleError ? (
         <Button
           variant="outline"
           className={TARGET_CLASS}

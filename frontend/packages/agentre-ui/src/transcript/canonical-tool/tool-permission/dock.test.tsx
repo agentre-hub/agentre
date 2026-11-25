@@ -291,7 +291,9 @@ describe("ToolPermissionDock connecting / feedback (opt-in via connecting prop)"
       screen.getByRole("button", { name: "Always Allow This Session" }),
     );
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe("Approval submission failed");
+    expect(alert.textContent).toContain("Approval submission failed");
+    // 原因要看得见（触屏没有 title 悬停）。
+    expect(alert.textContent).toContain("no waiting");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(answerToolPermission).toHaveBeenCalledTimes(2));
     expect(answerToolPermission).toHaveBeenLastCalledWith({
@@ -318,5 +320,37 @@ describe("ToolPermissionDock connecting / feedback (opt-in via connecting prop)"
     expect(alert.textContent).toBe(
       "No confirmation received. It may already have taken effect",
     );
+  });
+
+  it("Given a failure, When the connection drops, Then the stale failure and Retry give way to the connecting line", async () => {
+    answerToolPermission.mockRejectedValueOnce(new Error("no waiting"));
+    const { rerender } = renderDock(
+      <ToolPermissionDock
+        toolBlock={bash()}
+        sessionId={7}
+        connecting={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    await screen.findByRole("alert");
+    rerender(
+      <TranscriptPortsProvider ports={ports}>
+        <TranscriptLiveStateProvider value={liveState}>
+          <ToolPermissionDock toolBlock={bash()} sessionId={7} connecting />
+        </TranscriptLiveStateProvider>
+      </TranscriptPortsProvider>,
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getByTestId("tool-permission-dock-connecting")).toBeDefined();
+  });
+
+  it("Given no new props, When a submit fails, Then the reason stays only in the tooltip (desktop unchanged)", async () => {
+    answerToolPermission.mockRejectedValueOnce(new Error("no waiting"));
+    renderDock(<ToolPermissionDock toolBlock={bash()} sessionId={7} />);
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe("Approval submission failed");
+    expect(alert).toHaveAttribute("title", "no waiting");
   });
 });

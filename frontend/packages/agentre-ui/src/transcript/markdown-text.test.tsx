@@ -32,6 +32,7 @@ import {
   type MarkdownInlineDecorator,
   type MarkdownInlineSegment,
 } from "./markdown-text";
+import { TouchProvider } from "../ui/touch";
 
 const originalClipboard = navigator.clipboard;
 
@@ -417,7 +418,11 @@ describe("MarkdownText tables on narrow screens", () => {
   ].join("\n");
 
   it("lets cells wrap anywhere and caps the table at its container width", () => {
-    const { container } = render(<MarkdownText text={md} />);
+    const { container } = render(
+      <TouchProvider>
+        <MarkdownText text={md} />
+      </TouchProvider>,
+    );
     const table = container.querySelector("table")!;
     expect(table.className).toContain("max-w-full");
     for (const cell of container.querySelectorAll("th, td")) {
@@ -429,10 +434,23 @@ describe("MarkdownText tables on narrow screens", () => {
   });
 
   it("does not turn the table into a horizontally scrolled, pinned-column layout", () => {
-    const { container } = render(<MarkdownText text={md} />);
+    const { container } = render(
+      <TouchProvider>
+        <MarkdownText text={md} />
+      </TouchProvider>,
+    );
     const table = container.querySelector("table")!;
     expect(table.className).not.toContain("min-w-");
     expect(table.className).not.toContain("whitespace-nowrap");
     expect(container.querySelector("td.sticky, th.sticky")).toBeNull();
+  });
+
+  it("keeps the desktop table unchanged without the touch tier", () => {
+    const { container } = render(<MarkdownText text={md} />);
+    const table = container.querySelector("table")!;
+    expect(table.className).not.toContain("max-w-full");
+    for (const cell of container.querySelectorAll("th, td")) {
+      expect(cell.className).not.toContain("overflow-wrap");
+    }
   });
 });

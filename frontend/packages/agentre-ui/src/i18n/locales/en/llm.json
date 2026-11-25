@@ -52,6 +52,7 @@
     "flash": {
       "created": "Provider \"{{name}}\" added",
       "deleted": "Provider \"{{name}}\" deleted",
+      "loadFailed": "Load failed: {{message}}",
       "testFailed": "Test failed: {{message}}",
       "updated": "Provider \"{{name}}\" updated",
       "defaultSet": "{{model}} is now the default model",

@@ -42,7 +42,11 @@ import type {
   CanonicalDTO,
   UserAskDTO,
 } from "../types";
-import { useDecisionCardEnv } from "../tool-permission/decision-card-env";
+import {
+  useDecisionCardEnv,
+  useHasDecisionCardEnv,
+} from "../tool-permission/decision-card-env";
+import { isTimeoutFailure } from "../tool-permission/use-tool-permission-decision";
 import { useSubmitAnswer } from "./use-submit-answer";
 
 // 触屏命中区 ≥ 44px。
@@ -55,7 +59,13 @@ type Selection = { labels: string[]; otherText: string };
 type UserAskDraftState = { activeQIdx: number; selections: Selection[] };
 // 卡内的一条错误。qIdx 有值时它属于那一题(漏答),只在那一题下显示;detail 是
 // 提交失败的机器原话,只进折叠的详情。
-type CardError = { message: string; qIdx?: number; detail?: string };
+type CardError = {
+  message: string;
+  qIdx?: number;
+  detail?: string;
+  /** 提交失败、可以原样再来一次(宿主级反馈下给「重试」)。 */
+  retryable?: boolean;
+};
 
 function readUserAsk(toolBlock: unknown): UserAskDTO | undefined {
   const c = (toolBlock as { canonical?: CanonicalDTO }).canonical;
@@ -96,6 +106,10 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
   const env = useDecisionCardEnv();
   const touch = touchProp ?? env.touch;
   const connecting = connectingProp ?? env.connecting;
+  // 宿主级反馈(点下的那颗单独转圈、失败「重试」、超时「没收到确认」):宿主传了
+  // connecting 或包了 DecisionCardEnvProvider 才打开。都没有:保持桌面原样。
+  const hasEnv = useHasDecisionCardEnv();
+  const managed = connectingProp !== undefined || hasEnv;
   const submitAnswer = useSubmitAnswer();
   const payload = readUserAsk(toolBlock);
   const draftKey =
@@ -116,6 +130,9 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
     return saved?.selections ?? initialSelections(payload);
   });
   const [submitting, setSubmitting] = React.useState(false);
+  // 正在提交的是「跳过」还是「提交」;上一次的动作给「重试」重放。
+  const [pendingSkip, setPendingSkip] = React.useState<boolean | null>(null);
+  const lastSkipRef = React.useRef(false);
   // 提交时运行时答复「提问已不存在」——只有这种失败锁卡。
   const [expiredOnSubmit, setExpiredOnSubmit] = React.useState(false);
   const [error, setError] = React.useState<CardError | null>(null);
@@ -134,6 +151,10 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
   const isSkipped = !!payload?.skipped;
   const isExpired = !!payload?.expired || expiredOnSubmit;
   const isLocked = isAnswered || isSkipped || isExpired || submitting;
+  // 宿主级反馈下提交中脚部不收起:点下的那颗按钮单独转圈。
+  const showFooter = managed
+    ? !(isAnswered || isSkipped || isExpired)
+    : !isLocked;
 
   React.useEffect(() => {
     if (isAnswered || isSkipped) {
@@ -205,6 +226,8 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
           }
         }
       }
+      lastSkipRef.current = skipped;
+      setPendingSkip(skipped);
       setSubmitting(true);
       try {
         const answers: AskAnswerDTO[] = skipped
@@ -227,14 +250,22 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
         if (isAskExpiredError(err)) {
           setExpiredOnSubmit(true);
           setError({ message: t("canonical.userAsk.errors.expired") });
+        } else if (managed && isTimeoutFailure(err)) {
+          // 超时:没收到确认,回答可能已经生效——不说「没成功」。
+          setError({
+            message: t("canonical.userAsk.errors.timedOut"),
+            retryable: true,
+          });
         } else {
           // 其余失败可重试:不锁卡,选择原样留着。
           setError({
             message: t("canonical.userAsk.errors.submitFailed"),
             detail: failureDetailText(err),
+            retryable: managed,
           });
         }
       } finally {
+        setPendingSkip(null);
         setSubmitting(false);
       }
     },
@@ -245,6 +276,7 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
       isLocked,
       submitAnswer,
       t,
+      managed,
       setCollapsed,
       tabStateKey,
       draftKey,
@@ -329,6 +361,8 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
                   />
                 )}
                 {error &&
+                  // 连接断了时上一次的提交失败已经过时:只留「正在连接」一条。
+                  !(managed && connecting && error.retryable) &&
                   (error.qIdx === undefined || error.qIdx === activeQIdx) && (
                     <div
                       role="alert"
@@ -336,11 +370,23 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
                     >
                       <p>{error.message}</p>
                       <FailureDetail detail={error.detail} />
+                      {managed && error.retryable ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className={cn("self-start", touch && TOUCH_TARGET)}
+                          disabled={submitting}
+                          onClick={() => void handleSubmit(lastSkipRef.current)}
+                        >
+                          {t("common.retry")}
+                        </Button>
+                      ) : null}
                     </div>
                   )}
               </TranscriptCardBody>
 
-              {!isLocked && connecting && (
+              {showFooter && connecting && (
                 <p
                   data-testid="user-ask-connecting"
                   className="flex items-center gap-2 px-3.5 pt-2.5 text-aux text-muted-foreground"
@@ -349,7 +395,7 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
                   {t("canonical.userAsk.connecting")}
                 </p>
               )}
-              {!isLocked && (
+              {showFooter && (
                 <div className="flex items-center gap-2 px-3.5 py-2.5">
                   <div className="flex-1" />
                   <Button
@@ -360,6 +406,9 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
                     disabled={submitting || connecting}
                     onClick={() => void handleSubmit(true)}
                   >
+                    {managed && pendingSkip === true ? (
+                      <Spinner className="size-4" />
+                    ) : null}
                     {t("common.skip")}
                   </Button>
                   <Button
@@ -369,6 +418,9 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
                     onClick={() => void handleSubmit(false)}
                     className={cn("gap-1.5", touch && TOUCH_TARGET)}
                   >
+                    {managed && pendingSkip === false ? (
+                      <Spinner className="size-4" />
+                    ) : null}
                     {t("canonical.userAsk.submit")}
                     {touch ? null : <CornerDownLeft className="h-3 w-3" />}
                   </Button>

@@ -115,7 +115,10 @@ export function TaskFormShell({
     <p
       data-testid="task-form-error"
       role="alert"
-      className="flex items-center gap-2 rounded-md bg-destructive-soft px-2.5 py-1.5 text-2xs text-destructive-text"
+      className={cn(
+        "rounded-md bg-destructive-soft px-2.5 py-1.5 text-2xs text-destructive-text",
+        timeoutNotice && "flex items-center gap-2",
+      )}
     >
       {timeoutNotice ? (
         <>

@@ -580,8 +580,22 @@ describe("F5 提交超时：可能已经建好了", () => {
       onSave: vi.fn().mockRejectedValue(timeout()),
     });
     await user.click(screen.getByTestId("task-form-submit"));
-    expect(await screen.findByTestId("task-form-error")).toHaveTextContent(
-      "request timed out after 15000ms",
+    const error = await screen.findByTestId("task-form-error");
+    expect(error).toHaveTextContent("request timed out after 15000ms");
+    // 错误块的版式也与从前一致：不是一行 flex。
+    expect(error).not.toHaveClass("flex");
+  });
+
+  it("给了 onTimeoutRefresh 但不是超时：错误块版式与从前一致", async () => {
+    const user = userEvent.setup();
+    renderForm({
+      initial: titled,
+      onSave: vi.fn().mockRejectedValue(new Error("没存上")),
+      onTimeoutRefresh: vi.fn(),
+    });
+    await user.click(screen.getByTestId("task-form-submit"));
+    expect(await screen.findByTestId("task-form-error")).not.toHaveClass(
+      "flex",
     );
   });
 });

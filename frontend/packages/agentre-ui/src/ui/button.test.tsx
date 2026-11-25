@@ -1,4 +1,6 @@
 import { render, screen } from "@testing-library/react";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { Button } from "./button";
@@ -78,5 +80,47 @@ describe("Button · 触屏按下态", () => {
     expect(screen.getByRole("button", { name: "取消" })).not.toHaveAttribute(
       "touch",
     );
+  });
+});
+
+describe("Button · 触屏按下态真的更深（I2）", () => {
+  // 实底按钮按下不能用「同色降不透明度」：bg-primary 本身不透明，/80 叠在浅色底上
+  // 反而更浅。要换到一个比静止色更深的 token。
+  it("主按钮与危险按钮按下换到 *-pressed token，而不是降不透明度", () => {
+    for (const [variant, token] of [
+      ["default", "active:bg-primary-pressed"],
+      ["destructive", "active:bg-destructive-pressed"],
+    ] as const) {
+      const { unmount } = render(
+        <Button variant={variant} touch>
+          {variant}
+        </Button>,
+      );
+      const classes = Array.from(
+        screen.getByRole("button", { name: variant }).classList,
+      );
+      expect(classes, variant).toContain(token);
+      expect(
+        classes.filter((c) => /^active:bg-(primary|destructive)\/\d+$/.test(c)),
+        variant,
+      ).toEqual([]);
+      unmount();
+    }
+  });
+
+  it("*-pressed token 在 tokens.css 里朝黑色混深，跟着两套主题走", () => {
+    // 包内跑与在 frontend/ 下跑，工作目录不同。
+    const path = [
+      resolve(process.cwd(), "packages/agentre-ui/styles/tokens.css"),
+      resolve(process.cwd(), "styles/tokens.css"),
+    ].find((p) => existsSync(p));
+    const css = readFileSync(path!, "utf8");
+    for (const name of ["primary", "destructive"]) {
+      expect(css).toMatch(
+        new RegExp(
+          `--color-${name}-pressed:\\s*color-mix\\(\\s*in oklab,\\s*var\\(--${name}\\)\\s*\\d+%,\\s*black\\s*\\)`,
+        ),
+      );
+    }
   });
 });

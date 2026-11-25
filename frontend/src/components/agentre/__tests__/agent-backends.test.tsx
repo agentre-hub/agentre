@@ -3813,7 +3813,7 @@ describe("AgentBackendsPanel result feedback", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("Given the backend list cannot be read, When the panel loads, Then an in-place notice with Retry shows localized prose and the raw error is not rendered", async () => {
+  it("Given the backend list cannot be read, When the panel loads, Then the banner says it didn't load and keeps the raw error in Details", async () => {
     installAppMock({
       ListAgentBackends: vi.fn(() =>
         Promise.reject(new Error("database is locked")),
@@ -3821,12 +3821,13 @@ describe("AgentBackendsPanel result feedback", () => {
     });
     render(<AgentBackendsPanel />);
 
-    const notice = await screen.findByTestId("backend-load-failure");
+    const banner = await screen.findByRole("status");
     expect(
-      within(notice).getByText("Agent backends didn't load"),
+      within(banner).getByText("Agent backends didn't load"),
     ).toBeInTheDocument();
-    expect(within(notice).getByRole("button", { name: "Retry" })).toBeVisible();
-    expect(screen.queryByText("database is locked")).toBeNull();
+    expect(
+      within(banner).getByText("database is locked").closest("details"),
+    ).not.toBeNull();
   });
 
   it("Given a scan that throws, When it settles, Then the banner says the scan didn't finish and keeps the raw error in Details", async () => {

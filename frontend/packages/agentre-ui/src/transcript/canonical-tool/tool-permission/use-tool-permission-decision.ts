@@ -23,7 +23,7 @@ export function isPendingToolPermission(toolBlock: unknown): boolean {
 }
 
 // 失败是不是请求超时:超时说明没收到确认,决定可能已经生效,文案要和「没成功」区分。
-function isTimeoutFailure(err: unknown): boolean {
+export function isTimeoutFailure(err: unknown): boolean {
   if (err instanceof Error && /timeout/i.test(err.name)) return true;
   return /timed?[ -]?out/i.test(failureDetailText(err));
 }

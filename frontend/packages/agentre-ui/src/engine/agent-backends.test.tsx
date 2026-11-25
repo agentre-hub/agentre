@@ -44,7 +44,11 @@ describe("AgentBackendsPanel 读失败（W9）", () => {
   it("清单读失败：不出空态与「添加第一个」，原位说明 + 重试，重试后出清单", async () => {
     const user = userEvent.setup();
     const listBackends = failThenOk();
-    render(<AgentBackendsPanel ports={ports(listBackends)} />);
+    render(
+      <TouchProvider>
+        <AgentBackendsPanel ports={ports(listBackends)} />
+      </TouchProvider>,
+    );
 
     const notice = await screen.findByTestId("backend-load-failure");
     expect(notice).toHaveTextContent("Agent backends didn't load");
@@ -68,16 +72,21 @@ describe("AgentBackendsPanel 读失败（W9）", () => {
     expect(screen.queryByTestId("backend-load-failure")).toBeNull();
   });
 
-  it("触屏：重试 44px；桌面是紧凑按钮", async () => {
+  it("触屏：重试 44px；桌面（不传触屏）保持原样：空态 + 条幅带原文详情", async () => {
     const { unmount } = render(
       <AgentBackendsPanel ports={ports(failThenOk())} />,
     );
+    const banner = await screen.findByRole("status");
     expect(
-      within(await screen.findByTestId("backend-load-failure")).getByRole(
-        "button",
-        { name: "Retry" },
-      ),
-    ).not.toHaveClass("min-h-11");
+      within(banner).getByText("Agent backends didn't load"),
+    ).toBeInTheDocument();
+    expect(
+      within(banner)
+        .getByText("request timed out after 15000ms")
+        .closest("details"),
+    ).not.toBeNull();
+    expect(screen.getByText("No agent backends yet")).toBeInTheDocument();
+    expect(screen.queryByTestId("backend-load-failure")).toBeNull();
     unmount();
     render(
       <TouchProvider>

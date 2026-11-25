@@ -10,10 +10,12 @@ export type DecisionCardEnv = {
 // 决策类卡片(提问卡)的宿主环境。和 ShortcutHintsProvider 同理单独一个上下文:
 // 决策面板这类宿主经 CanonicalToolRouter 画卡,不在转录渲染上下文里,也要能
 // 把触屏与连接状态交给卡片。卡片的显式入参优先于这里。
-const DecisionCardEnvContext = React.createContext<DecisionCardEnv>({
-  touch: false,
-  connecting: false,
-});
+const DEFAULT_ENV: DecisionCardEnv = { touch: false, connecting: false };
+
+// null = 没有宿主包这层 Provider:卡片保持桌面原样(没有转圈 / 重试 / 超时文案)。
+const DecisionCardEnvContext = React.createContext<DecisionCardEnv | null>(
+  null,
+);
 
 export type DecisionCardEnvProviderProps = Partial<DecisionCardEnv> & {
   children: React.ReactNode;
@@ -25,7 +27,7 @@ export function DecisionCardEnvProvider({
   connecting,
   children,
 }: DecisionCardEnvProviderProps) {
-  const inherited = React.useContext(DecisionCardEnvContext);
+  const inherited = React.useContext(DecisionCardEnvContext) ?? DEFAULT_ENV;
   const value = React.useMemo(
     () => ({
       touch: touch ?? inherited.touch,
@@ -41,5 +43,10 @@ export function DecisionCardEnvProvider({
 }
 
 export function useDecisionCardEnv(): DecisionCardEnv {
-  return React.useContext(DecisionCardEnvContext);
+  return React.useContext(DecisionCardEnvContext) ?? DEFAULT_ENV;
+}
+
+/** 宿主是否包了 DecisionCardEnvProvider —— 包了就打开宿主级的提交反馈。 */
+export function useHasDecisionCardEnv(): boolean {
+  return React.useContext(DecisionCardEnvContext) !== null;
 }

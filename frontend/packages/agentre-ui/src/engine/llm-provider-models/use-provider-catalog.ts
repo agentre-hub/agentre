@@ -10,6 +10,7 @@ import type { FlashState } from "../agent-backends-shared";
 
 import { type Model, type Provider, type ReferenceCounts } from ".";
 import { messageFromError } from "../agent-backends-utils";
+import { useTouch } from "../../ui/touch";
 
 export type ProviderCatalogBridge = Pick<
   EngineSettingsBridge,
@@ -46,6 +47,12 @@ export function useProviderCatalog(args: {
   const providersRef = React.useRef(providers);
   React.useEffect(() => {
     providersRef.current = providers;
+  });
+  // 读失败的新呈现（原位说明、条幅不带原文）只在触屏档；桌面保持空态 + 带原文的条幅。
+  const touch = useTouch();
+  const touchRef = React.useRef(touch);
+  React.useEffect(() => {
+    touchRef.current = touch;
   });
   const controlled = args.controlled;
   const controlledRef = React.useRef(controlled);
@@ -85,11 +92,18 @@ export function useProviderCatalog(args: {
             ? items[0].id
             : null,
       );
-    } catch {
+    } catch (err) {
       setProvidersLoadFailed(true);
-      // 清单是空的就只靠面板里的原位说明；还有旧清单时才补一条条幅。两处都只说本地化
-      // 的人话，不把「request timed out after …」之类的原文贴给用户。
-      if (providersRef.current.length > 0) {
+      if (!touchRef.current) {
+        setFlash({
+          kind: "err",
+          text: t("llmProviders.flash.loadFailed", {
+            message: messageFromError(err, t),
+          }),
+        });
+      } else if (providersRef.current.length > 0) {
+        // 清单是空的就只靠面板里的原位说明；还有旧清单时才补一条条幅。两处都只说本地化
+        // 的人话，不把「request timed out after …」之类的原文贴给用户。
         setFlash({
           kind: "err",
           text: t("llmProviders.loadFailed.title"),
@@ -122,9 +136,18 @@ export function useProviderCatalog(args: {
         if (!reportVanishedSelection(controlledRef.current, items)) {
           setInnerSelectedId(items.length > 0 ? items[0].id : null);
         }
-      } catch {
-        // 首次读取时清单必为空：只靠面板里的原位说明，不再贴原文条幅。
-        if (mounted) setProvidersLoadFailed(true);
+      } catch (err) {
+        if (!mounted) return;
+        setProvidersLoadFailed(true);
+        // 触屏档首次读取时清单必为空：只靠面板里的原位说明。桌面照旧贴原文条幅。
+        if (!touchRef.current) {
+          setFlash({
+            kind: "err",
+            text: t("llmProviders.flash.loadFailed", {
+              message: messageFromError(err, t),
+            }),
+          });
+        }
       } finally {
         if (mounted) setProvidersLoading(false);
       }
@@ -231,7 +254,8 @@ export function useProviderCatalog(args: {
   return {
     providers,
     providersLoading,
-    providersLoadFailed,
+    // 只有触屏档按「读失败」画原位说明；桌面照旧画空态。
+    providersLoadFailed: touch && providersLoadFailed,
     selectedId,
     setSelectedId,
     selectedProvider,

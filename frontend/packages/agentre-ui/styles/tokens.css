@@ -595,6 +595,15 @@
     transparent
   );
   --color-fill-muted-foreground: var(--fill-muted-foreground);
+  /* 触屏实底按钮的按下态：比静止色朝黑色深一档。不能用 bg-primary/80 这种降不透明度
+     的写法——底色本身不透明，降透明反而在浅色表面上更浅。写在 @theme inline 里，
+     var(--primary) 跟着元素所在的主题解析，两套主题共用一份。 */
+  --color-primary-pressed: color-mix(in oklab, var(--primary) 85%, black);
+  --color-destructive-pressed: color-mix(
+    in oklab,
+    var(--destructive) 85%,
+    black
+  );
   --color-agent-1: var(--agent-1);
   --color-agent-2: var(--agent-2);
   --color-agent-3: var(--agent-3);

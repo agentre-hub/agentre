@@ -52,6 +52,7 @@
     "flash": {
       "created": "已新增供应商 \"{{name}}\"",
       "deleted": "已删除供应商 \"{{name}}\"",
+      "loadFailed": "加载失败：{{message}}",
       "testFailed": "测试失败：{{message}}",
       "updated": "已更新供应商 \"{{name}}\"",
       "defaultSet": "已将 {{model}} 设为默认模型",

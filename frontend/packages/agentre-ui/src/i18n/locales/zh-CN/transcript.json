@@ -207,7 +207,8 @@
         "optionRequired": "请先选择一个选项再提交",
         "otherRequired": "已选「自定义答案」请填写内容",
         "expired": "提问已失效：会话已结束或已被新消息跳过",
-        "submitFailed": "没提交成功"
+        "submitFailed": "没提交成功",
+        "timedOut": "没收到确认，可能已经生效"
       },
       "multi": "多选",
       "otherPlaceholder": "自定义答案 — 输入你自己的方案…",

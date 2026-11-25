@@ -20,6 +20,7 @@ import {
 import { Input } from "../ui/input";
 import { StatusMark } from "../ui/status-mark";
 import { cn } from "../lib/utils";
+import { useTouch } from "../ui/touch";
 
 import {
   accountDeviceOptions,
@@ -208,6 +209,13 @@ function AgentBackendsPanelBody({
   const backendsRef = React.useRef(backends);
   React.useEffect(() => {
     backendsRef.current = backends;
+  });
+  // 读失败的新呈现（原位说明 + 重试、条幅不带原文）只在触屏档；桌面保持空态 + 带原文
+  // 详情的条幅。回调里读 ref，免得切档位把首屏再拉一次。
+  const touch = useTouch();
+  const touchRef = React.useRef(touch);
+  React.useEffect(() => {
+    touchRef.current = touch;
   });
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -418,10 +426,12 @@ function AgentBackendsPanelBody({
         setBackends(b?.items ?? []);
         setProviders(p?.items ?? []);
         setLoadFailed(false);
-      } catch {
+      } catch (err) {
         setLoadFailed(true);
-        // 清单为空时只靠原位说明；还有旧清单时补一条条幅，且只说人话、不带原文详情。
-        if (backendsRef.current.length > 0) {
+        if (!touchRef.current) {
+          setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
+        } else if (backendsRef.current.length > 0) {
+          // 清单为空时只靠原位说明；还有旧清单时补一条条幅，且只说人话、不带原文详情。
           setFlash({ text: t("agentBackends.flash.loadFailed") });
         }
       } finally {
@@ -440,10 +450,13 @@ function AgentBackendsPanelBody({
         setProviders(p?.items ?? []);
         setLoadFailed(false);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!mounted) return;
-        // 首次读取时清单必为空：只靠原位说明。
         setLoadFailed(true);
+        // 触屏档首次读取时清单必为空：只靠原位说明。桌面照旧贴带原文详情的条幅。
+        if (!touchRef.current) {
+          setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
+        }
       })
       .finally(() => {
         if (!mounted) return;
@@ -454,6 +467,7 @@ function AgentBackendsPanelBody({
     };
     // reload is for explicit refreshes only; initial load runs directly.
     // `t` 只在兜底文案里用到，切语言不该把首屏再拉一次。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ListAgentBackends, ListLLMProviders]);
 
   const lastRefreshSignalRef = React.useRef(refreshSignal);
@@ -666,7 +680,7 @@ function AgentBackendsPanelBody({
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               {t("common.loading")}
             </div>
-          ) : visibleBackends.length === 0 && loadFailed ? (
+          ) : visibleBackends.length === 0 && loadFailed && touch ? (
             <LoadFailureNotice
               testId="backend-load-failure"
               title={t("agentBackends.loadFailed.title")}

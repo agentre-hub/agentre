@@ -33,6 +33,8 @@ import { Check, Loader2, X } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { Button } from "./button";
+import { OpenerKeeper, focusOpenerOnClose } from "./dialog";
+import { useTouch } from "./touch";
 import { cn } from "../lib/utils";
 
 export type DialogShellSize = "sm" | "md" | "lg";
@@ -64,6 +66,11 @@ export interface DialogShellProps {
    * `type="submit"` 按钮因此能提交。外壳不替调用点决定这件事。
    */
   onSubmit?: React.FormEventHandler<HTMLFormElement>;
+  /**
+   * 触屏档：点按钮不会让它拿焦点时（iOS Safari），关闭后把焦点还给最近按下的控件
+   * （与 DialogContent 同一份兜底）。不传则跟随最近的 TouchProvider；桌面不开。
+   */
+  touch?: boolean;
   children: React.ReactNode;
 }
 
@@ -76,8 +83,11 @@ export function DialogShell({
   danger = false,
   className,
   onSubmit,
+  touch,
   children,
 }: DialogShellProps) {
+  const isTouch = useTouch(touch);
+  const openerRef = React.useRef<HTMLElement | null>(null);
   const blockWhileBusy = React.useCallback(
     (event: { preventDefault: () => void }) => {
       if (busy) event.preventDefault();
@@ -93,6 +103,7 @@ export function DialogShell({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
+        {isTouch ? <OpenerKeeper openerRef={openerRef} /> : null}
         <DialogPrimitive.Overlay
           data-slot="dialog-shell-overlay"
           className="fixed inset-0 z-50 bg-scrim backdrop-blur-[3px] backdrop-saturate-150 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0 motion-safe:data-[state=open]:fade-in-0"
@@ -103,6 +114,11 @@ export function DialogShell({
           onEscapeKeyDown={blockWhileBusy}
           onPointerDownOutside={blockOutsideWhileBusyOrDirty}
           onInteractOutside={blockOutsideWhileBusyOrDirty}
+          onCloseAutoFocus={
+            isTouch
+              ? (event) => focusOpenerOnClose(event, openerRef)
+              : undefined
+          }
           className={cn(
             "fixed z-50 flex flex-col overflow-hidden bg-card text-card-foreground shadow-overlay outline-none",
             // 窄屏（基础）：贴底、满宽、上圆角、从下滑入。

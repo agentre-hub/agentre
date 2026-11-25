@@ -233,7 +233,11 @@ describe("W9 供应商清单读失败", () => {
   it("Given the list fails to load, When it renders, Then no empty state invites a duplicate; an in-place notice with Retry shows, and Retry loads the list", async () => {
     const user = userEvent.setup();
     const ports = failing();
-    renderWithTranslations(<LlmProvidersPanel ports={ports} />);
+    renderWithTranslations(
+      <TouchProvider>
+        <LlmProvidersPanel ports={ports} />
+      </TouchProvider>,
+    );
 
     const notice = await screen.findByTestId("provider-load-failure");
     expect(notice).toHaveTextContent("LLM providers didn't load");
@@ -262,16 +266,15 @@ describe("W9 供应商清单读失败", () => {
     expect(screen.queryByTestId("provider-load-failure")).toBeNull();
   });
 
-  it("Given the touch tier, When the notice renders, Then Retry is a 44px target; desktop keeps the compact one", async () => {
+  it("Given the touch tier, When the notice renders, Then Retry is a 44px target; desktop (no touch) keeps the empty state and the raw-error flash", async () => {
     const { unmount } = renderWithTranslations(
       <LlmProvidersPanel ports={failing()} />,
     );
-    expect(
-      within(await screen.findByTestId("provider-load-failure")).getByRole(
-        "button",
-        { name: "Retry" },
-      ),
-    ).not.toHaveClass("min-h-11");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Load failed: request timed out after 15000ms",
+    );
+    expect(screen.getByText("No LLM providers configured")).toBeInTheDocument();
+    expect(screen.queryByTestId("provider-load-failure")).toBeNull();
     unmount();
     renderWithTranslations(
       <TouchProvider>

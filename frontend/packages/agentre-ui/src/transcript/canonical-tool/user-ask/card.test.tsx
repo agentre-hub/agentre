@@ -910,3 +910,107 @@ describe("UserAskCard via CanonicalToolRouter and DecisionCardEnvProvider", () =
     expect(screen.getByText("user_ask")).toBeDefined();
   });
 });
+
+describe("UserAskCard feedback when the host opts in (F1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetChatPanelScrollStateForTesting();
+  });
+
+  function block(): TranscriptBlock {
+    return {
+      type: "tool_use",
+      toolName: "AskUserQuestion",
+      canonical: {
+        kind: "user.ask",
+        userAsk: {
+          requestId: "req-f1",
+          questions: [
+            {
+              question: "Which way?",
+              header: "Way",
+              options: [{ label: "A", description: "" }],
+            },
+          ],
+        },
+      },
+    } as unknown as TranscriptBlock;
+  }
+
+  const timeout = () => {
+    const err = new Error("request timed out after 30000ms");
+    err.name = "RequestTimeoutError";
+    return err;
+  };
+
+  it("Given the host opted in, When Skip is pending, Then the footer stays and only Skip spins", () => {
+    answerUserQuestion.mockImplementationOnce(() => new Promise(() => {}));
+    renderCard(
+      <DecisionCardEnvProvider touch>
+        <UserAskCard toolBlock={block()} sessionId={1} />
+      </DecisionCardEnvProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    const skip = screen.getByRole("button", { name: /Skip/ });
+    expect(skip.querySelector('[role="status"]')).not.toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: /Submit Reply/ })
+        .querySelector('[role="status"]'),
+    ).toBeNull();
+  });
+
+  it("Given the host opted in, When the answer times out, Then it says no confirmation arrived and it may already have taken effect", async () => {
+    answerUserQuestion.mockRejectedValueOnce(timeout());
+    renderCard(
+      <UserAskCard toolBlock={block()} sessionId={1} connecting={false} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "No confirmation received. It may already have taken effect",
+    );
+    expect(alert.textContent).not.toMatch(/timed out after/);
+  });
+
+  it("Given the host opted in, When a submit fails, Then the reason shows with a Retry that repeats the same action", async () => {
+    answerUserQuestion.mockRejectedValueOnce(new Error("relay closed"));
+    renderCard(
+      <UserAskCard toolBlock={block()} sessionId={1} connecting={false} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't submit");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(answerUserQuestion).toHaveBeenCalledTimes(2));
+    expect(answerUserQuestion).toHaveBeenLastCalledWith(
+      expect.objectContaining({ requestId: "req-f1", skipped: true }),
+    );
+  });
+
+  it("Given a failure, When the connection drops, Then the stale failure and Retry give way to the connecting line", async () => {
+    answerUserQuestion.mockRejectedValueOnce(new Error("relay closed"));
+    const { rerender } = renderCard(
+      <UserAskCard toolBlock={block()} sessionId={1} connecting={false} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await screen.findByRole("alert");
+    rerender(
+      <TranscriptPortsProvider ports={ports}>
+        <UserAskCard toolBlock={block()} sessionId={1} connecting />
+      </TranscriptPortsProvider>,
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getByTestId("user-ask-connecting")).toBeDefined();
+  });
+
+  it("Given no props and no provider, When the answer times out, Then the desktop copy is unchanged and there is no Retry", async () => {
+    answerUserQuestion.mockRejectedValueOnce(timeout());
+    renderCard(<UserAskCard toolBlock={block()} sessionId={1} />);
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't submit");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+});
