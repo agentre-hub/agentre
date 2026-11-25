@@ -66,7 +66,12 @@ describe("IdentityFields", () => {
           kind="project"
           name="Atlas"
           description="Maps"
-          mark={{ iconKey: "", color: "agent-1", onPickIcon: vi.fn(), onPickColor: vi.fn() }}
+          mark={{
+            iconKey: "",
+            color: "agent-1",
+            onPickIcon: vi.fn(),
+            onPickColor: vi.fn(),
+          }}
           onNameChange={vi.fn()}
           onDescriptionChange={vi.fn()}
           testIdPrefix="identity"

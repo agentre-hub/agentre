@@ -54,7 +54,9 @@ describe("OrgExecTargetRow touch", () => {
 
   it("类型名与后端名相同：触屏只写一次，桌面不变；不同名两处都在", () => {
     renderRow(true);
-    expect(screen.getByText("Claude Code", { selector: "span.font-mono" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Claude Code", { selector: "span.font-mono" }),
+    ).toBeInTheDocument();
     cleanup();
     renderRow();
     expect(screen.getByText("Claude Code · Claude Code")).toBeInTheDocument();

@@ -454,7 +454,6 @@ function AgentBackendsPanelBody({
     };
     // reload is for explicit refreshes only; initial load runs directly.
     // `t` 只在兜底文案里用到，切语言不该把首屏再拉一次。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ListAgentBackends, ListLLMProviders]);
 
   const lastRefreshSignalRef = React.useRef(refreshSignal);
