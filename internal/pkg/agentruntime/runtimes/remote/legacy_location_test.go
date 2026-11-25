@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,8 +12,10 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 )
 
 // spec 2026-11-24-chat-right-toolwindows「识别信号 > 远端会话」:执行设备上的 agentred 较旧、
@@ -90,6 +93,121 @@ func TestLegacyAgentred_ClaudeWorktreeResultsCarryTheLocation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(results["x1"].Meta, &meta))
 	assert.Equal(t, "/w/.claude/worktrees/x", meta[agentruntime.RevokeRootMetaKey], "ExitWorktree remove revokes the root")
 	assert.Equal(t, "/w/.claude/worktrees/z", results["e3"].Cwd)
+}
+
+// durableTool 是一次外层工具调用连同它的结果,照落库的 tool_use / tool_result 块形状。
+type durableTool struct{ id, name, input, result string }
+
+// durableToolFrames 把若干次工具调用按旧 agentred 落库的块形状放进一条 assistant 消息,
+// 经 transcript.ProjectMessages 投影成它交来的持久帧(结果帧没有 Meta)。
+func durableToolFrames(t *testing.T, tools ...durableTool) []agentruntime.Event {
+	t.Helper()
+	var blocks []string
+	for _, tool := range tools {
+		text, err := json.Marshal(tool.result)
+		require.NoError(t, err)
+		blocks = append(blocks,
+			`{"type":"tool_use","data":{"id":"`+tool.id+`","name":"`+tool.name+`","input":`+tool.input+`}}`,
+			`{"type":"tool_result","data":{"tool_use_id":"`+tool.id+`","content":[{"type":"text","data":{"text":`+string(text)+`}}]}}`)
+	}
+	msg := &transcript_entity.Message{ID: 20, Role: "assistant", BlocksJSON: "[" + strings.Join(blocks, ",") + "]"}
+	frames, _, err := transcript.ProjectMessages(convOf(42), []*transcript_entity.Message{msg})
+	require.NoError(t, err)
+	var evs []agentruntime.Event
+	for _, f := range frames {
+		evs = append(evs, f.Event)
+	}
+	return evs
+}
+
+// 旧 agentred 交给桌面端进事件流的是**持久帧**:它把这一轮累积成块落库,再经
+// transcript.ProjectMessages 投影成帧(实时那一份只是预览帧,不进事件流)。tool_result 块
+// 只存 {tool_use_id, content, is_error},Claude Code 的结果元数据在落库时就没了 —— 这里
+// 照 V35 那次真实会话落下的两块原样投影,所以结果帧上没有 Meta,只有结果正文。
+func TestLegacyAgentred_ClaudeEnterWorktreeFromDurableFrameText(t *testing.T) {
+	const wt = "/w/.claude/worktrees/feat-o"
+	project := func(content string) []agentruntime.Event {
+		t.Helper()
+		return durableToolFrames(t, durableTool{id: "e1", name: "EnterWorktree", input: `{"name":"feat-o"}`, result: content})
+	}
+	created := project("Created worktree at \u201c" + wt + "\u201d on branch \u201cworktree-feat-o\u201d. The session is now working in the worktree. Use ExitWorktree to leave mid-session, or exit the session to be prompted.")
+	_, results := callsAndResults(created)
+	require.Contains(t, results, "e1")
+	require.Empty(t, results["e1"].Meta, "precondition: the durable frame carries no result metadata")
+
+	_, results = callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, created...))
+	assert.Equal(t, wt, results["e1"].Cwd, "the worktree path in the result text is where the AI now is")
+
+	resumed := project("Resumed worktree at \u201c" + wt + "\u201d on branch \u201cworktree-feat-o\u201d. A worktree with this name already existed and was resumed as-is. The session is now working in the worktree.")
+	_, results = callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, resumed...))
+	assert.Equal(t, wt, results["e1"].Cwd)
+
+	// 路径里有打印不出的字符时,CLI 写的是改过的拼写并注明 —— 那不是真实路径,不报。
+	respelled := project("Created worktree at \u201c/w/x'y\u201d (not its exact spelling) on branch \u201cb\u201d. The session is now working in the worktree.")
+	_, results = callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, respelled...))
+	assert.Empty(t, results["e1"].Cwd)
+
+	// 文字对不上已知形状(别的版本、被截断)时不猜。
+	other := project("Switched to worktree " + wt)
+	_, results = callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, other...))
+	assert.Empty(t, results["e1"].Cwd)
+}
+
+// ExitWorktree 经旧 agentred 的持久帧到达时同样没有 Meta;入参(落库的 tool_use 块)在。
+// 形状照 V35 那次真实会话落下的块:入参 {"action":"remove","discard_changes":true},
+// 正文「Exited and removed worktree at “…”. … Session is now back in “…”.」。退出后回到
+// 进入 worktree 之前所在的目录(没有记录时回到这一轮的工作目录);action=remove 时撤销
+// 进入的那个 worktree 根。
+func TestLegacyAgentred_ClaudeExitWorktreeFromDurableFrame(t *testing.T) {
+	const wt = "/w/.claude/worktrees/feat-o"
+	enter := durableTool{id: "e1", name: "EnterWorktree", input: `{"name":"feat-o"}`,
+		result: "Created worktree at \u201c" + wt + "\u201d on branch \u201cworktree-feat-o\u201d. The session is now working in the worktree."}
+	revokeOf := func(r agentruntime.ToolResult) any {
+		if len(r.Meta) == 0 {
+			return nil
+		}
+		var meta map[string]any
+		require.NoError(t, json.Unmarshal(r.Meta, &meta))
+		return meta[agentruntime.RevokeRootMetaKey]
+	}
+
+	t.Run("keep returns to where the AI was and keeps the root", func(t *testing.T) {
+		evs := durableToolFrames(t, enter, durableTool{id: "x1", name: "ExitWorktree", input: `{"action":"keep"}`,
+			result: "Exited worktree. Your work is preserved at \u201c" + wt + "\u201d on branch \u201cworktree-feat-o\u201d. Session is now back in \u201c/w\u201d."})
+		_, results := callsAndResults(evs)
+		require.Empty(t, results["x1"].Meta, "precondition: the durable frame carries no result metadata")
+		_, results = callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, evs...))
+		assert.Equal(t, "/w", results["x1"].Cwd)
+		assert.Nil(t, revokeOf(results["x1"]), "keep does not revoke")
+	})
+
+	t.Run("remove returns and revokes the entered worktree", func(t *testing.T) {
+		evs := durableToolFrames(t, enter, durableTool{id: "x1", name: "ExitWorktree", input: `{"action":"remove","discard_changes":true}`,
+			result: "Exited and removed worktree at \u201c" + wt + "\u201d. Discarded 1 uncommitted file. Session is now back in \u201c/w\u201d."})
+		_, results := callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, evs...))
+		assert.Equal(t, "/w", results["x1"].Cwd)
+		assert.Equal(t, wt, revokeOf(results["x1"]))
+	})
+
+	t.Run("without a remembered entry the exit falls back to the run directory", func(t *testing.T) {
+		evs := durableToolFrames(t, durableTool{id: "x1", name: "ExitWorktree", input: `{"action":"keep"}`, result: "Exited worktree."})
+		_, results := callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, evs...))
+		assert.Equal(t, "/w", results["x1"].Cwd)
+		assert.Nil(t, revokeOf(results["x1"]))
+	})
+
+	t.Run("a failed exit does not move the AI", func(t *testing.T) {
+		evs := durableToolFrames(t, enter, durableTool{id: "x1", name: "ExitWorktree", input: `{"action":"remove"}`, result: "Worktree not removed; the session is still in it."})
+		for i, ev := range evs {
+			if r, ok := ev.(agentruntime.ToolResult); ok && r.ToolCallID == "x1" {
+				r.IsError = true
+				evs[i] = r
+			}
+		}
+		_, results := callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, evs...))
+		assert.Empty(t, results["x1"].Cwd)
+		assert.Nil(t, revokeOf(results["x1"]))
+	})
 }
 
 func TestLegacyAgentred_CodexCommandCwdIsTheLocation(t *testing.T) {
