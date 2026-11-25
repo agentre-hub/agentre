@@ -160,6 +160,11 @@ function whitelistUrl(url: string, key: string): string {
 // 浏览器渲染成 <p node="[object Object]"> 这种垃圾属性。
 //
 // `a` 不在这里定义——它需要 cwd 上下文，所以在 MarkdownText 的 useMemo 里动态构建。
+// 表格单元格在窄屏下换行:长路径 / 行内代码可在任意处断开,整表不超出容器宽度。
+// overflow-wrap:anywhere 会降低最小内容宽度,表格自动布局因此能收窄;宽屏下内容放得下,
+// 渲染与原来一致。
+const CELL_WRAP = "[overflow-wrap:anywhere] [&_code]:[overflow-wrap:anywhere]";
+
 const markdownComponentsStatic: Components = {
   blockquote: ({ node: _node, className, ...props }) => (
     <blockquote
@@ -264,17 +269,24 @@ const markdownComponentsStatic: Components = {
     <div className="my-2 overflow-auto">
       <table
         {...props}
-        className={cn("w-full border-collapse text-aux", className)}
+        className={cn("w-full max-w-full border-collapse text-aux", className)}
       />
     </div>
   ),
   td: ({ node: _node, className, ...props }) => (
-    <td {...props} className={cn("px-2 py-1 align-top", className)} />
+    <td
+      {...props}
+      className={cn("px-2 py-1 align-top", CELL_WRAP, className)}
+    />
   ),
   th: ({ node: _node, className, ...props }) => (
     <th
       {...props}
-      className={cn("bg-muted px-2 py-1 text-left font-semibold", className)}
+      className={cn(
+        "bg-muted px-2 py-1 text-left font-semibold",
+        CELL_WRAP,
+        className,
+      )}
     />
   ),
   ul: ({ node: _node, className, ...props }) => (

@@ -409,3 +409,31 @@ describe("MarkdownText selectable text", () => {
     ).not.toBeNull();
   });
 });
+
+describe("MarkdownText tables on narrow screens", () => {
+  const md = [
+    "| 文件 | 说明 | 状态 |",
+    "| --- | --- | --- |",
+    "| `internal/service/chat_svc/very/long/path/to/some_file_name.go` | 一段说明 | ok |",
+  ].join("\n");
+
+  it("lets cells wrap anywhere and caps the table at its container width", () => {
+    const { container } = render(<MarkdownText text={md} />);
+    const table = container.querySelector("table")!;
+    expect(table.className).toContain("max-w-full");
+    for (const cell of container.querySelectorAll("th, td")) {
+      expect(cell.className).toContain("[overflow-wrap:anywhere]");
+    }
+    // 行内 code 也要能在任意处断开，不能把单元格撑宽
+    const td = container.querySelector("td")!;
+    expect(td.className).toContain("[&_code]:[overflow-wrap:anywhere]");
+  });
+
+  it("does not turn the table into a horizontally scrolled, pinned-column layout", () => {
+    const { container } = render(<MarkdownText text={md} />);
+    const table = container.querySelector("table")!;
+    expect(table.className).not.toContain("min-w-");
+    expect(table.className).not.toContain("whitespace-nowrap");
+    expect(container.querySelector("td.sticky, th.sticky")).toBeNull();
+  });
+});
