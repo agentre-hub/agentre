@@ -4,6 +4,7 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 import { X } from "lucide-react";
 
 import { cn } from "../lib/utils";
+import { useTouch } from "./touch";
 
 // 浮层关闭后焦点要回到打开它的控件。Radix 只在有 <Trigger> 时才知道回哪儿；这里的
 // 对话框都是受控打开、没有 Trigger，只能退回「打开那一刻的 activeElement」——而 iOS
@@ -87,16 +88,23 @@ function DialogContent({
   children,
   showCloseButton = true,
   onCloseAutoFocus,
+  touch,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  /**
+   * 触屏档：点按钮不会让它拿焦点时（iOS Safari），关闭后把焦点还给最近按下的控件。
+   * 不传则跟随最近的 TouchProvider；桌面（含 WKWebView）不开，行为与 Radix 默认一致。
+   */
+  touch?: boolean;
 }) {
   const { t } = useTranslation();
+  const isTouch = useTouch(touch);
   const openerRef = React.useRef<HTMLElement | null>(null);
 
   return (
     <DialogPortal>
-      <OpenerKeeper openerRef={openerRef} />
+      {isTouch ? <OpenerKeeper openerRef={openerRef} /> : null}
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"

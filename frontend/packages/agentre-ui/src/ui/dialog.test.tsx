@@ -8,6 +8,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "./dialog";
+import { TouchProvider } from "./touch";
 
 /**
  * 合并后的唯一一份 Dialog。
@@ -75,8 +76,10 @@ describe("Dialog", () => {
 describe("Dialog · 关闭后焦点回到触发它的控件", () => {
   function Host({
     onCloseAutoFocus,
+    touch,
   }: {
     onCloseAutoFocus?: (e: Event) => void;
+    touch?: boolean;
   }) {
     const [open, setOpen] = React.useState(false);
     return (
@@ -85,7 +88,7 @@ describe("Dialog · 关闭后焦点回到触发它的控件", () => {
           打开
         </button>
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
+          <DialogContent touch={touch} onCloseAutoFocus={onCloseAutoFocus}>
             <DialogTitle>标题</DialogTitle>
             <DialogDescription>说明</DialogDescription>
           </DialogContent>
@@ -103,8 +106,8 @@ describe("Dialog · 关闭后焦点回到触发它的控件", () => {
     return opener;
   }
 
-  it("点按不带焦点的触发钮打开，关闭后焦点回到它", async () => {
-    render(<Host />);
+  it("点按不带焦点的触发钮打开，关闭后焦点回到它（触屏档）", async () => {
+    render(<Host touch />);
     const opener = openLikeIosTap();
     expect(opener).not.toHaveFocus();
     await screen.findByRole("dialog");
@@ -116,7 +119,7 @@ describe("Dialog · 关闭后焦点回到触发它的控件", () => {
   });
 
   it("宿主在 onCloseAutoFocus 里 preventDefault 就不回焦点", async () => {
-    render(<Host onCloseAutoFocus={(e) => e.preventDefault()} />);
+    render(<Host touch onCloseAutoFocus={(e) => e.preventDefault()} />);
     const opener = openLikeIosTap();
     await screen.findByRole("dialog");
 
@@ -124,5 +127,32 @@ describe("Dialog · 关闭后焦点回到触发它的控件", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
     expect(opener).not.toHaveFocus();
+  });
+
+  // WKWebView（桌面端）点按钮同样不聚焦；不传 touch 时这条兜底不能动，桌面行为不变。
+  it("不传 touch：不做兜底，焦点不被拉回最近按下的控件", async () => {
+    render(<Host />);
+    const opener = openLikeIosTap();
+    await screen.findByRole("dialog");
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    expect(opener).not.toHaveFocus();
+  });
+
+  it("包在 TouchProvider 里等同 touch", async () => {
+    render(
+      <TouchProvider>
+        <Host />
+      </TouchProvider>,
+    );
+    const opener = openLikeIosTap();
+    await screen.findByRole("dialog");
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    expect(opener).toHaveFocus();
   });
 });
