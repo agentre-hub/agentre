@@ -696,6 +696,25 @@ message SessionPendingWaitersRequest {
 message SessionPendingWaitersResponse {
   repeated PendingToolPermission tool_permissions = 1;
   repeated PendingAskUserQuestion ask_user_questions = 2;
+  // approvals are the ctl / org approval cards an in-session agent raised by
+  // calling agrctl writes; they live in agentred memory and in the transcript,
+  // not in the backend's waiter table.
+  repeated PendingApproval approvals = 3;
+}
+
+// PendingApproval is one open approval card. It is answered with
+// toolApproval.answer (conversation_id + request_id).
+message PendingApproval {
+  string request_id = 1;
+  // kind is "ctl" (resource write) or "org" (organization operation).
+  string kind = 2;
+  // title is the card's tool name, e.g. ctl_update_provider.
+  string title = 3;
+  // summary is the JSON of the change list the card shows: the redacted
+  // command and its changes. It never carries a secret value.
+  bytes summary = 4;
+  // createtime is when the card was raised, unix seconds.
+  int64 createtime = 5;
 }
 
 message PendingToolPermission {

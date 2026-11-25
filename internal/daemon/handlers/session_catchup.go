@@ -41,6 +41,9 @@ type SessionCatchupDeps struct {
 	RuntimeFor func(agent_backend_entity.BackendType) agentruntime.Runtime
 	// LoggedInAccountID returns the daemon account allowed to name another peer.
 	LoggedInAccountID func() string
+	// PendingApprovals lists the open ctl / org approval cards of one conversation
+	// (CtlSessions.PendingApprovals). nil = this host raises none.
+	PendingApprovals func(conversationID string) []PendingApproval
 }
 
 // SessionCatchupHandlers 实现补齐族的四个 RPC。无状态:它的全部事实要么在存储里,
@@ -301,7 +304,15 @@ func (h *SessionCatchupHandlers) PendingWaiters(ctx context.Context, request *ag
 	if row == nil {
 		return &agentrewire.SessionPendingWaitersResponse{}, nil
 	}
-	return protowire.WaiterSnapshotToProto(h.pendingWaiters(ctx, *row, request.GetConversationId())), nil
+	out := protowire.WaiterSnapshotToProto(h.pendingWaiters(ctx, *row, request.GetConversationId()))
+	if h.deps.PendingApprovals != nil && row.LifecycleState != wire.SessionLifecycleInterrupted {
+		for _, a := range h.deps.PendingApprovals(request.GetConversationId()) {
+			out.Approvals = append(out.Approvals, &agentrewire.PendingApproval{
+				RequestId: a.RequestID, Kind: a.Kind, Title: a.Title, Summary: a.Summary, Createtime: a.CreatedAt,
+			})
+		}
+	}
+	return out, nil
 }
 
 // Attach 是显式接管的受理侧:校验这条会话确实是调用方的、且还接得回去,然后交回它

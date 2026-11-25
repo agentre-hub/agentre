@@ -916,6 +916,10 @@ func New(opts Options) (*Daemon, error) {
 		Sessions:          d.sessionStore,
 		DurableFrames:     durableFrameReader{db: gormDB},
 		LoggedInAccountID: d.loggedInAccountID,
+		// d.ctl is built later (it needs the gateway URL); resolved at call time.
+		PendingApprovals: func(conversationID string) []handlers.PendingApproval {
+			return d.ctl.PendingApprovals(conversationID)
+		},
 	})
 	d.activity = handlers.NewActivityHandlers(handlers.ActivityDeps{Sessions: d.sessionStore})
 	d.sessionModelTarget = handlers.NewSessionModelTargetHandlers(handlers.SessionModelTargetDeps{

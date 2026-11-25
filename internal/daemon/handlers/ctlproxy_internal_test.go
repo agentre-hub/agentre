@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
+	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
@@ -585,7 +587,7 @@ func TestCtlProxy_GivenServerUnreachable_ThenServiceUnavailable(t *testing.T) {
 
 func TestCtlSessions_GivenUnknownOrForeignCard_WhenAnswered_ThenNoPendingError(t *testing.T) {
 	c := NewCtlSessions(func() string { return "http://gw" }).WithAnswerAuth(anyCaller)
-	ch := c.beginWait(ctlTestConversation, "req-1", nil)
+	ch := c.beginWait(ctlTestConversation, &transcriptblocks.ToolApprovalBlock{RequestID: "req-1"}, nil)
 
 	_, err := c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
 		ConversationId: ctlTestConversation, RequestId: "req-unknown", Allow: true,
@@ -611,7 +613,7 @@ func TestCtlSessions_GivenUnknownOrForeignCard_WhenAnswered_ThenNoPendingError(t
 func TestCtlSessions_GivenUnauthorizedCaller_WhenAnswering_ThenRefusedAndCardStaysPending(t *testing.T) {
 	deny := errors.New("unauthorized")
 	c := NewCtlSessions(func() string { return "http://gw" }).WithAnswerAuth(func(context.Context) error { return deny })
-	ch := c.beginWait(ctlTestConversation, "req-1", nil)
+	ch := c.beginWait(ctlTestConversation, &transcriptblocks.ToolApprovalBlock{RequestID: "req-1"}, nil)
 	_, err := c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
 		ConversationId: ctlTestConversation, RequestId: "req-1", Allow: true,
 	})
@@ -623,7 +625,7 @@ func TestCtlSessions_GivenUnauthorizedCaller_WhenAnswering_ThenRefusedAndCardSta
 	}
 
 	unwired := NewCtlSessions(func() string { return "http://gw" })
-	unwired.beginWait(ctlTestConversation, "req-2", nil)
+	unwired.beginWait(ctlTestConversation, &transcriptblocks.ToolApprovalBlock{RequestID: "req-2"}, nil)
 	_, err = unwired.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
 		ConversationId: ctlTestConversation, RequestId: "req-2", Allow: true,
 	})
@@ -784,4 +786,86 @@ func TestCtlProxy_GivenConsoleOwnedCascadeDelete_ThenCardStatesCascadeCounts(t *
 	require.NoError(t, err)
 	require.Len(t, input.Changes, 1)
 	assert.Equal(t, &transcriptblocks.CtlApprovalCascade{Departments: 2, Agents: 1}, input.Changes[0].Cascade)
+}
+
+func pendingIDs(c *CtlSessions) []string {
+	var ids []string
+	for _, a := range c.PendingApprovals(ctlTestConversation) {
+		ids = append(ids, a.RequestID)
+	}
+	return ids
+}
+
+func TestCtlSessions_GivenOpenApprovalCard_WhenListed_ThenCarriesFieldsAndDropsAfterAnswer(t *testing.T) {
+	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
+	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	assert.Empty(t, c.PendingApprovals(ctlTestConversation))
+
+	before := time.Now().Unix()
+	done := make(chan ctlResult, 1)
+	go func() { done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t)) }()
+	requestID := <-sink.begunC
+
+	got := c.PendingApprovals(ctlTestConversation)
+	require.Len(t, got, 1)
+	assert.Equal(t, requestID, got[0].RequestID)
+	assert.Equal(t, "ctl", got[0].Kind)
+	assert.Equal(t, "ctl_update_provider", got[0].Title)
+	assert.GreaterOrEqual(t, got[0].CreatedAt, before)
+	var input transcriptblocks.CtlApprovalInput
+	require.NoError(t, json.Unmarshal(got[0].Summary, &input))
+	assert.Equal(t, "agrctl update provider openrouter --api-key …", input.Command)
+	require.Len(t, input.Changes, 1)
+	assert.True(t, input.Changes[0].Fields[1].Secret)
+	assert.NotContains(t, string(got[0].Summary), "sk-", "no secret value reaches the listing")
+	assert.Empty(t, c.PendingApprovals("00000000-0000-7000-8000-000000000001"), "another conversation sees nothing")
+
+	_, err := c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
+		ConversationId: ctlTestConversation, RequestId: requestID, Allow: true,
+	})
+	require.NoError(t, err)
+	<-done
+	assert.Empty(t, pendingIDs(c), "an answered card is no longer listed")
+}
+
+func TestCtlSessions_GivenOpenApprovalCard_WhenItTimesOut_ThenNoLongerListed(t *testing.T) {
+	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
+	c, sink, tok, srv := consoleOwned(t, server, 50*time.Millisecond)
+	res := ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t))
+	<-sink.begunC
+	assert.Equal(t, http.StatusGatewayTimeout, res.status)
+	assert.Empty(t, pendingIDs(c))
+}
+
+func TestCtlSessions_GivenTurnEnded_WhenCardStillOpen_ThenNoLongerListed(t *testing.T) {
+	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
+	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	go func() { _ = ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t)) }()
+	<-sink.begunC
+	require.Len(t, pendingIDs(c), 1)
+	sink.endTurn()
+	assert.Empty(t, pendingIDs(c), "a closed turn's card is expired, not pending")
+}
+
+// 会话里的 agent 只有会话级 token:它到不了任何回答审批的入口,自己会话的也一样。
+func TestCtlProxy_GivenSessionToken_WhenAnsweringItsOwnApproval_ThenRefusedAndCardStaysPending(t *testing.T) {
+	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
+	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	go func() { _ = ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t)) }()
+	requestID := <-sink.begunC
+
+	body := `{"conversationId":"` + ctlTestConversation + `","requestId":"` + requestID + `","allow":true}`
+	for _, path := range []string{"/ctl/v1/answer", "/ctl/v1/answer-permission", "/ctl/v1/approvals/answer", "/ctl/v1/pending"} {
+		status, _, _ := postCtl(t, srv.URL+path, tok, body)
+		assert.Equal(t, http.StatusForbidden, status, path)
+	}
+	assert.Equal(t, []string{requestID}, pendingIDs(c))
+}
+
+func TestCtlSessions_GivenGoneRequest_WhenAnswered_ThenNotFoundError(t *testing.T) {
+	c := NewCtlSessions(func() string { return "http://gw" }).WithAnswerAuth(anyCaller)
+	_, err := c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
+		ConversationId: ctlTestConversation, RequestId: "gone", Allow: true,
+	})
+	assert.Equal(t, wireinbound.NoPendingToolApprovalError("gone"), err)
 }

@@ -984,3 +984,54 @@ func TestRequireLoggedInAccount(t *testing.T) {
 	assert.Error(t, gate(context.Background()), "no authenticated connection")
 	assert.Error(t, handlers.RequireLoggedInAccount(func() string { return "" })(accountConnContext(t, "acct-1")), "not signed in")
 }
+
+// ctl / org 审批卡也是待决策:列在 approvals 里,带出处理它所需的全部信息。
+func TestSessionCatchup_PendingWaiters_ListsOpenApprovalCardsOfTheConversation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	sessions := mock_handlers.NewMockSessionQueryPort(ctrl)
+	durable := mock_handlers.NewMockDurableFrameReaderPort(ctrl)
+	var asked []string
+	h := handlers.NewSessionCatchupHandlers(handlers.SessionCatchupDeps{
+		Sessions: sessions, DurableFrames: durable,
+		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return bareRT{} },
+		PendingApprovals: func(conversationID string) []handlers.PendingApproval {
+			asked = append(asked, conversationID)
+			return []handlers.PendingApproval{{
+				RequestID: "ap-1", Kind: "ctl", Title: "ctl_update_provider",
+				Summary: []byte(`{"command":"agrctl update provider x --api-key …","changes":[]}`), CreatedAt: 1700000000,
+			}}
+		},
+	})
+	sessions.EXPECT().Find(gomock.Any(), devicefp.Initiator(""), convID(5)).Return(&handlers.SessionRecord{
+		PeerSessionID: convID(5), BackendType: "claudecode", LifecycleState: wire.SessionLifecycleRunning,
+	}, nil)
+
+	got, err := h.PendingWaiters(context.Background(), &agentrewire.SessionPendingWaitersRequest{ConversationId: convID(5)})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{convID(5)}, asked)
+	require.Len(t, got.GetApprovals(), 1)
+	a := got.GetApprovals()[0]
+	assert.Equal(t, "ap-1", a.GetRequestId())
+	assert.Equal(t, "ctl", a.GetKind())
+	assert.Equal(t, "ctl_update_provider", a.GetTitle())
+	assert.JSONEq(t, `{"command":"agrctl update provider x --api-key …","changes":[]}`, string(a.GetSummary()))
+	assert.Equal(t, int64(1700000000), a.GetCreatetime())
+}
+
+// 不属于调用方的会话回空,approvals 也不例外:不会去问审批卡表。
+func TestSessionCatchup_PendingWaiters_UnknownSession_NoApprovals(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	sessions := mock_handlers.NewMockSessionQueryPort(ctrl)
+	h := handlers.NewSessionCatchupHandlers(handlers.SessionCatchupDeps{
+		Sessions: sessions, DurableFrames: mock_handlers.NewMockDurableFrameReaderPort(ctrl),
+		PendingApprovals: func(string) []handlers.PendingApproval {
+			t.Error("approvals of a session the caller does not own must not be read")
+			return nil
+		},
+	})
+	sessions.EXPECT().Find(gomock.Any(), devicefp.Initiator(""), convID(9)).Return(nil, nil)
+	got, err := h.PendingWaiters(context.Background(), &agentrewire.SessionPendingWaitersRequest{ConversationId: convID(9)})
+	require.NoError(t, err)
+	assert.Empty(t, got.GetApprovals())
+}

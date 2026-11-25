@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
+	"sort"
 	"sync"
 	"time"
 
@@ -94,6 +96,8 @@ type ctlWaiter struct {
 	ch             chan bool
 	// ended 是卡所在那一轮的收口信号;关上之后这张卡不再接受作答。
 	ended <-chan struct{}
+	// card 是 pendingWaiters 列这张卡时交出的内容;created 是出卡时刻。
+	card PendingApproval
 }
 
 // NewCtlSessions 造一张空表;endpoint 每次签发时现取(gateway 端口晚绑定)。
@@ -200,13 +204,56 @@ func (c *CtlSessions) resolve(token string) (ctlSession, bool) {
 	return out, true
 }
 
-// beginWait 挂起一张卡,返回作答 channel(true = 批准)。ended 是卡所在那一轮的收口信号。
-func (c *CtlSessions) beginWait(conversationID, requestID string, ended <-chan struct{}) <-chan bool {
+// beginWait 挂起 blk 这张卡,返回作答 channel(true = 批准)。ended 是卡所在那一轮的收口信号。
+// 卡上的 tool_input 已是脱敏后的变更清单,列待处理项时原样交出。
+func (c *CtlSessions) beginWait(conversationID string, blk *transcriptblocks.ToolApprovalBlock, ended <-chan struct{}) <-chan bool {
 	ch := make(chan bool, 1)
+	summary, _ := json.Marshal(blk.ToolInput)
 	c.mu.Lock()
-	c.waiters[requestID] = ctlWaiter{conversationID: conversationID, ch: ch, ended: ended}
+	c.waiters[blk.RequestID] = ctlWaiter{conversationID: conversationID, ch: ch, ended: ended, card: PendingApproval{
+		RequestID: blk.RequestID, Kind: pendingApprovalKindCtl, Title: blk.ToolName,
+		Summary: summary, CreatedAt: time.Now().Unix(),
+	}}
 	c.mu.Unlock()
 	return ch
+}
+
+// pendingApprovalKindCtl 是 agentred 出的审批卡的类型:会话内 agent 调 agrctl 写资源。
+// ("org" 的组织操作审批卡出在桌面端,不经这张表。)
+const pendingApprovalKindCtl = "ctl"
+
+// PendingApproval 是一张还挂着的审批卡的快照(pendingWaiters 的 approvals)。
+type PendingApproval struct {
+	RequestID string
+	Kind      string
+	Title     string
+	// Summary 是卡上变更清单的 JSON(命令已脱敏、密钥字段只有标记)。
+	Summary []byte
+	// CreatedAt 是出卡时刻(unix 秒)。
+	CreatedAt int64
+}
+
+// PendingApprovals 列出 conversationID 这条会话里此刻仍挂着的审批卡,先出的在前。
+// 那一轮已收口的卡已记成 expired,不再算挂着。
+func (c *CtlSessions) PendingApprovals(conversationID string) []PendingApproval {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	var out []PendingApproval
+	for _, w := range c.waiters {
+		if w.conversationID == conversationID && !isClosed(w.ended) {
+			out = append(out, w.card)
+		}
+	}
+	c.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt != out[j].CreatedAt {
+			return out[i].CreatedAt < out[j].CreatedAt
+		}
+		return out[i].RequestID < out[j].RequestID
+	})
+	return out
 }
 
 // endWait 撤下一张卡(超时 / 调用方断开 / 登记失败);此后的作答一律「不挂起」。

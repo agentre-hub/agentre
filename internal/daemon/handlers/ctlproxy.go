@@ -316,14 +316,15 @@ func (p *ctlProxy) approveConsoleWrite(w http.ResponseWriter, r *http.Request, o
 		return
 	}
 	requestID := uuid.NewString()
-	ch := p.deps.Sessions.beginWait(owner.conversationID, requestID, owner.turn.ended())
-	sessionID, err := owner.turn.beginApproval(ctx, &transcriptblocks.ToolApprovalBlock{
+	card := &transcriptblocks.ToolApprovalBlock{
 		ToolKey:   agenttool.KeyCtl,
 		RequestID: requestID,
 		ToolName:  "ctl_" + transcriptblocks.CtlOpName(write.GetOp()) + "_" + transcriptblocks.CtlKindNames[write.GetKind()],
 		ToolInput: ctlApprovalInput(transcriptblocks.RedactCtlCommand(write), preview.GetChanges()).ToolInput(),
 		Status:    "pending",
-	})
+	}
+	ch := p.deps.Sessions.beginWait(owner.conversationID, card, owner.turn.ended())
+	sessionID, err := owner.turn.beginApproval(ctx, card)
 	if err != nil {
 		p.deps.Sessions.endWait(requestID)
 		writeCtlErr(w, http.StatusConflict, "cannot ask for approval in this session: "+err.Error())
