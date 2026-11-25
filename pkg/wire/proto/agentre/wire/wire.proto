@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.8.0";
+option (agentre.wire.protocol_version) = "0.9.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -896,6 +896,12 @@ message MCPServer {
   map<string, string> headers = 3;
   repeated string tools = 4;
 }
+// runtime.run starts a new turn. A conversation that is already running a turn
+// is refused for every caller with CodeRuntimeSessionRunning (-32016): add to
+// the running turn with runtime.steer instead. Steers the turn did not deliver
+// before it ended are replayed by the executing daemon itself, in order, as the
+// next turn (announced with autonomousTurn.started, trigger "steer"); callers
+// no longer drain and resend them.
 message RuntimeRunRequest {
   AgentBackend backend = 1;
   int64 agent_id = 2;
@@ -1358,6 +1364,10 @@ message RunResultDoneNotification {
 message AutonomousTurnStartedNotification {
   string conversation_id = 1;
   int64 seq = 2;
+  // Why the turn started without a runtime.run: "background_task" (the CLI woke
+  // up after a background task finished), "external" (woken up by something
+  // outside agentre), or "steer" (the daemon replaying steers the previous turn
+  // left undelivered; the turn's transcript opens with them as a user message).
   string trigger = 3;
   uint64 turn_token = 4;
 }

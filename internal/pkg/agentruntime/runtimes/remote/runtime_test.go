@@ -40,7 +40,6 @@ var (
 	_ agentruntime.Runtime              = (*Runtime)(nil)
 	_ agentruntime.Steerer              = (*Runtime)(nil)
 	_ agentruntime.SteerCanceler        = (*Runtime)(nil)
-	_ agentruntime.SteerDrainer         = (*Runtime)(nil)
 	_ agentruntime.Aborter              = (*Runtime)(nil)
 	_ agentruntime.PermissionModeSetter = (*Runtime)(nil)
 	_ agentruntime.AskAnswerSink        = (*Runtime)(nil)
@@ -1196,28 +1195,14 @@ func TestCancelSteer_HappyAndSentinel(t *testing.T) {
 	assert.ErrorIs(t, err, agentruntime.ErrSteerNotFound)
 }
 
-func TestDrainPending_ReturnsSteers(t *testing.T) {
-	_, cli, _, rt := setupRemote(t)
-	cli.EXPECT().Call(gomock.Any(), wire.MethodRun, gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.RunAck)) = wire.RunAck{ConversationID: convOf(2)}
-			return nil
-		})
-	_, _, err := rt.Run(context.Background(), agentruntime.RunRequest{
-		Backend:   &agent_backend_entity.AgentBackend{Type: "claudecode"},
-		SessionID: 2,
-	})
-	require.NoError(t, err)
-
-	cli.EXPECT().Call(gomock.Any(), wire.MethodDrainPending, gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, _ string, _ any, result any) error {
-			*(result.(*wire.DrainResult)) = wire.DrainResult{
-				Steers: []agentruntime.ConsumedSteer{{QueuedID: "q1", Text: "t"}},
-			}
-			return nil
-		})
-	out := rt.DrainPending(context.Background(), 2)
-	assert.Equal(t, []agentruntime.ConsumedSteer{{QueuedID: "q1", Text: "t"}}, out)
+// Given 会话在 agentred 上执行, When 桌面端的一轮收尾, Then 桌面端拿不到「取走残留
+// 插话」这一能力:残留由 agentred 自己按原顺序开下一轮送出(spec 2026-11-25 Design 10),
+// 桌面端再取一次就是把同一条插话送两遍。chat_svc 只在 runner 实现 SteerDrainer 时补发,
+// 所以「远端不实现它」就是「桌面端不替 agentred 会话补发」的全部。本机会话不受影响。
+func TestRuntime_GivenAgentredReplaysLeftoverSteers_ThenTheRemoteRuntimeIsNotASteerDrainer(t *testing.T) {
+	var rt agentruntime.Runtime = &Runtime{}
+	_, drains := rt.(agentruntime.SteerDrainer)
+	assert.False(t, drains, "the desktop must not drain steers of a turn agentred executes")
 }
 
 func TestAbort_SuccessAndNoSession(t *testing.T) {
@@ -1497,7 +1482,6 @@ func TestControlRequests_CarryPeerOrigin(t *testing.T) {
 	}{
 		{"Steer", func() error { return rt.Steer(context.Background(), peerSid, "q-1", "stop") }, wire.MethodSteer},
 		{"CancelSteer", func() error { _, err := rt.CancelSteer(context.Background(), peerSid, "q-1"); return err }, wire.MethodCancelSteer},
-		{"DrainPending", func() error { rt.DrainPending(context.Background(), peerSid); return nil }, wire.MethodDrainPending},
 		{"Abort", func() error { _, err := rt.Abort(context.Background(), peerSid, 0); return err }, wire.MethodAbort},
 		{"StopBackgroundTask", func() error { return rt.StopBackgroundTask(context.Background(), peerSid, "t-1") }, wire.MethodStopBackgroundTask},
 		{"SetPermissionMode", func() error { return rt.SetPermissionMode(context.Background(), peerSid, "plan") }, wire.MethodSetPermissionMode},

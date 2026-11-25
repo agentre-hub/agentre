@@ -279,6 +279,14 @@ export const ErrCodeSessionNotFound = -32014;
  */
 export const ErrCodePeerExecutionUnavailable = -32015;
 
+/**
+ * CodeRuntimeSessionRunning:这条会话正在跑一轮,agentred 拒绝在它上面再开一轮
+ * (runtime.run)。任何对端来都一样 —— 运行中的会话不会被再塞进一个新的轮次;要往
+ * 当前这一轮里加话走 runtime.steer,当前轮没送进去的插话由 agentred 自己在下一轮
+ * 补发。调用方据它提示「会话运行中」,而不是把它当成一次普通失败。
+ */
+export const ErrCodeSessionRunning = -32016;
+
 export const ErrCodeRemoteFSPathRefused = -32030;
 
 export const ErrCodeRemoteFSPermDenied = -32031;

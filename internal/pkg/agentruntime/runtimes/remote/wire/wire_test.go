@@ -28,6 +28,7 @@ func TestToFromRPCError_RoundTrip(t *testing.T) {
 		{"unsupported", agentruntime.ErrUnsupported, ErrCodeUnsupported},
 		{"aborted", agentruntime.ErrAborted, ErrCodeAborted},
 		{"session not found", agentruntime.ErrSessionNotFound, ErrCodeSessionNotFound},
+		{"session running", ErrSessionRunning, ErrCodeSessionRunning},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -3,8 +3,9 @@
 // WebSocket + Protobuf RPC(runtime.* 命名空间)把整个 agentruntime.Runtime
 // 接口 + 7 个可选子接口透明代理过去:
 //
-//   - Run / Steer / CancelSteer / DrainPending / Abort / SetPermissionMode /
+//   - Run / Steer / CancelSteer / Abort / SetPermissionMode /
 //     SubmitAnswer / SubmitToolPermission → existing runtime.* RPC forms
+//     (轮末残留插话不经桌面端补发:agentred 自己开下一轮,见 Steer 之后那段说明)
 //   - Pi PrepareRun → phased runtime.run registration / preparation / Start
 //   - daemon → client 反向 push 用两条 notification:
 //     runtime.event(每个 sealed Event 一条)+ runtime.runResultDone(终态)
@@ -1039,20 +1040,10 @@ func (r *Runtime) CancelSteer(ctx context.Context, sessionID int64, queuedID str
 	return res.GetRemoved(), nil
 }
 
-func (r *Runtime) DrainPending(ctx context.Context, sessionID int64) []agentruntime.ConsumedSteer {
-	if !r.hasSession(sessionID) {
-		return nil
-	}
-	res, err := callSession(ctx, r, sessionID, wirecall.RuntimeDrainPending, wire.MethodDrainPending, &agentrewire.RuntimeDrainPendingRequest{ConversationId: r.conversationID(sessionID), PeerFingerprint: string(r.originFor(sessionID))})
-	if err != nil {
-		return nil
-	}
-	out := make([]agentruntime.ConsumedSteer, 0, len(res.GetSteers()))
-	for _, value := range res.GetSteers() {
-		out = append(out, agentruntime.ConsumedSteer{QueuedID: value.GetQueuedId(), Text: value.GetText()})
-	}
-	return out
-}
+// 这里刻意**没有** DrainPending(不实现 agentruntime.SteerDrainer):一轮收尾时还没送进去
+// 的插话由执行这一轮的 agentred 自己按原顺序开下一轮送出(spec 2026-11-25 Design 10),
+// 那一轮以 autonomousTurn.* 推上来。桌面端再取一次就是把同一条插话送两遍 —— chat_svc
+// 只在 runner 实现 SteerDrainer 时补发,所以缺这个方法就是「远端会话由 agentred 补发」。
 
 func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) (agentruntime.AbortOutcome, error) {
 	r.mu.RLock()

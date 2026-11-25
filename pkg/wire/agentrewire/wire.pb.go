@@ -7881,6 +7881,12 @@ func (x *MCPServer) GetTools() []string {
 	return nil
 }
 
+// runtime.run starts a new turn. A conversation that is already running a turn
+// is refused for every caller with CodeRuntimeSessionRunning (-32016): add to
+// the running turn with runtime.steer instead. Steers the turn did not deliver
+// before it ended are replayed by the executing daemon itself, in order, as the
+// next turn (announced with autonomousTurn.started, trigger "steer"); callers
+// no longer drain and resend them.
 type RuntimeRunRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Backend           *AgentBackend          `protobuf:"bytes,1,opt,name=backend,proto3" json:"backend,omitempty"`
@@ -13751,10 +13757,14 @@ type AutonomousTurnStartedNotification struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	Seq            int64                  `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
-	Trigger        string                 `protobuf:"bytes,3,opt,name=trigger,proto3" json:"trigger,omitempty"`
-	TurnToken      uint64                 `protobuf:"varint,4,opt,name=turn_token,json=turnToken,proto3" json:"turn_token,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Why the turn started without a runtime.run: "background_task" (the CLI woke
+	// up after a background task finished), "external" (woken up by something
+	// outside agentre), or "steer" (the daemon replaying steers the previous turn
+	// left undelivered; the turn's transcript opens with them as a user message).
+	Trigger       string `protobuf:"bytes,3,opt,name=trigger,proto3" json:"trigger,omitempty"`
+	TurnToken     uint64 `protobuf:"varint,4,opt,name=turn_token,json=turnToken,proto3" json:"turn_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AutonomousTurnStartedNotification) Reset() {
@@ -21819,7 +21829,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x17CTL_TOKEN_STATE_UNKNOWN\x10\x03:>\n" +
 	"\n" +
 	"event_kind\x12\x1d.google.protobuf.FieldOptions\x18\xe1\xd4\x03 \x01(\tR\teventKind:I\n" +
-	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.8.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
+	"\x10protocol_version\x12\x1c.google.protobuf.FileOptions\x18\xe2\xd4\x03 \x01(\tR\x0fprotocolVersionBJ\x92\xa6\x1d\x050.9.0Z?github.com/agentre-hub/agentre/pkg/wire/agentrewire;agentrewireb\x06proto3"
 
 var (
 	file_agentre_wire_wire_proto_rawDescOnce sync.Once

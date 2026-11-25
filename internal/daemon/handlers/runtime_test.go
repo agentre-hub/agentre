@@ -2030,11 +2030,8 @@ func TestRuntime_CancelSteer_NotFound_RehydrateSentinel(t *testing.T) {
 }
 
 func TestRuntime_DrainPending_ReturnsSteers(t *testing.T) {
-	rt := &fullRT{
-		drainFn: func(_ int64) []agentruntime.ConsumedSteer {
-			return []agentruntime.ConsumedSteer{{QueuedID: "q1", Text: "a"}}
-		},
-	}
+	// Drain 语义:取走即清空 —— 这一轮收尾时 agentred 自己再问一次,问到的是空的。
+	rt := &fullRT{drainFn: drainOnce(agentruntime.ConsumedSteer{QueuedID: "q1", Text: "a"})}
 	ctx, _, h, live := runtimeWithLiveSession(t, rt, 2)
 	defer close(live)
 
@@ -2104,9 +2101,10 @@ func newRuntimeHandlersOnWithSource(t *testing.T, rt agentruntime.Runtime, src h
 // TestRuntime_DrainPending_StampsSubmitterSource (R17):轮末残留的 pending steer
 // 必须带着提交方来源返回 —— 它们和实时消费的 SteerConsumed 共用同一张映射表。
 func TestRuntime_DrainPending_StampsSubmitterSource(t *testing.T) {
-	rt := &fullRT{drainFn: func(_ int64) []agentruntime.ConsumedSteer {
-		return []agentruntime.ConsumedSteer{{QueuedID: "q1", Text: "a"}, {QueuedID: "q2", Text: "b"}}
-	}}
+	rt := &fullRT{drainFn: drainOnce(
+		agentruntime.ConsumedSteer{QueuedID: "q1", Text: "a"},
+		agentruntime.ConsumedSteer{QueuedID: "q2", Text: "b"},
+	)}
 	src := newFakeSteerSource()
 	src.Record("q1", handlers.SteerSourceEntry{Peer: "sha256:other-device", Name: "iPhone"})
 	// q2 没进映射(本机/未知)→ 保持空。

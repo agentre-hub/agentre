@@ -3131,6 +3131,12 @@ public nonisolated struct Agentre_Wire_MCPServer: Sendable {
   public init() {}
 }
 
+/// runtime.run starts a new turn. A conversation that is already running a turn
+/// is refused for every caller with CodeRuntimeSessionRunning (-32016): add to
+/// the running turn with runtime.steer instead. Steers the turn did not deliver
+/// before it ended are replayed by the executing daemon itself, in order, as the
+/// next turn (announced with autonomousTurn.started, trigger "steer"); callers
+/// no longer drain and resend them.
 public nonisolated struct Agentre_Wire_RuntimeRunRequest: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -5155,6 +5161,10 @@ public nonisolated struct Agentre_Wire_AutonomousTurnStartedNotification: Sendab
 
   public var seq: Int64 = 0
 
+  /// Why the turn started without a runtime.run: "background_task" (the CLI woke
+  /// up after a background task finished), "external" (woken up by something
+  /// outside agentre), or "steer" (the daemon replaying steers the previous turn
+  /// left undelivered; the turn's transcript opens with them as a user message).
   public var trigger: String = String()
 
   public var turnToken: UInt64 = 0

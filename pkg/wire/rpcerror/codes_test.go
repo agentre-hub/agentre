@@ -28,6 +28,7 @@ func TestDomainCodes_GivenReleasedPeers_WhenTheyBranchOnTheNumber_ThenTheValuesN
 		{"CodeRuntimeAborted", rpcerror.CodeRuntimeAborted, -32013},
 		{"CodeRuntimeSessionNotFound", rpcerror.CodeRuntimeSessionNotFound, -32014},
 		{"CodeRuntimePeerExecutionUnavailable", rpcerror.CodeRuntimePeerExecutionUnavailable, -32015},
+		{"CodeRuntimeSessionRunning", rpcerror.CodeRuntimeSessionRunning, -32016},
 
 		{"CodeRemoteFSPathRefused", rpcerror.CodeRemoteFSPathRefused, -32030},
 		{"CodeRemoteFSPermDenied", rpcerror.CodeRemoteFSPermDenied, -32031},
