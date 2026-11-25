@@ -417,6 +417,7 @@ export type {
 } from "./chat-input/types";
 export { ChatComposer } from "./composer/chat-composer";
 export type {
+  ChatComposerDraft,
   ChatComposerDropZone,
   ChatComposerHandle,
   ChatComposerProps,
