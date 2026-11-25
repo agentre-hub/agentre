@@ -53,6 +53,12 @@ export interface TaskFormShellProps {
    * 键盘升起时 pill 行跟着容器停在键盘上方，不在这里监听 visualViewport。不传时与从前一致。
    */
   page?: boolean;
+  /**
+   * 写操作超时（请求发出去了，可能已经建好）时给：错误块换成一行「网络超时，可能已经
+   * 建好了」+「刷新看看」，点按调用它——宿主刷新列表、找到就直接打开，找不到再让用户
+   * 重新提交。不传时超时与其它失败一样显示原文，与从前一致。
+   */
+  onTimeoutRefresh?: () => Promise<void> | void;
   className?: string;
 }
 
@@ -77,6 +83,7 @@ export function TaskFormShell({
   onDelete,
   nowMs,
   page = false,
+  onTimeoutRefresh,
   className,
 }: TaskFormShellProps) {
   const { t } = useUiTranslation();
@@ -103,13 +110,30 @@ export function TaskFormShell({
     </button>
   );
 
+  const timeoutNotice = form.timedOut && onTimeoutRefresh;
   const errorBlock = form.error ? (
     <p
       data-testid="task-form-error"
       role="alert"
-      className="rounded-md bg-destructive-soft px-2.5 py-1.5 text-2xs text-destructive-text"
+      className="flex items-center gap-2 rounded-md bg-destructive-soft px-2.5 py-1.5 text-2xs text-destructive-text"
     >
-      {form.error}
+      {timeoutNotice ? (
+        <>
+          <span className="min-w-0 flex-1">{t("board.form.timeout")}</span>
+          <button
+            type="button"
+            onClick={() => void onTimeoutRefresh()}
+            className={cn(
+              "shrink-0 cursor-pointer rounded-md px-2 font-medium underline-offset-2 hover:underline focus-visible:focus-outline",
+              page && "min-h-11",
+            )}
+          >
+            {t("board.form.timeoutRefresh")}
+          </button>
+        </>
+      ) : (
+        form.error
+      )}
     </p>
   ) : null;
 

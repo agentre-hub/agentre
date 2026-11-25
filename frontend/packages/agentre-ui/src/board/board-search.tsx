@@ -2,6 +2,7 @@ import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import { SearchInput } from "../ui/search-input";
 import { Spinner } from "../ui/spinner";
+import { useTouch } from "../ui/touch";
 
 export interface BoardSearchBoxProps {
   value: string;
@@ -10,6 +11,10 @@ export interface BoardSearchBoxProps {
   busy?: boolean;
   /** 命中数；不给就不显示（没筛选时显示一个总数没有意义）。 */
   matchedCount?: number;
+  /** 占位与无障碍名；不给用默认的「搜索任务或 #编号…」。 */
+  placeholder?: string;
+  /** 触屏档：输入框 44px 高、计数带「N 个任务」标签。不传时跟 TouchProvider，再不然与桌面一致。 */
+  touch?: boolean;
   className?: string;
 }
 
@@ -22,9 +27,13 @@ export function BoardSearchBox({
   onChange,
   busy,
   matchedCount,
+  placeholder,
+  touch: touchProp,
   className,
 }: BoardSearchBoxProps) {
   const { t } = useUiTranslation();
+  const touch = useTouch(touchProp);
+  const label = placeholder ?? t("board.search.placeholder");
 
   return (
     <div
@@ -36,9 +45,9 @@ export function BoardSearchBox({
           value={value}
           onChange={onChange}
           size="sm"
-          placeholder={t("board.search.placeholder")}
-          aria-label={t("board.search.placeholder")}
-          className="w-56"
+          placeholder={label}
+          aria-label={label}
+          className={cn("w-56", touch && "h-11")}
           inputClassName={busy ? "pr-5" : undefined}
         />
         {busy ? (
@@ -53,7 +62,9 @@ export function BoardSearchBox({
           data-testid="board-search-count"
           className="shrink-0 font-mono text-2xs text-muted-foreground"
         >
-          {t("board.search.count", { count: matchedCount })}
+          {touch
+            ? t("board.search.countLabel", { count: matchedCount })
+            : t("board.search.count", { count: matchedCount })}
         </span>
       ) : null}
     </div>

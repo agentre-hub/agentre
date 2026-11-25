@@ -10,6 +10,7 @@ import {
   DialogShellHeader,
 } from "../ui/dialog-shell";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { useTouch } from "../ui/touch";
 
 import { BoardFilterChips } from "./filter-chips";
 import { BoardFilterPanel } from "./filter-panel";
@@ -38,6 +39,8 @@ export interface BoardFilterBarProps {
    * `matchedCount`（此刻选择下会看到几条）。不传时与桌面一致。
    */
   sheet?: boolean;
+  /** 搜索框占位（宿主的真实编号不对用户有意义时改成「搜索任务…」）。 */
+  searchPlaceholder?: string;
   className?: string;
 }
 
@@ -55,10 +58,12 @@ export function BoardFilterBar({
   searching,
   ports,
   onManageLabels,
-  sheet = false,
+  sheet: sheetProp,
+  searchPlaceholder,
   className,
 }: BoardFilterBarProps) {
   const { t } = useUiTranslation();
+  const sheet = useTouch(sheetProp);
   const [open, setOpen] = React.useState(false);
   const state = useBoardQuery(query, ports.onQueryChange);
 
@@ -106,6 +111,8 @@ export function BoardFilterBar({
         onChange={state.setKeywordDraft}
         busy={state.pending || searching}
         matchedCount={matchedCount}
+        placeholder={searchPlaceholder}
+        touch={sheet}
       />
       {sheet ? (
         <>

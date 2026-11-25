@@ -205,7 +205,10 @@
     },
     "search": {
       "placeholder": "搜索任务或 #编号…",
-      "count": "{{count}}"
+      "count": "{{count}}",
+      "countLabel": "{{count}} 个任务",
+      "countLabel_one": "{{count}} 个任务",
+      "countLabel_other": "{{count}} 个任务"
     },
     "filter": {
       "apply": "完成",
@@ -245,6 +248,8 @@
       "remove": "摘掉「{{name}}」"
     },
     "form": {
+      "timeout": "网络超时，可能已经建好了",
+      "timeoutRefresh": "刷新看看",
       "breadcrumb": "任务位置",
       "newTask": "新建任务",
       "title": "标题",

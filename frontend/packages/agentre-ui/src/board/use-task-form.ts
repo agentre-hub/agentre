@@ -38,6 +38,16 @@ export function initialTaskFormValue({
   };
 }
 
+/**
+ * 写操作超时：请求发出去了，服务端可能已经落库。认法：错误名带 timeout，或消息里有
+ * "timed out / timed-out / timeout"（与审批停靠条同一条规则）。
+ */
+export function isTimeoutFailure(cause: unknown): boolean {
+  if (cause instanceof Error && /timeout/i.test(cause.name)) return true;
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return /timed?[ -]?out/i.test(message);
+}
+
 export interface UseTaskFormResult {
   value: TaskFormValue;
   patch: (partial: Partial<TaskFormValue>) => void;
@@ -45,6 +55,8 @@ export interface UseTaskFormResult {
   submitting: boolean;
   /** 上一次提交的失败原因；错误块画在提交按钮正上方。 */
   error: string | null;
+  /** 上一次提交失败的原因是超时（可能已经建好了）。 */
+  timedOut: boolean;
   submit: () => Promise<void>;
   /** 标题是唯一必填。 */
   canSubmit: boolean;
@@ -60,6 +72,7 @@ export function useTaskForm(
   const [value, setValue] = React.useState(initial);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [timedOut, setTimedOut] = React.useState(false);
 
   const patch = React.useCallback((partial: Partial<TaskFormValue>) => {
     setValue((current) => ({ ...current, ...partial }));
@@ -69,10 +82,12 @@ export function useTaskForm(
     if (!value.title.trim() || submitting) return;
     setSubmitting(true);
     setError(null);
+    setTimedOut(false);
     try {
       await onSave(value);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+      setTimedOut(isTimeoutFailure(cause));
     } finally {
       setSubmitting(false);
     }
@@ -83,6 +98,7 @@ export function useTaskForm(
     patch,
     submitting,
     error,
+    timedOut,
     submit,
     canSubmit: value.title.trim().length > 0 && !submitting,
   };

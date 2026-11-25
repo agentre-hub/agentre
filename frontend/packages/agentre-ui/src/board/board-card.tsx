@@ -23,6 +23,8 @@ export interface BoardCardProps {
   nowMs?: number;
   /** 触屏档：菜单常显、换底部弹层，长按卡片同样打开。不传时与桌面一致。 */
   touch?: boolean;
+  /** 不显示 `#N`。不传时与桌面一致。 */
+  hideCardNumber?: boolean;
 }
 
 /** 长按多久算「长按」。 */
@@ -41,6 +43,7 @@ export function BoardCard({
   drag,
   nowMs,
   touch = false,
+  hideCardNumber = false,
 }: BoardCardProps) {
   const { t } = useUiTranslation();
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -114,9 +117,11 @@ export function BoardCard({
         <span
           className={cn("flex items-center gap-1.5", touch ? "pr-11" : "pr-6")}
         >
-          <span className="font-mono text-2xs font-semibold text-primary-text">
-            {`#${card.id}`}
-          </span>
+          {hideCardNumber ? null : (
+            <span className="font-mono text-2xs font-semibold text-primary-text">
+              {`#${card.id}`}
+            </span>
+          )}
           {card.project ? (
             <span className="flex min-w-0 items-center gap-1">
               {card.project.nested ? (

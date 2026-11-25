@@ -514,3 +514,74 @@ describe("整页档 page", () => {
     expect(screen.getByTestId("task-form-cancel")).toBeInTheDocument();
   });
 });
+
+describe("F5 提交超时：可能已经建好了", () => {
+  const titled = initialTaskFormValue({ issue: { title: "t" } });
+  const timeout = () => {
+    const err = new Error("request timed out after 15000ms");
+    err.name = "ApiTimeoutError";
+    return err;
+  };
+
+  it("给了 onTimeoutRefresh：超时只显示一行中文 + 「刷新看看」，英文原文一个字都不出现", async () => {
+    const user = userEvent.setup();
+    const onTimeoutRefresh = vi.fn();
+    renderForm({
+      initial: titled,
+      onSave: vi.fn().mockRejectedValue(timeout()),
+      onTimeoutRefresh,
+    });
+
+    await user.click(screen.getByTestId("task-form-submit"));
+
+    const error = await screen.findByTestId("task-form-error");
+    expect(error).toHaveTextContent(
+      "The network timed out. It may already have been created.",
+    );
+    expect(error.textContent).not.toMatch(/timed out after|15000/);
+    await user.click(
+      within(error).getByRole("button", { name: "Refresh to check" }),
+    );
+    expect(onTimeoutRefresh).toHaveBeenCalledTimes(1);
+    // 找不到才允许再提交：提交键没有被锁住。
+    expect(screen.getByTestId("task-form-submit")).toBeEnabled();
+  });
+
+  it("只凭消息也认得出超时（名字不带 timeout）", async () => {
+    const user = userEvent.setup();
+    renderForm({
+      initial: titled,
+      onSave: vi.fn().mockRejectedValue(new Error("Request timed-out")),
+      onTimeoutRefresh: vi.fn(),
+    });
+    await user.click(screen.getByTestId("task-form-submit"));
+    expect(await screen.findByTestId("task-form-error")).not.toHaveTextContent(
+      "Request timed-out",
+    );
+  });
+
+  it("非超时的失败仍显示原因、没有刷新按钮", async () => {
+    const user = userEvent.setup();
+    renderForm({
+      initial: titled,
+      onSave: vi.fn().mockRejectedValue(new Error("没存上")),
+      onTimeoutRefresh: vi.fn(),
+    });
+    await user.click(screen.getByTestId("task-form-submit"));
+    const error = await screen.findByTestId("task-form-error");
+    expect(error).toHaveTextContent("没存上");
+    expect(within(error).queryByRole("button")).toBeNull();
+  });
+
+  it("不传 onTimeoutRefresh：超时与从前一样显示原文（桌面不变）", async () => {
+    const user = userEvent.setup();
+    renderForm({
+      initial: titled,
+      onSave: vi.fn().mockRejectedValue(timeout()),
+    });
+    await user.click(screen.getByTestId("task-form-submit"));
+    expect(await screen.findByTestId("task-form-error")).toHaveTextContent(
+      "request timed out after 15000ms",
+    );
+  });
+});

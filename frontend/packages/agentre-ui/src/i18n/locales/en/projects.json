@@ -205,7 +205,10 @@
     },
     "search": {
       "placeholder": "Search tasks or #number…",
-      "count": "{{count}}"
+      "count": "{{count}}",
+      "countLabel": "{{count}} tasks",
+      "countLabel_one": "{{count}} task",
+      "countLabel_other": "{{count}} tasks"
     },
     "filter": {
       "apply": "Done",
@@ -245,6 +248,8 @@
       "remove": "Remove {{name}}"
     },
     "form": {
+      "timeout": "The network timed out. It may already have been created.",
+      "timeoutRefresh": "Refresh to check",
       "breadcrumb": "Task location",
       "newTask": "New task",
       "title": "Title",

@@ -28,6 +28,8 @@ export interface IssueBoardProps {
    * 满宽，不接拖拽（移动走卡片菜单）。不传（`columns`）时与桌面一致。
    */
   layout?: "columns" | "stage";
+  /** 不在卡片上显示 `#N`（宿主的编号对用户没有意义时）。不传时与桌面一致。 */
+  hideCardNumber?: boolean;
 }
 
 /**
@@ -43,6 +45,7 @@ export function IssueBoard({
   nowMs,
   className,
   layout = "columns",
+  hideCardNumber,
 }: IssueBoardProps) {
   const { t } = useUiTranslation();
   const [activeStage, setActiveStage] = React.useState<BoardStage>("todo");
@@ -121,6 +124,7 @@ export function IssueBoard({
             cardDrag={stageLayout ? undefined : drag?.card}
             onExpand={expandDone}
             nowMs={resolvedNow}
+            hideCardNumber={hideCardNumber}
           />
         ))
       )}

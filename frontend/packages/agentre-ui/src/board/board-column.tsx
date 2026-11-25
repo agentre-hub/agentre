@@ -25,6 +25,7 @@ export interface BoardColumnProps {
   nowMs?: number;
   /** 阶段档：本列独占整屏宽，卡片走触屏档。不传时与桌面一致。 */
   layout?: "columns" | "stage";
+  hideCardNumber?: boolean;
 }
 
 /**
@@ -43,6 +44,7 @@ export function BoardColumn({
   onExpand,
   nowMs,
   layout = "columns",
+  hideCardNumber,
 }: BoardColumnProps) {
   const stageLayout = layout === "stage";
   const { t } = useUiTranslation();
@@ -118,6 +120,7 @@ export function BoardColumn({
             drag={cardDrag?.(card.id)}
             nowMs={nowMs}
             touch={stageLayout}
+            hideCardNumber={hideCardNumber}
           />
         ))}
         {state.hiddenCount > 0 ? (
