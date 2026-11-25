@@ -1821,7 +1821,7 @@ message BackendConnectionTestResponse {
 // 消息原样展示给用户。
 //
 // 密钥：CtlProvider.api_key 与 CtlBackend.token 在写请求里是明文，在任何响应里都不得是
-// 明文——api_key 只回掩码，token 只回 token_set。
+// 明文，也不给掩码——api_key 在响应里恒为空（只写），只回 api_key_set；token 只回 token_set。
 
 // CtlKind 是 agrctl 能管理的资源类型。
 enum CtlKind {
@@ -1921,7 +1921,7 @@ message CtlProvider {
   string type = 3;
   string base_url = 4;
   bool enabled = 5;
-  // 写入时是明文；响应里只能是掩码（前 4 位、圆点、后 4 位），未设置时为空。
+  // 只写：写入时是明文；响应里恒为空（连掩码也不给），是否已设置看 api_key_set。
   string api_key = 6;
   // 只读：是否已设置 API key。
   bool api_key_set = 7;

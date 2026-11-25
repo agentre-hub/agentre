@@ -18412,7 +18412,7 @@ type CtlProvider struct {
 	Type    string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
 	BaseUrl string                 `protobuf:"bytes,4,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
 	Enabled bool                   `protobuf:"varint,5,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	// 写入时是明文；响应里只能是掩码（前 4 位、圆点、后 4 位），未设置时为空。
+	// 只写：写入时是明文；响应里恒为空（连掩码也不给），是否已设置看 api_key_set。
 	ApiKey string `protobuf:"bytes,6,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
 	// 只读：是否已设置 API key。
 	ApiKeySet bool `protobuf:"varint,7,opt,name=api_key_set,json=apiKeySet,proto3" json:"api_key_set,omitempty"`

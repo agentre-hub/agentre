@@ -6690,7 +6690,7 @@ public nonisolated struct Agentre_Wire_CtlProvider: Sendable {
 
   public var enabled: Bool = false
 
-  /// 写入时是明文；响应里只能是掩码（前 4 位、圆点、后 4 位），未设置时为空。
+  /// 只写：写入时是明文；响应里恒为空（连掩码也不给），是否已设置看 api_key_set。
   public var apiKey: String = String()
 
   /// 只读：是否已设置 API key。

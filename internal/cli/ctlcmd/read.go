@@ -365,7 +365,7 @@ type providerView struct {
 	Type         string              `json:"type"`
 	BaseURL      string              `json:"baseUrl"`
 	Enabled      bool                `json:"enabled"`
-	APIKey       string              `json:"apiKey"`
+	APIKeySet    bool                `json:"apiKeySet"`
 	DefaultModel string              `json:"defaultModel"`
 	Models       []providerModelView `json:"models"`
 	References   references          `json:"references"`
@@ -431,7 +431,7 @@ func (c *catalog) view(r *agentrewire.CtlResource, detail bool) any {
 	case *agentrewire.CtlResource_Provider:
 		x := d.Provider
 		v := providerView{ID: x.GetId(), Name: x.GetName(), Type: x.GetType(), BaseURL: x.GetBaseUrl(), Enabled: x.GetEnabled(),
-			APIKey: x.GetApiKey(), DefaultModel: c.defaultModelID(x), Models: []providerModelView{},
+			APIKeySet: x.GetApiKeySet(), DefaultModel: c.defaultModelID(x), Models: []providerModelView{},
 			References: references{AgentBackends: x.GetBackendRefs()}}
 		for _, m := range c.modelsOf(x.GetId()) {
 			v.Models = append(v.Models, providerModelView{ModelID: m.GetModelId(), ContextWindow: m.GetContextWindow(), Enabled: m.GetEnabled()})
