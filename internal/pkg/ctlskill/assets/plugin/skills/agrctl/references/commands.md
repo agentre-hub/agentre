@@ -313,6 +313,15 @@ desktop; `--limit` defaults to 50. `--mine` is refused on the desktop (exit `2`)
 await an answer) and `lastText` (the last turn's final text, shortened). A field that cannot be
 determined is omitted, not guessed.
 
+Against the account (after `agrctl login`) the same commands work on the account's sessions:
+`list sessions` merges the sessions saved to the account (console and CLI started) with the ones
+running on online devices; a saved session on an offline device keeps its last known status and
+is marked (`deviceOffline: true`, `(offline)` in the table), and unsaved sessions of an offline
+device are absent. `--mine` keeps only the sessions this caller started. `messages` falls back to
+the account's mirror when the device is offline (`device … is offline` when nothing was mirrored),
+and `tail` needs the device online. `pending` also lists approval cards (`kind` `approval`, with
+`title` and `summary`); answer them with `--allow` / `--deny`.
+
 ## `messages`
 
 ```

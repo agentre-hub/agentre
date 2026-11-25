@@ -235,12 +235,18 @@ func runTail(args []string, s *sys) error {
 		return err
 	}
 	untilIdle := p.on("until-idle")
-	ep, err := conversationEndpoint(s, p, false, "")
+	x, err := conversationExecutor(s, p, false, "")
 	if err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	if x.kind == execAccount {
+		chat := newAccountChat(s, x, append([]string{"tail"}, args...))
+		defer chat.close()
+		return chat.tail(ctx, s.stdout, id, last(p, "from"), untilIdle)
+	}
+	ep := x.ep
 	cursor := last(p, "from")
 	connected := false
 	for attempt := 0; ; attempt++ {

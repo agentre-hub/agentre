@@ -136,11 +136,6 @@ func (x *executor) refuseExternal(s *sys, what string) error {
 		"for a program or an agent CLI, issue a personal token and pass it in AGENTRE_TOKEN", what)
 }
 
-// errAccountConversations：这几个会话命令（tail / messages / pending / answer / 会话查询）的账号
-// 执行者还没有接上；send / wait / stop 已经经 relay 走到承载会话的那台机器。
-var errAccountConversations = errors.New(
-	"this session command is not available against the account yet; use --desktop for this desktop's sessions")
-
 // conversationExecutor 为会话命令选执行者。chat 为 true 的命令（send / stop / answer）在账号
 // 登录态下先过外部程序护栏。
 func conversationExecutor(s *sys, p parsedArgs, chat bool, what string) (*executor, error) {
@@ -154,18 +149,6 @@ func conversationExecutor(s *sys, p parsedArgs, chat bool, what string) (*execut
 		}
 	}
 	return x, nil
-}
-
-// conversationEndpoint 是还只接了会话 / 桌面执行者的会话命令用的入口。
-func conversationEndpoint(s *sys, p parsedArgs, chat bool, what string) (ctlclient.Endpoint, error) {
-	x, err := conversationExecutor(s, p, chat, what)
-	if err != nil {
-		return ctlclient.Endpoint{}, err
-	}
-	if x.kind == execAccount {
-		return ctlclient.Endpoint{}, errAccountConversations
-	}
-	return x.ep, nil
 }
 
 // extractDesktopFlag 取出全局 flag --desktop（`--` 之后的不算），交回其余参数。

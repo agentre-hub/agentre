@@ -127,7 +127,9 @@ const listSessionsUsage = `agrctl list sessions [--agent <name|id>] [--project <
 
 Lists the sessions of this desktop (including the ones it runs on remote devices), most recently
 active first. The first column is the full session id every other session command takes.
---mine needs an account and is refused on the desktop (exit 2). -o json prints an array of
+--mine needs an account and is refused on the desktop (exit 2). Against the account it merges the
+saved sessions with the ones running on online devices (an offline device's saved sessions keep
+their last known status and are marked offline). -o json prints an array of
 {id, title, agent, device, status, lastActivityAt}.`
 
 const getSessionUsage = `agrctl get session <session>

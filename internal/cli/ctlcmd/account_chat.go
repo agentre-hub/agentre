@@ -669,14 +669,14 @@ func (a *accountChat) wait(ctx context.Context, id string, timeout time.Duration
 	}
 }
 
-// check 查一次会话状态：等待输入（含审批卡）、空闲 / 失败，或仍在跑（done = false）。
-func (a *accountChat) check(ctx context.Context, h *session, id string) (conversationReply, bool, error) {
+// state 读会话此刻的状态：等待输入（含审批卡；交回待处理项）、失败、空闲，或仍在跑。
+func (a *accountChat) state(ctx context.Context, h *session, id string) (string, *agentrewire.SessionPendingWaitersResponse, error) {
 	sum, err := summaryOf(ctx, h.conn, id)
 	if err != nil {
-		return conversationReply{}, false, err
+		return "", nil, err
 	}
 	if sum == nil {
-		return conversationReply{}, false, errSessionNotVisible
+		return "", nil, errSessionNotVisible
 	}
 	h.summary = sum
 	state := sum.GetLifecycleState()
@@ -684,24 +684,42 @@ func (a *accountChat) check(ctx context.Context, h *session, id string) (convers
 		// agentred 的 waiting_for_input 不算 ctl 审批卡：审批卡另在 approvals 里，同样是等待输入。
 		p, err := wirecall.SessionPendingWaiters(ctx, h.conn, &agentrewire.SessionPendingWaitersRequest{ConversationId: id, PeerFingerprint: h.origin()})
 		if err != nil {
-			return conversationReply{}, false, err
+			return "", nil, err
 		}
 		if len(p.GetToolPermissions())+len(p.GetAskUserQuestions())+len(p.GetApprovals()) > 0 {
-			raw, err := json.Marshal(pendingJSON(p))
-			if err != nil {
-				return conversationReply{}, false, err
-			}
-			return conversationReply{ConversationID: id, Status: statusWaiting, Pending: raw}, true, nil
+			return statusWaiting, p, nil
 		}
 		if state == lifecycleRunning {
-			return conversationReply{}, false, nil
+			return statusRunning, nil, nil
 		}
+	}
+	if state == lifecycleFailed {
+		return statusFailed, nil, nil
+	}
+	return statusIdle, nil, nil
+}
+
+// check 查一次会话状态：等待输入、空闲 / 失败，或仍在跑（done = false）。
+func (a *accountChat) check(ctx context.Context, h *session, id string) (conversationReply, bool, error) {
+	status, p, err := a.state(ctx, h, id)
+	if err != nil {
+		return conversationReply{}, false, err
+	}
+	switch status {
+	case statusRunning:
+		return conversationReply{}, false, nil
+	case statusWaiting:
+		raw, err := json.Marshal(pendingJSON(p))
+		if err != nil {
+			return conversationReply{}, false, err
+		}
+		return conversationReply{ConversationID: id, Status: statusWaiting, Pending: raw}, true, nil
 	}
 	text, failure, err := lastTurn(ctx, h, id)
 	if err != nil {
 		return conversationReply{}, false, err
 	}
-	if state == lifecycleFailed {
+	if status == statusFailed {
 		if failure == "" {
 			failure = "the turn failed"
 		}

@@ -41,6 +41,11 @@ type world struct {
 	srv    *fakeServer
 	relay  *relaypeertest.Relay
 	box    *fakeAgentred
+	laptop *fakeAgentred // 笔记本：登记在 relay 上但离线
+	// saved 是账号的会话索引（/v1/agent-sessions），mirror 是 server 镜像的帧（/transcript）。
+	saved  []map[string]any
+	mirror map[string][]map[string]any
+	mseq   int64
 	tiers  map[string][]tierSpec // agent sync id → 执行目标链
 	mu     sync.Mutex
 	plans  []string // dispatch-target 收到的 query
@@ -70,10 +75,16 @@ func newWorld(t *testing.T) *world {
 	})
 	w.box = newFakeAgentred()
 	w.relay.AddMachine(&relaypeertest.Machine{Fingerprint: boxFP, Registry: w.box.registry(), Identify: identify})
+	w.laptop = newFakeAgentred()
+	w.relay.AddMachine(&relaypeertest.Machine{Fingerprint: laptopFP, Registry: w.laptop.registry(), Identify: identify})
+	w.relay.SetOffline(laptopFP, true)
 	f.mux.Handle(w.relay.Path, w.relay)
 	f.mux.HandleFunc("/v1/workspace/dispatch-target", w.serveDispatch)
 	f.mux.HandleFunc("/v1/devices", w.serveDevices)
 	f.mux.HandleFunc("/v1/saved-sessions", w.serveSave)
+	f.mux.HandleFunc("/v1/agent-sessions", w.serveIndex)
+	f.mux.HandleFunc("/v1/agent-sessions/transcript", w.serveTranscript)
+	w.mirror = map[string][]map[string]any{}
 	return w
 }
 
@@ -208,8 +219,9 @@ type fakeAgentred struct {
 	// onRun 在每次 runtime.run 接受之后被调用（锁外），测试据此让这一轮结束。
 	onRun func(req *agentrewire.RuntimeRunRequest)
 	// listed 每次 session.list 之后被调用（锁外），测试据此在等待途中制造断线等事件。
-	listed func(n int)
-	lists  int
+	listed     func(n int)
+	lists      int
+	answersLog *answerLog
 }
 
 func newFakeAgentred() *fakeAgentred {
@@ -397,6 +409,11 @@ func (f *fakeAgentred) registry() *protorpc.Registry {
 		func(_ context.Context, req *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
 			f.mu.Lock()
 			out := &agentrewire.SessionListResponse{}
+			if len(req.GetConversationIds()) == 0 { // 账号凭据：这台机器上所有对端的会话
+				for _, s := range f.sessions {
+					out.Sessions = append(out.Sessions, cloneSummary(s.summary))
+				}
+			}
 			for _, id := range req.GetConversationIds() {
 				if s := f.sessions[id]; s != nil {
 					out.Sessions = append(out.Sessions, cloneSummary(s.summary))
@@ -461,6 +478,7 @@ func (f *fakeAgentred) registry() *protorpc.Registry {
 			f.note("effort:" + req.GetReasoningEffort())
 			return &agentrewire.SetSessionReasoningEffortResponse{}, nil
 		})
+	f.registerAnswers(reg)
 	return reg
 }
 

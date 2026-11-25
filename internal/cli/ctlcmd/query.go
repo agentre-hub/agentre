@@ -1,6 +1,7 @@
 package ctlcmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -51,6 +52,8 @@ type sessionRow struct {
 	Device         string `json:"device"`
 	Status         string `json:"status"`
 	LastActivityAt string `json:"lastActivityAt,omitempty"`
+	// DeviceOffline 只在账号模式出现：承载设备此刻离线，这一行是它最后已知的状态。
+	DeviceOffline bool `json:"deviceOffline,omitempty"`
 }
 
 // runListSessions:`agrctl list sessions [--agent …] [-o json]`。
@@ -88,10 +91,14 @@ func runListSessions(args []string, s *sys) error {
 	if p.on("mine") {
 		body["mine"] = true
 	}
-	ep, err := conversationEndpoint(s, p, false, "")
+	x, err := conversationExecutor(s, p, false, "")
 	if err != nil {
 		return err
 	}
+	if x.kind == execAccount {
+		return listAccountSessions(s, x, args, p, asJSON)
+	}
+	ep := x.ep
 	if ref := last(p, "project"); ref != "" {
 		id, err := strconv.ParseInt(ref, 10, 64)
 		if err != nil || id <= 0 {
@@ -111,14 +118,38 @@ func runListSessions(args []string, s *sys) error {
 	if out.Sessions == nil {
 		out.Sessions = []sessionRow{}
 	}
+	return printSessionRows(s, out.Sessions, asJSON)
+}
+
+func printSessionRows(s *sys, sessions []sessionRow, asJSON bool) error {
 	if asJSON {
-		return printJSON(s.stdout, out.Sessions)
+		return printJSON(s.stdout, sessions)
 	}
-	rows := make([][]string, 0, len(out.Sessions))
-	for _, r := range out.Sessions {
-		rows = append(rows, []string{r.ID, r.Title, r.Agent, r.Device, r.Status, r.LastActivityAt})
+	rows := make([][]string, 0, len(sessions))
+	for _, r := range sessions {
+		device := r.Device
+		if r.DeviceOffline {
+			device += " (offline)"
+		}
+		rows = append(rows, []string{r.ID, r.Title, r.Agent, device, r.Status, r.LastActivityAt})
 	}
 	return printTable(s.stdout, []string{"ID", "TITLE", "AGENT", "DEVICE", "STATUS", "LAST ACTIVITY"}, rows)
+}
+
+// listAccountSessions 是账号执行者的 list sessions：筛选在客户端做（账号索引加在线设备的会话）。
+func listAccountSessions(s *sys, x *executor, args []string, p parsedArgs, asJSON bool) error {
+	f := sessionFilter{agent: last(p, "agent"), project: last(p, "project"), device: last(p, "device"),
+		status: last(p, "status"), mine: p.on("mine"), limit: 50}
+	if p.has("limit") {
+		f.limit, _ = strconv.Atoi(last(p, "limit"))
+	}
+	chat := newAccountChat(s, x, append([]string{"list", "sessions"}, args...))
+	defer chat.close()
+	rows, err := chat.listSessions(context.Background(), f)
+	if err != nil {
+		return err
+	}
+	return printSessionRows(s, rows, asJSON)
 }
 
 // runGetSession:`agrctl get session <id>`,JSON 详情(执行者省略的字段不补)。
@@ -137,10 +168,20 @@ func runGetSession(args []string, s *sys) error {
 	if err := checkSessionRef(id); err != nil {
 		return err
 	}
-	ep, err := conversationEndpoint(s, p, false, "")
+	x, err := conversationExecutor(s, p, false, "")
 	if err != nil {
 		return err
 	}
+	if x.kind == execAccount {
+		chat := newAccountChat(s, x, append([]string{"get", "session"}, args...))
+		defer chat.close()
+		d, err := chat.getSession(context.Background(), id)
+		if err != nil {
+			return err
+		}
+		return printJSON(s.stdout, d)
+	}
+	ep := x.ep
 	var out json.RawMessage
 	if err := ep.Post("/ctl/v1/conversation", map[string]any{"conversationId": id}, &out); err != nil {
 		return conversationErr(err)
@@ -202,12 +243,25 @@ func runMessages(args []string, s *sys) error {
 	if p.on("full") {
 		body["full"] = true
 	}
-	ep, err := conversationEndpoint(s, p, false, "")
+	x, err := conversationExecutor(s, p, false, "")
 	if err != nil {
 		return err
 	}
 	var page messagesPage
-	if err := ep.Post("/ctl/v1/messages", body, &page); err != nil {
+	if x.kind == execAccount {
+		chat := newAccountChat(s, x, append([]string{"messages"}, args...))
+		defer chat.close()
+		n, _ := body["last"].(int)
+		var beforeSeq int64
+		if v, ok := body["before"].(string); ok {
+			if beforeSeq, err = strconv.ParseInt(v, 10, 64); err != nil || beforeSeq <= 0 {
+				return usageErrorf("invalid --before cursor %q", v)
+			}
+		}
+		if page, err = chat.messages(context.Background(), id, n, beforeSeq, p.on("full")); err != nil {
+			return err
+		}
+	} else if err := x.ep.Post("/ctl/v1/messages", body, &page); err != nil {
 		return conversationErr(err)
 	}
 	if page.Messages == nil {
@@ -262,12 +316,18 @@ type pendingItem struct {
 	Tool      string            `json:"tool,omitempty"`
 	Input     json.RawMessage   `json:"input,omitempty"`
 	Questions []pendingQuestion `json:"questions,omitempty"`
+	// Title / Summary 只有账号模式的审批卡（kind "approval"）带。
+	Title   string          `json:"title,omitempty"`
+	Summary json.RawMessage `json:"summary,omitempty"`
 }
 
 // summary 是 pending 表格最后一列:提问的第一道题,或工具名加输入。
 func (it pendingItem) summary() string {
 	if len(it.Questions) > 0 {
 		return it.Questions[0].Question
+	}
+	if it.Title != "" {
+		return it.Title
 	}
 	if len(it.Input) > 0 {
 		return strings.TrimSpace(it.Tool + " " + string(it.Input))
@@ -295,14 +355,21 @@ func runPending(args []string, s *sys) error {
 		}
 		body["conversationId"] = p.positional[0]
 	}
-	ep, err := conversationEndpoint(s, p, false, "")
+	x, err := conversationExecutor(s, p, false, "")
 	if err != nil {
 		return err
 	}
 	var out struct {
 		Items []pendingItem `json:"items"`
 	}
-	if err := ep.Post("/ctl/v1/pending", body, &out); err != nil {
+	if x.kind == execAccount {
+		chat := newAccountChat(s, x, append([]string{"pending"}, args...))
+		defer chat.close()
+		id, _ := body["conversationId"].(string)
+		if out.Items, err = chat.pending(context.Background(), id); err != nil {
+			return err
+		}
+	} else if err := x.ep.Post("/ctl/v1/pending", body, &out); err != nil {
 		return conversationErr(err)
 	}
 	if out.Items == nil {
@@ -364,7 +431,7 @@ func runAnswer(args []string, s *sys) error {
 	default:
 		body["text"] = text
 	}
-	ep, err := conversationEndpoint(s, p, true, "answering a pending item")
+	x, err := conversationExecutor(s, p, true, "answering a pending item")
 	if err != nil {
 		return err
 	}
@@ -372,7 +439,16 @@ func runAnswer(args []string, s *sys) error {
 		Answered bool   `json:"answered"`
 		Kind     string `json:"kind"`
 	}
-	if err := ep.Post("/ctl/v1/answer", body, &out); err != nil {
+	if x.kind == execAccount {
+		chat := newAccountChat(s, x, append([]string{"answer"}, args...))
+		defer chat.close()
+		out.Kind, err = chat.answer(context.Background(), answerInput{session: session, item: item, options: options, text: text,
+			hasText: p.has("text"), allow: allow, deny: deny, message: last(p, "message")})
+		if err != nil {
+			return err
+		}
+		out.Answered = true
+	} else if err := x.ep.Post("/ctl/v1/answer", body, &out); err != nil {
 		return conversationErr(err)
 	}
 	if asJSON {
