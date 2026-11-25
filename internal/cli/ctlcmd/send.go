@@ -1,70 +1,220 @@
 package ctlcmd
 
 import (
-	"errors"
-	"flag"
+	"encoding/base64"
 	"fmt"
-	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
-// runSend 派发一条任务给某个 agent（`agrctl send`）。
+// sendFlags 是 `agrctl send` 接受的 flag;它们同时是 help 的数据源。
+var sendFlags = []*flagDef{
+	{name: "agent", value: "<name|id>", usage: "new session: target agent by name or id"},
+	{name: "agent-id", value: "<id>", usage: "new session: target agent by id (same as --agent <id>)"},
+	{name: "project", value: "<ref>", usage: "new session: project by name, parent/child path or id (default: free session)"},
+	{name: "title", value: "<title>", usage: "new session: its title"},
+	{name: "isolated", usage: "new session: one-shot isolated session (not shown in the sidebar)"},
+	{name: "session", value: "<id>", usage: "continue this session (its full UUID) instead of starting one"},
+	{name: "steer", usage: "the session is running: interject into the current turn (no --image)"},
+	{name: "image", value: "<file>", usage: "attach a local image (png, jpeg, gif, webp); repeatable", repeat: true},
+	{name: "model", value: "<provider>/<model>", usage: "run on this provider model from now on"},
+	{name: "cli-model", value: "<model>", usage: "run the agent CLI on this model from now on"},
+	{name: "effort", value: "<level>", usage: "reasoning effort from now on: low, medium, high, xhigh, max"},
+	{name: "permission-mode", value: "<mode>", usage: "permission mode from now on (depends on the backend)"},
+	{name: "wait", usage: "block like agrctl wait: until idle (exit 0), failed (1), waiting for input (4)"},
+	{name: "timeout", value: "<duration>", usage: "with --wait: give up after this long (e.g. 90s, 10m) — exit 5"},
+	{name: "device", value: "<device>", usage: "account mode only (agrctl login): run on this device"},
+	{name: "backend", value: "<ref>", usage: "account mode only (agrctl login): run on this agent backend"},
+	{name: "endpoint", value: "<url>", usage: "control endpoint URL   (env AGENTRE_CTL_ENDPOINT)"},
+	{name: "token", value: "<value>", usage: "control credential     (env AGENTRE_CTL_TOKEN)"},
+	outputFlag, outputFlagLong,
+}
+
+// newSessionOnly 是只对新会话有意义、与 --session 互斥的 flag。
+var newSessionOnly = []string{"agent", "agent-id", "project", "title", "isolated", "device", "backend"}
+
+// runSend 派发一条任务给某个 agent,或继续一条会话(`agrctl send`)。
 func runSend(args []string, s *sys) error {
-	fs := flag.NewFlagSet("send", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	endpoint := fs.String("endpoint", "", "control endpoint URL (env AGENTRE_CTL_ENDPOINT)")
-	token := fs.String("token", "", "control token (env AGENTRE_CTL_TOKEN)")
-	agent := fs.String("agent", "", "target agent name")
-	agentID := fs.Int64("agent-id", 0, "target agent id (overrides --agent)")
-	project := fs.Int64("project", 0, "project id (0 = free session)")
-	wait := fs.Bool("wait", false, "block until the turn finishes, then print final text")
-	isolated := fs.Bool("isolated", false, "one-shot isolated session (not shown in sidebar)")
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			_, _ = fmt.Fprintln(s.stdout, sendUsage)
-			return nil
-		}
-		return usageErrorf("send: %v", err)
+	p, err := parseArgs(args, sendFlags)
+	if err != nil {
+		return err
 	}
-	text := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if *agent == "" && *agentID == 0 {
-		return usageErrorf("send: --agent or --agent-id is required")
+	asJSON, err := wantJSON(p)
+	if err != nil {
+		return err
+	}
+	text := strings.TrimSpace(strings.Join(p.positional, " "))
+	session := last(p, "session")
+	if session != "" {
+		if err := checkSessionRef(session); err != nil {
+			return err
+		}
+		for _, name := range newSessionOnly {
+			if p.has(name) {
+				return usageErrorf("send: --session continues an existing session; it cannot be combined with --%s", name)
+			}
+		}
+	} else if !p.has("agent") && !p.has("agent-id") {
+		return usageErrorf("send: --agent is required (or --session <id> to continue a session)")
+	}
+	for _, name := range []string{"device", "backend"} {
+		if p.has(name) {
+			return usageErrorf("send: --%s needs account mode (agrctl login); the executor here is the local desktop", name)
+		}
+	}
+	if p.has("model") && p.has("cli-model") {
+		return usageErrorf("send: --model and --cli-model are mutually exclusive")
+	}
+	if p.on("steer") && p.has("image") {
+		return usageErrorf("send: --steer cannot carry an --image")
+	}
+	timeout, err := waitTimeout(p, "send", p.on("wait"))
+	if err != nil {
+		return err
 	}
 	if text == "" {
 		return usageErrorf("send: task text is required")
 	}
-	ep, err := ctlclient.Resolve(*endpoint, *token, s.lookupEnv)
+	images, err := readImages(p.values("image"))
 	if err != nil {
 		return err
 	}
-	body := map[string]any{
-		"agent":     *agent,
-		"agentId":   *agentID,
-		"projectId": *project,
-		"text":      text,
-		"wait":      *wait,
-		"isolated":  *isolated,
-	}
-	var out struct {
-		SessionID          int64  `json:"sessionId"`
-		AssistantMessageID int64  `json:"assistantMessageId"`
-		Text               string `json:"text"`
-		Done               bool   `json:"done"`
-	}
-	if err := ep.Post("/ctl/v1/send", body, &out); err != nil {
+	ep, err := ctlclient.Resolve(last(p, "endpoint"), last(p, "token"), s.lookupEnv)
+	if err != nil {
 		return err
 	}
-	if *wait {
-		_, _ = fmt.Fprintln(s.stdout, out.Text)
-		return nil
+	body := map[string]any{"text": text, "wait": p.on("wait")}
+	if session != "" {
+		body["conversationId"] = session
+	} else {
+		if err := newSessionBody(body, p, ep, args); err != nil {
+			return err
+		}
 	}
-	label := *agent
-	if label == "" {
-		label = fmt.Sprintf("agent #%d", *agentID)
+	if p.on("steer") {
+		body["steer"] = true
 	}
-	_, _ = fmt.Fprintf(s.stderr, "dispatched to %s — session #%d\n", label, out.SessionID)
-	_, _ = fmt.Fprintln(s.stdout, out.SessionID)
+	for flagName, field := range map[string]string{"model": "model", "cli-model": "cliModel", "effort": "effort", "permission-mode": "permissionMode"} {
+		if v := last(p, flagName); v != "" {
+			body[field] = v
+		}
+	}
+	if len(images) > 0 {
+		body["images"] = images
+	}
+	if timeout > 0 {
+		body["timeoutMs"] = timeout.Milliseconds()
+	}
+	var out conversationReply
+	if err := ep.Post("/ctl/v1/send", body, &out); err != nil {
+		return conversationErr(err)
+	}
+	if p.on("wait") {
+		return printOutcome(s, out.outcome(), asJSON)
+	}
+	if asJSON {
+		return printJSON(s.stdout, out.outcome())
+	}
+	where := out.Device
+	if where == "" {
+		where = "this desktop"
+	}
+	verb := "dispatched to"
+	if out.Steered {
+		verb = "steered into the running turn of"
+	}
+	_, _ = fmt.Fprintf(s.stderr, "%s %s — %s\n", verb, out.Agent, where)
+	_, _ = fmt.Fprintln(s.stdout, out.ConversationID)
 	return nil
+}
+
+// newSessionBody 填新会话的定位:agent(名字或 id)、项目(名字 / 路径 / id)、标题、隔离。
+func newSessionBody(body map[string]any, p parsedArgs, ep ctlclient.Endpoint, args []string) error {
+	if v := last(p, "agent-id"); v != "" {
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || id <= 0 {
+			return usageErrorf("send: --agent-id must be a positive number, got %q", v)
+		}
+		body["agentId"] = id
+	} else {
+		body["agent"] = last(p, "agent")
+	}
+	if ref := last(p, "project"); ref != "" {
+		id, err := strconv.ParseInt(ref, 10, 64)
+		if err != nil || id <= 0 {
+			cat := &catalog{ep: ep, args: append([]string{"send"}, args...), site: -1, lists: map[agentrewire.CtlKind][]*agentrewire.CtlResource{}}
+			if id, err = refID(cat, kindProject, ref); err != nil {
+				return err
+			}
+		}
+		body["projectId"] = id
+	}
+	if v := last(p, "title"); v != "" {
+		body["title"] = v
+	}
+	if p.on("isolated") {
+		body["isolated"] = true
+	}
+	return nil
+}
+
+// last 是 flag 最后一次出现的值;没出现过为空串。
+func last(p parsedArgs, name string) string {
+	vals := p.values(name)
+	if len(vals) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(vals[len(vals)-1])
+}
+
+// waitTimeout 解析 --timeout;它只在等待时有意义。
+func waitTimeout(p parsedArgs, verb string, waiting bool) (time.Duration, error) {
+	v := last(p, "timeout")
+	if v == "" {
+		return 0, nil
+	}
+	if !waiting {
+		return 0, usageErrorf("%s: --timeout only applies with --wait", verb)
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0, usageErrorf("%s: --timeout takes a positive duration such as 90s or 10m, got %q", verb, v)
+	}
+	return d, nil
+}
+
+// sendImage 是 /ctl/v1/send 的图片附件。
+type sendImage struct {
+	Name    string `json:"name,omitempty"`
+	DataURL string `json:"dataUrl"`
+}
+
+// supportedImageTypes 是 --image 接受的格式(按文件内容判断,不看扩展名)。
+var supportedImageTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
+
+// readImages 读取 --image 文件并编码成 data URL;文件读不到或不是支持的图片是用法错误。
+func readImages(paths []string) ([]sendImage, error) {
+	out := make([]sendImage, 0, len(paths))
+	for _, path := range paths {
+		data, err := os.ReadFile(path) //nolint:gosec // 读取用户在命令行上点名的文件就是本 flag 的用途。
+		if err != nil {
+			return nil, usageErrorf("send: --image %s: %v", path, err)
+		}
+		mime := http.DetectContentType(data)
+		if !supportedImageTypes[mime] {
+			return nil, usageErrorf("send: --image %s is not a supported image (png, jpeg, gif, webp)", path)
+		}
+		out = append(out, sendImage{
+			Name:    filepath.Base(path),
+			DataURL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data),
+		})
+	}
+	return out, nil
 }

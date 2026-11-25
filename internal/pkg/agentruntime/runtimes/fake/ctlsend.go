@@ -178,9 +178,16 @@ func postCtlSend(ctx context.Context, c agentruntime.CtlCredentials, agentID int
 		return err.Error(), err
 	}
 	var out struct {
-		Text string `json:"text"`
+		Status string `json:"status"`
+		Text   string `json:"text"`
+		Error  string `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
+		return err.Error(), err
+	}
+	// 子轮以错误收场时控制 API 回 200 + status failed(与 agrctl send --wait 退出码 1 同一判据)。
+	if out.Status == "failed" {
+		err := fmt.Errorf("send: turn failed: %s", out.Error)
 		return err.Error(), err
 	}
 	return out.Text, nil

@@ -37,10 +37,10 @@ func fakeControl(t *testing.T, token string) *httptest.Server {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		if body.Wait {
-			_, _ = io.WriteString(w, `{"sessionId":100,"assistantMessageId":200,"text":"the answer","done":true}`)
+			_, _ = io.WriteString(w, `{"conversationId":"`+sessA+`","agent":"planner","assistantMessageId":200,"status":"idle","text":"the answer","done":true}`)
 			return
 		}
-		_, _ = io.WriteString(w, `{"sessionId":100,"assistantMessageId":200,"done":false}`)
+		_, _ = io.WriteString(w, `{"conversationId":"`+sessA+`","agent":"planner","assistantMessageId":200,"status":"running","done":false}`)
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -109,9 +109,9 @@ func TestRun_SendNoWait(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code = %d, want 0 (stderr=%s)", code, errs)
 	}
-	// 即发即返：sessionId 落 stdout 供脚本消费。
-	if !strings.Contains(out, "100") {
-		t.Fatalf("stdout = %q, want sessionId 100", out)
+	// 即发即返：完整的会话 UUID 落 stdout 供脚本消费。
+	if out != sessA+"\n" {
+		t.Fatalf("stdout = %q, want the session UUID", out)
 	}
 }
 

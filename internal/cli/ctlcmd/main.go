@@ -53,6 +53,8 @@ const (
 	exitFailed   = 1 // 执行失败、被拒绝、审批超时、连接不上执行者
 	exitUsage    = 2 // 未知子命令或 flag、缺必填项、定位有歧义
 	exitNeedsTTY = 3 // 没有 TTY 却要输入密钥
+	exitWaiting  = 4 // 会话在等待输入(stdout 为待处理项 JSON)
+	exitTimeout  = 5 // 等待超时,会话仍在运行
 )
 
 // cliError 是带退出码的错误；其它错误一律按执行失败（1）处理。
@@ -84,11 +86,21 @@ func run(args []string, s *sys) int {
 
 func dispatch(args []string, s *sys) error {
 	verb, rest := args[0], args[1:]
+	if u := verbUsage(verb); u != "" && wantsHelp(rest) {
+		_, _ = fmt.Fprintln(s.stdout, u)
+		return nil
+	}
 	switch verb {
 	case "help", "-h", "--help":
 		return runHelp(rest, s.stdout)
 	case "send":
 		return runSend(rest, s)
+	case "wait":
+		return runWait(rest, s)
+	case "tail":
+		return runTail(rest, s)
+	case "stop":
+		return runStop(rest, s)
 	case "list":
 		return runList(rest, s)
 	case "get":
@@ -108,8 +120,11 @@ func report(s *sys, err error) int {
 	var ce *cliError
 	if errors.As(err, &ce) {
 		prefix := "Error: "
-		if ce.code == exitNeedsTTY {
+		switch ce.code {
+		case exitNeedsTTY:
 			prefix = "NEEDS TTY: "
+		case exitWaiting, exitTimeout:
+			prefix = "" // 不是失败:会话在等输入 / 还在跑
 		}
 		_, _ = fmt.Fprintln(s.stderr, prefix+ce.msg)
 		return ce.code

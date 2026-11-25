@@ -14,9 +14,11 @@ only fixes the output and error contract.
 | Code | Meaning |
 | --- | --- |
 | `0` | the command succeeded |
-| `1` | it failed: not found, rejected by the desktop or by the user's approval, approval timed out, or the desktop could not be reached |
-| `2` | usage error — unknown command or flag, missing required flag or argument, a `--config` key the backend type does not accept, or an ambiguous name |
+| `1` | it failed: not found, rejected by the desktop or by the user's approval, approval timed out, the session is running, a turn failed, or the desktop could not be reached |
+| `2` | usage error — unknown command or flag, missing required flag or argument, a `--config` key the backend type does not accept, an ambiguous name, a session reference that is not a full session UUID, a value the target backend does not support, or sending to your own session |
 | `3` | a human is needed: a bare secret flag was given without a terminal (`NEEDS TTY:`) |
+| `4` | the session waits for input; stdout holds the pending items as JSON |
+| `5` | `--timeout` passed while waiting; the session is still running |
 
 Errors go to stderr as `Error: <message>`; messages from the desktop (validation, "still in
 use", …) are shown verbatim. Exit code `3` prints `NEEDS TTY: <explanation>` instead.
@@ -71,7 +73,7 @@ shown by `get` only.
   "type": "openai-chat",
   "baseUrl": "<url>",
   "enabled": true,
-  "apiKey": "sk-o••••••••3f9a",
+  "apiKeySet": true,
   "defaultModel": "openai/gpt-5.1",
   "models": [ { "modelId": "openai/gpt-5.1", "contextWindow": 400000, "enabled": true } ],
   "references": { "agentBackends": 2 }
@@ -79,7 +81,8 @@ shown by `get` only.
 ```
 
 Field names match the create/update flags. References to other resources are printed as
-paths you can pass straight back to a flag. API keys are masked; other secrets only print
+paths you can pass straight back to a flag. API keys are never printed — `apiKeySet` says
+whether one is set; other secrets only print
 `set` / `unset`, or `unknown` when the device that keeps them cannot be asked (it is offline,
 or the backend is managed through the server). `list backends` shows the same state in its
 last column: `set`, `-` or `unknown`.
@@ -176,7 +179,10 @@ chat. `--api-key=<value>` also works, but the value stays in shell history.
 ## `send`
 
 ```
-{{AGRCTL_PATH}} send --agent <name> [--agent-id <id>] [--project <id>] [--wait] [--isolated] <task text...>
+{{AGRCTL_PATH}} send --agent <name> [--agent-id <id>] [--project <ref>] [--title <title>] [--isolated]
+                    [--model <provider>/<model> | --cli-model <model>] [--effort <level>]
+                    [--permission-mode <mode>] [--image <file>]... [--wait [--timeout <duration>]] [-o json] <task text...>
+{{AGRCTL_PATH}} send --session <id> [--steer] [--image <file>]... [--wait [--timeout <duration>]] [-o json] <text...>
 ```
 
 The task text is everything after the flags; quote it so the shell keeps it as one argument
@@ -188,7 +194,8 @@ when it contains spaces.
   {{AGRCTL_PATH}} send --agent reviewer --project 3 "review the diff on branch feat/x"
   ```
 
-  Stdout is the new session id; stderr carries a `dispatched to …` line.
+  Stdout is the session id — a full UUID such as `0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a7b`;
+  stderr carries `dispatched to reviewer — this desktop` (or the device that runs it).
 
 - Wait for the answer (only for a short question):
 
@@ -196,7 +203,8 @@ when it contains spaces.
   {{AGRCTL_PATH}} send --agent reviewer --wait "which files did you touch last?"
   ```
 
-  Stdout is that agent's final text, once its turn ends.
+  Stdout is that agent's final text once the session is idle; the exit codes are those of
+  `wait` below.
 
 - One-shot session that stays out of the sidebar:
 
@@ -204,10 +212,70 @@ when it contains spaces.
   {{AGRCTL_PATH}} send --agent-id 12 --isolated "summarize the release notes"
   ```
 
-Reminders: `--wait` blocks for the whole remote turn, and dispatching to the agent this
-session is running as deadlocks both sides. Foreground shell tools time out (Claude Code's
-foreground Bash stops after 10 minutes), so for a long turn run the `--wait` call
-as a background shell command.
+- Continue a session, or interject into its running turn:
+
+  ```
+  {{AGRCTL_PATH}} send --session 0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a7b "now add the tests"
+  Error: session is running; use --steer to interject, or agrctl wait first
+  {{AGRCTL_PATH}} send --session 0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a7b --steer "also cover the empty case"
+  ```
+
+- Change a setting for this session (from the next turn on):
+
+  ```
+  {{AGRCTL_PATH}} send --agent reviewer --effort turbo "…"
+  Error: --effort "turbo" is not supported by the target backend (one of: low, medium, high, xhigh, max)
+  ```
+
+- `-o json` prints one object: `{"session": "<id>", "status": "running|idle|failed|waiting", "text": …, "error": …, "pending": …}`.
+
+Reminders: `--wait` blocks until the session settles, dispatching to the agent this session is
+running as deadlocks both sides, and `send --session` to your own session is refused (exit `2`).
+Foreground shell tools time out (Claude Code's foreground Bash stops after 10 minutes), so for a
+long turn dispatch without `--wait` and run `wait <session>` as a background shell command.
+
+## `wait`
+
+```
+{{AGRCTL_PATH}} wait <session> [--timeout <duration>] [-o json]
+```
+
+| Session state | stdout | exit |
+| --- | --- | --- |
+| idle | final text of the last turn | `0` |
+| the last turn failed | — (stderr: its error) | `1` |
+| waiting for input | the pending items as JSON | `4` |
+| `--timeout` passed | — (stderr: `still running …`) | `5` |
+
+A dropped connection to the executor is retried and the wait continues. No timeout by default.
+
+## `tail`
+
+```
+{{AGRCTL_PATH}} tail <session> [--from <cursor>] [--until-idle]
+{"cursor":"v1:12","type":"tool_call","kind":"tool_use_start","data":{…}}
+{"cursor":"v1:12","type":"text","kind":"text_delta","preview":true,"data":{"kind":"text_delta","text":"Done"}}
+{"cursor":"v1:14","type":"turn_done","kind":"runtime.runResultDone","data":{…}}
+{"cursor":"v1:14","type":"status","status":"idle"}
+```
+
+One JSON object per line. `type` is one of `turn_started`, `text`, `thinking`, `tool_call`,
+`tool_result`, `user_message`, `pending`, `pending_resolved`, `turn_done`, `status`, `event`
+(anything else); `data` is the event as the executor saw it. `preview: true` lines are live
+increments — the settled content follows as a line without it. Treat `cursor` as opaque:
+`--from <cursor>` replays what came after it, then follows live. An expired cursor fails
+(exit `1`): read the history with `agrctl messages`. `--until-idle` exits `0` when the session
+goes idle and `4` when it waits for input; without it, `tail` follows until Ctrl-C.
+
+## `stop`
+
+```
+{{AGRCTL_PATH}} stop <session>
+stopped — dropped 1 undelivered steer message(s)
+```
+
+A session that is not running prints `session is not running` (exit `0`). Stopping is refused
+from inside an Agentre session.
 
 ## `acp` (run as an ACP agent)
 

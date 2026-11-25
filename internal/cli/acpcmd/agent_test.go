@@ -25,11 +25,14 @@ import (
 
 const testToken = "acp-test-token"
 
+// testConv 是假桌面端为新会话铸的 conversation_id。
+const testConv = "0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a7b"
+
 // ---- fake ctl server ----
 
 type fakeCtl struct {
 	srv          *httptest.Server
-	newSessionID int64
+	newSessionID string
 	// events 是每次 /send 之后推给 /stream 订阅者的 SSE 事件。
 	events []streamEvent
 
@@ -59,7 +62,7 @@ type fakeCtl struct {
 
 func newFakeCtl(t *testing.T) *fakeCtl {
 	t.Helper()
-	f := &fakeCtl{newSessionID: 100, streamCh: make(chan streamEvent, 64), permCh: make(chan map[string]any, 8)}
+	f := &fakeCtl{newSessionID: testConv, streamCh: make(chan streamEvent, 64), permCh: make(chan map[string]any, 8)}
 	mux := http.NewServeMux()
 	auth := func(w http.ResponseWriter, r *http.Request) bool {
 		if r.Header.Get("Authorization") != "Bearer "+testToken {
@@ -79,7 +82,7 @@ func newFakeCtl(t *testing.T) *fakeCtl {
 		f.ensure = append(f.ensure, body)
 		id := f.newSessionID
 		f.mu.Unlock()
-		_, _ = fmt.Fprintf(w, `{"sessionId":%d}`, id)
+		_, _ = fmt.Fprintf(w, `{"conversationId":%q}`, id)
 	})
 	mux.HandleFunc("/ctl/v1/send", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(w, r) {
@@ -108,7 +111,7 @@ func newFakeCtl(t *testing.T) *fakeCtl {
 				f.streamCh <- ev
 			}
 		}()
-		_, _ = io.WriteString(w, `{"sessionId":100,"assistantMessageId":200,"done":false}`)
+		_, _ = io.WriteString(w, `{"conversationId":"`+testConv+`","status":"running","done":false}`)
 	})
 	mux.HandleFunc("/ctl/v1/answer-permission", func(w http.ResponseWriter, r *http.Request) {
 		if !auth(w, r) {
@@ -373,12 +376,12 @@ func TestPrompt_StreamsChunksAndEndsTurn(t *testing.T) {
 	if got := rec.agentMessageText(); got != "Hello, world" {
 		t.Fatalf("streamed text = %q, want %q", got, "Hello, world")
 	}
-	// 会话映射:新建的 ACP session → 同一个 Agentre sessionId 的 send/stream。
-	if q := ctl.streamQueries(); len(q) != 1 || q[0] != "sessionId=100" {
-		t.Fatalf("stream queries = %v, want [sessionId=100]", q)
+	// 会话映射:新建的 ACP session → 同一个 Agentre 会话(conversation_id)的 send/stream。
+	if q := ctl.streamQueries(); len(q) != 1 || q[0] != "conversationId="+testConv {
+		t.Fatalf("stream queries = %v, want [conversationId=%s]", q, testConv)
 	}
-	if got := ctl.lastSend(t)["sessionId"]; got != float64(100) {
-		t.Fatalf("send sessionId = %v, want 100", got)
+	if got := ctl.lastSend(t)["conversationId"]; got != testConv {
+		t.Fatalf("send conversationId = %v, want %s", got, testConv)
 	}
 	// 「先订阅再发 send」是协议硬要求:顺序反了会在桌面端丢掉首片。
 	if s, e := ctl.streamSeq.Load(), ctl.sendSeq.Load(); s == 0 || e == 0 || s > e {
@@ -664,7 +667,7 @@ func TestPrompt_CancelReturnsCanceledAndStopsSession(t *testing.T) {
 	ctl.mu.Lock()
 	stops := append([]map[string]any(nil), ctl.stops...)
 	ctl.mu.Unlock()
-	if stops[0]["sessionId"] != float64(100) {
+	if stops[0]["conversationId"] != testConv {
 		t.Fatalf("stop calls = %v, want one for session 100", stops)
 	}
 }
@@ -884,7 +887,7 @@ func TestPrompt_PermissionApprovedForwardsAllow(t *testing.T) {
 	}
 
 	body := ctl.lastPermission(t)
-	if body["sessionId"] != float64(100) || body["requestId"] != "req-1" || body["allow"] != true {
+	if body["conversationId"] != testConv || body["requestId"] != "req-1" || body["allow"] != true {
 		t.Fatalf("answer-permission body = %#v", body)
 	}
 	if _, ok := body["alwaysAllowSession"]; ok {
@@ -1176,7 +1179,7 @@ func TestIntegration_AgrctlSubprocessForwardsToolPermission(t *testing.T) {
 		t.Fatalf("update order = %v, want [tool_call tool_result chunk]", got)
 	}
 	body := ctl.lastPermission(t)
-	if body["sessionId"] != float64(100) || body["requestId"] != "req-1" || body["allow"] != true {
+	if body["conversationId"] != testConv || body["requestId"] != "req-1" || body["allow"] != true {
 		t.Fatalf("answer-permission body = %#v", body)
 	}
 	if _, ok := body["alwaysAllowSession"]; ok {

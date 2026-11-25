@@ -62,7 +62,7 @@ func (h *ctlHandler) watchSubagentCard(
 		reason = notBoundHandshake
 	case !req.Wait:
 		reason = notBoundNoWait
-	case req.SessionID > 0:
+	case req.continuing():
 		reason = notBoundExistingSession
 	case h.cards == nil:
 		reason = notBoundUnavailable
