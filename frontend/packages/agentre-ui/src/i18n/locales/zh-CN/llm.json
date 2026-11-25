@@ -315,6 +315,9 @@
     }
   },
   "modelTargetPicker": {
+    "sheet": {
+      "title": "选择模型"
+    },
     "cli": {
       "heading": "{{cli}} 自带 · CLI 登录账号",
       "login": "{{cli}} 登录账号",

@@ -127,6 +127,11 @@ export type ChatComposerProps = Omit<
    * Esc 停止照旧。省略时与桌面端一致。
    */
   inputMode?: "touch";
+  /**
+   * 输入区的最大高度（px）。省略 = 沿用编辑器默认的 25vh。软键盘升起时可视区只剩一小块，
+   * 宿主按可视视口算出约 1/3 传进来，长草稿就不会把转录挤没。
+   */
+  maxHeight?: number;
 };
 
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
@@ -255,6 +260,7 @@ export const ChatComposer = React.forwardRef<
     dropZone,
     onPasteCapture,
     inputMode,
+    maxHeight,
     ...inputProps
   },
   ref,
@@ -575,7 +581,19 @@ export const ChatComposer = React.forwardRef<
   const input = (
     <AIChatInput
       {...inputProps}
+      // 触屏占位是短句：一行宽度有限，长的能力提示（@ / ! 教学）会被截断。宿主显式传的照旧。
+      placeholder={
+        inputProps.placeholder ??
+        (touch ? t("chatComposer.touch.placeholder") : undefined)
+      }
       ref={inputRef}
+      // 上限走 CSS 变量（Tailwind 看不到运行时拼出来的数值类）；类名放在编辑器本体上，
+      // 与它默认的 max-h-[25vh] 冲突时后者让位。
+      className={
+        maxHeight !== undefined
+          ? "max-h-[var(--chat-composer-max-h)]"
+          : undefined
+      }
       // 挂载即聚焦走 TipTap 自己的 autofocus:它会等 view 附加到 DOM 之后再
       // focus,绕开 mount 时 view 还没挂上的时序问题。下面那个 effect 只管
       // 「挂载之后才被打开」这一档(宿主从 false 翻成 true),两条路都要有。
@@ -605,6 +623,13 @@ export const ChatComposer = React.forwardRef<
         className,
       )}
       data-shape={touch ? (pill ? "pill" : "card") : undefined}
+      style={
+        maxHeight !== undefined
+          ? ({
+              "--chat-composer-max-h": `${maxHeight}px`,
+            } as React.CSSProperties)
+          : undefined
+      }
       onSubmit={handleFormSubmit}
       onKeyDown={handleFormKeyDown}
       onPasteCapture={handlePasteCapture}

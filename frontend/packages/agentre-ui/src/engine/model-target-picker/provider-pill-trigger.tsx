@@ -75,6 +75,7 @@ export function ProviderPillTrigger({
   state,
   followLabel,
   followIcon,
+  shortName,
 }: {
   state: ProviderPillState;
   /**
@@ -85,6 +86,12 @@ export function ProviderPillTrigger({
   followLabel?: React.ReactNode;
   /** 跟随态回落链最末一格（缺省人形）的宿主覆盖：品牌标识解析得到时仍画品牌。 */
   followIcon?: React.ReactNode;
+  /**
+   * 模型短名（如「Sonnet」）。给了就**代替**图标画在脸上（触屏工具条：人形图标认不出
+   * 是哪个模型，短名一眼可认），完整的模型名仍在 sr-only 里供读屏念。短名由宿主从模型名
+   * 提炼；省略时脸不变。加载中仍画转圈。
+   */
+  shortName?: string;
 }) {
   const { t } = useTranslation();
   const followText = followLabel ?? t("modelTargetPicker.special.chat");
@@ -184,6 +191,14 @@ export function ProviderPillTrigger({
     <>
       {state.loading ? (
         <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+      ) : shortName ? (
+        <span
+          data-testid="provider-pill-short-name"
+          aria-hidden="true"
+          className="max-w-[7ch] shrink-0 truncate text-xs font-medium text-foreground"
+        >
+          {shortName}
+        </span>
       ) : (
         triggerIcon
       )}

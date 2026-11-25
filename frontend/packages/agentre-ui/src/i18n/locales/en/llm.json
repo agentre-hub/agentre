@@ -315,6 +315,9 @@
     }
   },
   "modelTargetPicker": {
+    "sheet": {
+      "title": "Select model"
+    },
     "cli": {
       "heading": "{{cli}} built-in · CLI login account",
       "login": "{{cli}} login account",
