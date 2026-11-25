@@ -205,6 +205,10 @@ function AgentBackendsPanelBody({
     const allowed = new Set<string>(supported);
     return backends.filter((backend) => allowed.has(backend.type));
   }, [backends, ports.supportedBackendTypes]);
+  const backendsRef = React.useRef(backends);
+  React.useEffect(() => {
+    backendsRef.current = backends;
+  });
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [loading, setLoading] = React.useState(true);
   // 读清单失败：清单为空但并非「没有后端」，不画空态。
@@ -414,9 +418,12 @@ function AgentBackendsPanelBody({
         setBackends(b?.items ?? []);
         setProviders(p?.items ?? []);
         setLoadFailed(false);
-      } catch (err) {
+      } catch {
         setLoadFailed(true);
-        setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
+        // 清单为空时只靠原位说明；还有旧清单时补一条条幅，且只说人话、不带原文详情。
+        if (backendsRef.current.length > 0) {
+          setFlash({ text: t("agentBackends.flash.loadFailed") });
+        }
       } finally {
         setLoading(false);
       }
@@ -433,10 +440,10 @@ function AgentBackendsPanelBody({
         setProviders(p?.items ?? []);
         setLoadFailed(false);
       })
-      .catch((err: unknown) => {
+      .catch(() => {
         if (!mounted) return;
+        // 首次读取时清单必为空：只靠原位说明。
         setLoadFailed(true);
-        setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
       })
       .finally(() => {
         if (!mounted) return;

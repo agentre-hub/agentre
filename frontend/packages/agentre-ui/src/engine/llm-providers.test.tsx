@@ -237,6 +237,8 @@ describe("W9 供应商清单读失败", () => {
 
     const notice = await screen.findByTestId("provider-load-failure");
     expect(notice).toHaveTextContent("LLM providers didn't load");
+    // 读失败只说本地化的人话，不把「request timed out after …」原文贴在 flash 里。
+    expect(document.body.textContent).not.toMatch(/timed out after|15000/);
     expect(screen.queryByText("No LLM providers configured")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Add First Provider" }),
@@ -315,7 +317,11 @@ describe("F10 / F22 触屏档（供应商）", () => {
     const touch = screen.getAllByRole("switch");
     expect(touch.length).toBe(desktop.length);
     for (const sw of touch) {
-      expect(sw).toHaveClass("relative", "before:absolute", "before:-inset-y-3.5");
+      expect(sw).toHaveClass(
+        "relative",
+        "before:absolute",
+        "before:-inset-y-3.5",
+      );
     }
   });
 
@@ -328,7 +334,7 @@ describe("F10 / F22 触屏档（供应商）", () => {
         onSelect={vi.fn()}
       />,
     );
-    const header = (await screen.findByText("Anthropic", { selector: "div" }));
+    const header = await screen.findByText("Anthropic", { selector: "div" });
     expect(header).toHaveClass("font-mono", "uppercase");
     unmount();
     renderWithTranslations(

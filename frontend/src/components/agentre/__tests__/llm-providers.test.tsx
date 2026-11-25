@@ -1396,7 +1396,7 @@ describe("LlmProvidersPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("Given the provider list fails to load, When the panel mounts, Then an error flash is shown", async () => {
+  it("Given the provider list fails to load, When the panel mounts, Then an in-place notice is shown and the raw error is not rendered", async () => {
     installAppMock({
       ListLLMProviders: vi.fn(() =>
         Promise.reject(new Error("database locked")),
@@ -1404,9 +1404,10 @@ describe("LlmProvidersPanel", () => {
     });
     render(<LlmProvidersPanel />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Load failed: database locked",
-    );
+    expect(
+      await screen.findByTestId("provider-load-failure"),
+    ).toHaveTextContent("LLM providers didn't load");
+    expect(screen.queryByText(/database locked/)).toBeNull();
   });
 
   it("Given providers exist, When the panel loads, Then its single New Provider entry is handed to the page header slot and the old toolbar and nav add entry are gone", async () => {

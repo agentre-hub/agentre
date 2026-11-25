@@ -43,6 +43,10 @@ export function useProviderCatalog(args: {
   const [providersLoading, setProvidersLoading] = React.useState(true);
   // 最近一次读清单是否失败：失败时 providers 为空但并非「没有」，面板据此不画空态。
   const [providersLoadFailed, setProvidersLoadFailed] = React.useState(false);
+  const providersRef = React.useRef(providers);
+  React.useEffect(() => {
+    providersRef.current = providers;
+  });
   const controlled = args.controlled;
   const controlledRef = React.useRef(controlled);
   React.useEffect(() => {
@@ -81,14 +85,16 @@ export function useProviderCatalog(args: {
             ? items[0].id
             : null,
       );
-    } catch (err) {
+    } catch {
       setProvidersLoadFailed(true);
-      setFlash({
-        kind: "err",
-        text: t("llmProviders.flash.loadFailed", {
-          message: messageFromError(err, t),
-        }),
-      });
+      // 清单是空的就只靠面板里的原位说明；还有旧清单时才补一条条幅。两处都只说本地化
+      // 的人话，不把「request timed out after …」之类的原文贴给用户。
+      if (providersRef.current.length > 0) {
+        setFlash({
+          kind: "err",
+          text: t("llmProviders.loadFailed.title"),
+        });
+      }
     }
   }, [ListLLMProviders, setFlash, t]);
 
@@ -116,16 +122,9 @@ export function useProviderCatalog(args: {
         if (!reportVanishedSelection(controlledRef.current, items)) {
           setInnerSelectedId(items.length > 0 ? items[0].id : null);
         }
-      } catch (err) {
-        if (mounted) {
-          setProvidersLoadFailed(true);
-          setFlash({
-            kind: "err",
-            text: t("llmProviders.flash.loadFailed", {
-              message: messageFromError(err, t),
-            }),
-          });
-        }
+      } catch {
+        // 首次读取时清单必为空：只靠面板里的原位说明，不再贴原文条幅。
+        if (mounted) setProvidersLoadFailed(true);
       } finally {
         if (mounted) setProvidersLoading(false);
       }

@@ -48,6 +48,8 @@ describe("AgentBackendsPanel 读失败（W9）", () => {
 
     const notice = await screen.findByTestId("backend-load-failure");
     expect(notice).toHaveTextContent("Agent backends didn't load");
+    // 读失败只说本地化的人话：上面那条 flash 与它的「详情」都不再带原文。
+    expect(document.body.textContent).not.toMatch(/timed out after|15000/);
     expect(screen.queryByText("No agent backends yet")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Add First Backend" }),
@@ -59,11 +61,7 @@ describe("AgentBackendsPanel 读失败（W9）", () => {
   });
 
   it("真的没有后端：仍是空态，没有失败说明", async () => {
-    render(
-      <AgentBackendsPanel
-        ports={ports(vi.fn().mockResolvedValue([]))}
-      />,
-    );
+    render(<AgentBackendsPanel ports={ports(vi.fn().mockResolvedValue([]))} />);
     expect(
       await screen.findByText("No agent backends yet"),
     ).toBeInTheDocument();
