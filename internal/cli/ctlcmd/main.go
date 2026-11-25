@@ -90,6 +90,10 @@ func dispatch(args []string, s *sys) error {
 		_, _ = fmt.Fprintln(s.stdout, u)
 		return nil
 	}
+	if (verb == "list" || verb == "get") && len(rest) > 0 && isSessionResource(rest[0]) && wantsHelp(rest[1:]) {
+		_, _ = fmt.Fprintln(s.stdout, sessionResourceUsage(verb))
+		return nil
+	}
 	switch verb {
 	case "help", "-h", "--help":
 		return runHelp(rest, s.stdout)
@@ -101,6 +105,12 @@ func dispatch(args []string, s *sys) error {
 		return runTail(rest, s)
 	case "stop":
 		return runStop(rest, s)
+	case "messages":
+		return runMessages(rest, s)
+	case "pending":
+		return runPending(rest, s)
+	case "answer":
+		return runAnswer(rest, s)
 	case "list":
 		return runList(rest, s)
 	case "get":

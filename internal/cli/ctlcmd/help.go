@@ -21,6 +21,11 @@ Usage:
   agrctl wait <session> [--timeout <d>]         wait until the session is idle or waits for input
   agrctl tail <session> [--from <cursor>]       follow the session's events as NDJSON
   agrctl stop <session>                         stop the running turn, dropping undelivered steers
+  agrctl list sessions [filters] [-o json]      sessions on this desktop (first column: session id)
+  agrctl get session <session>                  one session as JSON (unknown fields are omitted)
+  agrctl messages <session> [--last n] [--full] the last turns of a session (--before <cursor> pages back)
+  agrctl pending [<session>] [-o json]          questions and tool permissions waiting for an answer
+  agrctl answer <session> <id> --option … | --text … | --allow | --deny   answer one pending item
   agrctl acp --agent <name>                     run as an ACP v1 agent over stdio
 
 Resources: agent, department (dept), project (proj), provider, model, backend, memory.
@@ -34,7 +39,7 @@ program without a terminal, or from a terminal an agent CLI (Claude Code, Codex,
 Gemini CLI, opencode, …) is running in, wait for approval in the desktop.
 memory is the exception inside an Agentre session: its writes take effect at
 once (agrctl help memory). Inside an Agentre session agrctl can read, wait for,
-follow and continue other sessions, but cannot send to its own session or stop one.
+follow and continue other sessions, but cannot send to its own session, stop one or answer pending items.
 
 Exit codes: 0 ok · 1 failed, rejected, session running or executor unreachable ·
 2 usage error (unknown command or flag, missing value, ambiguous ref, unsupported
@@ -100,6 +105,56 @@ Stops the running turn and drops the steer messages not yet delivered, printing 
 were dropped. A session that is not running is left alone ("session is not running", exit 0).
 An Agentre session cannot stop sessions.`
 
+const listSessionsUsage = `agrctl list sessions [--agent <name|id>] [--project <ref>] [--device <device>]
+                     [--status running|idle|waiting|failed] [--mine] [--limit <n>] [-o json]
+
+Lists the sessions of this desktop (including the ones it runs on remote devices), most recently
+active first. The first column is the full session id every other session command takes.
+--mine needs an account and is refused on the desktop (exit 2). -o json prints an array of
+{id, title, agent, device, status, lastActivityAt}.`
+
+const getSessionUsage = `agrctl get session <session>
+
+Prints one session as JSON: id, title, agent, project, device, backend, model, status, createdAt,
+lastActivityAt, usage {input, output}, pending (count of unanswered items) and lastText (the
+last turn's final text, shortened). A field that cannot be determined is left out, never guessed.`
+
+func sessionResourceUsage(verb string) string {
+	if verb == "get" {
+		return getSessionUsage
+	}
+	return listSessionsUsage
+}
+
+var messagesUsageFlags = withoutOutputFlags(messagesFlags)
+
+func messagesUsage() string {
+	var b strings.Builder
+	b.WriteString("agrctl messages <session> [--last <n>] [--before <cursor>] [--full] [-o json]\n\n")
+	writeFlagTable(&b, messagesUsageFlags, nil)
+	b.WriteString(`  -o json                    print {session, messages, hasMore, before}
+
+Prints the last 20 turns by default, oldest first: user messages and the assistant's text. --full also
+prints the tool calls and results (thinking is never shown). When earlier messages exist, stderr
+names the cursor: agrctl messages <session> --before <cursor> pages back.`)
+	return b.String()
+}
+
+const pendingUsage = `agrctl pending [<session>] [-o json]
+
+Lists what is waiting for an answer: kind question (an AskUserQuestion card, with its options) or
+tool_permission (a tool, plan or execution approval). Without a session it covers every session
+that is waiting. -o json prints {items: [{id, session, kind, tool, input, questions}]}.
+Answer with agrctl answer. An Agentre session can read pending items but not answer them.`
+
+const answerUsage = `agrctl answer <session> <id> --option <text|number> [--option …] | --text <answer>
+agrctl answer <session> <id> --allow | --deny [--message <reason>]
+
+Answers one pending item (the id from agrctl pending). A question takes --option (its text, or its
+1-based number; repeat for multi-select) or --text. A tool permission takes --allow or --deny, and
+--deny may carry the reason handed back to the agent. An item that was already answered elsewhere
+or timed out fails with "the pending item no longer exists" (exit 1). An Agentre session cannot answer.`
+
 // withoutOutputFlags 去掉 -o/--output(help 里单独写成 -o json)。
 func withoutOutputFlags(defs []*flagDef) []*flagDef {
 	out := make([]*flagDef, 0, len(defs))
@@ -122,6 +177,12 @@ func verbUsage(verb string) string {
 		return tailUsage
 	case "stop":
 		return stopUsage
+	case "messages":
+		return messagesUsage()
+	case "pending":
+		return pendingUsage
+	case "answer":
+		return answerUsage
 	}
 	return ""
 }
@@ -151,6 +212,10 @@ func runHelp(args []string, w io.Writer) error {
 	}
 	if u := verbUsage(args[0]); u != "" && len(args) == 1 {
 		_, _ = fmt.Fprintln(w, u)
+		return nil
+	}
+	if isSessionResource(args[0]) && len(args) == 1 {
+		_, _ = fmt.Fprintln(w, listSessionsUsage+"\n\n"+getSessionUsage)
 		return nil
 	}
 	spec := lookupKind(args[0])

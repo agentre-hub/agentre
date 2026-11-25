@@ -74,7 +74,7 @@ func (h *ctlHandler) authenticate(r *http.Request) (credential, bool) {
 }
 
 // sessionRoutes 是会话级 token 能调用的端点（白名单：新端点默认不对会话开放）。
-// stop、answer-permission 不在其中——AI 不能停会话，也不能批准自己（Hard invariant 2）。
+// stop、answer-permission、answer 不在其中——AI 不能停会话，也不能批准自己（Hard invariant 2）。
 // send 对自己所在的会话另有拒绝（serveSend）；wait / tail 只读，任何可见会话都行。
 var sessionRoutes = map[string]bool{
 	"agents":    true,
@@ -85,4 +85,9 @@ var sessionRoutes = map[string]bool{
 	"stream":    true,
 	"wait":      true,
 	"tail":      true,
+	// 会话与待处理项只读;answer 不在其中(会话里的 agent 不能回答待处理项)。
+	"conversations": true,
+	"conversation":  true,
+	"messages":      true,
+	"pending":       true,
 }

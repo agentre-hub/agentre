@@ -20,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
@@ -54,6 +55,20 @@ type fakeConversations struct {
 	tailFrom       int64
 	tailResume     bool
 	tailSession    int64
+
+	list             []*chat_svc.CtlConversation
+	listFilter       chat_svc.CtlListFilter
+	detail           *chat_svc.CtlConversationDetail
+	messages         *chat_svc.CtlMessagesPage
+	messagesSession  int64
+	messagesQuery    chat_svc.CtlMessagesQuery
+	answeredQuestion *questionAnswer
+}
+
+type questionAnswer struct {
+	sessionID int64
+	requestID string
+	answers   []blocks.AskAnswerDTO
 }
 
 func newFakeConversations(convs ...*chat_svc.CtlConversation) *fakeConversations {
@@ -140,6 +155,36 @@ func (f *fakeConversations) DiscardCtlSteers(context.Context, int64) (int, error
 
 func (f *fakeConversations) PendingCtlWaiters(context.Context, int64) (wire.SessionPendingWaitersResult, error) {
 	return f.pending, nil
+}
+
+func (f *fakeConversations) ListCtlConversations(_ context.Context, flt chat_svc.CtlListFilter) ([]*chat_svc.CtlConversation, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listFilter = flt
+	return f.list, nil
+}
+
+func (f *fakeConversations) DetailCtlConversation(_ context.Context, sessionID int64) (*chat_svc.CtlConversationDetail, error) {
+	if c := f.sessions[sessionID]; c != nil && f.detail != nil {
+		d := *f.detail
+		d.CtlConversation = *c
+		return &d, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeConversations) ListCtlMessages(_ context.Context, sessionID int64, q chat_svc.CtlMessagesQuery) (*chat_svc.CtlMessagesPage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.messagesSession, f.messagesQuery = sessionID, q
+	return f.messages, nil
+}
+
+func (f *fakeConversations) AnswerCtlQuestion(_ context.Context, sessionID int64, requestID string, answers []blocks.AskAnswerDTO) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answeredQuestion = &questionAnswer{sessionID: sessionID, requestID: requestID, answers: answers}
+	return nil
 }
 
 func (f *fakeConversations) TailCtlConversation(_ context.Context, sessionID, from int64, resume bool) (*chat_svc.CtlTail, error) {

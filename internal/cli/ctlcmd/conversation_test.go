@@ -32,6 +32,8 @@ type convServer struct {
 	wait    func(w http.ResponseWriter, n int, body map[string]any)
 	tail    func(w http.ResponseWriter, n int, query string)
 	stop    func(w http.ResponseWriter, body map[string]any)
+	// 查询端点:/conversations /conversation /messages /pending /answer。
+	query map[string]func(w http.ResponseWriter, body map[string]any)
 }
 
 func newConvServer(t *testing.T) (*convServer, func(string) (string, bool)) {
@@ -65,6 +67,15 @@ func newConvServer(t *testing.T) (*convServer, func(string) (string, bool)) {
 	handle("/ctl/v1/wait", func(w http.ResponseWriter, _ *http.Request, n int, body map[string]any) { f.wait(w, n, body) })
 	handle("/ctl/v1/tail", func(w http.ResponseWriter, r *http.Request, n int, _ map[string]any) { f.tail(w, n, r.URL.RawQuery) })
 	handle("/ctl/v1/stop", func(w http.ResponseWriter, _ *http.Request, _ int, body map[string]any) { f.stop(w, body) })
+	for _, route := range []string{"conversations", "conversation", "messages", "pending", "answer"} {
+		handle("/ctl/v1/"+route, func(w http.ResponseWriter, _ *http.Request, _ int, body map[string]any) {
+			if h := f.query[route]; h != nil {
+				h(w, body)
+				return
+			}
+			reply(w, http.StatusNotFound, `{"error":"no fake for `+route+`"}`)
+		})
+	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	env := map[string]string{"AGENTRE_CTL_ENDPOINT": srv.URL, "AGENTRE_CTL_TOKEN": "tok"}

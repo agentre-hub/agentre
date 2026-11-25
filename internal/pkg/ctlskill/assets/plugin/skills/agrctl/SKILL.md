@@ -32,6 +32,11 @@ Always invoke it by that absolute path — it is not on `PATH`.
 {{AGRCTL_PATH}} wait <session> [--timeout <duration>] [-o json]
 {{AGRCTL_PATH}} tail <session> [--from <cursor>] [--until-idle]
 {{AGRCTL_PATH}} stop <session>
+{{AGRCTL_PATH}} list sessions [--agent <a>] [--project <p>] [--device <d>] [--status running|idle|waiting|failed] [--limit <n>] [-o json]
+{{AGRCTL_PATH}} get session <session>
+{{AGRCTL_PATH}} messages <session> [--last <n>] [--before <cursor>] [--full] [-o json]
+{{AGRCTL_PATH}} pending [<session>] [-o json]
+{{AGRCTL_PATH}} answer <session> <id> (--option <text|number> | --text <answer> | --allow | --deny [--message <reason>])
 ```
 
 Resources: `agent`, `department` (`dept`), `project` (`proj`), `provider`, `model`, `backend`,
@@ -171,6 +176,9 @@ order, at the start of the next one.
   waits for input (`4`).
 - `stop <session>` stops the running turn and drops the steers not yet delivered, printing how
   many. You cannot stop a session from inside an Agentre session.
+- `list sessions`, `get session`, `messages` and `pending` read any session on this desktop
+  (`commands.md` has the output shapes). From inside an Agentre session you can read, but
+  `answer` is refused: pending items are answered by a person or by a program outside a session.
 
 ## Running as an ACP agent (`agrctl acp`)
 

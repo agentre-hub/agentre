@@ -290,6 +290,56 @@ stopped — dropped 1 undelivered steer message(s)
 A session that is not running prints `session is not running` (exit `0`). Stopping is refused
 from inside an Agentre session.
 
+## `list sessions`, `get session`
+
+```
+{{AGRCTL_PATH}} list sessions [--agent <name|id>] [--project <ref>] [--device <device>]
+                     [--status running|idle|waiting|failed] [--limit <n>] [-o json]
+{{AGRCTL_PATH}} get session <session>
+```
+
+`list sessions` shows this desktop's sessions (including the ones it runs on remote devices),
+most recently active first; the first column is the full session id. `--device local` means this
+desktop; `--limit` defaults to 50. `--mine` is refused on the desktop (exit `2`). `-o json` prints
+`[{id, title, agent, device, status, lastActivityAt}]`.
+
+`get session` prints one JSON object: `id`, `title`, `agent`, `project`, `device`, `backend`,
+`model`, `status`, `createdAt`, `lastActivityAt`, `usage {input, output}`, `pending` (how many items
+await an answer) and `lastText` (the last turn's final text, shortened). A field that cannot be
+determined is omitted, not guessed.
+
+## `messages`
+
+```
+{{AGRCTL_PATH}} messages <session> [--last <n>] [--before <cursor>] [--full] [-o json]
+```
+
+Prints the last 20 turns by default, oldest first: user messages and the assistant's text
+(`user: …` / `assistant: …`). `--full` adds tool calls and results (thinking is never shown).
+When earlier messages exist, stderr prints the next command: `messages <session> --before <cursor>`.
+`-o json` prints `{session, messages: [{role, at, text, blocks}], hasMore, before}`.
+
+## `pending`, `answer`
+
+```
+{{AGRCTL_PATH}} pending [<session>] [-o json]
+{{AGRCTL_PATH}} answer <session> <id> --option 2
+{{AGRCTL_PATH}} answer <session> <id> --text "use sqlite"
+{{AGRCTL_PATH}} answer <session> <id> --allow
+{{AGRCTL_PATH}} answer <session> <id> --deny --message "not in this repo"
+```
+
+`pending` lists what a session waits for: `kind` `question` (an AskUserQuestion card, with its
+options) or `tool_permission` (a tool, plan or execution approval). Without a session it covers
+every waiting session. `-o json` prints `{items: [{id, session, kind, tool, input, questions}]}`.
+
+`answer` takes the item `id`. A question takes `--option` (its text or its 1-based number; repeat for
+multi-select) or `--text`; a tool permission takes `--allow` or `--deny [--message <reason>]`.
+The wrong kind of answer for an item is a usage error (exit `2`). An item already answered
+elsewhere, or timed out, fails with "the pending item no longer exists" (exit `1`). A card that
+asks several questions at once is answered in the desktop app. `answer` is refused from inside an
+Agentre session (exit `1`).
+
 ## `acp` (run as an ACP agent)
 
 `agrctl acp` is not a control command: it makes `agrctl` itself an **ACP v1 agent on stdio**

@@ -22,6 +22,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
+	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
@@ -60,6 +61,12 @@ type CtlConversation struct {
 	// LastAssistantMessageID / LastError 是最近一条 assistant 消息与它落库的错误文本(没有 = 0 / "")。
 	LastAssistantMessageID int64
 	LastError              string
+	// Title / ProjectID(0 = 自由会话) / CreatedAt / LastMessageAt(unix ms,0 = 没有过消息)
+	// 是会话行本身就有的展示字段,agrctl list / get 直接用。
+	Title         string
+	ProjectID     int64
+	CreatedAt     int64
+	LastMessageAt int64
 }
 
 // CtlOverrides 是 agrctl send 对本会话设置的覆盖(spec「发起与继续」);空串 = 不覆盖。
@@ -154,6 +161,15 @@ type CtlConversationGateway interface {
 	PendingCtlWaiters(ctx context.Context, sessionID int64) (wire.SessionPendingWaitersResult, error)
 	// TailCtlConversation 订阅这条会话的通知;resume 时从 from 之后续接,否则从当前开始。
 	TailCtlConversation(ctx context.Context, sessionID int64, from int64, resume bool) (*CtlTail, error)
+	// ListCtlConversations 按最近活动顺序列出本机桌面的会话(agent / 项目收窄下推给仓储,
+	// 状态与设备在这里筛),最多 f.Limit 条。
+	ListCtlConversations(ctx context.Context, f CtlListFilter) ([]*CtlConversation, error)
+	// DetailCtlConversation 是 agrctl get session 要的详情;没有 / 已删 → (nil, nil)。
+	DetailCtlConversation(ctx context.Context, sessionID int64) (*CtlConversationDetail, error)
+	// ListCtlMessages 按轮分页读转录(默认只含文本,q.Full 带工具调用与结果)。
+	ListCtlMessages(ctx context.Context, sessionID int64, q CtlMessagesQuery) (*CtlMessagesPage, error)
+	// AnswerCtlQuestion 把对一道提问卡的回答投回正在等它的目标 agent(与桌面端同一条路径)。
+	AnswerCtlQuestion(ctx context.Context, sessionID int64, requestID string, answers []blocks.AskAnswerDTO) error
 }
 
 // CtlConversationSvcGateway 生产用端口(供 ctl_svc 按请求现取,须在 RegisterChat 之后)。
@@ -198,6 +214,10 @@ func (s *chatSvc) describeCtlConversation(ctx context.Context, sess *chat_entity
 		ConversationID: sess.ConversationID,
 		AgentID:        sess.AgentID,
 		Status:         s.ctlStatus(sess),
+		Title:          sess.Title,
+		ProjectID:      sess.ProjectID,
+		CreatedAt:      sess.Createtime,
+		LastMessageAt:  sess.LastMessageAt,
 	}
 	a, err := agent_repo.Agent().Find(ctx, sess.AgentID)
 	if err != nil {

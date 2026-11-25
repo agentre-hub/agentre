@@ -16,6 +16,9 @@ func runList(args []string, s *sys) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return usageErrorf("list needs a resource: %s", kindNames())
 	}
+	if isSessionResource(args[0]) {
+		return runListSessions(args[1:], s)
+	}
 	spec := lookupKind(args[0])
 	if spec == nil {
 		return usageErrorf("unknown resource %q (one of: %s)", args[0], kindNames())
@@ -111,6 +114,9 @@ func refID(cat *catalog, spec *kindSpec, v string) (int64, error) {
 func runGet(args []string, s *sys) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return usageErrorf("get needs a resource: %s", kindNames())
+	}
+	if isSessionResource(args[0]) {
+		return runGetSession(args[1:], s)
 	}
 	spec := lookupKind(args[0])
 	if spec == nil {

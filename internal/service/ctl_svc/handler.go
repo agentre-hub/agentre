@@ -73,6 +73,16 @@ func (h *ctlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveWait(w, r)
 	case "tail":
 		h.serveTail(w, r)
+	case "conversations":
+		h.serveConversations(w, r)
+	case "conversation":
+		h.serveConversation(w, r)
+	case "messages":
+		h.serveMessages(w, r)
+	case "pending":
+		h.servePending(w, r)
+	case "answer":
+		h.serveAnswer(w, r)
 	default:
 		writeErr(w, http.StatusNotFound, "unknown control endpoint")
 	}
