@@ -204,6 +204,19 @@ commands, so the desktop must be running.
 backend** — the dispatches recurse until a turn waits on itself. Pick a different target
 agent.
 
+## Which Agentre agrctl reaches
+
+Inside an Agentre session `agrctl` always works for that session, whatever else is set up on
+the machine. Outside one it reaches, in this order: the desktop when `--desktop` is given (it
+fails with `the Agentre desktop is not running` if it is not), the user's account when the
+user has logged `agrctl` into one, and otherwise the desktop on this machine.
+`{{AGRCTL_PATH}} whoami` prints which one the next command reaches.
+
+`login` and `logout` belong to the user, in their own terminal; never run them yourself. When
+a command reports that agrctl's login expired or the device was revoked, tell the user to run
+`agrctl login` again. A program or an agent CLI using the user's login may read but not write
+or drive sessions; that refusal is a guard rail, not a permission to work around.
+
 ## When the desktop is not running
 
 Every command except `help` fails with:

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
-	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // sendFlags 是 `agrctl send` 接受的 flag;它们同时是 help 的数据源。
@@ -33,7 +32,7 @@ var sendFlags = []*flagDef{
 	{name: "device", value: "<device>", usage: "new session: run on the agent's first backend on this device (name or fingerprint; \"local\" = this desktop)"},
 	{name: "backend", value: "<ref>", usage: "new session: run on exactly this backend of the agent (name or id)"},
 	{name: "endpoint", value: "<url>", usage: "control endpoint URL   (env AGENTRE_CTL_ENDPOINT)"},
-	{name: "token", value: "<value>", usage: "control credential     (env AGENTRE_CTL_TOKEN)"},
+	{name: "token", value: "<value>", usage: "with --endpoint: its credential (env AGENTRE_CTL_TOKEN); alone: a personal token (env AGENTRE_TOKEN)"},
 	outputFlag, outputFlagLong,
 }
 
@@ -84,7 +83,7 @@ func runSend(args []string, s *sys) error {
 	if err != nil {
 		return err
 	}
-	ep, err := ctlclient.Resolve(last(p, "endpoint"), last(p, "token"), s.lookupEnv)
+	ep, err := conversationEndpoint(s, p, true, "sending to a session")
 	if err != nil {
 		return err
 	}
@@ -147,7 +146,7 @@ func newSessionBody(body map[string]any, p parsedArgs, ep ctlclient.Endpoint, ar
 	if ref := last(p, "project"); ref != "" {
 		id, err := strconv.ParseInt(ref, 10, 64)
 		if err != nil || id <= 0 {
-			cat := &catalog{ep: ep, args: append([]string{"send"}, args...), site: -1, lists: map[agentrewire.CtlKind][]*agentrewire.CtlResource{}}
+			cat := newCatalog(endpointExecutor(ep), append([]string{"send"}, args...))
 			if id, err = refID(cat, kindProject, ref); err != nil {
 				return err
 			}

@@ -34,6 +34,8 @@ type sys struct {
 	stdinIsTTY bool
 	// readSecret 在终端上无回显地读一行；只在 stdinIsTTY 时调用。
 	readSecret func(prompt string) (string, error)
+	// desktop 是全局 flag --desktop：强制本机桌面为执行者（run 在分派前从参数里取出）。
+	desktop bool
 }
 
 func osSys() *sys {
@@ -77,6 +79,11 @@ func needsTTY(flagName string) error {
 
 // run is the testable core; returns the exit code.
 func run(args []string, s *sys) int {
+	args, desktop, err := extractDesktopFlag(args)
+	if err != nil {
+		return report(s, err)
+	}
+	s.desktop = desktop
 	if len(args) == 0 {
 		_, _ = fmt.Fprintln(s.stderr, usageText)
 		return exitUsage
@@ -97,6 +104,12 @@ func dispatch(args []string, s *sys) error {
 	switch verb {
 	case "help", "-h", "--help":
 		return runHelp(rest, s.stdout)
+	case "login":
+		return runLogin(rest, s)
+	case "logout":
+		return runLogout(rest, s)
+	case "whoami":
+		return runWhoami(rest, s)
 	case "send":
 		return runSend(rest, s)
 	case "wait":

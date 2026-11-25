@@ -27,7 +27,7 @@ const resourcesPath = "/ctl/v1/resources"
 
 // catalog 连着一个执行者，按类型缓存列表，并在客户端完成名字 / 路径解析。
 type catalog struct {
-	ep ctlclient.Endpoint
+	x *executor
 	// args 是本次调用的原始参数，歧义时据此拼出可直接改用的示例命令。
 	args []string
 	// site 是正在解析的定位写在 args 里的下标（-1 = 不来自命令行），歧义示例只替换这一处。
@@ -45,22 +45,35 @@ func (c *catalog) from(at int) *catalog {
 }
 
 func connect(s *sys, args []string) (*catalog, error) {
-	ep, err := ctlclient.Resolve("", "", s.lookupEnv)
+	x, err := selectExecutor(s, "", "")
 	if err != nil {
 		return nil, err
 	}
-	return &catalog{ep: ep, args: args, site: -1, lists: map[agentrewire.CtlKind][]*agentrewire.CtlResource{}}, nil
+	return newCatalog(x, args), nil
 }
 
-// caller 按 spec「Routing and approval」给调用方分类：会话级 token 在环境变量里 →
-// 会话调用；否则用的是本机握手 token，stdin 是 TTY 且环境里没有已知 agent CLI 的标记
-// （agentEnvMarkers）才算人工调用，否则为外部调用——带着标记说明这多半是某个 agent CLI
-// 自己在终端里起的子进程，不是人在敲键盘。
+func newCatalog(x *executor, args []string) *catalog {
+	return &catalog{x: x, args: args, site: -1, lists: map[agentrewire.CtlKind][]*agentrewire.CtlResource{}}
+}
+
+// supports 挡住执行者不提供的资源：记忆只在 Agentre 会话与本机桌面里有，账号 server 上没有。
+func (c *catalog) supports(spec *kindSpec) error {
+	if c.x.kind == execAccount && spec == kindMemory {
+		return errors.New("memory lives in the Agentre desktop, not in the account: " +
+			"use --desktop on the machine running it, or run the command inside an Agentre session")
+	}
+	return nil
+}
+
+// caller 按 spec「Routing and approval」给调用方分类：会话执行者 → 会话调用；否则（本机
+// 握手 token 或账号）stdin 是 TTY 且环境里没有已知 agent CLI 的标记（agentEnvMarkers）才算
+// 人工调用，否则为外部调用——带着标记说明这多半是某个 agent CLI 自己在终端里起的子进程，
+// 不是人在敲键盘。
 func (c *catalog) caller(s *sys) agentrewire.CtlCaller {
 	switch {
-	case c.ep.TokenFromEnv:
+	case c.x.kind == execSession:
 		return agentrewire.CtlCaller_CTL_CALLER_SESSION
-	case s.stdinIsTTY && !hasAgentEnvMarker(s.lookupEnv):
+	case isHuman(s):
 		return agentrewire.CtlCaller_CTL_CALLER_HUMAN
 	default:
 		return agentrewire.CtlCaller_CTL_CALLER_EXTERNAL
@@ -72,7 +85,7 @@ func (c *catalog) call(ctx context.Context, req *agentrewire.CtlRequest) (*agent
 	if err != nil {
 		return nil, err
 	}
-	raw, err := c.ep.PostRaw(ctx, resourcesPath, body)
+	raw, err := c.x.postResources(ctx, body)
 	if err != nil {
 		var se *ctlclient.ServerError
 		if errors.As(err, &se) {

@@ -42,7 +42,7 @@ const (
 // connFlags 是会话命令共有的连接 flag。
 var connFlags = []*flagDef{
 	{name: "endpoint", value: "<url>", usage: "control endpoint URL   (env AGENTRE_CTL_ENDPOINT)"},
-	{name: "token", value: "<value>", usage: "control credential     (env AGENTRE_CTL_TOKEN)"},
+	{name: "token", value: "<value>", usage: "with --endpoint: its credential (env AGENTRE_CTL_TOKEN); alone: a personal token (env AGENTRE_TOKEN)"},
 }
 
 var (
@@ -175,7 +175,7 @@ func runWait(args []string, s *sys) error {
 	if err != nil {
 		return err
 	}
-	ep, err := ctlclient.Resolve(last(p, "endpoint"), last(p, "token"), s.lookupEnv)
+	ep, err := conversationEndpoint(s, p, false, "")
 	if err != nil {
 		return err
 	}
@@ -225,7 +225,7 @@ func runTail(args []string, s *sys) error {
 		return err
 	}
 	untilIdle := p.on("until-idle")
-	ep, err := ctlclient.Resolve(last(p, "endpoint"), last(p, "token"), s.lookupEnv)
+	ep, err := conversationEndpoint(s, p, false, "")
 	if err != nil {
 		return err
 	}
@@ -317,7 +317,7 @@ func runStop(args []string, s *sys) error {
 	if err := checkSessionRef(id); err != nil {
 		return err
 	}
-	ep, err := ctlclient.Resolve(last(p, "endpoint"), last(p, "token"), s.lookupEnv)
+	ep, err := conversationEndpoint(s, p, true, "stopping a session")
 	if err != nil {
 		return err
 	}

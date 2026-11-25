@@ -14,7 +14,7 @@ only fixes the output and error contract.
 | Code | Meaning |
 | --- | --- |
 | `0` | the command succeeded |
-| `1` | it failed: not found, rejected by the desktop or by the user's approval, approval timed out, the session is running, a turn failed, or the desktop could not be reached |
+| `1` | it failed: not found, rejected by the desktop, the account or the user's approval, approval timed out, the session is running, a turn failed, the login expired, or the desktop or the account could not be reached |
 | `2` | usage error — unknown command or flag, missing required flag or argument, a `--config` key the backend type does not accept, an ambiguous name, a session reference that is not a full session UUID, a value the target backend does not support, or sending to your own session |
 | `3` | a human is needed: a bare secret flag was given without a terminal (`NEEDS TTY:`) |
 | `4` | the session waits for input; stdout holds the pending items as JSON |
@@ -339,6 +339,27 @@ The wrong kind of answer for an item is a usage error (exit `2`). An item alread
 elsewhere, or timed out, fails with "the pending item no longer exists" (exit `1`). A card that
 asks several questions at once is answered in the desktop app. `answer` is refused from inside an
 Agentre session (exit `1`).
+
+## `login`, `logout`, `whoami`
+
+```
+{{AGRCTL_PATH}} login [--server <url>]
+{{AGRCTL_PATH}} logout
+{{AGRCTL_PATH}} whoami
+```
+
+`login` and `logout` are the user's, run in their own terminal. `login` prints a code to approve
+in the browser and makes this machine's `agrctl` a device of the account; it fails (exit `1`)
+when denied, expired, unreachable, or already logged in (`already logged in as <account> — run
+'agrctl logout' first`). `logout` revokes that device, then deletes the local login; if the
+server cannot be reached it still deletes it and says to remove the device from the account's
+device list. `whoami` prints the executor the next command reaches (`session`, `desktop` or
+`account`) and the login's server, account and device.
+
+With the user's login, a program without a terminal or one run by an agent CLI can read, but
+writes and sending, stopping or answering fail (exit `1`) with a message to use a personal
+credential instead. `memory` and a project's local `--path` are not available on the account;
+`--desktop` reaches the desktop.
 
 ## `acp` (run as an ACP agent)
 

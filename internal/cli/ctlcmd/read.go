@@ -38,6 +38,9 @@ func runList(args []string, s *sys) error {
 	if err != nil {
 		return err
 	}
+	if err := cat.supports(spec); err != nil {
+		return err
+	}
 	items, err := cat.list(spec.kind)
 	if err != nil {
 		return err
@@ -134,6 +137,9 @@ func runGet(args []string, s *sys) error {
 	}
 	cat, err := connect(s, append([]string{"get"}, args...))
 	if err != nil {
+		return err
+	}
+	if err := cat.supports(spec); err != nil {
 		return err
 	}
 	it, err := cat.from(p.positionalAt[0]).locate(spec, p.positional[0])

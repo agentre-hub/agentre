@@ -5,9 +5,11 @@ import (
 	"io"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
 )
 
-const usageText = `agrctl — Agentre companion CLI: manage and drive the Agentre desktop on this machine
+const usageText = `agrctl — Agentre companion CLI: manage and drive Agentre — the desktop on this machine or your account
 
 Usage:
   agrctl list <resource> [filters] [-o json]    list resources as a table (first column: ID)
@@ -27,6 +29,9 @@ Usage:
   agrctl pending [<session>] [-o json]          questions and tool permissions waiting for an answer
   agrctl answer <session> <id> --option … | --text … | --allow | --deny   answer one pending item
   agrctl acp --agent <name>                     run as an ACP v1 agent over stdio
+  agrctl login [--server <url>]                 log this machine's agrctl into an account (opens a device login)
+  agrctl logout                                 revoke this agrctl device on the server and delete its login
+  agrctl whoami                                 server, account, device, and which executor commands reach
 
 Resources: agent, department (dept), project (proj), provider, model, backend, memory.
 <ref> is a numeric id, a name, or a parent/child path (projects, departments);
@@ -34,8 +39,17 @@ a model is <provider>/<model id>; a memory is its id (m58 or 58). Flags that nam
 another resource (--department, --parent, --backend, --provider, --lead, …) take
 the same forms. A <session> is always the full session UUID that agrctl send prints.
 
-Writes from an Agentre session wait for approval in that session; writes from a
-program without a terminal, or from a terminal an agent CLI (Claude Code, Codex,
+Executor (agrctl whoami shows it): inside an Agentre session, that session; with
+--desktop (accepted by every command), the Agentre desktop on this machine — "not
+running" (exit 1) if it is not; with a personal token in AGENTRE_TOKEN (server:
+AGENTRE_SERVER_URL) or after agrctl login, the account on the server; otherwise the
+desktop on this machine. On the account a person at the terminal reads and writes
+directly. A program without a terminal, or one an agent CLI runs, may only read with
+agrctl's login: writes and sending, stopping or answering are refused — issue it a
+personal token instead. memory exists only in the desktop and inside sessions.
+
+Writes from an Agentre session wait for approval in that session; on the desktop,
+writes from a program without a terminal, or from a terminal an agent CLI (Claude Code, Codex,
 Gemini CLI, opencode, …) is running in, wait for approval in the desktop.
 memory is the exception inside an Agentre session: its writes take effect at
 once (agrctl help memory). Inside an Agentre session agrctl can read, wait for,
@@ -183,9 +197,34 @@ func verbUsage(verb string) string {
 		return pendingUsage
 	case "answer":
 		return answerUsage
+	case "login":
+		return loginUsage
+	case "logout":
+		return logoutUsage
+	case "whoami":
+		return whoamiUsage
 	}
 	return ""
 }
+
+const loginUsage = `agrctl login [--server <url>]
+
+Logs this machine's agrctl into an account as a device of kind cli: prints a URL and a code,
+then waits until the code is approved in the browser. --server defaults to AGENTRE_SERVER_URL,
+else ` + ctlclient.DefaultServerURL + `. The login is kept in this build channel's
+data directory (file mode 0600) and refreshed by itself. Denied, expired or unreachable:
+exit 1. Already logged in: exit 1 — run agrctl logout first. When a command says the login
+expired or the device was revoked, run agrctl login again.`
+
+const logoutUsage = `agrctl logout
+
+Revokes this agrctl device on the server, then deletes the local login. If the server cannot be
+reached the local login is deleted anyway; remove the device from the account's device list.`
+
+const whoamiUsage = `agrctl whoami
+
+Prints the executor the next command would reach (session, desktop or account), and the server,
+account and device of agrctl's login. It never prints a credential.`
 
 // wantsHelp 报告参数里是否有 -h / --help。
 func wantsHelp(args []string) bool {

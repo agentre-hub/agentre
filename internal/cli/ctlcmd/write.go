@@ -174,6 +174,12 @@ func runWrite(verb string, args []string, s *sys) error {
 	if err != nil {
 		return err
 	}
+	if err := cat.supports(spec); err != nil {
+		return err
+	}
+	if err := cat.x.refuseExternal(s, verb+" "+spec.name); err != nil {
+		return err
+	}
 	w := &writeCtx{
 		s: s, cat: cat, spec: spec, doc: newDoc(spec.kind), fieldOwner: map[string]string{},
 		req: &agentrewire.CtlWriteRequest{Op: op, Kind: spec.kind, Caller: cat.caller(s), Command: commandLine(args)},

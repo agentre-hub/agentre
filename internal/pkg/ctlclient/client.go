@@ -1,10 +1,12 @@
-// Package ctlclient is the lightweight HTTP client for a running Agentre
-// desktop's loopback control API (ctl_svc, mounted on the httpgateway under
-// /ctl/). It is shared by agrctl's control verbs
-// (list/get/create/update/delete/send) and `agrctl acp`.
+// Package ctlclient is agrctl's lightweight HTTP client for its executors: a
+// running Agentre desktop's loopback control API (ctl_svc, mounted on the
+// httpgateway under /ctl/) or an Agentre session's injected endpoint
+// (client.go), and the account server (account.go: Device Flow login, token
+// refresh and revocation, /v1/ctl/*). It is shared by agrctl's control verbs
+// and `agrctl acp`.
 //
-// It depends only on net/http + the on-disk handshake file, so it stays
-// importable from the slim agrctl binary (no services, no DB, no Wails).
+// It depends only on net/http, the on-disk handshake file and agrctlcred, so it
+// stays importable from the slim agrctl binary (no services, no DB, no Wails).
 package ctlclient
 
 import (
@@ -41,6 +43,30 @@ type Endpoint struct {
 	// workspace-write 沙箱的网络是开的，macOS 上它照样在，那时拨不通与沙箱无关。在 Resolve
 	// 里取一次，dialFailure 不再读环境。
 	codexSandbox bool
+	// forcedDesktop 为 true 表示这是显式 --desktop 选中的本机桌面（ResolveDesktop）：拨不通
+	// 就是桌面端没在运行，报 ErrDesktopNotRunning。
+	forcedDesktop bool
+}
+
+// ErrDesktopNotRunning 是显式 --desktop 时本机桌面不可用（没有握手文件，或握手文件陈旧拨不通）。
+var ErrDesktopNotRunning = errors.New("the Agentre desktop is not running on this machine (--desktop)")
+
+// ResolveDesktop 只按本机桌面的握手文件解析端点（显式 --desktop），不看会话注入的环境变量。
+func ResolveDesktop() (Endpoint, error) {
+	dir, err := paths.AppDataDir()
+	if err != nil {
+		return Endpoint{}, err
+	}
+	fe, err := ctlendpoint.Read(dir)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return Endpoint{}, ErrDesktopNotRunning
+	case err != nil:
+		return Endpoint{}, fmt.Errorf("read control endpoint: %w", err)
+	case fe.URL == "" || fe.Token == "":
+		return Endpoint{}, ErrDesktopNotRunning
+	}
+	return Endpoint{Base: strings.TrimRight(fe.URL, "/"), Token: fe.Token, baseFromHandshake: true, forcedDesktop: true}, nil
 }
 
 // codexSandboxHint 是 Codex 沙箱挡住本机网关时追加到拨号失败报错后的说明。
@@ -135,6 +161,9 @@ func (e Endpoint) dialFailure(err error) error {
 	couldNotDial := errors.As(err, &opErr) && opErr.Op == "dial" &&
 		!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 	failure := fmt.Errorf("connect to desktop: %w", err)
+	if e.forcedDesktop && couldNotDial {
+		return ErrDesktopNotRunning
+	}
 	if e.baseFromHandshake && couldNotDial && isAgentredHost() {
 		failure = errAgentredHostNoSession
 	}

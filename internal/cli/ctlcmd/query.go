@@ -7,9 +7,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-
-	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
-	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // sessionStatuses 是 list sessions --status 接受的值。
@@ -91,14 +88,14 @@ func runListSessions(args []string, s *sys) error {
 	if p.on("mine") {
 		body["mine"] = true
 	}
-	ep, err := ctlclient.Resolve(last(p, "endpoint"), last(p, "token"), s.lookupEnv)
+	ep, err := conversationEndpoint(s, p, false, "")
 	if err != nil {
 		return err
 	}
 	if ref := last(p, "project"); ref != "" {
 		id, err := strconv.ParseInt(ref, 10, 64)
 		if err != nil || id <= 0 {
-			cat := &catalog{ep: ep, args: append([]string{"list", "sessions"}, args...), site: -1, lists: map[agentrewire.CtlKind][]*agentrewire.CtlResource{}}
+			cat := newCatalog(endpointExecutor(ep), append([]string{"list", "sessions"}, args...))
 			if id, err = refID(cat, kindProject, ref); err != nil {
 				return err
 			}
@@ -140,7 +137,7 @@ func runGetSession(args []string, s *sys) error {
 	if err := checkSessionRef(id); err != nil {
 		return err
 	}
-	ep, err := ctlclient.Resolve(last(p, "endpoint"), last(p, "token"), s.lookupEnv)
+	ep, err := conversationEndpoint(s, p, false, "")
 	if err != nil {
 		return err
 	}
@@ -205,7 +202,7 @@ func runMessages(args []string, s *sys) error {
 	if p.on("full") {
 		body["full"] = true
 	}
-	ep, err := ctlclient.Resolve(last(p, "endpoint"), last(p, "token"), s.lookupEnv)
+	ep, err := conversationEndpoint(s, p, false, "")
 	if err != nil {
 		return err
 	}
@@ -298,7 +295,7 @@ func runPending(args []string, s *sys) error {
 		}
 		body["conversationId"] = p.positional[0]
 	}
-	ep, err := ctlclient.Resolve(last(p, "endpoint"), last(p, "token"), s.lookupEnv)
+	ep, err := conversationEndpoint(s, p, false, "")
 	if err != nil {
 		return err
 	}
@@ -367,7 +364,7 @@ func runAnswer(args []string, s *sys) error {
 	default:
 		body["text"] = text
 	}
-	ep, err := ctlclient.Resolve(last(p, "endpoint"), last(p, "token"), s.lookupEnv)
+	ep, err := conversationEndpoint(s, p, true, "answering a pending item")
 	if err != nil {
 		return err
 	}
