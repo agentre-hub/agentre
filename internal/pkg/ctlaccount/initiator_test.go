@@ -16,13 +16,20 @@ func TestInitiatorOf(t *testing.T) {
 	c := &Client{opts: Options{
 		SelfFingerprint: func(context.Context) (string, error) { return "sha256:ci", nil },
 		ConsolePeer:     func(context.Context) (string, error) { return "sha256:console", nil },
+		TokenName: func(_ context.Context, peer string) (string, error) {
+			if peer == "pat:abc" {
+				return "nightly", nil
+			}
+			return "", nil
+		},
 	}}
 	cases := []struct{ name, peer, label, kind string }{
 		{"empty is the caller", "", "this agrctl (ci)", "cli"},
 		{"console", "sha256:console", "console", "console"},
 		{"desktop device", "sha256:desk", "work mac", "desktop"},
 		{"agentred device", "sha256:box", "box", "agentred"},
-		{"another token", "pat:abc", "personal token", "token"},
+		{"a token whose name is visible", "pat:abc", "nightly", "token"},
+		{"a token whose name is not visible", "pat:zzz", "personal token", "token"},
 		{"unknown", "sha256:ghost", "", ""},
 	}
 	for _, tc := range cases {

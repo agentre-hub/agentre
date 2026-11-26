@@ -385,8 +385,7 @@ type SessionDetail struct {
 }
 
 // initiatorOf 把会话的发起对端指纹（空 = 调用方自己）换成人话标签与种类；认不出时交回两个空串。
-// 个人 token 的名字只有它自己的调用方看得到（server 的 token 列表不带对端指纹），别的 token
-// 只能说「personal token」。
+// token 的名字由宿主按指纹查（登录态读 token 列表，个人 token 只看得到自己）；查不到就只说「personal token」。
 func (a *Client) initiatorOf(ctx context.Context, peer string, devices []accountDevice) (label, kind string) {
 	self := ""
 	if a.opts.SelfFingerprint != nil {
@@ -404,8 +403,8 @@ func (a *Client) initiatorOf(ctx context.Context, peer string, devices []account
 		}
 	}
 	if strings.HasPrefix(peer, "pat:") {
-		if peer == self && a.opts.SelfTokenName != nil {
-			if name, err := a.opts.SelfTokenName(ctx); err == nil && name != "" {
+		if a.opts.TokenName != nil {
+			if name, err := a.opts.TokenName(ctx, peer); err == nil && name != "" {
 				return name, "token"
 			}
 		}

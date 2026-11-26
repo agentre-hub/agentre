@@ -56,10 +56,10 @@ type Options struct {
 	// under when no online device reports it (list sessions --mine); nil = only
 	// a device can tell.
 	SelfFingerprint func(ctx context.Context) (string, error)
-	// SelfTokenName answers the name of the personal token this caller is ("" = the
-	// caller is not a token); nil = unknown. get session labels the caller's own
+	// TokenName answers the name of the personal token owning a pat:… peer fingerprint
+	// ("" = not visible to this caller); nil = unknown. get session labels
 	// token-started sessions with it.
-	SelfTokenName func(ctx context.Context) (string, error)
+	TokenName func(ctx context.Context, peer string) (string, error)
 	// ConsolePeer answers the account's console (browser) peer fingerprint so get
 	// session can label console-started sessions; nil = the host cannot tell, and a
 	// peer nobody else claims stays unlabelled rather than guessed as the console.

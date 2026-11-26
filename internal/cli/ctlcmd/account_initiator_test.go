@@ -17,6 +17,8 @@ const (
 	otherPatFP = "pat:someone-elses"
 	sessX      = "0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a90"
 	sessY      = "0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a91"
+	sessZ      = "0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a92"
+	consoleFP  = "sha256:console-7"
 )
 
 func getDetail(t *testing.T, id string, env func(string) (string, bool)) map[string]any {
@@ -33,6 +35,17 @@ func initiatorWorld(t *testing.T) *world {
 	w.extraDevices = []map[string]any{{"id": 43, "name": "ci-runner", "kind": "cli", "fingerprint": otherCliFP, "online": false}}
 	w.box.seed(sessX, otherCliFP, otherCliFP, "idle")
 	w.box.seed(sessY, otherPatFP, otherPatFP, "idle")
+	w.box.seed(sessZ, consoleFP, consoleFP, "idle")
+	// server：登录态的 token 列表带每枚 token 的对端指纹，列表与 self 都带账号控制台的对端指纹。
+	w.srv.mux.HandleFunc("GET /v1/personal-tokens", func(rw http.ResponseWriter, r *http.Request) {
+		writeEnvelope(rw, map[string]any{"console_peer_fingerprint": consoleFP, "tokens": []map[string]any{
+			{"name": "ci", "scopes": []string{"read"}, "peer_fingerprint": patFP},
+			{"name": "nightly", "scopes": []string{"read"}, "peer_fingerprint": otherPatFP},
+		}})
+	})
+	w.srv.mux.HandleFunc("GET /v1/personal-tokens/self", func(rw http.ResponseWriter, r *http.Request) {
+		writeEnvelope(rw, map[string]any{"item": map[string]any{"name": "ci", "scopes": []string{"read"}}, "peer_fingerprint": patFP, "console_peer_fingerprint": consoleFP})
+	})
 	return w
 }
 
@@ -52,18 +65,29 @@ func TestAccountGetSession_InitiatorOfAnotherCliDeviceIsItsName(t *testing.T) {
 	assert.Equal(t, "cli", out["initiatorKind"])
 }
 
-func TestAccountGetSession_InitiatorOfATokenIsItsNameForItsOwnCallerOnly(t *testing.T) {
-	w := initiatorWorld(t)
-	w.srv.mux.HandleFunc("GET /v1/personal-tokens/self", func(rw http.ResponseWriter, r *http.Request) {
-		_, _ = rw.Write([]byte(`{"code":0,"data":{"item":{"name":"ci","scopes":["read"]},"peer_fingerprint":"` + patFP + `"}}`))
-	})
+func TestAccountGetSession_InitiatorOfATokenIsItsName(t *testing.T) {
+	initiatorWorld(t)
 	own := getDetail(t, sessP, envMap("AGENTRE_TOKEN", personalToken))
 	assert.Equal(t, "ci", own["initiator"], "the token started it itself: its name")
 	assert.Equal(t, "token", own["initiatorKind"])
 
-	other := getDetail(t, sessY, envMap("AGENTRE_TOKEN", personalToken))
-	assert.Equal(t, "personal token", other["initiator"], "another token's name is not visible to the caller")
+	// 登录态读得到账号全部 token：别的 token 也说得出名字。
+	other := getDetail(t, sessY, envMap())
+	assert.Equal(t, "nightly", other["initiator"])
 	assert.Equal(t, "token", other["initiatorKind"])
+
+	// 个人 token 只看得到自己：别的 token 的名字不可见。
+	hidden := getDetail(t, sessY, envMap("AGENTRE_TOKEN", personalToken))
+	assert.Equal(t, "personal token", hidden["initiator"])
+}
+
+func TestAccountGetSession_InitiatorOfTheConsoleIsConsole(t *testing.T) {
+	initiatorWorld(t)
+	for name, env := range map[string]func(string) (string, bool){"login": envMap(), "personal token": envMap("AGENTRE_TOKEN", personalToken)} {
+		out := getDetail(t, sessZ, env)
+		assert.Equal(t, "console", out["initiator"], name)
+		assert.Equal(t, "console", out["initiatorKind"], name)
+	}
 }
 
 func TestAccountGetSession_InitiatorNobodyCanNameIsOmitted(t *testing.T) {

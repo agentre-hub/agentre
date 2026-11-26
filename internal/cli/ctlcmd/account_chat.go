@@ -40,7 +40,8 @@ func newAccountChat(s *sys, x *executor, args []string) *ctlaccount.Client {
 		CredentialRejected: rejected,
 		Warn:               func(msg string) { _, _ = fmt.Fprintf(s.stderr, "warning: %s\n", msg) },
 		SelfFingerprint:    func(ctx context.Context) (string, error) { return selfFingerprint(ctx, x.acct) },
-		SelfTokenName:      func(ctx context.Context) (string, error) { return selfTokenName(ctx, x.acct) },
+		TokenName:          func(ctx context.Context, peer string) (string, error) { return tokenNameOf(ctx, x.acct, peer) },
+		ConsolePeer:        func(ctx context.Context) (string, error) { return consolePeer(ctx, x.acct) },
 		PollInterval:       accountPollInterval,
 		ReconnectDelay:     reconnectDelay,
 	})
@@ -56,20 +57,63 @@ func selfFingerprint(ctx context.Context, acct *ctlclient.Account) (string, erro
 	return self.PeerFingerprint, err
 }
 
-// selfTokenName 是调用方这枚个人 token 的名字；登录态不是 token，交回空串。
-func selfTokenName(ctx context.Context, acct *ctlclient.Account) (string, error) {
-	if !acct.PersonalToken() {
-		return "", nil
+// tokenNameOf 是对端指纹 peer 属于哪枚个人 token：登录态读账号的 token 列表，个人 token 只看得到自己。
+func tokenNameOf(ctx context.Context, acct *ctlclient.Account, peer string) (string, error) {
+	if acct.PersonalToken() {
+		self, err := selfToken(ctx, acct)
+		if err != nil || self.PeerFingerprint != peer {
+			return "", err
+		}
+		return self.Item.Name, nil
 	}
-	self, err := selfToken(ctx, acct)
-	return self.Item.Name, err
+	list, err := tokenList(ctx, acct)
+	if err != nil {
+		return "", err
+	}
+	for _, t := range list.Tokens {
+		if t.PeerFingerprint == peer {
+			return t.Name, nil
+		}
+	}
+	return "", nil
+}
+
+// consolePeer 是本账号控制台的对端指纹（server 按账号派生；token 列表与 self 都带）。
+func consolePeer(ctx context.Context, acct *ctlclient.Account) (string, error) {
+	if acct.PersonalToken() {
+		self, err := selfToken(ctx, acct)
+		return self.ConsolePeerFingerprint, err
+	}
+	list, err := tokenList(ctx, acct)
+	return list.ConsolePeerFingerprint, err
+}
+
+type tokenListInfo struct {
+	Tokens []struct {
+		Name            string `json:"name"`
+		PeerFingerprint string `json:"peer_fingerprint"`
+	} `json:"tokens"`
+	ConsolePeerFingerprint string `json:"console_peer_fingerprint"`
+}
+
+func tokenList(ctx context.Context, acct *ctlclient.Account) (tokenListInfo, error) {
+	var out tokenListInfo
+	raw, err := acct.GetRaw(ctx, "/v1/personal-tokens")
+	if err != nil {
+		return out, serverErr(err)
+	}
+	if err := cagoenvelope.Decode(raw, &out); err != nil {
+		return out, fmt.Errorf("decode the token list: %w", err)
+	}
+	return out, nil
 }
 
 type selfTokenInfo struct {
 	Item struct {
 		Name string `json:"name"`
 	} `json:"item"`
-	PeerFingerprint string `json:"peer_fingerprint"`
+	PeerFingerprint        string `json:"peer_fingerprint"`
+	ConsolePeerFingerprint string `json:"console_peer_fingerprint"`
 }
 
 func selfToken(ctx context.Context, acct *ctlclient.Account) (selfTokenInfo, error) {
