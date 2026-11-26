@@ -97,6 +97,14 @@ func TestDrainStream_StampsAILocation(t *testing.T) {
 			So(meta["message"], ShouldEqual, "Exited and removed worktree.")
 		})
 
+		Convey("When ExitWorktree chose remove but the CLI could not remove the worktree, Then there is no revoke marker", func() {
+			_, results := drainLocations(httpgateway.NewHookLocations(), init,
+				preTool("x4", "ExitWorktree"),
+				postTool("x4", `{"action":"remove","originalCwd":"/repo","worktreePath":"`+locWT+`","restoredCwd":"/repo","discardedFiles":0,"message":"Exited worktree but could not remove it — kept at “`+locWT+`”. Session is now back in “/repo”."}`))
+			So(results["x4"].Cwd, ShouldEqual, locRepo)
+			So(string(results["x4"].Meta), ShouldNotContainSubstring, agentruntime.RevokeRootMetaKey)
+		})
+
 		Convey("When ExitWorktree fails, Then the location does not move", func() {
 			fail := postTool("x3", `{"action":"remove","worktreePath":"`+locWT+`","restoredCwd":"/elsewhere"}`)
 			fail.Tool.Err = errors.New("tool failed")

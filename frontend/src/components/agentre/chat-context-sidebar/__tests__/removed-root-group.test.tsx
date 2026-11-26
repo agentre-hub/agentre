@@ -311,4 +311,25 @@ describe("变更 · 被移除的嵌套 worktree", () => {
       screen.queryByText(".claude/worktrees/feat-x/src"),
     ).not.toBeInTheDocument();
   });
+
+  // Given 会话没开着时 feat-x 被移除（这一页从没见过它）, When 打开会话、后端取数在集合
+  // 之后带回 removed=true 的 feat-x, Then 同样以「feat-x（已移除）」分组显示，主根没有
+  // .claude/worktrees/... 的行，也不提示移除（这一页没有从它切走）。
+  it("groups a nested worktree removed while the session was not open, from the backend's report", async () => {
+    workRootsMock.mockResolvedValue([
+      ...nestedRoots(false),
+      { ...nestedRoots(true)[1], aiHere: false, removed: true },
+    ]);
+    renderNested();
+
+    const group = await screen.findByTestId("removed-root-group");
+    expect(group).toHaveTextContent("feat-x (removed)");
+    expect(
+      screen
+        .getAllByTestId("change-row")
+        .map((r) => r.getAttribute("data-path")),
+    ).toEqual(["src/b.ts"]);
+    expect(useSessionRootStore.getState().bySession[7].roots).toHaveLength(1);
+    expect(useSessionRootStore.getState().bySession[7].notice).toBeNull();
+  });
 });

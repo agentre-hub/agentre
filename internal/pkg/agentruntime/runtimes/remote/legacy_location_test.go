@@ -102,7 +102,7 @@ type durableTool struct{ id, name, input, result string }
 // 经 transcript.ProjectMessages 投影成它交来的持久帧(结果帧没有 Meta)。
 func durableToolFrames(t *testing.T, tools ...durableTool) []agentruntime.Event {
 	t.Helper()
-	var blocks []string
+	blocks := make([]string, 0, 2*len(tools))
 	for _, tool := range tools {
 		text, err := json.Marshal(tool.result)
 		require.NoError(t, err)
@@ -113,7 +113,7 @@ func durableToolFrames(t *testing.T, tools ...durableTool) []agentruntime.Event 
 	msg := &transcript_entity.Message{ID: 20, Role: "assistant", BlocksJSON: "[" + strings.Join(blocks, ",") + "]"}
 	frames, _, err := transcript.ProjectMessages(convOf(42), []*transcript_entity.Message{msg})
 	require.NoError(t, err)
-	var evs []agentruntime.Event
+	evs := make([]agentruntime.Event, 0, len(frames))
 	for _, f := range frames {
 		evs = append(evs, f.Event)
 	}
@@ -207,6 +207,67 @@ func TestLegacyAgentred_ClaudeExitWorktreeFromDurableFrame(t *testing.T) {
 		_, results := callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, evs...))
 		assert.Empty(t, results["x1"].Cwd)
 		assert.Nil(t, revokeOf(results["x1"]))
+	})
+}
+
+// spec「识别信号」:ExitWorktree 的信号是**结果**里的恢复目录,选择删除时同时撤销该根。
+// 旧 agentred 的持久帧没有元数据,但结果正文(Claude Code 2.1.326 的 message)写明了
+// 两者:「Exited and removed worktree at “<被删的>”. … Session is now back in “<恢复目录>”.」
+// —— 所以不依赖本进程记下的进入记录:应用重启后(进入那一轮不在本进程)照样回到正文
+// 给出的目录并撤销正文给出的根;CLI 没能删掉时(「could not remove it — kept at」)
+// 即使入参是 remove 也不撤销。
+func TestLegacyAgentred_ClaudeExitWorktreeResultTextIsTheSignal(t *testing.T) {
+	const wt = "/w/.claude/worktrees/feat-o"
+	revokeOf := func(r agentruntime.ToolResult) any {
+		if len(r.Meta) == 0 {
+			return nil
+		}
+		var meta map[string]any
+		require.NoError(t, json.Unmarshal(r.Meta, &meta))
+		return meta[agentruntime.RevokeRootMetaKey]
+	}
+	exitOnly := func(input, text string) map[string]agentruntime.ToolResult {
+		t.Helper()
+		evs := durableToolFrames(t, durableTool{id: "x1", name: "ExitWorktree", input: input, result: text})
+		_, results := callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, evs...))
+		return results
+	}
+
+	t.Run("after a restart a remove exit returns to the text's directory and revokes the text's root", func(t *testing.T) {
+		results := exitOnly(`{"action":"remove","discard_changes":true}`,
+			"Exited and removed worktree at “"+wt+"”. Discarded 1 uncommitted file. Session is now back in “/w/sub”.")
+		assert.Equal(t, "/w/sub", results["x1"].Cwd)
+		assert.Equal(t, wt, revokeOf(results["x1"]))
+	})
+
+	t.Run("when the original directory is gone the session's new directory is the location", func(t *testing.T) {
+		results := exitOnly(`{"action":"keep"}`,
+			"Exited worktree. Your work is preserved at “"+wt+"” on branch “b”. The original directory “/gone” no longer exists, so the session is now in “/w/launch”, a folder that it was launched with.")
+		assert.Equal(t, "/w/launch", results["x1"].Cwd)
+		assert.Nil(t, revokeOf(results["x1"]))
+	})
+
+	t.Run("a remove the CLI could not carry out keeps the root", func(t *testing.T) {
+		enter := durableTool{id: "e1", name: "EnterWorktree", input: `{"name":"feat-o"}`,
+			result: "Created worktree at “" + wt + "” on branch “worktree-feat-o”. The session is now working in the worktree."}
+		evs := durableToolFrames(t, enter, durableTool{id: "x1", name: "ExitWorktree", input: `{"action":"remove"}`,
+			result: "Exited worktree but could not remove it — kept at “" + wt + "”. Session is now back in “/w”."})
+		_, results := callsAndResults(runLegacy(t, agent_backend_entity.TypeClaudeCode, evs...))
+		assert.Equal(t, "/w", results["x1"].Cwd)
+		assert.Nil(t, revokeOf(results["x1"]), "the worktree is still on disk")
+	})
+
+	t.Run("a subagent's EnterWorktree text is a claim candidate but does not move the main agent", func(t *testing.T) {
+		got := runLegacy(t, agent_backend_entity.TypeClaudeCode,
+			agentruntime.ToolCall{ID: "s1", Name: "EnterWorktree", Input: json.RawMessage(`{"name":"feat-o"}`), ParentToolCallID: "task-1"},
+			agentruntime.ToolResult{ToolCallID: "s1", ParentToolCallID: "task-1",
+				Content: "Created worktree at “" + wt + "” on branch “worktree-feat-o”. The session is now working in the worktree."},
+			agentruntime.ToolCall{ID: "x1", Name: "ExitWorktree", Input: json.RawMessage(`{"action":"keep"}`)},
+			agentruntime.ToolResult{ToolCallID: "x1", Content: "Exited worktree."},
+		)
+		_, results := callsAndResults(got)
+		assert.Equal(t, wt, results["s1"].Cwd)
+		assert.Equal(t, "/w", results["x1"].Cwd, "the main agent never entered the subagent's worktree")
 	})
 }
 

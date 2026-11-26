@@ -84,6 +84,8 @@ type WorkRootView struct {
 	IsPrimary  bool   `json:"isPrimary"`
 	// AIHere 标记 AI 当前位置所在的那个根(最多一个;位置不在任何根内时一个都不标)。
 	AIHere bool `json:"aiHere"`
+	// Removed 只出现在 RemovedWorkRoots 交回的项上:这个根已从认领集合中消失。
+	Removed bool `json:"removed,omitempty"`
 }
 
 // SessionAILocationResolver 返回本会话的 AI 当前位置:执行设备上的一个绝对目录,空串 =

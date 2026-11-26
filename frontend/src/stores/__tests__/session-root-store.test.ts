@@ -241,6 +241,24 @@ describe("useSessionRoot · worktree 被移除", () => {
     r = renderHook(() => useSessionRoot(7)).result.current;
     expect(r.removed).toEqual([]);
   });
+
+  // Given 后端取数在集合之后带回本进程里已移除的根（removed=true）——这一页从没见过它
+  // （会话没开着时被移除）, When 落到 store, Then 它进「已移除」清单而不是集合；与集合里
+  // 同路径的（取数之间又认领回来了）不算移除。
+  it("takes roots the backend reports as removed into the removed list, not the set", () => {
+    const reported = [
+      root(CWD, "demo-app", { isPrimary: true, aiHere: true }),
+      root(WT2, "ia", { isWorktree: true }),
+      { ...root(WT, "dark-mode", { isWorktree: true }), removed: true },
+      { ...root(WT2, "ia", { isWorktree: true }), removed: true },
+    ] as WorkRoot[];
+    apply(7, reported);
+
+    const r = renderHook(() => useSessionRoot(7)).result.current;
+    expect(r.roots.map((x) => x.path)).toEqual([CWD, WT2]);
+    expect(r.removed.map((x) => x.path)).toEqual([WT]);
+    expect(r.notice).toBeNull();
+  });
 });
 
 /** 页面重新加载：内存状态全丢，store 从本机存储读回（见 removed-root-group 测试）。 */

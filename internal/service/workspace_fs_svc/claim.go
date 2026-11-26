@@ -51,6 +51,8 @@ type claimState struct {
 	unverified map[string]struct{}      // 读入后尚未校验成功的持久化根(按路径)
 	judged     map[string]*GitStateView // 目录 → git 判定(只缓存工作树内的答案)
 	fed        map[string]struct{}      // 写入路径来源已喂过的目录
+	// removed 是本进程里从集合中消失、还没被认领回来的根(见 RemovedWorkRoots)。
+	removed []WorkRootView
 }
 
 func newClaimState(deviceID int64, cwd string) *claimState {
@@ -196,6 +198,7 @@ func (s *workspaceFsImpl) Revoke(ctx context.Context, sessionID int64, root stri
 				zap.Int64("sessionID", sessionID), zap.Error(err))
 			return false, err
 		}
+		st.noteRemoved(r)
 		st.drop(r.Path)
 		logger.Ctx(ctx).Info("workspace_fs_svc.Revoke: revoked work root",
 			zap.Int64("sessionID", sessionID), zap.Int64("deviceID", deviceID),
@@ -203,6 +206,17 @@ func (s *workspaceFsImpl) Revoke(ctx context.Context, sessionID int64, root stri
 		return true, nil
 	}
 	return false, nil
+}
+
+func (s *workspaceFsImpl) RemovedWorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error) {
+	deviceID, cwd, err := s.workspace(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	st := s.stateFor(sessionID, deviceID, cwd)
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return append([]WorkRootView(nil), st.removed...), nil
 }
 
 func (s *workspaceFsImpl) ForgetSession(ctx context.Context, sessionID int64) error {
@@ -263,6 +277,11 @@ func (s *workspaceFsImpl) ensureLoaded(ctx context.Context, sessionID int64, st 
 		}
 		delete(st.unverified, r.Path)
 		if gs.NotARepo || gs.CommonDir != st.primary.CommonDir || st.identity[gs.Worktree] != r.Path {
+			if gs.NotARepo || gs.CommonDir == st.primary.CommonDir {
+				// 目录没了,或同一仓库里那个工作树已不在这里:它被移除了。指向另一个
+				// 仓库的(会话目录换了仓库)只是不再属于这个会话,不算移除。
+				st.noteRemoved(r)
+			}
 			st.drop(r.Path)
 			if err := s.workRootRepo().Delete(ctx, sessionID, r.Path); err != nil {
 				logger.Ctx(ctx).Warn("workspace_fs_svc.ensureLoaded: delete stale claimed root failed",
@@ -372,6 +391,25 @@ func (st *claimState) markClaimedUnverified() {
 func (st *claimState) add(view WorkRootView, worktree string) {
 	st.roots = append(st.roots, view)
 	st.identity[worktree] = view.Path
+	st.forgetRemoved(view.Path)
+}
+
+// noteRemoved 把从集合中消失的根 r 记进移除清单(同一路径只记一次)。
+func (st *claimState) noteRemoved(r WorkRootView) {
+	st.forgetRemoved(r.Path)
+	st.removed = append(st.removed, WorkRootView{Path: r.Path, Name: r.Name, IsWorktree: r.IsWorktree, Removed: true})
+}
+
+// forgetRemoved 把 path 移出移除清单:它又被认领回来了。
+func (st *claimState) forgetRemoved(path string) {
+	target := cleanPath(path)
+	kept := st.removed[:0]
+	for _, r := range st.removed {
+		if cleanPath(r.Path) != target {
+			kept = append(kept, r)
+		}
+	}
+	st.removed = kept
 }
 
 // drop 把 path 这个根移出集合,并清掉落在它之内的 git 判定缓存:同一路径以后若

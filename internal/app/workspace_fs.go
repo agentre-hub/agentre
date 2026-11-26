@@ -8,8 +8,21 @@ import (
 // (isPrimary),AI 写进同一主仓库的另一个 worktree 时那个 worktree 也在其中。
 // 下面几个方法的 root 参数只接受这里给出的路径,其余一律被拒。界面在挂载与轮次结束时
 // 取它,已认领的根因此各重验一次:进程里被删掉的 worktree 就此出集合。
+//
+// 集合之后接着本进程里从集合中消失的根(removed=true,不是可用的根):界面没开着这个
+// 会话时被移除的 worktree,前端只能从这里知道它曾是一个根(变更窗的「已移除」分组)。
+// 移除清单在重验之后读,重验刚发现的移除也在其中。
 func (a *App) WorkspaceFsWorkRoots(sessionID int64) ([]workspace_fs_svc.WorkRootView, error) {
-	return workspace_fs_svc.Default().RefreshWorkRoots(a.ctx, sessionID)
+	svc := workspace_fs_svc.Default()
+	roots, err := svc.RefreshWorkRoots(a.ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	removed, err := svc.RemovedWorkRoots(a.ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return append(roots, removed...), nil
 }
 
 // WorkspaceFsListDir 列出 root 下 relPath 这一层。

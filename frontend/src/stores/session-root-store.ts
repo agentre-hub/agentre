@@ -32,9 +32,10 @@ type SessionRootEntry = {
   follow: boolean;
   notice: RootNotice | null;
   /**
-   * 从集合中消失、至今没被认领回来的根（变更窗的「已移除」分组）。后端在根消失时
-   * 删掉它的认领行，「它曾是一个根」只有这里看见过，所以这一项跨重新加载与重启
-   * 保存在本机；其余字段不保存（spec：跟随与当前根重启后回到默认）。
+   * 从集合中消失、至今没被认领回来的根（变更窗的「已移除」分组）：这一页看着它消失的，
+   * 加上后端取数带回的、本进程里已移除的根（会话没开着时被移除）。后端在根消失时删掉
+   * 它的认领行、移除清单只在它的内存里，所以这一项跨重新加载与重启保存在本机；其余
+   * 字段不保存（spec：跟随与当前根重启后回到默认）。
    */
   removed: WorkRoot[];
   /**
@@ -51,7 +52,10 @@ type State = {
    * 目录没变则什么也不改。集合取回之前当前根因此已经是 cwd。
    */
   attach: (sessionId: number, cwd: string) => void;
-  /** 一份新的认领集合（首次取数、轮末重取或 `chat:workroots` 推送）。 */
+  /**
+   * 一份新的认领集合（首次取数、轮末重取或 `chat:workroots` 推送）。取数在集合之后
+   * 可能接着 `removed: true` 的项：它们不是可用的根，只进「已移除」清单。
+   */
   applyRoots: (sessionId: number, cwd: string, roots: WorkRoot[]) => void;
   /** 用户在下拉里手动选根：切过去并关闭跟随。 */
   select: (sessionId: number, path: string) => void;
@@ -102,17 +106,22 @@ function restoreEntries(saved: unknown): Record<number, SessionRootEntry> {
     const e = value as Partial<PersistedEntry> | null;
     if (!Number.isInteger(id) || typeof e !== "object" || e === null) continue;
     if (typeof e.cwd !== "string" || !Array.isArray(e.removed)) continue;
-    const removed = e.removed.filter(isWorkRoot).map((r) => ({
-      path: r.path,
-      name: r.name,
-      isWorktree: r.isWorktree === true,
-      isPrimary: false,
-      aiHere: false,
-    }));
+    const removed = e.removed.filter(isWorkRoot).map(asRemoved);
     if (removed.length === 0) continue;
     out[id] = { ...freshEntry(e.cwd), removed };
   }
   return out;
+}
+
+/** 「已移除」清单里的一项：只留名称与类型。 */
+function asRemoved(r: WorkRoot): WorkRoot {
+  return {
+    path: r.path,
+    name: r.name,
+    isWorktree: r.isWorktree === true,
+    isPrimary: false,
+    aiHere: false,
+  };
 }
 
 /** 当前根：被选中且仍在集合里的那个根；否则主根（还没有集合时为 null）。 */
@@ -136,22 +145,26 @@ function nextNoticeId(): number {
  *   - 第一次拿到集合：跟随开着就落在 AI 所在的根，不提示；
  *   - 当前根从集合里消失：回到主根，提示一次移除；
  *   - 跟随开着且 AI 所在的根不是当前根：切过去，提示「已跟随」并记下原根；
- *   - 消失的根进「已移除」清单，被认领回来时撤掉。
+ *   - 消失的根与后端报告已移除的根进「已移除」清单，被认领回来时撤掉。
  */
 function reduceRoots(
   prev: SessionRootEntry,
-  roots: WorkRoot[],
+  reported: WorkRoot[],
 ): SessionRootEntry {
+  const roots = reported.filter((r) => !r.removed);
   const paths = new Set(roots.map((r) => r.path));
   const primary = roots.find((r) => r.isPrimary) ?? null;
   const ai = roots.find((r) => r.aiHere) ?? null;
   const gone = prev.roots.filter((r) => !paths.has(r.path) && !r.isPrimary);
-  const removed = [
-    ...prev.removed.filter(
-      (r) => !paths.has(r.path) && !gone.some((g) => g.path === r.path),
-    ),
+  const removed: WorkRoot[] = [];
+  for (const r of [
+    ...prev.removed,
     ...gone,
-  ];
+    ...reported.filter((x) => x.removed),
+  ]) {
+    if (paths.has(r.path) || removed.some((x) => x.path === r.path)) continue;
+    removed.push(asRemoved(r));
+  }
   const next: SessionRootEntry = {
     ...prev,
     roots,

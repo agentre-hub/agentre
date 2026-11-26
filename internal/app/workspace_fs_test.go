@@ -16,6 +16,7 @@ type stubWorkspaceFs struct {
 	workspace_fs_svc.WorkspaceFsSvc
 
 	roots    []workspace_fs_svc.WorkRootView
+	removed  []workspace_fs_svc.WorkRootView
 	claimErr error
 	calls    []string
 
@@ -86,5 +87,26 @@ func TestWorkspaceFsWorkRoots_ReverifiesClaimedRoots(t *testing.T) {
 	got, err := a.WorkspaceFsWorkRoots(42)
 	require.NoError(t, err)
 	assert.Equal(t, roots, got)
-	assert.Equal(t, []string{"RefreshWorkRoots"}, stub.calls)
+	assert.Equal(t, []string{"RefreshWorkRoots", "RemovedWorkRoots"}, stub.calls)
+}
+
+func (s *stubWorkspaceFs) RemovedWorkRoots(_ context.Context, sessionID int64) ([]workspace_fs_svc.WorkRootView, error) {
+	s.calls = append(s.calls, "RemovedWorkRoots")
+	return s.removed, nil
+}
+
+// 界面取工作根时同时拿到本进程里从集合中消失的根(带 removed 标记,排在集合之后):
+// 会话没开着时被移除的根,前端只能从这里知道它曾是一个根(spec「worktree 被移除」的
+// 「（已移除）」分组)。
+func TestWorkspaceFsWorkRoots_AppendsRemovedRootsAfterTheSet(t *testing.T) {
+	roots := []workspace_fs_svc.WorkRootView{{Path: "/repo", Name: "repo", IsPrimary: true}}
+	removed := []workspace_fs_svc.WorkRootView{{Path: "/repo/.claude/worktrees/x", Name: "x", IsWorktree: true, Removed: true}}
+	stub := &stubWorkspaceFs{roots: roots, removed: removed}
+	a := withStubWorkspaceFs(t, stub)
+
+	got, err := a.WorkspaceFsWorkRoots(42)
+	require.NoError(t, err)
+	assert.Equal(t, append(append([]workspace_fs_svc.WorkRootView(nil), roots...), removed...), got)
+	assert.Equal(t, []string{"RefreshWorkRoots", "RemovedWorkRoots"}, stub.calls,
+		"the removed list is read after the re-verification that may add to it")
 }

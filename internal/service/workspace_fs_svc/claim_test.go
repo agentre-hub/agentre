@@ -529,3 +529,83 @@ func TestRootFor_KnownClaimedRootDoesNotRescanWrittenPaths(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, scans)
 }
+
+// spec「worktree 被移除」:变更窗里被移除的根以「<名称>（已移除）」分组显示。根消失时
+// 认领行被删掉,所以「它曾是一个根」只有做出移除的这一侧知道 —— 界面没开着这个会话时
+// (后台跑的会话、派发出去的会话)前端从没见过这个根。RemovedWorkRoots 交回本进程里从
+// 认领集合中消失的根:撤销的、重验时已不是认领时那个工作树的(目录没了 / 换成了别的
+// worktree);又被认领回来的不在其中;换到另一个仓库(会话目录改了)不算移除。
+func TestRemovedWorkRoots(t *testing.T) {
+	convey.Convey("本进程里从认领集合中消失的根", t, func() {
+		removedPaths := func(r *rig) []string {
+			t.Helper()
+			removed, err := r.svc.RemovedWorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			for _, v := range removed {
+				assert.True(t, v.Removed, "every entry is flagged removed")
+			}
+			return rootPaths(removed)
+		}
+
+		convey.Convey("撤销的根 → 在移除清单里,带名称与类型;集合里没有它", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten()
+			r.expectGitState(map[string]wire.GitStateResp{
+				"/remote/main": {CommonDir: "/remote/main/.git"},
+				"/remote/wt":   {CommonDir: "/remote/main/.git", Worktree: "wt"},
+				"/remote":      {NotARepo: true},
+			})
+			_, err := r.svc.Claim(r.ctx, 42, []string{"/remote/wt"})
+			require.NoError(t, err)
+			assert.Empty(t, removedPaths(r))
+
+			_, err = r.svc.Revoke(r.ctx, 42, "/remote/wt")
+			require.NoError(t, err)
+			removed, err := r.svc.RemovedWorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []WorkRootView{{Path: "/remote/wt", Name: "wt", IsWorktree: true, Removed: true}}, removed)
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"/remote/main"}, rootPaths(roots))
+
+			convey.Convey("又被认领回来 → 不再在移除清单里", func() {
+				_, err := r.svc.Claim(r.ctx, 42, []string{"/remote/wt"})
+				require.NoError(t, err)
+				assert.Empty(t, removedPaths(r))
+			})
+		})
+
+		convey.Convey("读入时已不在的持久化根 → 在移除清单里;换到另一个仓库的不算", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten()
+			r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: "/remote/gone", Worktree: "gone"})
+			r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: "/remote/other", Worktree: "other"})
+			r.store.put(workspace_fs_entity.WorkRoot{SessionID: 42, Path: "/remote/b", Worktree: "b"})
+			r.expectGitState(map[string]wire.GitStateResp{
+				"/remote/main":  {CommonDir: "/remote/main/.git"},
+				"/remote/other": {CommonDir: "/elsewhere/.git"},
+				"/remote/b":     {CommonDir: "/remote/main/.git", Worktree: "b2"},
+			})
+			_, err := r.svc.RefreshWorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"/remote/gone", "/remote/b"}, removedPaths(r))
+		})
+
+		convey.Convey("运行中被删掉、界面重取时发现的根 → 在移除清单里", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten()
+			states := map[string]wire.GitStateResp{
+				"/remote/main": {CommonDir: "/remote/main/.git"},
+				"/remote/wt":   {CommonDir: "/remote/main/.git", Worktree: "wt"},
+				"/remote":      {NotARepo: true},
+			}
+			r.expectGitStateOrErr(states, map[string]error{})
+			_, err := r.svc.Claim(r.ctx, 42, []string{"/remote/wt"})
+			require.NoError(t, err)
+			delete(states, "/remote/wt")
+			_, err = r.svc.RefreshWorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"/remote/wt"}, removedPaths(r))
+		})
+	})
+}
