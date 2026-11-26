@@ -55,7 +55,7 @@ const NO_STIRRED: ReadonlySet<number> = new Set();
 
 /**
  * 与 `chat_svc.RunStateEvent` 同名：本桌面端上某条会话开始 / 不再运行（轮次起止、后台
- * 活动集合空与非空翻转、停止翻回 idle），载荷是会话 id。应用级事件，不依赖那条会话
+ * 活动集合空与非空翻转、停止翻回 idle、删除），载荷是会话 id。应用级事件，不依赖那条会话
  * 开着对话面板 —— 被 agrctl send、agent 派发或别的宿主拉起的会话也发。
  */
 const RUN_STATE_EVENT = "chat:run-state";

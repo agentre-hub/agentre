@@ -67,6 +67,25 @@ func TestDelete_DispatchCleanupFailureReturnsError(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Given 一条没有轮次在飞、却仍被算作「在跑」的会话(库里停在 running 的遗孤,或只剩
+// 后台活动集合),它正列在别的会话关联窗的「同一份代码上在跑」里, When 删除它,
+// Then 软删落库之后发一次应用级 RunStateEvent —— 没有轮次收尾替它发,不发的话它会
+// 一直挂在别人的列表里;软删失败时不发(它仍在库里)。
+func TestDelete_GivenNoTurnInFlight_ThenRunStateEventAfterSoftDelete(t *testing.T) {
+	m := setupChatTest(t)
+	expectDeleteCleanup(m, 7)
+
+	_, err := m.svc.Delete(m.ctx, &chat_svc.DeleteRequest{SessionID: 7})
+	require.NoError(t, err)
+	assert.Contains(t, m.events, recorded{Name: chat_svc.RunStateEvent, Payload: int64(7)})
+
+	m2 := setupChatTest(t)
+	m2.session.EXPECT().SoftDelete(m2.ctx, int64(8)).Return(errors.New("db locked"))
+	_, err = m2.svc.Delete(m2.ctx, &chat_svc.DeleteRequest{SessionID: 8})
+	require.Error(t, err)
+	assert.NotContains(t, m2.events, recorded{Name: chat_svc.RunStateEvent, Payload: int64(8)})
+}
+
 // 认领集合清理失败与其它清理步骤一样直接报错(调用方据此重放删除),不吞掉。
 func TestDelete_WorkRootCleanupFailureReturnsError(t *testing.T) {
 	m := setupChatTest(t)

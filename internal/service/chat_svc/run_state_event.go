@@ -11,7 +11,8 @@ import "context"
 //     Ended,见 peer_session.go)—— 用户轮、compact、派发轮(agrctl send、agent 派发、
 //     对端发起)与自主续轮全部经过这里,Ended 在会话行落成终态之后才调;
 //   - 后台活动集合在空与非空之间翻转(bg_running.go);
-//   - 停止把一条没有轮次收尾的会话翻回 idle(reconcileSessionToIdle)。
+//   - 停止把一条没有轮次收尾的会话翻回 idle(reconcileSessionToIdle);
+//   - 删除会话,软删落库之后(Delete)。
 //
 // 会话级旁路流(chat:autonomous:<id>)只有挂着这条会话对话面板的地方才听;关联窗要
 // 知道**别的**会话开始 / 停下,而那条会话未必开着面板 —— 这条应用级事件就是给它的。

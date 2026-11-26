@@ -145,6 +145,9 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 	if err := chat_repo.Session().SoftDelete(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
+	// 软删即退出「在跑」集合;没有轮次在飞时(库里停在 running 的遗孤、只剩后台活动)
+	// 没有轮次收尾替它发 RunStateEvent,在这里发。
+	s.emitRunStateChanged(req.SessionID)
 	// DB 已删，释放该 session 的常驻 CLI 子进程（best-effort，cache miss 时 no-op）。
 	// 按 runtime 注册表广播而不是逐个后端点名：点名的写法每加一个有常驻子进程的
 	// 后端就会静默漏一处，漏掉的表现是机器上多一个永不退出的 CLI。

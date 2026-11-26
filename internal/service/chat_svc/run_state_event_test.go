@@ -117,6 +117,13 @@ func TestRunStateEvent_GivenOrphanReconciledToIdle_ThenEmittedAfterThePersist(t 
 	assert.Equal(t, []int64{9}, rec.got())
 }
 
+// RunStateEvent 的值是过 Wails 那座桥的契约:前端 use-session-relations.ts 的
+// RUN_STATE_EVENT 订阅同一个字面量。钉字面量,而不是拿常量断言常量(同
+// workspace_fs_svc 的 TestUnavailableReasonWireValues):改了这边的值这里就红。
+func TestRunStateEventWireName(t *testing.T) {
+	assert.Equal(t, "chat:run-state", RunStateEvent)
+}
+
 // 没有接 emitter 的 chatSvc(单元测试里的裸构造)不炸。
 func TestRunStateEvent_GivenNoEmitter_ThenNoPanic(t *testing.T) {
 	s := &chatSvc{}
