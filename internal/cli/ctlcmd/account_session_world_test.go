@@ -150,7 +150,11 @@ func (f *fakeAgentred) registerAnswers(reg *protorpc.Registry) {
 	protorpc.RegisterMethod(reg, m(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER),
 		func() *agentrewire.RuntimeSubmitAnswerRequest { return &agentrewire.RuntimeSubmitAnswerRequest{} },
 		func(ctx context.Context, req *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error) {
-			if err := f.guard(ctx, f.session(req.GetConversationId())); err != nil {
+			s := f.session(req.GetConversationId())
+			if err := f.guard(ctx, s); err != nil {
+				return nil, err
+			}
+			if err := f.submitControl(ctx, s); err != nil {
 				return nil, err
 			}
 			f.mu.Lock()
@@ -164,7 +168,11 @@ func (f *fakeAgentred) registerAnswers(reg *protorpc.Registry) {
 			return &agentrewire.RuntimeSubmitToolPermissionRequest{}
 		},
 		func(ctx context.Context, req *agentrewire.RuntimeSubmitToolPermissionRequest) (*agentrewire.PeerSessionControlResponse, error) {
-			if err := f.guard(ctx, f.session(req.GetConversationId())); err != nil {
+			s := f.session(req.GetConversationId())
+			if err := f.guard(ctx, s); err != nil {
+				return nil, err
+			}
+			if err := f.submitControl(ctx, s); err != nil {
 				return nil, err
 			}
 			f.mu.Lock()

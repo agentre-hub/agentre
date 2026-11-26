@@ -16,11 +16,18 @@ import (
 // task containing "ask:" makes the turn stop on a question (ask-1, options Vanilla and
 // Chocolate); any other task finishes at once. Answering the question finishes the turn
 // with "You chose <label>.".
+//
+// Like the real agentred, the runtime controls are per connection: a connection
+// only acts on a turn it started (runtime.run) or took over (session.attach). Every
+// agrctl command dials a new channel, so one that answers without attaching first
+// fails here exactly as it does against the real daemon.
 type Agentred struct {
 	mu       sync.Mutex
 	sessions map[string]*session
 	seq      int64
 	answers  []string
+	// taken is each connection's session table: what runtime.run and session.attach put there.
+	taken map[*protorpc.Conn]map[string]bool
 }
 
 type session struct {
@@ -29,7 +36,26 @@ type session struct {
 	notes   []*agentrewire.DurableNotification
 }
 
-func newAgentred() *Agentred { return &Agentred{sessions: map[string]*session{}} }
+func newAgentred() *Agentred {
+	return &Agentred{sessions: map[string]*session{}, taken: map[*protorpc.Conn]map[string]bool{}}
+}
+
+// take records that the calling connection controls the session; the caller holds a.mu.
+func (a *Agentred) take(ctx context.Context, id string) {
+	c := protorpc.ConnFromContext(ctx)
+	if a.taken[c] == nil {
+		a.taken[c] = map[string]bool{}
+	}
+	a.taken[c][id] = true
+}
+
+// controls reports whether the calling connection may drive the session's live
+// turn; the caller holds a.mu.
+func (a *Agentred) controls(ctx context.Context, id string) bool {
+	return a.taken[protorpc.ConnFromContext(ctx)][id]
+}
+
+var errNoActiveTurn = &rpcerror.Error{Code: rpcerror.CodeRuntimeNoActiveTurn, Message: "agentruntime: no active turn for session"}
 
 // AnsweredLabels are the option labels submitted through runtime.submitAnswer.
 func (a *Agentred) AnsweredLabels() []string {
@@ -81,6 +107,7 @@ func (a *Agentred) registry() *protorpc.Registry {
 				return nil, &rpcerror.Error{Code: rpcerror.CodeRuntimeSessionRunning, Message: "runtime: conversation is running a turn"}
 			}
 			s.summary.LifecycleState = "running"
+			a.take(ctx, id)
 			a.event(s, id, &agentrewire.RuntimeEventNotification{Event: &agentrewire.RuntimeEventNotification_UserMessage{UserMessage: &agentrewire.UserMessage{Text: req.GetUserText()}}})
 			if strings.Contains(req.GetUserText(), "ask:") {
 				s.summary.WaitingForInput = true
@@ -94,10 +121,13 @@ func (a *Agentred) registry() *protorpc.Registry {
 		})
 	protorpc.RegisterMethod(reg, m(agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER),
 		func() *agentrewire.RuntimeSubmitAnswerRequest { return &agentrewire.RuntimeSubmitAnswerRequest{} },
-		func(_ context.Context, req *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error) {
+		func(ctx context.Context, req *agentrewire.RuntimeSubmitAnswerRequest) (*agentrewire.PeerSessionControlResponse, error) {
 			a.mu.Lock()
 			defer a.mu.Unlock()
 			s := a.sessions[req.GetConversationId()]
+			if s != nil && s.summary.GetLifecycleState() == "running" && !a.controls(ctx, req.GetConversationId()) {
+				return nil, errNoActiveTurn
+			}
 			if s == nil || s.pending == nil || len(s.pending.GetAskUserQuestions()) == 0 || s.pending.GetAskUserQuestions()[0].GetRequestId() != req.GetRequestId() {
 				return nil, &rpcerror.Error{Code: rpcerror.CodeInvalidParams, Message: "no pending question " + req.GetRequestId()}
 			}
@@ -105,6 +135,19 @@ func (a *Agentred) registry() *protorpc.Registry {
 			a.answers = append(a.answers, labels...)
 			a.finish(s, req.GetConversationId(), "You chose "+strings.Join(labels, ", ")+".")
 			return &agentrewire.PeerSessionControlResponse{}, nil
+		})
+	protorpc.RegisterMethod(reg, m(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH),
+		func() *agentrewire.SessionAttachRequest { return &agentrewire.SessionAttachRequest{} },
+		func(ctx context.Context, req *agentrewire.SessionAttachRequest) (*agentrewire.SessionAttachResponse, error) {
+			a.mu.Lock()
+			defer a.mu.Unlock()
+			s := a.sessions[req.GetConversationId()]
+			if s == nil {
+				return nil, &rpcerror.Error{Code: rpcerror.CodeRuntimeSessionNotFound, Message: "agentruntime: session not found"}
+			}
+			a.take(ctx, req.GetConversationId())
+			return &agentrewire.SessionAttachResponse{ConversationId: req.GetConversationId(), BackendType: s.summary.GetBackendType(),
+				LifecycleState: s.summary.GetLifecycleState(), LatestSeq: s.summary.GetLatestSeq()}, nil
 		})
 	protorpc.RegisterMethod(reg, m(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST),
 		func() *agentrewire.SessionListRequest { return &agentrewire.SessionListRequest{} },

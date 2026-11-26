@@ -515,6 +515,9 @@ func (a *Client) Answer(ctx context.Context, in AnswerInput) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if err := h.attach(ctx); err != nil {
+			return "", a.answerErr(err, h, in)
+		}
 		_, err = wirecall.RuntimeSubmitAnswer(ctx, h.conn, &agentrewire.RuntimeSubmitAnswerRequest{ConversationId: in.Session,
 			PeerFingerprint: h.origin(), RequestId: in.Item, Questions: q.GetQuestions(), Answers: answers})
 		return "question", a.answerErr(err, h, in)
@@ -525,6 +528,9 @@ func (a *Client) Answer(ctx context.Context, in AnswerInput) (string, error) {
 		}
 		if !decision {
 			return "", Usagef("a tool permission is answered with --allow or --deny, not --option / --text")
+		}
+		if err := h.attach(ctx); err != nil {
+			return "", a.answerErr(err, h, in)
 		}
 		_, err := wirecall.RuntimeSubmitToolPermission(ctx, h.conn, &agentrewire.RuntimeSubmitToolPermissionRequest{ConversationId: in.Session,
 			PeerFingerprint: h.origin(), RequestId: in.Item, Allow: in.Allow, DenyReason: in.Message})

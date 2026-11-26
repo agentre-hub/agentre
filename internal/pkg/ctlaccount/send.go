@@ -75,6 +75,18 @@ type session struct {
 
 func (h *session) origin() string { return h.summary.GetPeerFingerprint() }
 
+// attach 让这条通道接管会话的控制面（session.attach），作答 / 中止 / 插话之前必经。
+// agentred 的 runtime 控制按连接持有会话表，只认本连接起过或接管过的会话；agrctl 每条
+// 命令都是一条新通道，起这一轮的那条早已关掉 —— 不先接管，这些调用一律解不出那一轮。
+// 能不能动这条会话仍由 agentred 判：个人 token 接管别人发起的会话只是跟随输出，之后的
+// 控制照样被拒。
+func (h *session) attach(ctx context.Context) error {
+	_, err := wirecall.SessionAttach(ctx, h.conn, &agentrewire.SessionAttachRequest{
+		ConversationId: h.summary.GetConversationId(), PeerFingerprint: h.origin(),
+	})
+	return err
+}
+
 // Send 派发一条任务给某个 agent，或继续一条会话。
 func (a *Client) Send(ctx context.Context, in SendInput) (Reply, error) {
 	if in.Effort != "" && !slices.Contains(reasoningEfforts, in.Effort) {
@@ -523,6 +535,9 @@ func (a *Client) continueSession(ctx context.Context, in SendInput) (Reply, erro
 }
 
 func (a *Client) steerInto(ctx context.Context, h *session, in SendInput, out Reply) (Reply, error) {
+	if err := h.attach(ctx); err != nil {
+		return Reply{}, a.ReachErr(err, h.device, in.Session)
+	}
 	_, err := wirecall.RuntimeSteer(ctx, h.conn, &agentrewire.RuntimeSteerRequest{
 		ConversationId: in.Session, PeerFingerprint: h.origin(), QueuedId: randomHex(16), Text: in.Text,
 	})
@@ -874,6 +889,9 @@ func (a *Client) Stop(ctx context.Context, id string) (StopReply, error) {
 	}
 	if h.summary.GetLifecycleState() != lifecycleRunning {
 		return StopReply{}, nil
+	}
+	if err := h.attach(ctx); err != nil {
+		return StopReply{}, a.ReachErr(err, h.device, id)
 	}
 	drained, err := wirecall.RuntimeDrainPending(ctx, h.conn, &agentrewire.RuntimeDrainPendingRequest{ConversationId: id, PeerFingerprint: h.origin()})
 	if err != nil {

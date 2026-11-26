@@ -38,6 +38,7 @@ func TestAuthorizeMethod_GivenAPersonalToken_ThenEachTabledMethodDemandsItsScope
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_STEER, ScopeChat},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CANCEL_STEER, ScopeChat},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_ABORT, ScopeChat},
+		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_DRAIN_PENDING, ScopeChat},
 		{agentrewire.RpcMethod_RPC_METHOD_RUNTIME_SUBMIT_ANSWER, ScopeChat},
 		{agentrewire.RpcMethod_RPC_METHOD_SET_MODEL_TARGET, ScopeChat},
 		{agentrewire.RpcMethod_RPC_METHOD_SET_SESSION_REASONING_EFFORT, ScopeChat},

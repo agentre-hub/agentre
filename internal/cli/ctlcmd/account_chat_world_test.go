@@ -209,6 +209,9 @@ type fakeSession struct {
 	queued  []*agentrewire.ConsumedSteer
 }
 
+// fakeAgentred 的 runtime 控制面与真 agentred 一样按连接：一条连接只能驱动它自己起的
+// （runtime.run）或接管过的（session.attach）那一轮；没接管就作答 / 插话 / 取插话 / 中止，
+// 拿到的是真 daemon 那句「no active turn」。agrctl 每条命令都是新通道，漏了接管在这里就红。
 type fakeAgentred struct {
 	mu       sync.Mutex
 	sessions map[string]*fakeSession
@@ -226,10 +229,47 @@ type fakeAgentred struct {
 	engineTest     func(*agentrewire.EngineTestRequest) (*agentrewire.EngineTestResponse, error)
 	engineDiscover func(*agentrewire.EngineDiscoverRequest) (*agentrewire.EngineDiscoverResponse, error)
 	engine         []string
+
+	// taken 是每条连接自己的会话表：runtime.run 与 session.attach 往里放。
+	taken map[*protorpc.Conn]map[string]bool
 }
 
 func newFakeAgentred() *fakeAgentred {
-	return &fakeAgentred{sessions: map[string]*fakeSession{}}
+	return &fakeAgentred{sessions: map[string]*fakeSession{}, taken: map[*protorpc.Conn]map[string]bool{}}
+}
+
+var errNoActiveTurn = &rpcerror.Error{Code: rpcerror.CodeRuntimeNoActiveTurn, Message: "agentruntime: no active turn for session"}
+
+// take 记下调用连接接管了这条会话；要求持有 f.mu。
+func (f *fakeAgentred) take(ctx context.Context, id string) {
+	c := protorpc.ConnFromContext(ctx)
+	if f.taken[c] == nil {
+		f.taken[c] = map[string]bool{}
+	}
+	f.taken[c][id] = true
+}
+
+// control 是控制类方法过了归属检查之后的那道：调用连接没起过也没接管这条会话就解不出
+// 那一轮。
+func (f *fakeAgentred) control(ctx context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.taken[protorpc.ConnFromContext(ctx)][id] {
+		return errNoActiveTurn
+	}
+	return nil
+}
+
+// submitControl 是作答类方法的那道：与真 agentred 的幂等一样，会话已不在跑时没接管
+// 也算答过，仍在跑才如实报错。
+func (f *fakeAgentred) submitControl(ctx context.Context, s *fakeSession) error {
+	err := f.control(ctx, s.summary.GetConversationId())
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err != nil && s.summary.GetLifecycleState() == "running" {
+		return err
+	}
+	return nil
 }
 
 func caller(ctx context.Context) string {
@@ -348,6 +388,7 @@ func (f *fakeAgentred) registry() *protorpc.Registry {
 				f.sessions[req.GetConversationId()] = s
 			}
 			s.summary.LifecycleState = "running"
+			f.take(ctx, req.GetConversationId())
 			f.runs = append(f.runs, req)
 			f.calls = append(f.calls, "run")
 			n := len(f.runs)
@@ -375,6 +416,9 @@ func (f *fakeAgentred) registry() *protorpc.Registry {
 			if err := f.guard(ctx, s); err != nil {
 				return nil, err
 			}
+			if err := f.control(ctx, req.GetConversationId()); err != nil {
+				return nil, err
+			}
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			f.steers = append(f.steers, req)
@@ -386,6 +430,9 @@ func (f *fakeAgentred) registry() *protorpc.Registry {
 		func(ctx context.Context, req *agentrewire.RuntimeDrainPendingRequest) (*agentrewire.RuntimeDrainPendingResponse, error) {
 			s := f.session(req.GetConversationId())
 			if err := f.guard(ctx, s); err != nil {
+				return nil, err
+			}
+			if err := f.control(ctx, req.GetConversationId()); err != nil {
 				return nil, err
 			}
 			f.mu.Lock()
@@ -402,11 +449,30 @@ func (f *fakeAgentred) registry() *protorpc.Registry {
 			if err := f.guard(ctx, s); err != nil {
 				return nil, err
 			}
+			if err := f.control(ctx, req.GetConversationId()); err != nil {
+				return nil, err
+			}
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			s.summary.LifecycleState = "interrupted"
 			f.calls = append(f.calls, "abort:"+req.GetPeerFingerprint())
 			return &agentrewire.RuntimeAbortResponse{}, nil
+		})
+	protorpc.RegisterMethod(reg, m(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH),
+		func() *agentrewire.SessionAttachRequest { return &agentrewire.SessionAttachRequest{} },
+		func(ctx context.Context, req *agentrewire.SessionAttachRequest) (*agentrewire.SessionAttachResponse, error) {
+			s := f.session(req.GetConversationId())
+			if s == nil {
+				return nil, &rpcerror.Error{Code: rpcerror.CodeRuntimeSessionNotFound, Message: "agentruntime: session not found"}
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			// 个人 token 跟随别人发起的会话只是读：照样受理，但不认下来。
+			if who := caller(ctx); !strings.HasPrefix(who, "pat:") || s.owner == who {
+				f.take(ctx, req.GetConversationId())
+			}
+			return &agentrewire.SessionAttachResponse{ConversationId: req.GetConversationId(), BackendType: s.summary.GetBackendType(),
+				LifecycleState: s.summary.GetLifecycleState(), LatestSeq: s.summary.GetLatestSeq()}, nil
 		})
 	protorpc.RegisterMethod(reg, m(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST),
 		func() *agentrewire.SessionListRequest { return &agentrewire.SessionListRequest{} },
