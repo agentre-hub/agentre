@@ -51,15 +51,14 @@ const NO_GROUPS: Groups = {
   sharing: [],
 };
 
+const NO_STIRRED: ReadonlySet<number> = new Set();
+
 /**
- * 会话级流上标志「这个会话开始 / 不再运行」的事件：自主续轮起、自主续轮与后台活动轮
- * 收尾（后端在落库终态之后才发）、自主续轮失败。
+ * 与 `chat_svc.RunStateEvent` 同名：本桌面端上某条会话开始 / 不再运行（轮次起止、后台
+ * 活动集合空与非空翻转、停止翻回 idle），载荷是会话 id。应用级事件，不依赖那条会话
+ * 开着对话面板 —— 被 agrctl send、agent 派发或别的宿主拉起的会话也发。
  */
-const RUN_BOUNDARY_KINDS = new Set([
-  "autonomous_started",
-  "autonomous_finished",
-  "error",
-]);
+const RUN_STATE_EVENT = "chat:run-state";
 
 /** 正在跑（含等待用户、后台活动）的其它会话 id，升序拼成键：集合变了键才变。 */
 function runningPeersKey(
@@ -91,6 +90,12 @@ export function useSessionRelations({
   const [tick, setTick] = React.useState(0);
   const genRef = React.useRef(0);
   const reload = React.useCallback(() => setTick((n) => n + 1), []);
+  // 经 RUN_STATE_EVENT 得知运行态变过的其它会话（按本会话记）：运行态 store 里不一定有
+  // 它们（没挂对话面板），也要听它们的工作根推送，它们走进本会话的根时才重取得到。
+  const [stirred, setStirred] = React.useState<{
+    sessionId: number;
+    ids: ReadonlySet<number>;
+  }>({ sessionId, ids: new Set() });
 
   const doneTick = useSessionStatus(sessionId)?.doneTick ?? 0;
   const runningKey = useSessionStatusStore((s) =>
@@ -147,34 +152,43 @@ export function useSessionRelations({
 
   const groups = loaded.sessionId === sessionId ? loaded.groups : NO_GROUPS;
 
-  // 订阅其它会话的工作根推送:列表里的同伴、此刻正在跑的会话——任何一个换了所在的
-  // 根，「谁和我在同一份代码上」都可能变。每个推送只触发一次重取，不解析载荷。
+  // 其它会话开始 / 不再运行：重取。运行态 store 只覆盖挂着面板或侧栏快照里的会话，
+  // 这条应用级事件覆盖其余的（agrctl send、agent 派发、别的宿主拉起的、后台活动收尾的）。
+  React.useEffect(() => {
+    if (!active) return;
+    return EventsOn(RUN_STATE_EVENT, (payload: unknown) => {
+      const id = Number(payload);
+      if (!Number.isInteger(id) || id <= 0 || id === sessionId) return;
+      setStirred((prev) => {
+        const base =
+          prev.sessionId === sessionId ? prev.ids : new Set<number>();
+        if (prev.sessionId === sessionId && base.has(id)) return prev;
+        return { sessionId, ids: new Set(base).add(id) };
+      });
+      reload();
+    });
+  }, [active, sessionId, reload]);
+
+  const stirredIds = stirred.sessionId === sessionId ? stirred.ids : NO_STIRRED;
+
+  // 订阅其它会话的工作根推送:列表里的同伴、此刻正在跑的会话(store 里的与经运行态事件
+  // 得知的)——任何一个换了所在的根，「谁和我在同一份代码上」都可能变。每个推送只触发
+  // 一次重取，不解析载荷。
   const watchKey = React.useMemo(() => {
-    const ids = new Set<number>();
+    const ids = new Set<number>(stirredIds);
     for (const part of runningKey.split(",")) {
       if (part !== "") ids.add(Number(part));
     }
     for (const s of groups.sharing) ids.add(s.sessionId);
     return [...ids].sort((a, b) => a - b).join(",");
-  }, [runningKey, groups.sharing]);
+  }, [runningKey, groups.sharing, stirredIds]);
 
-  // 同一批会话的会话级流(chat:autonomous:<sid>)也订阅:没挂对话面板的会话,运行态 store
-  // 里只有侧栏快照,它的后台活动 / 自主续轮在这条流上起止,store 不会变 —— 只看 store
-  // 的话,后台任务跑完、续轮收尾的会话会一直留在列表里。只在轮次起止时重取,进度帧不算。
   React.useEffect(() => {
     if (!active) return;
-    const ids = watchKey.split(",").filter((part) => part !== "");
-    const offs = [
-      ...ids.map((id) => EventsOn(`chat:workroots:${id}`, () => reload())),
-      ...ids.map((id) =>
-        EventsOn(`chat:autonomous:${id}`, (ev: unknown) => {
-          const kind = (ev as { kind?: unknown } | null)?.kind;
-          if (typeof kind === "string" && RUN_BOUNDARY_KINDS.has(kind)) {
-            reload();
-          }
-        }),
-      ),
-    ];
+    const offs = watchKey
+      .split(",")
+      .filter((part) => part !== "")
+      .map((id) => EventsOn(`chat:workroots:${id}`, () => reload()));
     return () => {
       for (const off of offs) off();
     };

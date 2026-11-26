@@ -22,14 +22,15 @@ func (s *chatSvc) bgSet(sessionID int64) *bgRunningSet {
 	return v.(*bgRunningSet)
 }
 
-// addBgRunning 把 ids 加入会话集合，有真正新增时返 true。
+// addBgRunning 把 ids 加入会话集合，有真正新增时返 true。集合由空变非空时发一次
+// RunStateEvent(这条会话开始有后台活动)。
 func (s *chatSvc) addBgRunning(sessionID int64, ids ...string) bool {
 	if sessionID <= 0 || len(ids) == 0 {
 		return false
 	}
 	set := s.bgSet(sessionID)
 	set.mu.Lock()
-	defer set.mu.Unlock()
+	wasEmpty := len(set.ids) == 0
 	changed := false
 	for _, id := range ids {
 		if id == "" {
@@ -40,10 +41,14 @@ func (s *chatSvc) addBgRunning(sessionID int64, ids ...string) bool {
 			changed = true
 		}
 	}
+	set.mu.Unlock()
+	if wasEmpty && changed {
+		s.emitRunStateChanged(sessionID)
+	}
 	return changed
 }
 
-// removeBgRunning 移除一个 id，有真正移除时返 true。
+// removeBgRunning 移除一个 id，有真正移除时返 true。移走最后一个时发一次 RunStateEvent。
 func (s *chatSvc) removeBgRunning(sessionID int64, id string) bool {
 	if sessionID <= 0 || id == "" {
 		return false
@@ -54,15 +59,20 @@ func (s *chatSvc) removeBgRunning(sessionID int64, id string) bool {
 	}
 	set := v.(*bgRunningSet)
 	set.mu.Lock()
-	defer set.mu.Unlock()
 	if _, ok := set.ids[id]; !ok {
+		set.mu.Unlock()
 		return false
 	}
 	delete(set.ids, id)
+	nowEmpty := len(set.ids) == 0
+	set.mu.Unlock()
+	if nowEmpty {
+		s.emitRunStateChanged(sessionID)
+	}
 	return true
 }
 
-// clearBgRunning 清空会话集合，原本非空时返 true。
+// clearBgRunning 清空会话集合，原本非空时返 true(并发一次 RunStateEvent)。
 func (s *chatSvc) clearBgRunning(sessionID int64) bool {
 	if sessionID <= 0 {
 		return false
@@ -73,11 +83,13 @@ func (s *chatSvc) clearBgRunning(sessionID int64) bool {
 	}
 	set := v.(*bgRunningSet)
 	set.mu.Lock()
-	defer set.mu.Unlock()
 	if len(set.ids) == 0 {
+		set.mu.Unlock()
 		return false
 	}
 	set.ids = map[string]struct{}{}
+	set.mu.Unlock()
+	s.emitRunStateChanged(sessionID)
 	return true
 }
 

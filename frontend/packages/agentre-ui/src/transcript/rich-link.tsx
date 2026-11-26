@@ -304,10 +304,10 @@ async function claimThenOpen(
 /**
  * 这次点击要不要先请宿主认领。只在宿主给了根、且提供认领能力时考虑:
  *   - 不在任何根内的绝对路径(家目录形式除外,它比不了根);
- *   - 落在**主根**里、且与主根之间还隔着目录的路径:它可能在一个嵌在仓库里、尚未
- *     认领的 worktree 里(`<repo>/.claude/worktrees/<n>`、`<repo>/.worktrees/<n>`,
- *     spec 问题 5)。最深的根已经是认领来的根,或文件就在主根顶层时,不会有更深的
- *     worktree 等着认领,不多跑这一趟。
+ *   - 落在某个根里、且与那个根之间还隔着目录的路径:它可能在一个嵌在里面、尚未认领
+ *     的 worktree 里(`<repo>/.claude/worktrees/<n>`、`<repo>/.worktrees/<n>`,spec
+ *     问题 5;已认领的 worktree 里再建的 worktree 同理)。文件就在根的顶层时,不会有
+ *     更深的 worktree 等着认领,不多跑这一趟。
  */
 function shouldClaim(
   kind: LocalLink,
@@ -322,7 +322,7 @@ function shouldClaim(
   )
     return false;
   if (kind.kind === "local-external") return !HOME_ANCHORED.test(kind.fullPath);
-  return kind.root?.primary === true && kind.relPath.includes("/");
+  return kind.root !== undefined && kind.relPath.includes("/");
 }
 
 function dispatchClick(

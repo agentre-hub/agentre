@@ -425,7 +425,7 @@ describe("问题 5：嵌在主根里、尚未认领的 worktree", () => {
     expect(previewFile).toHaveBeenCalledTimes(1);
   });
 
-  it("Given the deepest root is an already claimed worktree, When a file inside it is clicked, Then it is previewed there without asking the host to claim", () => {
+  it("Given a file directly in an already claimed worktree, When clicked, Then it is previewed there without asking the host to claim", () => {
     renderLink(`${nested}/v22.ts`, {
       roots: [...ROOTS, { path: nested, name: "v22" }],
       ports: ports({ claimPath }),
@@ -438,6 +438,28 @@ describe("问题 5：嵌在主根里、尚未认领的 worktree", () => {
       path: "v22.ts",
     });
     expect(claimPath).not.toHaveBeenCalled();
+  });
+
+  // spec「识别信号 · 认领」:落在已认领根之内但属于另一个工作树的路径也认领为新根 ——
+  // 已认领的 worktree 里再建的 worktree 同样是「同一仓库尚未认领的 worktree」。
+  it("Given an unclaimed worktree nested inside an already claimed worktree, When a file inside it is clicked, Then it is claimed and previewed under the nested root", async () => {
+    const inner = `${WT}/.claude/worktrees/inner`;
+    claimPath.mockResolvedValue([...ROOTS, { path: inner, name: "inner" }]);
+    renderLink(`${inner}/src/c.ts`, {
+      roots: ROOTS,
+      ports: ports({ claimPath }),
+    });
+
+    clickLink();
+
+    await waitFor(() =>
+      expect(previewFile).toHaveBeenCalledWith(SESSION, {
+        root: inner,
+        path: "src/c.ts",
+      }),
+    );
+    expect(claimPath).toHaveBeenCalledWith(SESSION, `${inner}/src/c.ts`);
+    expect(previewFile).toHaveBeenCalledTimes(1);
   });
 
   it("Given a file directly in the primary root, When clicked, Then no worktree can hold it and it is previewed without a claim", () => {

@@ -84,26 +84,33 @@ func (s *chatSvc) publishPeerTurnDone(ctx context.Context, sessionID int64, stre
 // 两只「Ended」必须在会话行**落成终态之后**调:对端收到终态帧会立刻查清单,那时看到
 // 的必须已经是终态(agentred 的 fanout 同样先 settleSession 再发帧)。AST 守卫认的是
 // 这几个名字。
+//
+// 同一时刻本机也要知道「这条会话开始 / 不再运行」(关联窗的「同一份代码上在跑」),
+// 四个发布点因此各自再发一次应用级的 RunStateEvent(见 run_state_event.go)。
 
 // publishPeerTurnStarted 在一轮用户发起的轮次(含 compact)开起来时调。
 func (s *chatSvc) publishPeerTurnStarted(sessionID int64) {
 	s.peerStream().PublishTurnStarted(sessionID)
+	s.emitRunStateChanged(sessionID)
 }
 
 // publishPeerTurnEnded 在一轮用户发起的轮次收场时调。stopErr 为 nil 是正常结束,
 // agentruntime.ErrAborted 是用户点了停止,其余是故障。
 func (s *chatSvc) publishPeerTurnEnded(sessionID int64, msg *chat_entity.Message, stopErr error) {
 	s.peerStream().PublishRunResultDone(sessionID, peerTurnEndFrame(msg, stopErr))
+	s.emitRunStateChanged(sessionID)
 }
 
 // publishPeerAutonomousTurnStarted 在后端自己续起的一轮宣告开轮时调。
 func (s *chatSvc) publishPeerAutonomousTurnStarted(sessionID int64, trigger string) {
 	s.peerStream().PublishAutonomousTurnStarted(sessionID, trigger)
+	s.emitRunStateChanged(sessionID)
 }
 
 // publishPeerAutonomousTurnEnded 在自主续轮收场时调,stopErr 口径同 publishPeerTurnEnded。
 func (s *chatSvc) publishPeerAutonomousTurnEnded(sessionID int64, msg *chat_entity.Message, stopErr error) {
 	s.peerStream().PublishAutonomousTurnDone(sessionID, peerTurnEndFrame(msg, stopErr))
+	s.emitRunStateChanged(sessionID)
 }
 
 // peerTurnEndFrame 把收场的那条 assistant 消息折成终态帧。

@@ -650,8 +650,13 @@ describe("关联工具窗 · 同一份代码上在跑", () => {
     await waitFor(() => expect(calls()).toBeGreaterThan(afterPeer));
   });
 
+  // 应用级的 chat:run-state(载荷是会话 id):后端在任何一条会话开始 / 不再运行
+  // (轮次起止、后台活动集合空与非空翻转、停止翻回 idle)时发,不依赖那条会话开着面板。
+  const emitRunState = (id: number) =>
+    emitters.get("chat:run-state")?.forEach((f) => f(id));
+
   // Given 同根会话 9 没有挂着对话面板(运行态 store 只有侧栏快照:空闲 + 后台在跑),
-  // When 它的后台任务结束、自主续轮跑完(后端只在 chat:autonomous:9 上收尾,store 不变),
+  // When 它的后台任务结束、自主续轮跑完(store 不变,后端发 chat:run-state),
   // Then 重取,它从列表里消失。
   it("drops a panel-less peer once its background work and autonomous turn end", async () => {
     act(() => {
@@ -668,11 +673,8 @@ describe("关联工具窗 · 同一份代码上在跑", () => {
     await within(region()).findByRole("button", { name: /Background build/ });
 
     api.ListSessionsSharingRoot.mockResolvedValue([]);
-    const emit = (p: unknown) =>
-      emitters.get("chat:autonomous:9")?.forEach((f) => f(p));
     await act(async () => {
-      emit({ kind: "autonomous_started", stream: "chat:stream:9:40" });
-      emit({ kind: "autonomous_finished", launchMessageId: 40 });
+      emitRunState(9);
     });
 
     await waitFor(() =>
@@ -701,19 +703,59 @@ describe("关联工具窗 · 同一份代码上在跑", () => {
     ).toBeTruthy();
   });
 
-  // 会话级流上的进度帧(子代理进度 / 模型)不改变谁在跑:不重取。
-  it("ignores progress frames on a peer's autonomous channel", async () => {
+  // Given 列表为空、会话 9 没挂对话面板(store 里没有它在跑), When 它被 agrctl send /
+  // agent 派发 / 别的宿主拉起开始运行(只有 chat:run-state), Then 重取,它出现在列表里。
+  it("lists a panel-less peer as soon as it starts running", async () => {
+    await openRelations();
+    await waitFor(() => expect(api.ListSessionsSharingRoot).toHaveBeenCalled());
+
+    api.ListSessionsSharingRoot.mockResolvedValue([
+      sharing({ sessionId: 9, title: "Dispatched fix" }),
+    ]);
+    await act(async () => {
+      emitRunState(9);
+    });
+
+    expect(
+      await within(region()).findByRole("button", { name: /Dispatched fix/ }),
+    ).toBeTruthy();
+  });
+
+  // Given 没挂面板的会话 9 在别的根上开始运行(这一刻不在列表里), When 它的 AI 随后
+  // 走进本会话所在的根(chat:workroots:9), Then 重取,它出现在列表里。
+  it("follows a panel-less peer that started elsewhere into this root", async () => {
+    await openRelations();
+    await waitFor(() => expect(api.ListSessionsSharingRoot).toHaveBeenCalled());
+    await act(async () => {
+      emitRunState(9);
+    });
+    await waitFor(() =>
+      expect(emitters.get("chat:workroots:9")?.length ?? 0).toBeGreaterThan(0),
+    );
+
+    api.ListSessionsSharingRoot.mockResolvedValue([
+      sharing({ sessionId: 9, title: "Moved in" }),
+    ]);
+    await act(async () => {
+      emitters
+        .get("chat:workroots:9")
+        ?.forEach((f) => f({ sessionId: 9, roots: [] }));
+    });
+
+    expect(
+      await within(region()).findByRole("button", { name: /Moved in/ }),
+    ).toBeTruthy();
+  });
+
+  // 本会话自己开始 / 停下不改变「别的会话里谁和我在同一份代码上」:不重取。
+  it("ignores its own run-state changes", async () => {
     api.ListSessionsSharingRoot.mockResolvedValue([sharing({ sessionId: 9 })]);
     await openRelations();
     await within(region()).findByRole("button", { name: /Safari blank page/ });
     const base = api.ListSessionsSharingRoot.mock.calls.length;
 
     await act(async () => {
-      for (const kind of ["subagent_progress", "subagent_model"]) {
-        emitters
-          .get("chat:autonomous:9")
-          ?.forEach((f) => f({ kind, toolUseId: "t1" }));
-      }
+      emitRunState(1);
     });
 
     expect(api.ListSessionsSharingRoot.mock.calls.length).toBe(base);

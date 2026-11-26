@@ -160,7 +160,12 @@ func (s *chatSvc) reconcileSessionToIdle(ctx context.Context, sess *chat_entity.
 		zap.String("prevStatus", sess.AgentStatus))
 	sess.AgentStatus = "idle"
 	sess.NeedsAttention = false
-	return s.persistSessionStatus(ctx, sess)
+	if err := s.persistSessionStatus(ctx, sess); err != nil {
+		return err
+	}
+	// 没有轮次收尾,轮次边界的 RunStateEvent 不会发:落库之后在这里补一次。
+	s.emitRunStateChanged(sess.ID)
+	return nil
 }
 
 // abortOutOfBandTurn 在「没有活跃用户轮」的前提下,把中断请求交给 runtime 试一次,
