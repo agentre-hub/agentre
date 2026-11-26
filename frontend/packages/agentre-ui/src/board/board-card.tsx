@@ -190,6 +190,7 @@ export function BoardCard({
         cardId={card.id}
         stage={card.stage}
         ports={ports}
+        title={card.title}
         className={
           touch ? "absolute top-0 right-0" : "absolute top-1.5 right-1.5"
         }

@@ -175,6 +175,7 @@
     "edit": "Edit",
     "moveTo": "Move to",
     "moveCardTo": "Move #{{id}} to",
+    "moveCardToTitled": "Move “{{title}}” to",
     "delete": "Delete",
     "stages": {
       "todo": "To do",
