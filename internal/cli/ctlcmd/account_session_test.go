@@ -373,7 +373,7 @@ func TestAccountAnswer_GivenEachCardKindThenItGoesToTheMatchingMethodWithTheOrig
 	log := w.box.answered()
 	require.Len(t, log.answers, 1)
 	assert.Equal(t, "ask-1", log.answers[0].GetRequestId())
-	assert.Equal(t, ownFP, log.answers[0].GetPeerFingerprint())
+	assert.Empty(t, log.answers[0].GetPeerFingerprint(), "own session: origin omitted")
 	assert.Equal(t, []string{"B"}, log.answers[0].GetAnswers()[0].GetLabels())
 
 	txt := runWith([]string{"answer", sessA, "ask-1", "--text", "custom", "-o", "json"}, envMap(), human)
@@ -386,7 +386,7 @@ func TestAccountAnswer_GivenEachCardKindThenItGoesToTheMatchingMethodWithTheOrig
 	perm := w.box.answered().permissions[0]
 	assert.False(t, perm.GetAllow())
 	assert.Equal(t, "no", perm.GetDenyReason())
-	assert.Equal(t, ownFP, perm.GetPeerFingerprint())
+	assert.Empty(t, perm.GetPeerFingerprint(), "own session: origin omitted")
 
 	ok := runWith([]string{"answer", sessA, "appr-1", "--allow"}, envMap(), human)
 	require.Equal(t, exitOK, ok.code, ok.stderr)

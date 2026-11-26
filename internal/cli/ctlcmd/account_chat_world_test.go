@@ -455,7 +455,11 @@ func (f *fakeAgentred) registry() *protorpc.Registry {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			s.summary.LifecycleState = "interrupted"
-			f.calls = append(f.calls, "abort:"+req.GetPeerFingerprint())
+			origin := req.GetPeerFingerprint()
+			if origin == "" { // 省略 = 调用方自己的对端（ResolveSessionPeer）
+				origin = caller(ctx)
+			}
+			f.calls = append(f.calls, "abort:"+origin)
 			return &agentrewire.RuntimeAbortResponse{}, nil
 		})
 	protorpc.RegisterMethod(reg, m(agentrewire.RpcMethod_RPC_METHOD_SESSION_ATTACH),
@@ -476,17 +480,26 @@ func (f *fakeAgentred) registry() *protorpc.Registry {
 		})
 	protorpc.RegisterMethod(reg, m(agentrewire.RpcMethod_RPC_METHOD_SESSION_LIST),
 		func() *agentrewire.SessionListRequest { return &agentrewire.SessionListRequest{} },
-		func(_ context.Context, req *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
+		func(ctx context.Context, req *agentrewire.SessionListRequest) (*agentrewire.SessionListResponse, error) {
 			f.mu.Lock()
 			out := &agentrewire.SessionListResponse{}
+			// 真 daemon（session_catchup.go List）只在别的对端发起的会话上标 peer_fingerprint，
+			// 调用方自己的会话留空（空 = 调用方自己）。
+			asListed := func(s *fakeSession) *agentrewire.SessionSummary {
+				c := cloneSummary(s.summary)
+				if c.PeerFingerprint == caller(ctx) {
+					c.PeerFingerprint = ""
+				}
+				return c
+			}
 			if len(req.GetConversationIds()) == 0 { // 账号凭据：这台机器上所有对端的会话
 				for _, s := range f.sessions {
-					out.Sessions = append(out.Sessions, cloneSummary(s.summary))
+					out.Sessions = append(out.Sessions, asListed(s))
 				}
 			}
 			for _, id := range req.GetConversationIds() {
 				if s := f.sessions[id]; s != nil {
-					out.Sessions = append(out.Sessions, cloneSummary(s.summary))
+					out.Sessions = append(out.Sessions, asListed(s))
 				}
 			}
 			f.lists++

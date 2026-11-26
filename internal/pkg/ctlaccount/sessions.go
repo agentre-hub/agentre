@@ -283,7 +283,13 @@ func (a *Client) ListSessions(ctx context.Context, f SessionFilter) ([]SessionRo
 		}
 		e.row = SessionRow{ID: s.GetConversationId(), Title: s.GetTitle(), Agent: nm.agent(s.GetAgentSyncId()), Device: l.device.label(),
 			Status: sessionStatus(s.GetLifecycleState(), s.GetWaitingForInput()), LastActivityAt: rfc3339Ms(s.GetLastMessageAt())}
-		e.peer, e.agent, e.project, e.deviceFP, e.at = s.GetPeerFingerprint(), s.GetAgentSyncId(), s.GetProjectSyncId(), l.device.Fingerprint, s.GetLastMessageAt()
+		// agentred 只在别的对端发起的会话上标 peer_fingerprint，调用方自己发起的留空
+		// （空 = 这条连接的调用方，见 handlers/session_catchup.go List）。
+		e.peer = s.GetPeerFingerprint()
+		if e.peer == "" {
+			e.peer = l.conn.SelfFingerprint
+		}
+		e.agent, e.project, e.deviceFP, e.at = s.GetAgentSyncId(), s.GetProjectSyncId(), l.device.Fingerprint, s.GetLastMessageAt()
 	}
 	if f.Mine && self == "" && a.opts.SelfFingerprint != nil {
 		// 没有在线设备报出调用方的身份时问宿主：账号索引里保存的会话照样认得出是谁发起的。

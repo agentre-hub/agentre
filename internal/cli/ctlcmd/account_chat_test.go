@@ -226,7 +226,7 @@ func TestAccountSend_GivenARunningSessionThenSteerOrSayItIsBusy(t *testing.T) {
 	steers := w.box.steerRequests()
 	require.Len(t, steers, 1)
 	assert.Equal(t, "also this", steers[0].GetText())
-	assert.Equal(t, ownFP, steers[0].GetPeerFingerprint())
+	assert.Empty(t, steers[0].GetPeerFingerprint(), "a session the caller started carries no origin (omitted = the caller, as agentred lists it)")
 	assert.NotEmpty(t, steers[0].GetQueuedId())
 	assert.Empty(t, w.box.runRequests())
 
