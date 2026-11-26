@@ -26,6 +26,9 @@ export interface BoardColumnProps {
   /** 阶段档：本列独占整屏宽，卡片走触屏档。不传时与桌面一致。 */
   layout?: "columns" | "stage";
   hideCardNumber?: boolean;
+  /** 此刻开着触屏菜单的卡号；`null` = 都关着；不传 = 各卡自管。 */
+  openCardMenuId?: number | null;
+  onCardMenuOpenChange?: (cardId: number, open: boolean) => void;
 }
 
 /**
@@ -45,6 +48,8 @@ export function BoardColumn({
   nowMs,
   layout = "columns",
   hideCardNumber,
+  openCardMenuId,
+  onCardMenuOpenChange,
 }: BoardColumnProps) {
   const stageLayout = layout === "stage";
   const { t } = useUiTranslation();
@@ -121,6 +126,16 @@ export function BoardColumn({
             nowMs={nowMs}
             touch={stageLayout}
             hideCardNumber={hideCardNumber}
+            menuOpen={
+              openCardMenuId === undefined
+                ? undefined
+                : openCardMenuId === card.id
+            }
+            onMenuOpenChange={
+              onCardMenuOpenChange
+                ? (open) => onCardMenuOpenChange(card.id, open)
+                : undefined
+            }
           />
         ))}
         {state.hiddenCount > 0 ? (

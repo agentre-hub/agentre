@@ -59,6 +59,13 @@ export interface TaskFormShellProps {
    * 重新提交。不传时超时与其它失败一样显示原文，与从前一致。
    */
   onTimeoutRefresh?: () => Promise<void> | void;
+  /**
+   * 头部 ⋯ 菜单的受控开合：宿主的返回键历史层靠它把已开的菜单从外面关掉（传
+   * `false`）。不传时自管，与桌面一致。
+   */
+  moreMenuOpen?: boolean;
+  /** ⋯ 菜单每次开、合都会回调。 */
+  onMoreMenuOpenChange?: (open: boolean) => void;
   className?: string;
 }
 
@@ -84,9 +91,12 @@ export function TaskFormShell({
   nowMs,
   page = false,
   onTimeoutRefresh,
+  moreMenuOpen,
+  onMoreMenuOpenChange,
   className,
 }: TaskFormShellProps) {
   const { t } = useUiTranslation();
+  const [innerMoreOpen, setInnerMoreOpen] = React.useState(false);
   const form = useTaskForm(initial, onSave);
   const { value, patch, submitting } = form;
   const project = projects.find((item) => item.id === value.projectId);
@@ -184,7 +194,13 @@ export function TaskFormShell({
             </span>
           ) : null}
           {onDelete ? (
-            <DropdownMenu>
+            <DropdownMenu
+              open={moreMenuOpen ?? innerMoreOpen}
+              onOpenChange={(next) => {
+                setInnerMoreOpen(next);
+                onMoreMenuOpenChange?.(next);
+              }}
+            >
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"

@@ -164,3 +164,66 @@ describe("标签写入失败", () => {
     expect(screen.queryByTestId("label-manager-error")).toBeNull();
   });
 });
+
+describe("F5 新建标签超时：刷新看看", () => {
+  const timeoutErr = () => {
+    const e = new Error("request timed out after 15000ms");
+    e.name = "ApiTimeoutError";
+    return e;
+  };
+  async function createWith(
+    over: Partial<React.ComponentProps<typeof LabelManagerPanel>>,
+  ) {
+    const onLabelMutate = vi.fn().mockRejectedValue(timeoutErr());
+    const user = userEvent.setup();
+    render(
+      <LabelManagerPanel
+        labels={LABELS}
+        onLabelMutate={onLabelMutate}
+        {...over}
+      />,
+    );
+    await user.type(screen.getByTestId("label-new-name"), "perf");
+    await user.click(screen.getByTestId("label-create"));
+    return user;
+  }
+
+  it("给了 onCreateTimeoutRecheck：一行中文 + 刷新看看，原文不出现；找到 -> 清空输入", async () => {
+    const recheck = vi.fn().mockResolvedValue(true);
+    const user = await createWith({ onCreateTimeoutRecheck: recheck });
+    const alert = await screen.findByTestId("label-manager-error");
+    expect(alert).toHaveTextContent(
+      "The network timed out. It may already have been created.",
+    );
+    expect(alert.textContent).not.toMatch(/timed out after/);
+    await user.click(
+      within(alert).getByRole("button", { name: "Refresh to check" }),
+    );
+    expect(recheck).toHaveBeenCalledWith("perf");
+    await waitFor(() =>
+      expect(screen.queryByTestId("label-manager-error")).toBeNull(),
+    );
+    expect(screen.getByTestId("label-new-name")).toHaveValue("");
+  });
+
+  it("没找到：保留输入、说一句、允许再提交", async () => {
+    const user = await createWith({
+      onCreateTimeoutRecheck: vi.fn().mockResolvedValue(false),
+    });
+    await user.click(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    );
+    expect(await screen.findByTestId("label-manager-error")).toHaveTextContent(
+      "Not found yet. You can submit again.",
+    );
+    expect(screen.getByTestId("label-new-name")).toHaveValue("perf");
+    expect(screen.getByTestId("label-create")).toBeEnabled();
+  });
+
+  it("不传：超时和从前一样显示原文", async () => {
+    await createWith({});
+    expect(await screen.findByTestId("label-manager-error")).toHaveTextContent(
+      /timed out after/,
+    );
+  });
+});

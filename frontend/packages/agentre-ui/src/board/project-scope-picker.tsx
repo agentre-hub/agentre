@@ -26,6 +26,13 @@ export interface ProjectScopePickerProps {
    */
   sheet?: boolean;
   matchedCount?: number;
+  /**
+   * 弹层的受控开合：宿主的返回键历史层靠它把已开的弹层从外面关掉（传 `false`）。
+   * 不传时自管，与桌面一致。
+   */
+  open?: boolean;
+  /** 弹层每次开、合都会回调。 */
+  onOpenChange?: (open: boolean) => void;
   className?: string;
 }
 
@@ -40,10 +47,15 @@ export function ProjectScopePicker({
   onScopeChange,
   sheet = false,
   matchedCount,
+  open,
+  onOpenChange,
   className,
 }: ProjectScopePickerProps) {
   const { t } = useUiTranslation();
-  const state = useProjectScope(projects, scope, onScopeChange);
+  const state = useProjectScope(projects, scope, onScopeChange, {
+    open,
+    onOpenChange,
+  });
 
   if (sheet) {
     return (

@@ -26,6 +26,7 @@ import {
   DialogShellSubmit,
 } from "../ui/dialog-shell";
 import { Input } from "../ui/input";
+import { useTouch } from "../ui/touch";
 import type { ProjectDeletePorts } from "./ports";
 
 export interface ProjectDeleteDialogProps {
@@ -48,6 +49,11 @@ export interface ProjectDeleteDialogProps {
   offlineMachines: string[];
   ports: ProjectDeletePorts;
   onDeleted(projectId: string): void;
+  /**
+   * 触屏档：按钮纵向铺满、各 44px，删除在上（红）、取消在下。不传则跟随最近的
+   * TouchProvider；桌面不开。
+   */
+  touch?: boolean;
 }
 
 export function ProjectDeleteDialog({
@@ -59,8 +65,10 @@ export function ProjectDeleteDialog({
   offlineMachines,
   ports,
   onDeleted,
+  touch,
 }: ProjectDeleteDialogProps) {
   const { t } = useUiTranslation();
+  const isTouch = useTouch(touch);
   const [confirm, setConfirm] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -157,20 +165,47 @@ export function ProjectDeleteDialog({
         </label>
       </DialogShellBody>
       <div data-testid="delete-project-footer">
-        <DialogShellFooter error={error}>
-          <Button variant="ghost" onClick={() => handleOpenChange(false)}>
-            {t("common.cancel")}
-          </Button>
-          <DialogShellSubmit
-            data-testid="delete-project-submit"
-            variant="destructive"
-            busy={busy}
-            disabled={!canDelete}
-            onClick={submit}
-          >
-            {t("projectSettings.delete.submit")}
-          </DialogShellSubmit>
-        </DialogShellFooter>
+        {isTouch ? (
+          <DialogShellFooter stack>
+            {error ? (
+              <p role="alert" className="text-xs text-destructive-text">
+                {error}
+              </p>
+            ) : null}
+            <DialogShellSubmit
+              data-testid="delete-project-submit"
+              variant="destructive"
+              className="min-h-11 w-full"
+              busy={busy}
+              disabled={!canDelete}
+              onClick={submit}
+            >
+              {t("projectSettings.delete.submit")}
+            </DialogShellSubmit>
+            <Button
+              variant="ghost"
+              className="min-h-11 w-full"
+              onClick={() => handleOpenChange(false)}
+            >
+              {t("common.cancel")}
+            </Button>
+          </DialogShellFooter>
+        ) : (
+          <DialogShellFooter error={error}>
+            <Button variant="ghost" onClick={() => handleOpenChange(false)}>
+              {t("common.cancel")}
+            </Button>
+            <DialogShellSubmit
+              data-testid="delete-project-submit"
+              variant="destructive"
+              busy={busy}
+              disabled={!canDelete}
+              onClick={submit}
+            >
+              {t("projectSettings.delete.submit")}
+            </DialogShellSubmit>
+          </DialogShellFooter>
+        )}
       </div>
     </DialogShell>
   );

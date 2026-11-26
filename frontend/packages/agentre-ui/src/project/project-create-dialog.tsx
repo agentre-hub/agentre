@@ -17,6 +17,7 @@ import * as React from "react";
 import { FolderOpen, GitBranch, Loader2, Server, X } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
+import { isTimeoutFailure } from "../lib/timeout-failure";
 import { Button } from "../ui/button";
 import {
   DialogShell,
@@ -57,6 +58,15 @@ export interface ProjectCreateDialogProps {
    * 点遮罩即关。
    */
   guardDraft?: boolean;
+  /**
+   * 建项目超时（请求发出去了，可能已经建好）时给：错误行换成「网络超时，可能已经建好
+   * 了」+「刷新看看」，点按调用它并带上这次的草稿——宿主刷新项目列表后，找到就返回
+   * 那个项目的 id（弹窗当作建成：`onCreated(id)` 并关窗），找不到返回 null/undefined
+   * （弹窗说一句「还没找到」，允许再提交）。不传时超时与其它失败一样显示原文。
+   */
+  onTimeoutRecheck?: (
+    draft: ProjectCreateDraft,
+  ) => Promise<string | null | undefined> | string | null | undefined;
 }
 
 /** git 探测的防抖：手打路径时每敲一下探一次，既慢又吵。 */
@@ -71,6 +81,7 @@ export function ProjectCreateDialog({
   ports,
   onCreated,
   guardDraft = false,
+  onTimeoutRecheck,
 }: ProjectCreateDialogProps) {
   const { t } = useUiTranslation();
   const [name, setName] = React.useState("");
@@ -96,6 +107,9 @@ export function ProjectCreateDialog({
   const [probing, setProbing] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  /** 上一次建项目是超时失败，且宿主给了复查入口：持有那次的草稿供「刷新看看」用。 */
+  const [timedOutDraft, setTimedOutDraft] =
+    React.useState<ProjectCreateDraft | null>(null);
   const [machines, setMachines] = React.useState<PickerMachine[]>([]);
   const [picked, setPicked] = React.useState<{
     machine: PickerMachine;
@@ -190,6 +204,7 @@ export function ProjectCreateDialog({
       setGit(null);
       setBusy(false);
       setError(null);
+      setTimedOutDraft(null);
       setPicked(null);
       setPickerOpen(false);
       setCreatedId(null);
@@ -274,6 +289,12 @@ export function ProjectCreateDialog({
 
     setBusy(true);
     setError(null);
+    setTimedOutDraft(null);
+    const timedOut = (cause: unknown) => {
+      if (!onTimeoutRecheck || !isTimeoutFailure(cause)) return false;
+      setTimedOutDraft(draft);
+      return true;
+    };
     void ports.create(draft).then(
       (outcome) => {
         // 建成之后还要接着写路径时**不放下 busy**：中间放一下会闪出一个「还能再
@@ -284,6 +305,7 @@ export function ProjectCreateDialog({
         }
         setBusy(false);
         if (!outcome.ok) {
+          if (timedOut(outcome.failure.message ?? "")) return;
           // 写失败时**不关窗、不清空**：用户填的东西还在，就地给出错误。
           setError(
             outcome.failure.message?.trim() ||
@@ -296,9 +318,34 @@ export function ProjectCreateDialog({
       },
       (e: unknown) => {
         setBusy(false);
+        if (timedOut(e)) return;
         setError(String(e));
       },
     );
+  }
+
+  /** 「刷新看看」：宿主复查一次；找到就当作建成，找不到放开再提交。 */
+  function recheck() {
+    if (!onTimeoutRecheck || !timedOutDraft) return;
+    const draft = timedOutDraft;
+    setBusy(true);
+    void Promise.resolve()
+      .then(() => onTimeoutRecheck(draft))
+      .then(
+        (id) => id ?? null,
+        () => null,
+      )
+      .then((id) => {
+        setBusy(false);
+        if (id) {
+          setTimedOutDraft(null);
+          onCreated(id);
+          handleOpenChange(false);
+          return;
+        }
+        setTimedOutDraft(null);
+        setError(t("projectSettings.create.timeoutNotFound"));
+      });
   }
 
   /** 目录选择器：两个分支（表单 / 半成态）挂的是同一个，所以只写一份。 */
@@ -533,7 +580,30 @@ export function ProjectCreateDialog({
           ) : null}
         </DialogShellBody>
         <div data-testid="project-create-footer">
-          <DialogShellFooter error={error}>
+          <DialogShellFooter
+            error={error}
+            left={
+              timedOutDraft ? (
+                <p
+                  role="alert"
+                  data-testid="project-create-timeout"
+                  className="flex items-center gap-2 text-xs text-destructive-text"
+                >
+                  <span className="min-w-0 flex-1">
+                    {t("board.form.timeout")}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={recheck}
+                    className="min-h-11 shrink-0 cursor-pointer rounded-md px-2 font-medium underline-offset-2 hover:underline focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t("board.form.timeoutRefresh")}
+                  </button>
+                </p>
+              ) : undefined
+            }
+          >
             <Button variant="ghost" onClick={() => handleOpenChange(false)}>
               {t("common.cancel")}
             </Button>

@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { isTimeoutFailure } from "../lib/timeout-failure";
 import type { IssueTone } from "./types";
 import type { LabelMutation } from "./query-types";
 
@@ -31,6 +32,11 @@ export interface UseLabelManagerResult {
    * 「没过去」时是 `null`，面板改说一句通用的。
    */
   error: string | null;
+  /** 上一次**新建**是超时、且宿主给了复查入口：面板画「刷新看看」而不是原文。 */
+  createTimedOut: boolean;
+  /** 「刷新看看」没找到：面板说一句，允许再提交。 */
+  createNotFound: boolean;
+  recheckCreate: () => void;
 }
 
 /**
@@ -45,6 +51,9 @@ export type LabelMutateResult = Promise<void | boolean> | void | boolean;
  */
 export function useLabelManager(
   onLabelMutate: (mutation: LabelMutation) => LabelMutateResult,
+  onCreateTimeoutRecheck?: (
+    name: string,
+  ) => Promise<boolean | void> | boolean | void,
 ): UseLabelManagerResult {
   const [renaming, setRenaming] = React.useState<number | null>(null);
   const [draftName, setDraftName] = React.useState("");
@@ -55,6 +64,9 @@ export function useLabelManager(
   const [busy, setBusy] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // 超时的那次新建的名字：复查要拿它去找。
+  const [timedOutName, setTimedOutName] = React.useState<string | null>(null);
+  const [notFound, setNotFound] = React.useState(false);
 
   // 写成功才收起编辑行 / 确认框、才清掉刚输入的名字：失败也一起收的话，用户看到
   // 的是「面板复位、什么都没发生」——刚敲的名字没了，也没有一句话说为什么。
@@ -63,6 +75,8 @@ export function useLabelManager(
       setBusy(true);
       setFailed(false);
       setError(null);
+      setTimedOutName(null);
+      setNotFound(false);
       void Promise.resolve(onLabelMutate(mutation))
         .then((result) => {
           if (result === false) {
@@ -76,11 +90,41 @@ export function useLabelManager(
         .catch((cause: unknown) => {
           setFailed(true);
           setError(cause instanceof Error ? cause.message : String(cause));
+          if (
+            mutation.kind === "create" &&
+            onCreateTimeoutRecheck &&
+            isTimeoutFailure(cause)
+          ) {
+            setTimedOutName(mutation.name);
+          }
         })
         .finally(() => setBusy(false));
     },
-    [onLabelMutate],
+    [onLabelMutate, onCreateTimeoutRecheck],
   );
+
+  const recheckCreate = React.useCallback(() => {
+    if (!onCreateTimeoutRecheck || timedOutName === null) return;
+    const name = timedOutName;
+    setBusy(true);
+    void Promise.resolve()
+      .then(() => onCreateTimeoutRecheck(name))
+      .then(
+        (found) => found === true,
+        () => false,
+      )
+      .then((found) => {
+        setBusy(false);
+        setTimedOutName(null);
+        if (found) {
+          setFailed(false);
+          setError(null);
+          setNewName("");
+          return;
+        }
+        setNotFound(true);
+      });
+  }, [onCreateTimeoutRecheck, timedOutName]);
 
   return {
     renaming,
@@ -106,5 +150,8 @@ export function useLabelManager(
     busy,
     failed,
     error,
+    createTimedOut: timedOutName !== null,
+    createNotFound: notFound,
+    recheckCreate,
   };
 }

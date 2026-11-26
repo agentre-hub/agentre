@@ -25,6 +25,13 @@ export interface BoardCardProps {
   touch?: boolean;
   /** 不显示 `#N`。不传时与桌面一致。 */
   hideCardNumber?: boolean;
+  /**
+   * 触屏档卡片菜单（底部弹层）的受控开合：宿主的返回键历史层靠它从外面关掉（传
+   * `false`）。只管触屏档；不传时自管，与桌面一致。
+   */
+  menuOpen?: boolean;
+  /** 触屏档菜单每次开、合都会回调（含长按打开）。 */
+  onMenuOpenChange?: (open: boolean) => void;
 }
 
 /** 长按多久算「长按」。 */
@@ -44,9 +51,16 @@ export function BoardCard({
   nowMs,
   touch = false,
   hideCardNumber = false,
+  menuOpen: menuOpenProp,
+  onMenuOpenChange,
 }: BoardCardProps) {
   const { t } = useUiTranslation();
-  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [innerMenuOpen, setInnerMenuOpen] = React.useState(false);
+  const menuOpen = menuOpenProp ?? innerMenuOpen;
+  const setMenuOpen = (next: boolean) => {
+    setInnerMenuOpen(next);
+    onMenuOpenChange?.(next);
+  };
   const pressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // 长按触发后，随后那一下 click 不该再当成「点开编辑」。
   const longPressed = React.useRef(false);

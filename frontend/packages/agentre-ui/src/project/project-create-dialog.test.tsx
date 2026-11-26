@@ -712,3 +712,104 @@ describe("草稿保护（宿主显式开启）", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
+
+describe("F5 创建超时：刷新看看", () => {
+  const timeoutErr = () => {
+    const e = new Error("request timed out after 15000ms");
+    e.name = "ApiTimeoutError";
+    return e;
+  };
+
+  function openTimeout(
+    onTimeoutRecheck?: (...a: never[]) => unknown,
+    create: ProjectCreatePorts["create"] = vi.fn(async () => {
+      throw timeoutErr();
+    }),
+  ) {
+    const onCreated = vi.fn();
+    const onOpenChange = vi.fn();
+    render(
+      <ProjectCreateDialog
+        open
+        onOpenChange={onOpenChange}
+        parentOptions={[]}
+        ports={{ create }}
+        onCreated={onCreated}
+        onTimeoutRecheck={onTimeoutRecheck as never}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("project-create-name"), {
+      target: { value: "Ledger" },
+    });
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    return { onCreated, onOpenChange, create };
+  }
+
+  it("超时：一行中文 + 刷新看看，英文原文不出现", async () => {
+    openTimeout(vi.fn());
+    expect(
+      await screen.findByText(
+        "The network timed out. It may already have been created.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Refresh to check" }),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/timed out after|15000/);
+  });
+
+  it("也认 outcome.failure.message 里的超时", async () => {
+    openTimeout(
+      vi.fn(),
+      vi.fn(async () => ({
+        ok: false as const,
+        failure: {
+          kind: "unknown" as const,
+          message: "context deadline timed out",
+        },
+      })),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    ).toBeInTheDocument();
+  });
+
+  it("点刷新看看：宿主找到了 -> onCreated(id) 并关窗", async () => {
+    const recheck = vi.fn(async () => "found-9");
+    const { onCreated, onOpenChange } = openTimeout(recheck);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    );
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("found-9"));
+    expect(recheck).toHaveBeenCalledWith({ name: "Ledger" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("没找到：说一句，允许再次提交，窗不关", async () => {
+    const recheck = vi.fn(async () => null);
+    const { onCreated, create } = openTimeout(recheck);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    );
+    expect(
+      await screen.findByText("Not found yet. You can submit again."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Refresh to check" }),
+    ).toBeNull();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.getByTestId("project-create-submit")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+  });
+
+  it("不传 onTimeoutRecheck：超时和从前一样显示原文", async () => {
+    openTimeout(undefined);
+    expect(
+      await screen.findByText(/timed out after 15000ms/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Refresh to check" }),
+    ).toBeNull();
+  });
+});
