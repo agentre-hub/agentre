@@ -650,6 +650,75 @@ describe("关联工具窗 · 同一份代码上在跑", () => {
     await waitFor(() => expect(calls()).toBeGreaterThan(afterPeer));
   });
 
+  // Given 同根会话 9 没有挂着对话面板(运行态 store 只有侧栏快照:空闲 + 后台在跑),
+  // When 它的后台任务结束、自主续轮跑完(后端只在 chat:autonomous:9 上收尾,store 不变),
+  // Then 重取,它从列表里消失。
+  it("drops a panel-less peer once its background work and autonomous turn end", async () => {
+    act(() => {
+      useSessionStatusStore.getState().upsert(9, {
+        agentStatus: "idle",
+        needsAttention: false,
+        bgRunning: true,
+      });
+    });
+    api.ListSessionsSharingRoot.mockResolvedValue([
+      sharing({ sessionId: 9, title: "Background build" }),
+    ]);
+    await openRelations();
+    await within(region()).findByRole("button", { name: /Background build/ });
+
+    api.ListSessionsSharingRoot.mockResolvedValue([]);
+    const emit = (p: unknown) =>
+      emitters.get("chat:autonomous:9")?.forEach((f) => f(p));
+    await act(async () => {
+      emit({ kind: "autonomous_started", stream: "chat:stream:9:40" });
+      emit({ kind: "autonomous_finished", launchMessageId: 40 });
+    });
+
+    await waitFor(() =>
+      expect(
+        within(region()).queryByRole("button", { name: /Background build/ }),
+      ).toBeNull(),
+    );
+  });
+
+  // Given 列表为空, When 另一同根会话开始运行, Then 重取,它出现在列表里。
+  it("lists a same-root peer as soon as it starts running", async () => {
+    await openRelations();
+    await waitFor(() => expect(api.ListSessionsSharingRoot).toHaveBeenCalled());
+
+    api.ListSessionsSharingRoot.mockResolvedValue([
+      sharing({ sessionId: 9, title: "Background build" }),
+    ]);
+    act(() => {
+      useSessionStatusStore
+        .getState()
+        .upsert(9, { agentStatus: "running", needsAttention: false });
+    });
+
+    expect(
+      await within(region()).findByRole("button", { name: /Background build/ }),
+    ).toBeTruthy();
+  });
+
+  // 会话级流上的进度帧(子代理进度 / 模型)不改变谁在跑:不重取。
+  it("ignores progress frames on a peer's autonomous channel", async () => {
+    api.ListSessionsSharingRoot.mockResolvedValue([sharing({ sessionId: 9 })]);
+    await openRelations();
+    await within(region()).findByRole("button", { name: /Safari blank page/ });
+    const base = api.ListSessionsSharingRoot.mock.calls.length;
+
+    await act(async () => {
+      for (const kind of ["subagent_progress", "subagent_model"]) {
+        emitters
+          .get("chat:autonomous:9")
+          ?.forEach((f) => f({ kind, toolUseId: "t1" }));
+      }
+    });
+
+    expect(api.ListSessionsSharingRoot.mock.calls.length).toBe(base);
+  });
+
   // 取数失败只降级:一组取不到,其它组照常显示。
   it("degrades a failing group without blanking the others", async () => {
     api.ListSessionsSharingRoot.mockRejectedValue(new Error("boom"));

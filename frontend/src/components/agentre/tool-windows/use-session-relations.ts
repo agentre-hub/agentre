@@ -51,6 +51,16 @@ const NO_GROUPS: Groups = {
   sharing: [],
 };
 
+/**
+ * 会话级流上标志「这个会话开始 / 不再运行」的事件：自主续轮起、自主续轮与后台活动轮
+ * 收尾（后端在落库终态之后才发）、自主续轮失败。
+ */
+const RUN_BOUNDARY_KINDS = new Set([
+  "autonomous_started",
+  "autonomous_finished",
+  "error",
+]);
+
 /** 正在跑（含等待用户、后台活动）的其它会话 id，升序拼成键：集合变了键才变。 */
 function runningPeersKey(
   statuses: ReadonlyMap<number, { agentStatus: string; bgRunning: boolean }>,
@@ -148,12 +158,23 @@ export function useSessionRelations({
     return [...ids].sort((a, b) => a - b).join(",");
   }, [runningKey, groups.sharing]);
 
+  // 同一批会话的会话级流(chat:autonomous:<sid>)也订阅:没挂对话面板的会话,运行态 store
+  // 里只有侧栏快照,它的后台活动 / 自主续轮在这条流上起止,store 不会变 —— 只看 store
+  // 的话,后台任务跑完、续轮收尾的会话会一直留在列表里。只在轮次起止时重取,进度帧不算。
   React.useEffect(() => {
     if (!active) return;
-    const offs = watchKey
-      .split(",")
-      .filter((part) => part !== "")
-      .map((id) => EventsOn(`chat:workroots:${id}`, () => reload()));
+    const ids = watchKey.split(",").filter((part) => part !== "");
+    const offs = [
+      ...ids.map((id) => EventsOn(`chat:workroots:${id}`, () => reload())),
+      ...ids.map((id) =>
+        EventsOn(`chat:autonomous:${id}`, (ev: unknown) => {
+          const kind = (ev as { kind?: unknown } | null)?.kind;
+          if (typeof kind === "string" && RUN_BOUNDARY_KINDS.has(kind)) {
+            reload();
+          }
+        }),
+      ),
+    ];
     return () => {
       for (const off of offs) off();
     };
