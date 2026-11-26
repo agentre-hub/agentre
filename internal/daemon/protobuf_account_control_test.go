@@ -181,14 +181,21 @@ func accountClient(d *Daemon, credential string) *ctlaccount.Client {
 	return ctlaccount.New(ctlaccount.Options{Peer: selfPeer{d: d, credential: credential}, Catalog: emptyCatalog{}})
 }
 
+// openAs opens one account connection to the real agentred under credential.
+func openAs(t *testing.T, rig *scopeRig, credential string) *relaypeer.Conn {
+	t.Helper()
+	conn, err := selfPeer{d: rig.daemon, credential: credential}.Open(rig.ctx, "")
+	require.NoError(t, err)
+	return conn
+}
+
 // sendAndHangUp is `agrctl send` without --wait: one account connection starts
 // the turn on the real agentred and closes; the turn keeps running there.
 func sendAndHangUp(t *testing.T, rig *scopeRig, rt *waitingRT, credential string, n int64) string {
 	t.Helper()
 	conv := convID(n)
-	conn, err := selfPeer{d: rig.daemon, credential: credential}.Open(rig.ctx, "")
-	require.NoError(t, err)
-	_, err = wirecall.RuntimeRun(rig.ctx, conn, &agentrewire.RuntimeRunRequest{
+	conn := openAs(t, rig, credential)
+	_, err := wirecall.RuntimeRun(rig.ctx, conn, &agentrewire.RuntimeRunRequest{
 		ConversationId: conv, Cwd: t.TempDir(), UserText: "ask me a flavor", Backend: &agentrewire.AgentBackend{Type: "claudecode"},
 	})
 	require.NoError(t, err)
@@ -304,9 +311,8 @@ func TestDaemonAccountControl_GivenAPersonalTokensOwnTurn_WhenItActsFromNewConne
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
 	rig := newScopeRig(t, patIntrospection("read", "chat", "approve"))
 	conv := convID(6)
-	conn, err := selfPeer{d: rig.daemon, credential: "pat-credential"}.Open(rig.ctx, "")
-	require.NoError(t, err)
-	_, err = wirecall.RuntimeRun(rig.ctx, conn, &agentrewire.RuntimeRunRequest{
+	conn := openAs(t, rig, "pat-credential")
+	_, err := wirecall.RuntimeRun(rig.ctx, conn, &agentrewire.RuntimeRunRequest{
 		ConversationId: conv, Cwd: t.TempDir(), UserText: "ask me", Backend: &agentrewire.AgentBackend{Type: "claudecode"},
 	})
 	require.NoError(t, err)

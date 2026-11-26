@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -40,18 +42,51 @@ func newCtlAccount(deps CtlProxyDeps) (CtlAccount, error) {
 }
 
 // ctlSelfAwarePeer 把发往这台 agentred 自己的通道留在进程内(不经 relay 自拨),其余照常经 relay。
+//
+// Close 与 relay 那一半同一份承诺:关掉它开过的**每一条**通道。relay 通道随链路一起关,
+// 进程内通道没有链路可关,只能由这里记着逐条关 —— 它在这台 agentred 这一侧是一条完整的
+// 连接(按连接的 runtime 会话表、会话认领、接管后的推送订阅),ctlaccount 的 stop / 插话
+// 等路径不自己关它,漏关就留在进程里直到 agentred 退出。
 type ctlSelfAwarePeer struct {
 	relay    ctlaccount.Peer
 	self     string
 	dialSelf func(ctx context.Context) (*relaypeer.Conn, error)
 	hosts    func(ctx context.Context, conversationID string) bool
+
+	mu     sync.Mutex
+	closed bool
+	opened []*relaypeer.Conn
 }
 
 func (p *ctlSelfAwarePeer) Open(ctx context.Context, target string) (*relaypeer.Conn, error) {
 	if p.dialSelf != nil && p.local(ctx, target) {
-		return p.dialSelf(ctx)
+		return p.openSelf(ctx)
 	}
 	return p.relay.Open(ctx, target)
+}
+
+func (p *ctlSelfAwarePeer) openSelf(ctx context.Context) (*relaypeer.Conn, error) {
+	conn, err := p.dialSelf(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		_ = conn.Close()
+		return nil, fmt.Errorf("%w: closed", relaypeer.ErrRelayUnavailable)
+	}
+	// 已经结束的那些不再记着:一个跟到子会话收口的卡片会反复重连,表不该跟着长。
+	live := p.opened[:0]
+	for _, c := range p.opened {
+		select {
+		case <-c.Done():
+		default:
+			live = append(live, c)
+		}
+	}
+	p.opened = append(live, conn)
+	return conn, nil
 }
 
 func (p *ctlSelfAwarePeer) local(ctx context.Context, target string) bool {
@@ -64,7 +99,17 @@ func (p *ctlSelfAwarePeer) local(ctx context.Context, target string) bool {
 	return false
 }
 
-func (p *ctlSelfAwarePeer) Close() { p.relay.Close() }
+func (p *ctlSelfAwarePeer) Close() {
+	p.mu.Lock()
+	p.closed = true
+	opened := p.opened
+	p.opened = nil
+	p.mu.Unlock()
+	for _, c := range opened {
+		_ = c.Close()
+	}
+	p.relay.Close()
+}
 
 // ctlAccountServer 把 CtlServerPort 包成 ctlaccount.Server:非 2xx 交回 *ctlclient.ServerError。
 type ctlAccountServer struct{ port CtlServerPort }

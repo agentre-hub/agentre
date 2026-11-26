@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,6 +121,9 @@ type accountWorld struct {
 	relay     *relaypeertest.Relay
 	box, self *machineRuns
 	selfDials int
+	// selfConns 是每条进程内通道在这台 agentred 一侧的那一端。
+	selfMu    sync.Mutex
+	selfConns []*protorpc.Conn
 	proxy     *httptest.Server
 	token     string
 }
@@ -145,6 +149,9 @@ func newAccountWorld(t *testing.T, chosen string) *accountWorld {
 				w.selfDials++
 				client, server := relaypeer.Pipe()
 				conn := protorpc.NewConn(protorpc.NewPayloadFrameConn(server), w.self.registry(true))
+				w.selfMu.Lock()
+				w.selfConns = append(w.selfConns, conn)
+				w.selfMu.Unlock()
 				go conn.Serve(context.WithoutCancel(ctx))
 				return relaypeer.OpenChannel(ctx, client, accountTestToken)
 			},
@@ -202,6 +209,27 @@ func TestCtlProxy_GivenConsoleOwnedSend_WhenTheAgentRunsOnThisAgentred_ThenItSta
 	assert.Zero(t, w.relay.Dials(), "no self-dial through the relay")
 	require.Len(t, w.server.savedBodies(), 1)
 	assert.Equal(t, accountTestSelf, w.server.savedBodies()[0]["device_fingerprint"])
+}
+
+// Given a console-owned send whose child runs on this agentred, When the send has
+// answered, Then the in-process channel it opened is closed: on this side it is a
+// full connection (per-connection runtime table, session claims and push
+// subscription once it attaches), and nothing else would ever end it.
+func TestCtlProxy_GivenConsoleOwnedSendOnThisAgentred_WhenTheSendHasAnswered_ThenTheInProcessChannelIsClosed(t *testing.T) {
+	w := newAccountWorld(t, accountTestSelf)
+
+	status, got, _ := postCtl(t, w.proxy.URL+"/ctl/v1/send", w.token, `{"agent":"reviewer","text":"hi"}`)
+
+	require.Equal(t, http.StatusOK, status, got)
+	w.selfMu.Lock()
+	conns := append([]*protorpc.Conn(nil), w.selfConns...)
+	w.selfMu.Unlock()
+	require.Len(t, conns, 1)
+	select {
+	case <-conns[0].Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the in-process channel to this agentred outlived the request that opened it")
+	}
 }
 
 func TestCtlProxy_GivenConsoleOwnedSend_WhenThisAgentredIsNotSignedIn_ThenServiceUnavailable(t *testing.T) {
