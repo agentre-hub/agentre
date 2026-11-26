@@ -365,6 +365,108 @@ describe("绝对路径归属", () => {
   });
 });
 
+describe("问题 5：嵌在主根里、尚未认领的 worktree", () => {
+  const nested = `${PRIMARY}/.worktrees/v22`;
+
+  it("Given an unclaimed worktree nested inside the primary root, When a file inside it is clicked, Then it is claimed and previewed under the new root", async () => {
+    claimPath.mockResolvedValue([...ROOTS, { path: nested, name: "v22" }]);
+    renderLink(`${nested}/v22.ts:3`, {
+      roots: ROOTS,
+      ports: ports({ claimPath }),
+    });
+
+    clickLink();
+
+    await waitFor(() =>
+      expect(previewFile).toHaveBeenCalledWith(
+        SESSION,
+        { root: nested, path: "v22.ts" },
+        { line: 3 },
+      ),
+    );
+    expect(claimPath).toHaveBeenCalledWith(SESSION, `${nested}/v22.ts`);
+    expect(previewFile).toHaveBeenCalledTimes(1);
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
+  it("Given the claim rejects, When a file under the primary root is clicked, Then it is still previewed in the primary root", async () => {
+    claimPath.mockRejectedValue(new Error("git failed"));
+    renderLink(`${PRIMARY}/src/b.ts`, {
+      roots: ROOTS,
+      ports: ports({ claimPath }),
+    });
+
+    clickLink();
+
+    await waitFor(() =>
+      expect(previewFile).toHaveBeenCalledWith(SESSION, {
+        root: PRIMARY,
+        path: "src/b.ts",
+      }),
+    );
+    expect(openPath).not.toHaveBeenCalled();
+  });
+
+  it("Given the path is not inside any worktree (the claim returns the same roots), When clicked, Then it is previewed in the primary root", async () => {
+    claimPath.mockResolvedValue(ROOTS);
+    renderLink(`${PRIMARY}/src/b.ts`, {
+      roots: ROOTS,
+      ports: ports({ claimPath }),
+    });
+
+    clickLink();
+
+    await waitFor(() =>
+      expect(previewFile).toHaveBeenCalledWith(SESSION, {
+        root: PRIMARY,
+        path: "src/b.ts",
+      }),
+    );
+    expect(previewFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given the deepest root is an already claimed worktree, When a file inside it is clicked, Then it is previewed there without asking the host to claim", () => {
+    renderLink(`${nested}/v22.ts`, {
+      roots: [...ROOTS, { path: nested, name: "v22" }],
+      ports: ports({ claimPath }),
+    });
+
+    clickLink();
+
+    expect(previewFile).toHaveBeenCalledWith(SESSION, {
+      root: nested,
+      path: "v22.ts",
+    });
+    expect(claimPath).not.toHaveBeenCalled();
+  });
+
+  it("Given a file directly in the primary root, When clicked, Then no worktree can hold it and it is previewed without a claim", () => {
+    renderLink(`${PRIMARY}/README.md`, {
+      roots: ROOTS,
+      ports: ports({ claimPath }),
+    });
+
+    clickLink();
+
+    expect(previewFile).toHaveBeenCalledWith(SESSION, {
+      root: PRIMARY,
+      path: "README.md",
+    });
+    expect(claimPath).not.toHaveBeenCalled();
+  });
+
+  it("Given a host without claimPath, When a file under the primary root is clicked, Then it is previewed in the primary root at once", () => {
+    renderLink(`${nested}/v22.ts`, { roots: ROOTS });
+
+    clickLink();
+
+    expect(previewFile).toHaveBeenCalledWith(SESSION, {
+      root: PRIMARY,
+      path: ".worktrees/v22/v22.ts",
+    });
+  });
+});
+
 describe("预览、复制路径、系统打开同一个解析结果", () => {
   function renderWorktreeText() {
     const all = rows([

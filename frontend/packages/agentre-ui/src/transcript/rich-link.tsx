@@ -257,13 +257,31 @@ function openLocalInternal(
   openWithExternalApp(kind, t, ports, sessionId, location);
 }
 
+type LocalLink = Extract<
+  LinkClass,
+  { kind: "local-internal" | "local-external" }
+>;
+
+/** 认领不成立时的去处:今天这条链接本来怎么开就怎么开。 */
+function openUnclaimed(
+  kind: LocalLink,
+  t: TFunction,
+  ports: TranscriptPorts,
+  sessionId: number | undefined,
+  location: SessionLocation | undefined,
+) {
+  if (kind.kind === "local-internal")
+    openLocalInternal(kind, t, ports, sessionId, location);
+  else openWithExternalApp(kind, t, ports, sessionId, location);
+}
+
 /**
- * 不在任何已认领根内的绝对路径,点击即请宿主认领(spec 决策 20:点击是明确意图)。
- * 认领后落进某个根就按根内文件处理;认领不成立(宿主 reject、或集合里仍没有包含
- * 它的根)按今天的外部文件处理。只在宿主给了根、且提供认领能力时走这条路。
+ * 点击即请宿主认领(spec 决策 20:点击是明确意图),认领后按回来的根集合重新归属:
+ * 落进某个根就按最深的那个根内的文件处理。认领不成立(宿主 reject、或集合里没有
+ * 更合适的根)按今天的口径打开——根外的路径是外部文件,主根内的路径就在主根里预览。
  */
 async function claimThenOpen(
-  kind: Extract<LinkClass, { kind: "local-external" }>,
+  kind: LocalLink,
   res: ClassifyLinkOptions,
   t: TFunction,
   ports: TranscriptPorts,
@@ -280,21 +298,31 @@ async function claimThenOpen(
     openLocalInternal(claimed, t, ports, sessionId, location);
     return;
   }
-  openWithExternalApp(kind, t, ports, sessionId, location);
+  openUnclaimed(kind, t, ports, sessionId, location);
 }
 
-function canClaim(
-  kind: Extract<LinkClass, { kind: "local-external" }>,
+/**
+ * 这次点击要不要先请宿主认领。只在宿主给了根、且提供认领能力时考虑:
+ *   - 不在任何根内的绝对路径(家目录形式除外,它比不了根);
+ *   - 落在**主根**里、且与主根之间还隔着目录的路径:它可能在一个嵌在仓库里、尚未
+ *     认领的 worktree 里(`<repo>/.claude/worktrees/<n>`、`<repo>/.worktrees/<n>`,
+ *     spec 问题 5)。最深的根已经是认领来的根,或文件就在主根顶层时,不会有更深的
+ *     worktree 等着认领,不多跑这一趟。
+ */
+function shouldClaim(
+  kind: LocalLink,
   res: ClassifyLinkOptions,
   ports: TranscriptPorts,
   sessionId: number | undefined,
 ): sessionId is number {
-  return (
-    res.roots !== undefined &&
-    typeof ports.claimPath === "function" &&
-    sessionId !== undefined &&
-    !HOME_ANCHORED.test(kind.fullPath)
-  );
+  if (
+    res.roots === undefined ||
+    typeof ports.claimPath !== "function" ||
+    sessionId === undefined
+  )
+    return false;
+  if (kind.kind === "local-external") return !HOME_ANCHORED.test(kind.fullPath);
+  return kind.root?.primary === true && kind.relPath.includes("/");
 }
 
 function dispatchClick(
@@ -310,14 +338,12 @@ function dispatchClick(
       openURL(kind.url, t, ports, sessionId);
       return;
     case "local-internal":
-      openLocalInternal(kind, t, ports, sessionId, location);
-      return;
     case "local-external":
-      if (canClaim(kind, res, ports, sessionId)) {
+      if (shouldClaim(kind, res, ports, sessionId)) {
         void claimThenOpen(kind, res, t, ports, sessionId, location);
         return;
       }
-      openWithExternalApp(kind, t, ports, sessionId, location);
+      openUnclaimed(kind, t, ports, sessionId, location);
       return;
     case "unknown":
       // 不拦截，让浏览器走默认行为（target=_blank fallback）。
