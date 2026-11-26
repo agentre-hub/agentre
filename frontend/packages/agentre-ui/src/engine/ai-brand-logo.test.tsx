@@ -13,6 +13,7 @@ const BACKEND_TYPES_WITH_BRAND = [
   "piagent",
   "hermes",
   "openclaw",
+  "antigravity",
 ] as const;
 
 describe("AgentBackendLogo", () => {

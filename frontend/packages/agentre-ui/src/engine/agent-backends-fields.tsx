@@ -30,9 +30,8 @@ import { cn } from "../lib/utils";
 import type { ResolvedModelTarget } from "./agent-backends-utils";
 import {
   CLAUDE_TIERS,
-  RESERVED_ENV_KEYS,
   cliBinaryName,
-  isCliBackend,
+  requiresAgentreProvider,
   routeConclusion,
   type ApprovalValue,
   type BackendType,
@@ -97,8 +96,21 @@ function ProviderConfigureCta({ onConfigure }: { onConfigure?: () => void }) {
 // 触发按钮主行：品牌标识 + 供应商名 + 跟随/固定徽标 —— 和列表行的绑定面包屑
 // （BackendRowBinding）同一套处理，让「绑了谁、是不是跟随」在收起状态下也一眼可读。
 // 按钮的无障碍名由 ModelTargetPicker 的 aria-label 决定，这里只管视觉主行。
-function BindingTriggerLabel({ target }: { target: ResolvedModelTarget }) {
+function BindingTriggerLabel({
+  target,
+  providerRequired = false,
+}: {
+  target: ResolvedModelTarget;
+  providerRequired?: boolean;
+}) {
   const { t } = useTranslation();
+  if (target.mode === "native" && providerRequired) {
+    return (
+      <span className="min-w-0 truncate text-muted-foreground">
+        {t("agentBackends.binding.chooseGeminiProvider")}
+      </span>
+    );
+  }
   if (target.mode === "native") {
     return (
       <span className="min-w-0 truncate">
@@ -142,7 +154,13 @@ function BindingTriggerLabel({ target }: { target: ResolvedModelTarget }) {
   );
 }
 
-function bindingTriggerSub(t: Translate, target: ResolvedModelTarget): string {
+function bindingTriggerSub(
+  t: Translate,
+  target: ResolvedModelTarget,
+  providerRequired = false,
+): string {
+  if (target.mode === "native" && providerRequired)
+    return t("agentBackends.binding.chooseGeminiProviderHint");
   if (target.mode === "native") return t("agentBackends.binding.cliResolution");
   if (target.mode === "invalid")
     return t("agentBackends.binding.invalidResolution");
@@ -288,7 +306,7 @@ export function ModelBindingSection({
         <h3 className="text-xs font-semibold">
           {t("agentBackends.binding.label")}
         </h3>
-        {isCliBackend(type) ? (
+        {!requiresAgentreProvider(type) ? (
           <span className="font-mono text-2xs text-muted-foreground">
             {t("agentBackends.provider.optionalSuffix")}
           </span>
@@ -379,8 +397,9 @@ function ModelTargetField({
   deviceLabel?: string;
 }) {
   const { t } = useTranslation();
-  // claudecode / codex / piagent 允许「不关联」走 CLI 自身登录；builtin 必填。
-  const optional = isCliBackend(type);
+  // claudecode / codex / piagent 允许「不关联」走 CLI 自身登录；builtin /
+  // antigravity 必填。
+  const optional = !requiresAgentreProvider(type);
   // Match by providerKey (preferred) or fall back to string id for legacy data.
   const matchesProvider = (p: Provider) =>
     (p.providerKey && p.providerKey === value) || String(p.id) === value;
@@ -484,14 +503,21 @@ function ModelTargetField({
                 </Badge>
               </>
             ) : (
-              <BindingTriggerLabel target={resolvedTarget} />
+              <BindingTriggerLabel
+                target={resolvedTarget}
+                providerRequired={!optional && type !== "builtin"}
+              />
             )
           }
           triggerSub={
             cliModels && resolvedTarget.mode === "native" ? (
               <CliBindingResolution state={cliModels} />
             ) : (
-              bindingTriggerSub(t, resolvedTarget)
+              bindingTriggerSub(
+                t,
+                resolvedTarget,
+                !optional && type !== "builtin",
+              )
             )
           }
           aria-label={t("agentBackends.binding.label")}
@@ -1233,7 +1259,9 @@ export function EnvJsonField({
           ) : null}
           {entries.map((entry, i) => {
             const trimmed = entry.key.trim();
-            const isReserved = trimmed !== "" && RESERVED_ENV_KEYS.has(trimmed);
+            // 保留键集合随后端类型而变，调用方已按类型算好 offenders，这里只认它。
+            const isReserved =
+              trimmed !== "" && reservedOffenders.includes(trimmed);
             return (
               <div
                 key={i}

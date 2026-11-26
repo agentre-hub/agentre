@@ -17,7 +17,12 @@ import type { EditorState } from "./editor-types";
 
 // 打开新建对话框时会对这几个类型各探一次目标机的 $PATH。hermes 不在其中：它连接
 // 一个已在运行的 `hermes serve`，没有 CLI 路径可探。
-const CLI_BACKEND_TYPES: BackendType[] = ["claudecode", "codex", "piagent"];
+const CLI_BACKEND_TYPES: BackendType[] = [
+  "claudecode",
+  "codex",
+  "piagent",
+  "antigravity",
+];
 
 // 在「目标机」的 $PATH 里找 t 对应的可执行文件。deviceId 空串 = 本机，
 // 非空 = 让 agent_backend_svc 派发到那台远端 daemon 去扫它自己的 $PATH。

@@ -22,11 +22,16 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 )
 
-// defaultRuntime 是包级单例,init() 时登记到 agentruntime 注册表。
-var defaultRuntime = NewWithPool(agentruntime.DefaultCLISessionPool())
+// defaultRuntime / antigravityRuntime 是包级单例,init() 时登记到 agentruntime 注册表:
+// 同一套 ACP runtime 的两个实例,差异全在 backendProfile 里。
+var (
+	defaultRuntime     = NewWithPool(agentruntime.DefaultCLISessionPool())
+	antigravityRuntime = newRuntime(agentruntime.DefaultCLISessionPool(), antigravityProfile)
+)
 
 func init() {
 	agentruntime.RegisterRuntime(agent_backend_entity.TypeACP, defaultRuntime)
+	agentruntime.RegisterRuntime(agent_backend_entity.TypeAntigravity, antigravityRuntime)
 }
 
 // defaultAbortGrace 是 Abort 后等待 agent 自行收尾的宽限期:超时还没回
@@ -48,18 +53,24 @@ type Runtime struct {
 	cache      *agentruntime.CLISessionPool
 	// abortGrace 单测覆写成毫秒级。
 	abortGrace time.Duration
+	profile    backendProfile
 }
 
-// New 造一个自带独立池的 runtime(单测要互不干扰);生产用进程级共享池。
+// New 造一个自带独立池的通用 acp runtime(单测要互不干扰);生产用进程级共享池。
 func New() *Runtime {
 	return NewWithPool(agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap))
 }
 
+// NewWithPool 造一个通用 acp runtime。
 func NewWithPool(pool *agentruntime.CLISessionPool) *Runtime {
+	return newRuntime(pool, acpProfile)
+}
+
+func newRuntime(pool *agentruntime.CLISessionPool, profile backendProfile) *Runtime {
 	if pool == nil {
 		pool = agentruntime.NewCLISessionPool(agentruntime.DefaultCLISessionIdleCap)
 	}
-	return &Runtime{cache: pool, abortGrace: defaultAbortGrace}
+	return &Runtime{cache: pool, abortGrace: defaultAbortGrace, profile: profile}
 }
 
 // SetAbortGraceForTest 仅测试用;restore 闭包恢复默认。
@@ -75,9 +86,10 @@ func (r *Runtime) spawnLockFor(key string) *sync.Mutex {
 }
 
 // sessionKey 把 chat session ID 翻成池键;形状由 agentruntime 统一决定(池是
-// 进程级单例,裸会话 id 会让不同后端的同号会话互相顶掉)。
-func sessionKey(id int64) string {
-	return agentruntime.SessionPoolKey(agent_backend_entity.TypeACP, id)
+// 进程级单例,裸会话 id 会让不同后端的同号会话互相顶掉 —— acp 与 antigravity
+// 共用这个池,所以键里的类型取本实例的 profile)。
+func (r *Runtime) sessionKey(id int64) string {
+	return agentruntime.SessionPoolKey(r.profile.backendType, id)
 }
 
 // Capabilities 声明且只声明本 runtime 实际实现的能力。凡是「ACP 协议里没有
@@ -107,25 +119,33 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 	if req.Backend == nil {
 		return nil, nil, errors.New("acp runtime: nil backend")
 	}
-	command := strings.TrimSpace(req.Backend.ACPCommand)
-	if command == "" {
-		return nil, nil, errors.New("acp runtime: backend has no acpCommand configured")
+	command, args, err := r.profile.launch(req.Backend)
+	if err != nil {
+		return nil, nil, err
 	}
 	cwd := req.Cwd
 	if cwd == "" {
-		var err error
 		cwd, err = agentruntime.ResolveAgentCwd(req.AgentID, req.AgentSyncID)
 		if err != nil {
 			return nil, nil, err
 		}
 	}
-	envMap, err := agentruntime.BuildACPEnv(req.Backend, agentruntime.CLIDeps{Ctl: req.CtlCredentials(), Session: req.ConversationID})
+	envMap, err := r.profile.env(req)
 	if err != nil {
 		return nil, nil, err
 	}
-	env := envList(envMap)
+	spec := launchSpec{
+		command:    command,
+		args:       args,
+		cwd:        cwd,
+		env:        envList(envMap),
+		unsetEnv:   r.profile.unsetEnv,
+		authMethod: r.profile.authMethod,
 
-	s, err := r.acquireSession(ctx, req, cwd, env, command)
+		binaryNotFound: r.profile.binaryNotFound,
+	}
+
+	s, err := r.acquireSession(ctx, req, spec)
 	if err != nil {
 		logger.Ctx(ctx).Error("acp.Runtime: acquireSession failed",
 			zap.Int64("sessionID", req.SessionID),
@@ -146,6 +166,10 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 	result := &agentruntime.RunResult{
 		ProviderSessionID: s.acpSessionID(),
 		TurnToken:         token,
+	}
+	if r.profile.reportsModel {
+		// 模型由 Agentre 选、经网关按 token 的目标生效:实际调用的就是解析出的这一个。
+		result.Model = req.EffectiveModelID()
 	}
 	out := make(chan agentruntime.Event, 32)
 	logger.Ctx(ctx).Info("acp.Runtime: turn started",
@@ -253,6 +277,15 @@ func (r *Runtime) drainTurn(
 		}
 	}
 finished:
+	// turnCtx 被取消收尾这一轮:chat_svc.Stop 先取消 turnCtx 再调 Abort,轮次在 Abort
+	// 到达前就已以 context canceled 收尾,Abort 只会拿到 ErrNoActiveTurn。所以这里补上
+	// 挂起审批的取消应答 —— 此刻出口仍挂着,Resolved(拒绝)先于终态事件到达,审批卡
+	// 随之收起。session/cancel 不用补:SDK 的 Prompt 在 ctx 结束时已自己发过一条
+	// (acp-go-sdk ClientSideConnection.Prompt)。不看 wasAborting:aborting 标记置上后
+	// 从不复位;审批已被 Abort 答完时这里是空操作。
+	if pr.err != nil && ctx.Err() != nil {
+		s.cancelPendingPermissions()
+	}
 	r.finishTurn(ctx, s, req, out, result, pr, turn)
 }
 
@@ -307,24 +340,24 @@ func (r *Runtime) finishTurnBookkeeping(sessionID int64) {
 	if sessionID <= 0 {
 		return
 	}
-	r.cache.MarkIdle(sessionKey(sessionID))
+	r.cache.MarkIdle(r.sessionKey(sessionID))
 }
 
 // acquireSession 拿到 chat session 对应的常驻 ACP agent 会话,必要时 spawn。
-func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunRequest, cwd string, env []string, command string) (*agentSession, error) {
-	key := sessionKey(req.SessionID)
+func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunRequest, spec launchSpec) (*agentSession, error) {
+	key := r.sessionKey(req.SessionID)
 	lk := r.spawnLockFor(key)
 	lk.Lock()
 	defer lk.Unlock()
 
-	identity := launchIdentity(req, cwd, env)
+	identity := launchIdentity(spec, req.MCPServers)
 	if req.SessionID > 0 {
 		// 身份不一致(含池里那条从没记过身份)由池当场驱逐,见 GetWithIdentity。
 		if v, ok := r.cache.GetWithIdentity(key, identity); ok {
 			s := v.(*agentSession)
 			if !s.dead() {
 				r.cache.MarkActive(key)
-				if err := s.ensureACPSession(ctx, req, cwd); err != nil {
+				if err := s.ensureACPSession(ctx, req, spec.cwd); err != nil {
 					return nil, err
 				}
 				return s, nil
@@ -333,7 +366,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 			r.cache.Remove(key)
 		}
 	}
-	s, err := spawnAgent(ctx, launchSpec{command: command, args: req.Backend.ACPArgs, cwd: cwd, env: env})
+	s, err := spawnAgent(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +375,7 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 		r.cache.PutWithIdentity(key, identity, s)
 		r.cache.MarkActive(key)
 	}
-	if err := s.ensureACPSession(ctx, req, cwd); err != nil {
+	if err := s.ensureACPSession(ctx, req, spec.cwd); err != nil {
 		if req.SessionID > 0 {
 			r.cache.Remove(key)
 		}
@@ -353,25 +386,19 @@ func (r *Runtime) acquireSession(ctx context.Context, req agentruntime.RunReques
 }
 
 // launchIdentity 拼出「这个 agent 进程是拿什么参数起来的」:command / args /
-// cwd / env 指纹(只含 env_json 用户变量 —— ACP 不注入每轮变化的一次性 token,
-// 指纹才能跨轮稳定)/ 本轮 MCP 清单(server 名 + URL + headers,照 piagent 把
-// mcpServers 算进身份的先例 —— 注入清单变了必须重开会话)。比对与「未记录即
-// 已变」的判定交给 CLISessionPool.GetWithIdentity。
-func launchIdentity(req agentruntime.RunRequest, cwd string, env []string) string {
-	sortedEnv := append([]string(nil), env...)
+// cwd / env 指纹(env_json 用户变量,antigravity 另有会话级网关 token —— 会话内
+// 跨轮不变,换了才说明旧进程手里的凭证已作废)/ 本轮 MCP 清单(server 名 + URL +
+// headers,照 piagent 把 mcpServers 算进身份的先例 —— 注入清单变了必须重开会话)。
+// 比对与「未记录即已变」的判定交给 CLISessionPool.GetWithIdentity。
+func launchIdentity(spec launchSpec, mcp []agentruntime.MCPServerSpec) string {
+	sortedEnv := append([]string(nil), spec.env...)
 	sort.Strings(sortedEnv)
-	command := ""
-	var args []string
-	if req.Backend != nil {
-		command = req.Backend.ACPCommand
-		args = req.Backend.ACPArgs
-	}
 	return strings.Join([]string{
-		command,
-		strings.Join(args, "\x01"),
-		cwd,
+		spec.command,
+		strings.Join(spec.args, "\x01"),
+		spec.cwd,
 		strings.Join(sortedEnv, "\x01"),
-		mcpFingerprint(req.MCPServers),
+		mcpFingerprint(mcp),
 	}, "\x00")
 }
 
@@ -404,7 +431,7 @@ func mcpFingerprint(specs []agentruntime.MCPServerSpec) string {
 // 宽限期内没回就整进程收掉兜底,绝不让 drain 挂死。幂等;无进行中轮次返回
 // ErrNoActiveTurn。
 func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) (agentruntime.AbortOutcome, error) {
-	v, ok := r.cache.Get(sessionKey(sessionID))
+	v, ok := r.cache.Get(r.sessionKey(sessionID))
 	if !ok {
 		return agentruntime.AbortOutcome{}, agentruntime.ErrNoActiveTurn
 	}
@@ -432,7 +459,7 @@ func (r *Runtime) Abort(ctx context.Context, sessionID int64, turnToken uint64) 
 			case <-time.After(grace):
 				logger.Default().Warn("acp runtime: abort grace elapsed without prompt response, tearing down agent process",
 					zap.Int64("sessionID", sessionID))
-				r.cache.Remove(sessionKey(sessionID))
+				r.cache.Remove(r.sessionKey(sessionID))
 			}
 		}()
 	}
@@ -446,7 +473,7 @@ func (r *Runtime) SubmitToolPermission(ctx context.Context, sessionID int64, req
 	if strings.TrimSpace(requestID) == "" {
 		return errors.New("acp runtime: empty requestID")
 	}
-	v, ok := r.cache.Get(sessionKey(sessionID))
+	v, ok := r.cache.Get(r.sessionKey(sessionID))
 	if !ok {
 		return nil
 	}
@@ -459,7 +486,7 @@ func (r *Runtime) CloseSession(_ context.Context, sessionID int64) {
 	if sessionID <= 0 {
 		return
 	}
-	r.cache.Remove(sessionKey(sessionID))
+	r.cache.Remove(r.sessionKey(sessionID))
 }
 
 // CloseAllSessions 宿主关机时调,收掉所有常驻 agent 进程。

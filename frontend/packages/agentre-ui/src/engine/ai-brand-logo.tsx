@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 import agentreLogo from "./assets/images/logo-mark.svg";
+import antigravityLogo from "./assets/brands/antigravity.svg";
 import anthropicLogo from "./assets/brands/anthropic.svg";
 import claudeLogo from "./assets/brands/claude.svg";
 import codexLogo from "./assets/brands/codex.svg";
@@ -23,6 +24,7 @@ import { cn } from "../lib/utils";
 
 type Brand =
   | "agentre"
+  | "antigravity"
   | "anthropic"
   | "claude"
   | "codex"
@@ -56,6 +58,7 @@ export const agentreLogoUrl = agentreLogo;
 
 const brandRegistry: Record<Brand, BrandDefinition> = {
   agentre: { label: "Agentre", src: agentreLogoUrl },
+  antigravity: { label: "Antigravity", src: antigravityLogo },
   anthropic: {
     label: "Anthropic",
     src: anthropicLogo,
@@ -166,6 +169,7 @@ const backendBrands: Record<string, Brand> = {
   piagent: "pi",
   hermes: "hermes",
   openclaw: "openclaw",
+  antigravity: "antigravity",
 };
 
 function BrandLogo({ brand, className }: LogoProps & { brand: Brand }) {
@@ -229,6 +233,7 @@ function resolveProviderBrand(
   )?.[0];
   if (identified) return identified;
   if (providerType === "anthropic") return "anthropic";
+  if (providerType === "gemini") return "gemini";
   if (providerType === "openai-chat" || providerType === "openai-response") {
     return "openai";
   }

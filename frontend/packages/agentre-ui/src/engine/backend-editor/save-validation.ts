@@ -7,6 +7,7 @@ import { OPENCLAW_SESSION_MODE } from "../openclaw-validation";
 import { openClawDraftIssue } from "../openclaw-validation";
 import {
   isCliBackend,
+  requiresAgentreProvider,
   type BackendType,
   type Provider,
   type Translate,
@@ -38,8 +39,9 @@ export function computeSaveValidation(args: {
     reservedOffenders,
     t,
   } = args;
-  // builtin 必须有 provider；CLI 自身登录、OpenClaw 走 Gateway 认证，都允许未关联。
-  const providerOptional = isCliBackend(type) || type === "openclaw";
+  // builtin / antigravity 必须有 provider；CLI 自身登录、OpenClaw 走 Gateway 认证，
+  // 都允许未关联。
+  const providerOptional = !requiresAgentreProvider(type);
   // piagent 绑定时 provider-default / fixed-model 都必须最终解析到可用模型
   // （spec「ModelTarget contract」）。目录加载完成且能确定目标解析不到模型时才前置拦截。
   const selectedTargetProvider = targetCatalog.find(

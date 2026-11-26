@@ -23,7 +23,40 @@ var (
 // BuildEnv returns os.Environ merged with caller-provided variables, then
 // augments PATH so GUI-launched app bundles can still run Homebrew/npm CLIs.
 func BuildEnv(extra map[string]string, binary string) []string {
-	return buildEnv(os.Environ(), extra, binary, envFoldCase)
+	return BuildEnvWithout(extra, nil, binary)
+}
+
+// BuildEnvWithout is BuildEnv with the unset keys first removed from the
+// inherited os.Environ. Only the parent's copies go: an unset key that is also
+// in extra is still written (callers clear an inherited credential, then
+// supply their own).
+func BuildEnvWithout(extra map[string]string, unset []string, binary string) []string {
+	return buildEnv(withoutKeys(os.Environ(), unset, envFoldCase), extra, binary, envFoldCase)
+}
+
+// withoutKeys drops every "K=V" item of environ whose key is in keys (any
+// spelling when foldCase, matching how the child resolves names on Windows).
+func withoutKeys(environ, keys []string, foldCase bool) []string {
+	if len(keys) == 0 {
+		return environ
+	}
+	out := make([]string, 0, len(environ))
+	for _, item := range environ {
+		k, _, _ := strings.Cut(item, "=")
+		if !matchesAnyKey(k, keys, foldCase) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func matchesAnyKey(k string, keys []string, foldCase bool) bool {
+	for _, key := range keys {
+		if k == key || foldCase && strings.EqualFold(k, key) {
+			return true
+		}
+	}
+	return false
 }
 
 // envFoldCase: Windows env names are case-insensitive (the system spells it

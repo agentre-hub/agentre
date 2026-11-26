@@ -236,3 +236,26 @@ func TestCLIProbe_ProbeFuncError_Propagates(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cli exit 1")
 }
+
+// antigravity 的 probe 只跑 `agy --version`：不查 provider、不碰 gateway
+// （mock 对未声明的调用报错），Env 为空，CLIPath 原样透传。
+func TestCLIProbe_Antigravity_AcceptedWithoutProviderOrGateway(t *testing.T) {
+	ctx, _, _, h := setupCLITest(t)
+	var captured cliprober.ProbeRequest
+	handlers.SetProbeFunc(func(_ context.Context, req cliprober.ProbeRequest) (*cliprober.ProbeResponse, error) {
+		captured = req
+		return &cliprober.ProbeResponse{Text: "1.5.16"}, nil
+	})
+	t.Cleanup(handlers.ResetProbeFunc)
+
+	res, err := h.Probe(ctx, handlers.CLIProbeParams{
+		BackendType:    string(agent_backend_entity.TypeAntigravity),
+		LLMProviderKey: "gem",
+		CLIPath:        "/opt/agy",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "1.5.16", res.Text)
+	assert.Equal(t, "antigravity", captured.Type)
+	assert.Equal(t, "/opt/agy", captured.CLIPath)
+	assert.Empty(t, captured.Env)
+}

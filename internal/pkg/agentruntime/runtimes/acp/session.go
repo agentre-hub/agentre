@@ -251,20 +251,25 @@ func (s *agentSession) takePermWaiter(id string) *permWaiter {
 
 // cancelPendingPermissions 把所有挂起的审批答成取消应答。协议硬要求:
 // session/cancel 之后,client 必须对每个未决的 session/request_permission
-// 回「已取消」outcome。
+// 回「已取消」outcome。同时给每个挂起的审批在当轮事件流上补一条
+// ToolPermissionResolved{Allowed:false},让审批卡随中断收起;emitTo 只发给
+// 仍存活的出口,Abort 发生在轮次终态事件之前,所以先于终态到达。
 func (s *agentSession) cancelPendingPermissions() {
 	s.mu.Lock()
+	ids := make([]string, 0, len(s.permWaiters))
 	waiters := make([]*permWaiter, 0, len(s.permWaiters))
-	for _, w := range s.permWaiters {
+	for id, w := range s.permWaiters {
+		ids = append(ids, id)
 		waiters = append(waiters, w)
 	}
 	s.permWaiters = nil
 	s.mu.Unlock()
-	for _, w := range waiters {
+	for i, w := range waiters {
 		select {
 		case w.reply <- permDecision{canceled: true}:
 		default:
 		}
+		s.emitTo(w.out, agentruntime.ToolPermissionResolved{RequestID: ids[i], Allowed: false})
 	}
 	if s.pool != nil && s.poolKey != "" && len(waiters) > 0 {
 		s.pool.MarkActive(s.poolKey)

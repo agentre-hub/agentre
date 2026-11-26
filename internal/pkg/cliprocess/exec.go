@@ -20,6 +20,8 @@ type Options struct {
 	Args   []string
 	Cwd    string
 	Env    []string
+	// UnsetEnv 是要从继承来的进程环境里删掉的键(只删父进程那份,Env 里同名的照写)。
+	UnsetEnv []string
 }
 
 type Handle interface {
@@ -73,7 +75,7 @@ func Start(ctx context.Context, opts Options, binaryNotFound error) (Handle, err
 	default:
 	}
 	extraEnv := envListToMap(opts.Env)
-	searchEnv := clienv.BuildEnv(extraEnv, opts.Binary)
+	searchEnv := clienv.BuildEnvWithout(extraEnv, opts.UnsetEnv, opts.Binary)
 	binary, ok := clienv.ResolveBinaryForEnv(opts.Binary, searchEnv)
 	if !ok {
 		return nil, binaryNotFound
@@ -90,7 +92,7 @@ func Start(ctx context.Context, opts Options, binaryNotFound error) (Handle, err
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}
-	cmd.Env = clienv.BuildEnv(extraEnv, binary)
+	cmd.Env = clienv.BuildEnvWithout(extraEnv, opts.UnsetEnv, binary)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

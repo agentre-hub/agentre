@@ -102,6 +102,10 @@
         "description": "Native Claude API",
         "label": "Anthropic"
       },
+      "gemini": {
+        "description": "Native Gemini API (/v1beta). Only the Antigravity backend can use it.",
+        "label": "Gemini"
+      },
       "openai-chat": {
         "description": "GPT or any OpenAI-compatible /v1/chat/completions protocol, including vLLM, Ollama, and Azure.",
         "label": "OpenAI / Compatible (Chat)"
@@ -396,6 +400,8 @@
       "label": "Model binding",
       "cliLogin": "CLI login state",
       "cliResolution": "Effective model is determined by the CLI's own login account",
+      "chooseGeminiProvider": "Choose a Gemini provider",
+      "chooseGeminiProviderHint": "Antigravity only runs through a Gemini provider; pick one to continue",
       "modeFollow": "Follow default",
       "modeFixed": "Fixed",
       "followResolution": "Effective model: {{model}} · follows default changes from the next turn",
@@ -424,6 +430,10 @@
       "skipped": "{{count}} backend(s) already exist: {{names}}"
     },
     "backendType": {
+      "antigravity": {
+        "label": "Antigravity",
+        "shortLabel": "Antigravity"
+      },
       "builtin": {
         "badge": "Local only",
         "label": "Built-in Agent"

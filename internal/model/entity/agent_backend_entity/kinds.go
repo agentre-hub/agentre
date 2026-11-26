@@ -48,6 +48,8 @@ var backendKinds = map[BackendType]BackendKind{
 	TypeOpenClaw:   openClawKind{},
 	TypeHermes:     hermesKind{},
 	TypeACP:        acpKind{},
+
+	TypeAntigravity: antigravityKind{},
 }
 
 // KindFor 查表，找不到返 nil。Service 在 Test/Create/Update 前用它分派 Prober。
@@ -88,10 +90,14 @@ func IsReservedEnvKey(key string) bool {
 // builtinKind builtin 不接受新列，所有四项必须保持默认空值。
 type builtinKind struct{}
 
-func (builtinKind) KnownAliases() []string                                    { return nil }
-func (builtinKind) ProviderTypeMatch(t llm_provider_entity.ProviderType) bool { return true }
-func (builtinKind) RequiresProviderModel() bool                               { return false }
-func (builtinKind) AllowsCLIPath() bool                                       { return false }
+func (builtinKind) KnownAliases() []string { return nil }
+
+// ProviderTypeMatch builtin 走 cago 内置的三种对话协议；gemini 只归 antigravity。
+func (builtinKind) ProviderTypeMatch(t llm_provider_entity.ProviderType) bool {
+	return t != llm_provider_entity.TypeGemini
+}
+func (builtinKind) RequiresProviderModel() bool { return false }
+func (builtinKind) AllowsCLIPath() bool         { return false }
 
 func (builtinKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 	if strings.TrimSpace(b.LLMProviderKey) == "" {
@@ -288,6 +294,49 @@ func (acpKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
 	}
 	// ACP 没有 tier 路由 / sandbox / approval / 权限模式 / 默认模型这些通道，
 	// 相关字段一律拒绝，避免「配了但静默不生效」。
+	if !isEmptyJSONObject(b.ModelRoutes) {
+		return i18n.NewError(ctx, code.AgentBackendUnknownAlias)
+	}
+	if strings.TrimSpace(b.Sandbox) != "" ||
+		strings.TrimSpace(b.Approval) != "" ||
+		strings.TrimSpace(b.DefaultPermissionMode) != "" ||
+		strings.TrimSpace(b.DefaultModel) != "" {
+		return i18n.NewError(ctx, code.InvalidParameter)
+	}
+	return nil
+}
+
+// antigravityReservedEnvKeys 是 Agentre 为 agy 写入网关凭证的两个键，只对 antigravity
+// 保留；通用 acp 后端（如 `gemini --acp`）仍可在 env_json 里自行填写它们。
+var antigravityReservedEnvKeys = []string{"GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL"}
+
+// antigravityKind 走本机 agy 的 ACP 模式，匹配 gemini 供应商并经网关取 LLM。
+// 模型来自绑定的供应商（RequiresProviderModel）；ACP 没有 tier 路由 / sandbox /
+// approval / 权限模式 / 默认模型这些通道，相关字段与 acpKind 一样一律拒绝。
+// 可执行文件默认按 agy 在 PATH 上查找，cli_path 可按设备覆盖；启动参数固定为 acp，
+// 因此不接受 ACPCommand / ACPArgs（Check 对非 acp 类型已统一拒绝）。
+type antigravityKind struct{}
+
+func (antigravityKind) KnownAliases() []string { return nil }
+func (antigravityKind) ProviderTypeMatch(t llm_provider_entity.ProviderType) bool {
+	return t == llm_provider_entity.TypeGemini
+}
+func (antigravityKind) RequiresProviderModel() bool { return true }
+func (antigravityKind) AllowsCLIPath() bool         { return true }
+
+func (antigravityKind) ValidateExtra(ctx context.Context, b *AgentBackend) error {
+	if strings.TrimSpace(b.LLMProviderKey) == "" {
+		return i18n.NewError(ctx, code.AgentBackendLLMProviderRequired)
+	}
+	envMap, err := ParseEnvJSON(b.EnvJSON)
+	if err != nil {
+		return i18n.NewError(ctx, code.AgentBackendInvalidEnvJSON)
+	}
+	for _, k := range antigravityReservedEnvKeys {
+		if _, ok := envMap[k]; ok {
+			return i18n.NewError(ctx, code.AgentBackendReservedEnvKey)
+		}
+	}
 	if !isEmptyJSONObject(b.ModelRoutes) {
 		return i18n.NewError(ctx, code.AgentBackendUnknownAlias)
 	}

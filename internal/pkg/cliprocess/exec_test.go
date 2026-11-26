@@ -197,3 +197,32 @@ func (trackFakeOS) Inspect(context.Context, int) (procscan.Proc, bool, error) {
 	return procscan.Proc{}, false, nil
 }
 func (trackFakeOS) Terminate(int, bool) error { return nil }
+
+// 契约:UnsetEnv 里的键从继承来的环境里删掉,子进程看不到父进程那份;Env 里同名的键
+// 照样写进去(antigravity 先清掉继承的 Google 凭证,再写会话网关 token)。
+func TestStart_GivenUnsetEnv_WhenStartingProcess_ThenChildSeesNoInheritedCopy(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell printenv fixture is a Unix behavior")
+	}
+
+	binDir := t.TempDir()
+	printer := filepath.Join(binDir, "agentre-test-printenv")
+	require.NoError(t, os.WriteFile(printer, []byte("#!/bin/sh\nprintf 'drop=%s rewrite=%s keep=%s\\n' \"${AGENTRE_CLIPROCESS_DROP-unset}\" \"${AGENTRE_CLIPROCESS_REWRITE-unset}\" \"${AGENTRE_CLIPROCESS_KEEP-unset}\"\n"), 0o755))
+	t.Setenv("AGENTRE_CLIPROCESS_DROP", "inherited")
+	t.Setenv("AGENTRE_CLIPROCESS_REWRITE", "inherited")
+	t.Setenv("AGENTRE_CLIPROCESS_KEEP", "inherited")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	h, err := Start(ctx, Options{
+		Binary:   printer,
+		Env:      []string{"AGENTRE_CLIPROCESS_REWRITE=from-env"},
+		UnsetEnv: []string{"AGENTRE_CLIPROCESS_DROP", "AGENTRE_CLIPROCESS_REWRITE"},
+	}, errors.New("missing"))
+	require.NoError(t, err)
+
+	out, readErr := io.ReadAll(h.Stdout())
+	require.NoError(t, readErr)
+	assert.Equal(t, "drop=unset rewrite=from-env keep=inherited\n", string(out))
+	assert.NoError(t, h.Wait())
+}

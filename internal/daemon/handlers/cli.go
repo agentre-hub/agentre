@@ -98,7 +98,8 @@ func (h *CLIHandlers) Probe(ctx context.Context, p CLIProbeParams) (CLIProbeResu
 	// 先做 backend type 合法性判断，免去后续 provider / gateway 调用都白跑。
 	bt := strings.TrimSpace(p.BackendType)
 	switch bt {
-	case string(agent_backend_entity.TypeClaudeCode), string(agent_backend_entity.TypeCodex), string(agent_backend_entity.TypePiAgent):
+	case string(agent_backend_entity.TypeClaudeCode), string(agent_backend_entity.TypeCodex), string(agent_backend_entity.TypePiAgent),
+		string(agent_backend_entity.TypeAntigravity):
 		// ok
 	default:
 		return CLIProbeResult{}, fmt.Errorf("invalid backend type: %q", p.BackendType)
@@ -115,7 +116,8 @@ func (h *CLIHandlers) Probe(ctx context.Context, p CLIProbeParams) (CLIProbeResu
 	}
 
 	deps := agentruntime.CLIDeps{}
-	if p.LLMProviderKey != "" {
+	// antigravity 只探 `agy --version`（不登录、不联网），不需要 provider / gateway / env。
+	if p.LLMProviderKey != "" && bt != string(agent_backend_entity.TypeAntigravity) {
 		prov, err := h.providers.FindByKey(ctx, p.LLMProviderKey)
 		if err != nil {
 			return CLIProbeResult{}, fmt.Errorf("provider lookup: %w", err)

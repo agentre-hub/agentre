@@ -827,7 +827,7 @@ func (s *llmProviderSvc) sendTestMessage(ctx context.Context, p *llm_provider_en
 		return errors.New("请先选择默认模型")
 	}
 	switch llm_provider_entity.ProviderType(p.Type) {
-	case llm_provider_entity.TypeAnthropic, llm_provider_entity.TypeOpenAIChat, llm_provider_entity.TypeOpenAIResponse:
+	case llm_provider_entity.TypeAnthropic, llm_provider_entity.TypeOpenAIChat, llm_provider_entity.TypeOpenAIResponse, llm_provider_entity.TypeGemini:
 	default:
 		return i18n.NewError(ctx, code.LLMProviderInvalidType)
 	}
@@ -904,6 +904,8 @@ func enrichModel(id string, p *llm_provider_entity.LLMProvider) *ModelInfo {
 		out.Vendor = string(models.VendorAnthropic)
 	case llm_provider_entity.TypeOpenAIChat, llm_provider_entity.TypeOpenAIResponse:
 		out.Vendor = string(models.VendorOpenAI)
+	case llm_provider_entity.TypeGemini:
+		out.Vendor = string(models.VendorGoogle)
 	}
 	return out
 }

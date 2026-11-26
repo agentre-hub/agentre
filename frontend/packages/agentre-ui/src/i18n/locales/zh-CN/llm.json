@@ -102,6 +102,10 @@
         "description": "Claude 系列原生 API",
         "label": "Anthropic"
       },
+      "gemini": {
+        "description": "Gemini 原生 API（/v1beta），只有 Antigravity 后端能使用",
+        "label": "Gemini"
+      },
       "openai-chat": {
         "description": "GPT / 任何走 /v1/chat/completions 的 OpenAI 兼容协议（vLLM、Ollama、Azure 等）",
         "label": "OpenAI / 兼容端（Chat）"
@@ -396,6 +400,8 @@
       "label": "模型绑定",
       "cliLogin": "CLI 自身登录态",
       "cliResolution": "生效模型由该 CLI 自身的登录账号决定",
+      "chooseGeminiProvider": "选择 Gemini 供应商",
+      "chooseGeminiProviderHint": "Antigravity 只能经 Gemini 供应商运行，请先选择一个",
       "modeFollow": "跟随默认",
       "modeFixed": "固定",
       "followResolution": "生效模型：{{model}} · 默认变化会从下一轮起跟随",
@@ -424,6 +430,10 @@
       "skipped": "{{count}} 个后端已存在: {{names}}"
     },
     "backendType": {
+      "antigravity": {
+        "label": "Antigravity",
+        "shortLabel": "Antigravity"
+      },
       "builtin": {
         "badge": "仅本机",
         "label": "内置 Agent"

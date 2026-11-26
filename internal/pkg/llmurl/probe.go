@@ -61,6 +61,10 @@ func (c *Client) Test(ctx context.Context, provider Provider, modelID string) er
 		return c.testOpenAIChat(ctx, provider, modelID)
 	case "openai-response":
 		return c.testOpenAIResponse(ctx, provider, modelID)
+	case "gemini":
+		// Gemini 没有统一的最小生成请求；连通性 = 列模型端点可达且 key 有效。
+		_, err := c.Discover(ctx, provider)
+		return err
 	default:
 		return errors.New("unsupported provider type")
 	}
@@ -74,6 +78,8 @@ func (c *Client) Discover(ctx context.Context, provider Provider) ([]Model, erro
 		endpointPath = "/v1/models"
 	case "openai-chat", "openai-response":
 		endpointPath = "/models"
+	case "gemini":
+		endpointPath = "/v1beta/models"
 	default:
 		return nil, errors.New("unsupported provider type")
 	}
@@ -86,6 +92,9 @@ func (c *Client) Discover(ctx context.Context, provider Provider) ([]Model, erro
 		return nil, errors.New("create upstream request")
 	}
 	setAuth(req, provider)
+	if provider.Type == "gemini" {
+		return c.discoverGemini(req)
+	}
 	var response struct {
 		Data []struct {
 			ID   string `json:"id"`
@@ -105,6 +114,34 @@ func (c *Client) Discover(ctx context.Context, provider Provider) ([]Model, erro
 			name = item.ID
 		}
 		models = append(models, Model{ModelID: item.ID, Name: name})
+	}
+	return models, nil
+}
+
+// discoverGemini 解析 Gemini 原生 models 列表。官方端点的 name 带 "models/" 前缀，
+// 网关可能不带（如 antigravity/gemini-3.8-flash），只剥掉开头的 "models/"。
+// 只取第一页：配套网关不分页，官方端点第一页已覆盖常用模型。
+func (c *Client) discoverGemini(req *http.Request) ([]Model, error) {
+	var response struct {
+		Models []struct {
+			Name        string `json:"name"`
+			DisplayName string `json:"displayName"`
+		} `json:"models"`
+	}
+	if err := c.doJSON(req, &response); err != nil {
+		return nil, err
+	}
+	models := make([]Model, 0, len(response.Models))
+	for _, item := range response.Models {
+		id := strings.TrimPrefix(item.Name, "models/")
+		if id == "" {
+			continue
+		}
+		name := item.DisplayName
+		if name == "" {
+			name = id
+		}
+		models = append(models, Model{ModelID: id, Name: name})
 	}
 	return models, nil
 }
@@ -180,6 +217,10 @@ func setAuth(req *http.Request, provider Provider) {
 	if provider.Type == "anthropic" {
 		req.Header.Set("x-api-key", provider.APIKey)
 		req.Header.Set("anthropic-version", anthropicVersion)
+		return
+	}
+	if provider.Type == "gemini" {
+		req.Header.Set("x-goog-api-key", provider.APIKey)
 		return
 	}
 	if provider.APIKey != "" {
