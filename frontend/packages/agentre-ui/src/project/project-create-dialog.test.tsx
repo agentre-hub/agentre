@@ -563,6 +563,45 @@ describe("宿主能力：在别的机器上配路径", () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("new-1"));
   });
 
+  it("建项目超时、「刷新看看」认出它：挑过的路径照样写到那个项目上", async () => {
+    const m = machinesPort();
+    const onCreated = vi.fn();
+    const timeout = new Error("request timed out after 15000ms");
+    timeout.name = "ApiTimeoutError";
+    render(
+      <ProjectCreateDialog
+        open
+        onOpenChange={() => {}}
+        parentOptions={[]}
+        ports={{
+          create: vi.fn(async () => {
+            throw timeout;
+          }),
+          machines: m,
+        }}
+        onCreated={onCreated}
+        onTimeoutRecheck={vi.fn(async () => "found-9")}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("project-create-name"), {
+      target: { value: "Atlas" },
+    });
+    await pick();
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    );
+
+    await waitFor(() =>
+      expect(m.setPath).toHaveBeenCalledWith(
+        "found-9",
+        expect.objectContaining({ id: "fp-1" }),
+        "/srv",
+      ),
+    );
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("found-9"));
+  });
+
   it("路径进不了建项目那次请求 —— draft 里没有它", async () => {
     const { ports: p } = open({ ports: { machines: machinesPort() } });
     fireEvent.change(screen.getByTestId("project-create-name"), {
@@ -801,6 +840,41 @@ describe("F5 创建超时：刷新看看", () => {
     expect(screen.getByTestId("project-create-submit")).toBeEnabled();
     fireEvent.click(screen.getByTestId("project-create-submit"));
     await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+  });
+
+  it("刷新本身失败：仍不知道建没建——超时那一行与「刷新看看」留着、说一句没刷新成，不放开再提交", async () => {
+    const recheck = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    const { onCreated, create } = openTimeout(recheck);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    );
+    expect(
+      await screen.findByText("Couldn't refresh. Try again in a moment."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Not found yet. You can submit again."),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Refresh to check" }),
+    ).toBeEnabled();
+    // 直接再点「创建」也只是再核实一次，不发第二个新建。
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    await waitFor(() => expect(recheck).toHaveBeenCalledTimes(2));
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("超时后没刷新就直接再点「创建」：先核实，找到了当作建成，不发第二个新建", async () => {
+    const recheck = vi.fn(async () => "found-9");
+    const { onCreated, create } = openTimeout(recheck);
+    await screen.findByRole("button", { name: "Refresh to check" });
+
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("found-9"));
+    expect(create).toHaveBeenCalledTimes(1);
   });
 
   it("不传 onTimeoutRecheck：超时和从前一样显示原文", async () => {

@@ -86,6 +86,7 @@
       "submit": "Create",
       "failed": "Could not create the project.",
       "timeoutNotFound": "Not found yet. You can submit again.",
+      "timeoutRefreshFailed": "Couldn't refresh. Try again in a moment.",
       "pathNote": "You can create it without a path. Until this project has a path on at least one machine, no conversation can be started in it.",
       "pathNoteRemote": "Set a path in project settings after creating it. Until then, no conversation can be started in this project.",
       "machine": "Machine and path",

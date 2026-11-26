@@ -46,7 +46,7 @@ import {
   useDecisionCardEnv,
   useHasDecisionCardEnv,
 } from "../tool-permission/decision-card-env";
-import { isTimeoutFailure } from "../tool-permission/use-tool-permission-decision";
+import { isTimeoutFailure } from "../../../lib/timeout-failure";
 import { useSubmitAnswer } from "./use-submit-answer";
 
 // 触屏命中区 ≥ 44px。
@@ -133,6 +133,9 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
   // 正在提交的是「跳过」还是「提交」;上一次的动作给「重试」重放。
   const [pendingSkip, setPendingSkip] = React.useState<boolean | null>(null);
   const lastSkipRef = React.useRef(false);
+  // 上一次提交是超时（回答可能已经生效）：重试时对端若说「已不在等」，那多半就是
+  // 上一次的回答落了地，不能说成「提问已失效」。
+  const timedOutRef = React.useRef(false);
   // 提交时运行时答复「提问已不存在」——只有这种失败锁卡。
   const [expiredOnSubmit, setExpiredOnSubmit] = React.useState(false);
   const [error, setError] = React.useState<CardError | null>(null);
@@ -243,15 +246,23 @@ export const UserAskCard: React.FC<UserAskCardProps> = ({
           answers: skipped ? undefined : answers,
           skipped,
         });
+        timedOutRef.current = false;
         draftClearedRef.current = true;
         clearTranscriptDraftState(tabStateKey, draftKey);
         setCollapsed(true);
       } catch (err) {
-        if (isAskExpiredError(err)) {
+        if (isAskExpiredError(err) && timedOutRef.current) {
+          timedOutRef.current = false;
+          setError(null);
+          draftClearedRef.current = true;
+          clearTranscriptDraftState(tabStateKey, draftKey);
+          setCollapsed(true);
+        } else if (isAskExpiredError(err)) {
           setExpiredOnSubmit(true);
           setError({ message: t("canonical.userAsk.errors.expired") });
         } else if (managed && isTimeoutFailure(err)) {
           // 超时:没收到确认,回答可能已经生效——不说「没成功」。
+          timedOutRef.current = true;
           setError({
             message: t("canonical.userAsk.errors.timedOut"),
             retryable: true,

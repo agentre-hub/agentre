@@ -220,6 +220,48 @@ describe("F5 新建标签超时：刷新看看", () => {
     expect(screen.getByTestId("label-create")).toBeEnabled();
   });
 
+  it("刷新本身失败：仍是「不知道建没建」——超时那一行与「刷新看看」留着、说一句没刷新成，不放开再提交", async () => {
+    const recheck = vi.fn().mockRejectedValue(new Error("offline"));
+    const user = await createWith({ onCreateTimeoutRecheck: recheck });
+    await user.click(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    );
+    const alert = await screen.findByTestId("label-manager-error");
+    await waitFor(() =>
+      expect(alert).toHaveTextContent(
+        "Couldn't refresh. Try again in a moment.",
+      ),
+    );
+    expect(alert.textContent).not.toMatch(/submit again/);
+    expect(
+      within(alert).getByRole("button", { name: "Refresh to check" }),
+    ).toBeEnabled();
+  });
+
+  it("超时后没刷新就直接再点新建：先核实，不发第二次新建", async () => {
+    const recheck = vi.fn().mockResolvedValue(true);
+    const onLabelMutate = vi.fn().mockRejectedValue(timeoutErr());
+    const user = userEvent.setup();
+    render(
+      <LabelManagerPanel
+        labels={LABELS}
+        onLabelMutate={onLabelMutate}
+        onCreateTimeoutRecheck={recheck}
+      />,
+    );
+    await user.type(screen.getByTestId("label-new-name"), "perf");
+    await user.click(screen.getByTestId("label-create"));
+    await screen.findByRole("button", { name: "Refresh to check" });
+
+    await user.click(screen.getByTestId("label-create"));
+
+    await waitFor(() => expect(recheck).toHaveBeenCalledWith("perf"));
+    expect(onLabelMutate).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(screen.getByTestId("label-new-name")).toHaveValue(""),
+    );
+  });
+
   it("不传：超时和从前一样显示原文", async () => {
     await createWith({});
     expect(await screen.findByTestId("label-manager-error")).toHaveTextContent(

@@ -5,6 +5,7 @@ import { useUiTranslation } from "../../../i18n";
 import { failureDetailText } from "../../failure-detail";
 import { useMarkToolPermissionResolved } from "../../live-state";
 import { useTranscriptPorts } from "../../ports-context";
+import { isTimeoutFailure } from "../../../lib/timeout-failure";
 
 import type { CanonicalDTO, ToolPermissionDTO } from "../types";
 
@@ -20,12 +21,6 @@ export function readToolPermission(
 export function isPendingToolPermission(toolBlock: unknown): boolean {
   const payload = readToolPermission(toolBlock);
   return !!payload?.requestId && !payload.resolved;
-}
-
-// 失败是不是请求超时:超时说明没收到确认,决定可能已经生效,文案要和「没成功」区分。
-export function isTimeoutFailure(err: unknown): boolean {
-  if (err instanceof Error && /timeout/i.test(err.name)) return true;
-  return /timed?[ -]?out/i.test(failureDetailText(err));
 }
 
 type Decision = { allow: boolean; alwaysAllowSession: boolean };

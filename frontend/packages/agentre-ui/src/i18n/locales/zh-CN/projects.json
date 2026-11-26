@@ -86,6 +86,7 @@
       "submit": "创建",
       "failed": "项目没建成。",
       "timeoutNotFound": "还没找到，可以再提交一次",
+      "timeoutRefreshFailed": "刷新没成功，请稍后再试。",
       "pathNote": "不填也能建。在任意一台机器上配好路径之前，这个项目里开不出对话。",
       "pathNoteRemote": "建好后到项目设置里配路径。配好之前，这个项目里开不出对话。",
       "machine": "机器与路径",

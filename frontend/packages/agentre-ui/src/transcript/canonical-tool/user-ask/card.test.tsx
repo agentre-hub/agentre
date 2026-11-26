@@ -1005,6 +1005,23 @@ describe("UserAskCard feedback when the host opts in (F1)", () => {
     expect(screen.getByTestId("user-ask-connecting")).toBeDefined();
   });
 
+  it("Given the answer timed out, When Retry is told the question no longer waits, Then the card does not claim it expired: the first answer landed", async () => {
+    answerUserQuestion.mockRejectedValueOnce(timeout());
+    answerUserQuestion.mockRejectedValueOnce(
+      "agentruntime: no waiting request for requestID",
+    );
+    renderCard(
+      <UserAskCard toolBlock={block()} sessionId={1} connecting={false} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(answerUserQuestion).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByText(/superseded/i)).toBeNull();
+    expect(screen.queryByRole("img", { name: "No longer valid" })).toBeNull();
+  });
+
   it("Given no props and no provider, When the answer times out, Then the desktop copy is unchanged and there is no Retry", async () => {
     answerUserQuestion.mockRejectedValueOnce(timeout());
     renderCard(<UserAskCard toolBlock={block()} sessionId={1} />);

@@ -36,6 +36,8 @@ export interface UseLabelManagerResult {
   createTimedOut: boolean;
   /** 「刷新看看」没找到：面板说一句，允许再提交。 */
   createNotFound: boolean;
+  /** 「刷新看看」那次复查本身失败：仍不知道建没建，超时那一行留着并说没刷新成。 */
+  createRecheckFailed: boolean;
   recheckCreate: () => void;
 }
 
@@ -67,16 +69,59 @@ export function useLabelManager(
   // 超时的那次新建的名字：复查要拿它去找。
   const [timedOutName, setTimedOutName] = React.useState<string | null>(null);
   const [notFound, setNotFound] = React.useState(false);
+  const [recheckFailed, setRecheckFailed] = React.useState(false);
+
+  /*
+    复查本身失败（宿主拒绝）仍是「不知道建没建」：超时那一行与「刷新看看」留着，不放开
+    再提交——放开了，那次其实建好的话再提交就是第二个同名标签。
+  */
+  const recheckCreate = React.useCallback(() => {
+    if (!onCreateTimeoutRecheck || timedOutName === null) return;
+    const name = timedOutName;
+    setBusy(true);
+    setRecheckFailed(false);
+    void Promise.resolve()
+      .then(() => onCreateTimeoutRecheck(name))
+      .then(
+        (found) => (found === true ? "found" : "notFound"),
+        () => "failed" as const,
+      )
+      .then((result) => {
+        setBusy(false);
+        if (result === "failed") {
+          setRecheckFailed(true);
+          return;
+        }
+        setTimedOutName(null);
+        if (result === "found") {
+          setFailed(false);
+          setError(null);
+          setNewName("");
+          return;
+        }
+        setNotFound(true);
+      });
+  }, [onCreateTimeoutRecheck, timedOutName]);
 
   // 写成功才收起编辑行 / 确认框、才清掉刚输入的名字：失败也一起收的话，用户看到
   // 的是「面板复位、什么都没发生」——刚敲的名字没了，也没有一句话说为什么。
   const mutate = React.useCallback(
     (mutation: LabelMutation) => {
+      // 同名的那次新建超时了还没核实：再发一次可能建出第二个。先核实，认不出才放开（F5）。
+      if (
+        mutation.kind === "create" &&
+        timedOutName !== null &&
+        mutation.name === timedOutName
+      ) {
+        recheckCreate();
+        return;
+      }
       setBusy(true);
       setFailed(false);
       setError(null);
       setTimedOutName(null);
       setNotFound(false);
+      setRecheckFailed(false);
       void Promise.resolve(onLabelMutate(mutation))
         .then((result) => {
           if (result === false) {
@@ -100,31 +145,8 @@ export function useLabelManager(
         })
         .finally(() => setBusy(false));
     },
-    [onLabelMutate, onCreateTimeoutRecheck],
+    [onLabelMutate, onCreateTimeoutRecheck, recheckCreate, timedOutName],
   );
-
-  const recheckCreate = React.useCallback(() => {
-    if (!onCreateTimeoutRecheck || timedOutName === null) return;
-    const name = timedOutName;
-    setBusy(true);
-    void Promise.resolve()
-      .then(() => onCreateTimeoutRecheck(name))
-      .then(
-        (found) => found === true,
-        () => false,
-      )
-      .then((found) => {
-        setBusy(false);
-        setTimedOutName(null);
-        if (found) {
-          setFailed(false);
-          setError(null);
-          setNewName("");
-          return;
-        }
-        setNotFound(true);
-      });
-  }, [onCreateTimeoutRecheck, timedOutName]);
 
   return {
     renaming,
@@ -152,6 +174,7 @@ export function useLabelManager(
     error,
     createTimedOut: timedOutName !== null,
     createNotFound: notFound,
+    createRecheckFailed: recheckFailed,
     recheckCreate,
   };
 }

@@ -110,6 +110,8 @@ export function ProjectCreateDialog({
   /** 上一次建项目是超时失败，且宿主给了复查入口：持有那次的草稿供「刷新看看」用。 */
   const [timedOutDraft, setTimedOutDraft] =
     React.useState<ProjectCreateDraft | null>(null);
+  /** 「刷新看看」那次读本身失败：仍不知道建没建，超时那一行留着并说没刷新成。 */
+  const [recheckFailed, setRecheckFailed] = React.useState(false);
   const [machines, setMachines] = React.useState<PickerMachine[]>([]);
   const [picked, setPicked] = React.useState<{
     machine: PickerMachine;
@@ -205,6 +207,7 @@ export function ProjectCreateDialog({
       setBusy(false);
       setError(null);
       setTimedOutDraft(null);
+      setRecheckFailed(false);
       setPicked(null);
       setPickerOpen(false);
       setCreatedId(null);
@@ -279,6 +282,11 @@ export function ProjectCreateDialog({
 
   function submit() {
     if (!canSubmit) return;
+    // 上一次超时还没核实：再发一次新建可能建出第二个。先核实，认不出才放开（F5）。
+    if (timedOutDraft && onTimeoutRecheck) {
+      recheck();
+      return;
+    }
     // 指针语义：**只送这次真的填了的键**，没填的不翻成空串送下去。
     const draft: ProjectCreateDraft = { name: trimmedName };
     if (description.trim()) draft.description = description.trim();
@@ -324,26 +332,38 @@ export function ProjectCreateDialog({
     );
   }
 
-  /** 「刷新看看」：宿主复查一次；找到就当作建成，找不到放开再提交。 */
+  /**
+   * 「刷新看看」：宿主复查一次；找到就当作建成（选了路径的接着写路径），确定没有才放开
+   * 再提交。复查本身失败（宿主拒绝）仍是「不知道建没建」：超时那一行与按钮留着，不放开
+   * 再提交——放开了，那次其实建好的话再提交就是第二个。
+   */
   function recheck() {
     if (!onTimeoutRecheck || !timedOutDraft) return;
     const draft = timedOutDraft;
     setBusy(true);
+    setRecheckFailed(false);
     void Promise.resolve()
       .then(() => onTimeoutRecheck(draft))
       .then(
-        (id) => id ?? null,
-        () => null,
+        (id) => ({ ok: true as const, id: id ?? null }),
+        () => ({ ok: false as const, id: null }),
       )
-      .then((id) => {
+      .then((result) => {
         setBusy(false);
-        if (id) {
-          setTimedOutDraft(null);
-          onCreated(id);
-          handleOpenChange(false);
+        if (!result.ok) {
+          setRecheckFailed(true);
           return;
         }
         setTimedOutDraft(null);
+        if (result.id) {
+          if (picked && machinesPort) {
+            writePath(result.id, machinesPort);
+            return;
+          }
+          onCreated(result.id);
+          handleOpenChange(false);
+          return;
+        }
         setError(t("projectSettings.create.timeoutNotFound"));
       });
   }
@@ -590,7 +610,9 @@ export function ProjectCreateDialog({
                   className="flex items-center gap-2 text-xs text-destructive-text"
                 >
                   <span className="min-w-0 flex-1">
-                    {t("board.form.timeout")}
+                    {recheckFailed
+                      ? t("projectSettings.create.timeoutRefreshFailed")
+                      : t("board.form.timeout")}
                   </span>
                   <button
                     type="button"

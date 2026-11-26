@@ -62,7 +62,11 @@ export function LabelManagerPanel({
         >
           {state.createTimedOut ? (
             <>
-              <span className="min-w-0 flex-1">{t("board.form.timeout")}</span>
+              <span className="min-w-0 flex-1">
+                {state.createRecheckFailed
+                  ? t("projectSettings.create.timeoutRefreshFailed")
+                  : t("board.form.timeout")}
+              </span>
               <button
                 type="button"
                 disabled={state.busy}
