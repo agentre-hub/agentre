@@ -3,6 +3,7 @@ package ctlcmd
 import (
 	"encoding/json"
 	"net/http"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,7 +31,11 @@ func getDetail(t *testing.T, id string, env func(string) (string, bool)) map[str
 	return out
 }
 
-func initiatorWorld(t *testing.T) *world {
+// tokenHits 数 server 上两条 token 读路被打了几次。
+type tokenHits struct{ list, self atomic.Int32 }
+
+func initiatorWorld(t *testing.T) (*world, *tokenHits) {
+	hits := &tokenHits{}
 	w := listWorld(t)
 	w.extraDevices = []map[string]any{{"id": 43, "name": "ci-runner", "kind": "cli", "fingerprint": otherCliFP, "online": false}}
 	w.box.seed(sessX, otherCliFP, otherCliFP, "idle")
@@ -38,15 +43,17 @@ func initiatorWorld(t *testing.T) *world {
 	w.box.seed(sessZ, consoleFP, consoleFP, "idle")
 	// server：登录态的 token 列表带每枚 token 的对端指纹，列表与 self 都带账号控制台的对端指纹。
 	w.srv.mux.HandleFunc("GET /v1/personal-tokens", func(rw http.ResponseWriter, r *http.Request) {
+		hits.list.Add(1)
 		writeEnvelope(rw, map[string]any{"console_peer_fingerprint": consoleFP, "tokens": []map[string]any{
 			{"name": "ci", "scopes": []string{"read"}, "peer_fingerprint": patFP},
 			{"name": "nightly", "scopes": []string{"read"}, "peer_fingerprint": otherPatFP},
 		}})
 	})
 	w.srv.mux.HandleFunc("GET /v1/personal-tokens/self", func(rw http.ResponseWriter, r *http.Request) {
+		hits.self.Add(1)
 		writeEnvelope(rw, map[string]any{"item": map[string]any{"name": "ci", "scopes": []string{"read"}}, "peer_fingerprint": patFP, "console_peer_fingerprint": consoleFP})
 	})
-	return w
+	return w, hits
 }
 
 func TestAccountGetSession_InitiatorOfTheCallersOwnSessionIsThisAgrctl(t *testing.T) {
@@ -97,4 +104,16 @@ func TestAccountGetSession_InitiatorNobodyCanNameIsOmitted(t *testing.T) {
 	out := getDetail(t, sessB, envMap()) // deskFP 不在设备名单里，也不是 token
 	assert.NotContains(t, out, "initiator")
 	assert.NotContains(t, out, "initiatorKind")
+}
+
+// Given 一次 get session 要认出发起方（调用方自己、控制台、token 名都从 server 的 token 读路来）
+// When 认 Then 每条读路最多打一次 —— 同一个进程里同一份答案不再反复去问。
+func TestAccountGetSession_InitiatorReadsEachTokenSourceOnce(t *testing.T) {
+	_, hits := initiatorWorld(t)
+	getDetail(t, sessY, envMap("AGENTRE_TOKEN", personalToken))
+	assert.EqualValues(t, 1, hits.self.Load(), "the personal token's /self is read once")
+
+	hits.list.Store(0)
+	getDetail(t, sessY, envMap())
+	assert.EqualValues(t, 1, hits.list.Load(), "the login's token list is read once")
 }

@@ -103,3 +103,35 @@ func TestRuntime_Fanout_GivenAnAbortThatInterruptedNothing_WhenTheTurnFails_Then
 
 	assert.Contains(t, steps[len(steps)-1], "fail:")
 }
+
+// Given 一次 runtime.abort 已经把中断下发到这一轮(backend 回 TurnKindUser), When 另一个调用方
+// (控制台 / 另一台 agrctl)随后再发一次、却被 backend 判成没有可停的一轮(过期的轮 token),
+// Then 这一轮的软中断收尾仍按用户停止落 idle —— 没打断任何东西的那一次只撤回它自己,
+// 不能把已经下发的那一次一并撤掉。
+func TestRuntime_Fanout_GivenADeliveredAbort_WhenALaterAbortInterruptsNothing_ThenTheTurnStillSettlesIdle(t *testing.T) {
+	turns := newScriptedTurns(1)
+	turns.turns[0].result.StopErr = errors.New("[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null")
+	rt := &fullRT{runFn: turns.run, abortOutcome: agentruntime.AbortOutcome{TurnKind: agentruntime.TurnKindUser}}
+	ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
+	cid := convID(74)
+	runWithRT(t, h, ctx, cid)
+
+	_, err := h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: cid})
+	require.NoError(t, err)
+	rt.mu.Lock()
+	rt.abortOutcome = agentruntime.AbortOutcome{TurnKind: agentruntime.TurnKindNone}
+	rt.mu.Unlock()
+	_, err = h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: cid, TurnToken: 99})
+	require.NoError(t, err)
+	close(turns.turns[0].events)
+	notif.waitFramesUntil(t, func(frames []notifyFrame) bool {
+		return frameIndex(frames, isMethod(wire.NotifyRunResultDone)) >= 0
+	}, func() string { return "the turn to end" })
+	steps := sess.waitSteps(t, 2)
+
+	assert.Contains(t, steps[len(steps)-1], "finish:")
+	frames := notif.snapshot()
+	frame, ok := frames[frameIndex(frames, isMethod(wire.NotifyRunResultDone))].params.(*wire.RunResultDoneFrame)
+	require.True(t, ok)
+	assert.Equal(t, turnstate.AbortedCode, frame.StopErrCode)
+}

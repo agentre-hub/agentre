@@ -173,12 +173,15 @@ type runtimeSession struct {
 	terminalClaimed   bool
 	finalizing        bool
 	aborting          bool
-	// abortRequested 记「这一轮被 runtime.abort 要求停止」(非 Pi 后端;Pi 走 cancelRequested),
-	// 在下发中断之前就记下;中断没下发下去、或 backend 说没有可停的一轮时撤回。
-	// backend 的软中断收尾未必带 stop sentinel(Claude CLI 回一条码 0 的诊断),fanout 据它把
-	// 这一轮认作用户停止而不是故障 —— 与桌面端 chat_svc 的 aborted 标记同一句话。随属主走:
-	// 下一轮是另一个属主,不继承。受 h.mu 保护。
-	abortRequested bool
+	// abortsInFlight / abortDelivered 记「这一轮被 runtime.abort 要求停止」(非 Pi 后端;Pi 走
+	// cancelRequested):每次 abort 在下发中断之前把 abortsInFlight 加一,回执回来再减一;
+	// 中断真下发到了这一轮(backend 没报错、也不是 TurnKindNone)就置 abortDelivered,之后
+	// 不再撤回。没打断任何东西的那一次只撤回它自己 —— 并发 / 先后到达的另一次已下发的
+	// 中断不受影响。backend 的软中断收尾未必带 stop sentinel(Claude CLI 回一条码 0 的诊断),
+	// fanout 据它们把这一轮认作用户停止而不是故障 —— 与桌面端 chat_svc 的 aborted 标记同一
+	// 句话。随属主走:下一轮是另一个属主,不继承。受 h.mu 保护。
+	abortsInFlight int
+	abortDelivered bool
 	terminalDone   chan struct{}
 	terminalOnce   sync.Once
 	finalErr       error
@@ -888,7 +891,7 @@ func (h *RuntimeHandlers) settleSession(em *sessionEmitter, frame wire.RunResult
 // 没有 abort 请求的错误原样保留,仍是故障。
 func (h *RuntimeHandlers) markAbortedStop(owner *runtimeSession, frame *wire.RunResultDoneFrame) {
 	h.mu.RLock()
-	aborted := owner.abortRequested
+	aborted := owner.abortDelivered || owner.abortsInFlight > 0
 	h.mu.RUnlock()
 	if aborted && frame.StopErrMsg != "" {
 		frame.StopErrCode = turnstate.AbortedCode
@@ -1670,16 +1673,17 @@ func (h *RuntimeHandlers) Abort(ctx context.Context, req *agentrewire.RuntimeAbo
 	}
 	// 「这一轮被要求停止」在下发中断**之前**记下(与桌面端 takeActiveTurn 先记 aborted 同序):
 	// backend 的收尾帧与中断回执没有先后保证,等回执回来再补就会把抢先到的收尾记成故障。
-	owner.abortRequested = true
+	owner.abortsInFlight++
 	h.mu.Unlock()
 	outcome, err := h.abortNonPi(ctx, req)
-	if err != nil || outcome.TurnKind == agentruntime.TurnKindNone {
-		// 中断没下发下去,或 backend 说没有可停的一轮(过期的轮 token):撤回标记,
-		// 这一轮之后的真故障照旧是故障。
-		h.mu.Lock()
-		owner.abortRequested = false
-		h.mu.Unlock()
+	// 中断没下发下去,或 backend 说没有可停的一轮(过期的轮 token):这一次只撤回它自己,
+	// 这一轮之后的真故障照旧是故障 —— 除非另一次 abort 已经把中断下发到了这一轮。
+	h.mu.Lock()
+	owner.abortsInFlight--
+	if err == nil && outcome.TurnKind != agentruntime.TurnKindNone {
+		owner.abortDelivered = true
 	}
+	h.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}

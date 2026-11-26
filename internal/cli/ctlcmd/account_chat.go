@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
@@ -25,6 +26,7 @@ var accountPollInterval = time.Second
 
 // newAccountChat 为一次调用造账号执行者：一个 Ctl* 目录（名字解析）、一条 relay 链路。
 func newAccountChat(s *sys, x *executor, args []string) *ctlaccount.Client {
+	tokens := &tokenDirectory{acct: x.acct}
 	rejected := ctlclient.ErrLoginExpired
 	if x.acct.PersonalToken() {
 		rejected = ctlclient.ErrTokenRejected
@@ -39,34 +41,45 @@ func newAccountChat(s *sys, x *executor, args []string) *ctlaccount.Client {
 		DeviceName:         x.acct.DeviceName(),
 		CredentialRejected: rejected,
 		Warn:               func(msg string) { _, _ = fmt.Fprintf(s.stderr, "warning: %s\n", msg) },
-		SelfFingerprint:    func(ctx context.Context) (string, error) { return selfFingerprint(ctx, x.acct) },
-		TokenName:          func(ctx context.Context, peer string) (string, error) { return tokenNameOf(ctx, x.acct, peer) },
-		ConsolePeer:        func(ctx context.Context) (string, error) { return consolePeer(ctx, x.acct) },
+		SelfFingerprint:    tokens.selfFingerprint,
+		TokenName:          tokens.tokenNameOf,
+		ConsolePeer:        tokens.consolePeer,
 		PollInterval:       accountPollInterval,
 		ReconnectDelay:     reconnectDelay,
 	})
 }
 
+// tokenDirectory 是账号模式认发起方要用的 token 读路（个人 token 的 /self、登录态的 token
+// 列表）。一次 agrctl 调用里答案不变，成功读到的那份就留着：get session 认一次发起方要问
+// 「我是谁」「控制台是谁」「这个 token 叫什么」，三问共用一次读取。读失败不留，下一问再试。
+type tokenDirectory struct {
+	acct *ctlclient.Account
+
+	mu   sync.Mutex
+	self *selfTokenInfo
+	list *tokenListInfo
+}
+
 // selfFingerprint 是调用方发起的会话记在谁名下：登录态是这台 cli 设备的指纹，个人 token 问
 // server 自己的指纹。
-func selfFingerprint(ctx context.Context, acct *ctlclient.Account) (string, error) {
-	if !acct.PersonalToken() {
-		return acct.Fingerprint(), nil
+func (d *tokenDirectory) selfFingerprint(ctx context.Context) (string, error) {
+	if !d.acct.PersonalToken() {
+		return d.acct.Fingerprint(), nil
 	}
-	self, err := selfToken(ctx, acct)
+	self, err := d.selfToken(ctx)
 	return self.PeerFingerprint, err
 }
 
 // tokenNameOf 是对端指纹 peer 属于哪枚个人 token：登录态读账号的 token 列表，个人 token 只看得到自己。
-func tokenNameOf(ctx context.Context, acct *ctlclient.Account, peer string) (string, error) {
-	if acct.PersonalToken() {
-		self, err := selfToken(ctx, acct)
+func (d *tokenDirectory) tokenNameOf(ctx context.Context, peer string) (string, error) {
+	if d.acct.PersonalToken() {
+		self, err := d.selfToken(ctx)
 		if err != nil || self.PeerFingerprint != peer {
 			return "", err
 		}
 		return self.Item.Name, nil
 	}
-	list, err := tokenList(ctx, acct)
+	list, err := d.tokenList(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -79,12 +92,12 @@ func tokenNameOf(ctx context.Context, acct *ctlclient.Account, peer string) (str
 }
 
 // consolePeer 是本账号控制台的对端指纹（server 按账号派生；token 列表与 self 都带）。
-func consolePeer(ctx context.Context, acct *ctlclient.Account) (string, error) {
-	if acct.PersonalToken() {
-		self, err := selfToken(ctx, acct)
+func (d *tokenDirectory) consolePeer(ctx context.Context) (string, error) {
+	if d.acct.PersonalToken() {
+		self, err := d.selfToken(ctx)
 		return self.ConsolePeerFingerprint, err
 	}
-	list, err := tokenList(ctx, acct)
+	list, err := d.tokenList(ctx)
 	return list.ConsolePeerFingerprint, err
 }
 
@@ -96,15 +109,21 @@ type tokenListInfo struct {
 	ConsolePeerFingerprint string `json:"console_peer_fingerprint"`
 }
 
-func tokenList(ctx context.Context, acct *ctlclient.Account) (tokenListInfo, error) {
+func (d *tokenDirectory) tokenList(ctx context.Context) (tokenListInfo, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.list != nil {
+		return *d.list, nil
+	}
 	var out tokenListInfo
-	raw, err := acct.GetRaw(ctx, "/v1/personal-tokens")
+	raw, err := d.acct.GetRaw(ctx, "/v1/personal-tokens")
 	if err != nil {
 		return out, serverErr(err)
 	}
 	if err := cagoenvelope.Decode(raw, &out); err != nil {
 		return out, fmt.Errorf("decode the token list: %w", err)
 	}
+	d.list = &out
 	return out, nil
 }
 
@@ -116,15 +135,21 @@ type selfTokenInfo struct {
 	ConsolePeerFingerprint string `json:"console_peer_fingerprint"`
 }
 
-func selfToken(ctx context.Context, acct *ctlclient.Account) (selfTokenInfo, error) {
+func (d *tokenDirectory) selfToken(ctx context.Context) (selfTokenInfo, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.self != nil {
+		return *d.self, nil
+	}
 	var out selfTokenInfo
-	raw, err := acct.GetRaw(ctx, "/v1/personal-tokens/self")
+	raw, err := d.acct.GetRaw(ctx, "/v1/personal-tokens/self")
 	if err != nil {
 		return out, serverErr(err)
 	}
 	if err := cagoenvelope.Decode(raw, &out); err != nil {
 		return out, fmt.Errorf("decode the personal token: %w", err)
 	}
+	d.self = &out
 	return out, nil
 }
 
