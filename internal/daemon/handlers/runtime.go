@@ -173,7 +173,8 @@ type runtimeSession struct {
 	terminalClaimed   bool
 	finalizing        bool
 	aborting          bool
-	// abortRequested 记「这一轮被 runtime.abort 打断过」(非 Pi 后端;Pi 走 cancelRequested)。
+	// abortRequested 记「这一轮被 runtime.abort 要求停止」(非 Pi 后端;Pi 走 cancelRequested),
+	// 在下发中断之前就记下;中断没下发下去、或 backend 说没有可停的一轮时撤回。
 	// backend 的软中断收尾未必带 stop sentinel(Claude CLI 回一条码 0 的诊断),fanout 据它把
 	// 这一轮认作用户停止而不是故障 —— 与桌面端 chat_svc 的 aborted 标记同一句话。随属主走:
 	// 下一轮是另一个属主,不继承。受 h.mu 保护。
@@ -409,6 +410,14 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 			// 下发这两个键的旧 server 也就清不掉它。
 			if be.LLMProviderKey == "" && be.LLMModelKey == "" {
 				be.LLMProviderKey, be.LLMModelKey = account.ProviderKey, account.ModelKey
+			}
+			// 后端自己的思考力度与透传环境变量同理:空壳派发没有它们,这一轮跟随后端配置。
+			// 会话级力度(上面的 run 参数)已落在 be 上,非空就不被这里盖掉。
+			if be.ReasoningEffort == "" {
+				be.ReasoningEffort = account.ReasoningEffort
+			}
+			if be.EnvJSON == "" {
+				be.EnvJSON = account.EnvJSON
 			}
 		}
 	}
@@ -1659,23 +1668,31 @@ func (h *RuntimeHandlers) Abort(ctx context.Context, req *agentrewire.RuntimeAbo
 		cleanupErr := h.finalizePiGeneration(ctx, rid, owner)
 		return nil, errors.Join(waitErr, cleanupErr)
 	}
+	// 「这一轮被要求停止」在下发中断**之前**记下(与桌面端 takeActiveTurn 先记 aborted 同序):
+	// backend 的收尾帧与中断回执没有先后保证,等回执回来再补就会把抢先到的收尾记成故障。
+	owner.abortRequested = true
 	h.mu.Unlock()
-	a, rid, err := resolveSessionCapability[agentruntime.Aborter](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
-	if err != nil {
-		return nil, err
-	}
-	outcome, err := a.Abort(ctx, rid, req.GetTurnToken())
-	if err != nil {
-		return nil, err
-	}
-	if outcome.TurnKind != agentruntime.TurnKindNone {
+	outcome, err := h.abortNonPi(ctx, req)
+	if err != nil || outcome.TurnKind == agentruntime.TurnKindNone {
+		// 中断没下发下去,或 backend 说没有可停的一轮(过期的轮 token):撤回标记,
+		// 这一轮之后的真故障照旧是故障。
 		h.mu.Lock()
-		if cur := h.sessions[rid]; cur == owner {
-			owner.abortRequested = true
-		}
+		owner.abortRequested = false
 		h.mu.Unlock()
 	}
+	if err != nil {
+		return nil, err
+	}
 	return &agentrewire.RuntimeAbortResponse{TurnKind: string(outcome.TurnKind)}, nil
+}
+
+// abortNonPi 把中断交给会话所在的 backend(非 Pi 后端)。
+func (h *RuntimeHandlers) abortNonPi(ctx context.Context, req *agentrewire.RuntimeAbortRequest) (agentruntime.AbortOutcome, error) {
+	a, rid, err := resolveSessionCapability[agentruntime.Aborter](ctx, h, req.GetConversationId(), devicefp.Initiator(req.GetPeerFingerprint()))
+	if err != nil {
+		return agentruntime.AbortOutcome{}, err
+	}
+	return a.Abort(ctx, rid, req.GetTurnToken())
 }
 
 func (h *RuntimeHandlers) StopBackgroundTask(ctx context.Context, req *agentrewire.RuntimeStopBackgroundTaskRequest) (*agentrewire.Empty, error) {

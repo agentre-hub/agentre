@@ -29,7 +29,7 @@ func TestInitiatorOf(t *testing.T) {
 		{"desktop device", "sha256:desk", "work mac", "desktop"},
 		{"agentred device", "sha256:box", "box", "agentred"},
 		{"a token whose name is visible", "pat:abc", "nightly", "token"},
-		{"a token whose name is not visible", "pat:zzz", "personal token", "token"},
+		{"a token whose name is not visible", "pat:zzz", "", "token"},
 		{"unknown", "sha256:ghost", "", ""},
 	}
 	for _, tc := range cases {

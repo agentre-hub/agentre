@@ -66,6 +66,10 @@ type Backend struct {
 	// ModelKey 空 = 跟随供应商默认模型）。
 	ProviderKey string
 	ModelKey    string
+	// ReasoningEffort / EnvJSON 是后端自己的思考力度与透传环境变量（空 = 走模型 / CLI 默认、
+	// 不透传）；同样只在内存里。
+	ReasoningEffort string
+	EnvJSON         string
 }
 
 // New constructs an engine snapshot manager.
@@ -117,10 +121,12 @@ type snapshotCLIOverlay struct {
 // 它对应 agentre-server 那份 SnapshotResponse 的 backends 数组;服务端字段名与这里
 // 逐字一致,两端共用一个形状。
 type snapshotBackendConfig struct {
-	BackendSyncID string                      `json:"backend_sync_id"`
-	ProviderKey   string                      `json:"provider_key"`
-	ModelKey      string                      `json:"model_key"`
-	Config        syncwire.AgentBackendConfig `json:"config"`
+	BackendSyncID   string                      `json:"backend_sync_id"`
+	ProviderKey     string                      `json:"provider_key"`
+	ModelKey        string                      `json:"model_key"`
+	ReasoningEffort string                      `json:"reasoning_effort"`
+	EnvJSON         string                      `json:"env_json"`
+	Config          syncwire.AgentBackendConfig `json:"config"`
 }
 
 type snapshotResponse struct {
@@ -195,6 +201,7 @@ func (m *Manager) Pull(ctx context.Context) error {
 			backends[key] = Backend{
 				AgentBackendConfig: cloneBackendConfig(backend.Config),
 				ProviderKey:        strings.TrimSpace(backend.ProviderKey), ModelKey: strings.TrimSpace(backend.ModelKey),
+				ReasoningEffort: strings.TrimSpace(backend.ReasoningEffort), EnvJSON: strings.TrimSpace(backend.EnvJSON),
 			}
 		}
 	}

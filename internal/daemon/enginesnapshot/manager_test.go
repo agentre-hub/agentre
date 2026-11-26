@@ -173,6 +173,31 @@ func TestManager_GivenSnapshotBackendBinding_WhenResolving_ThenCarriesTheBackend
 	assert.Empty(t, login.ModelKey)
 }
 
+// TestManager_GivenSnapshotBackendEffortAndEnv_WhenResolving_ThenCarriesThem 账号侧派发只带
+// {type, sync_id}：后端自己的思考力度与透传环境变量同样只能从快照来。
+func TestManager_GivenSnapshotBackendEffortAndEnv_WhenResolving_ThenCarriesThem(t *testing.T) {
+	st := loggedInState(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, snapshotBodyWithBackends("provider-1", "snapshot-key", testCLIPath, []map[string]any{
+			{"backend_sync_id": "be-cc", "reasoning_effort": "high", "env_json": `{"HTTPS_PROXY":"http://127.0.0.1:7890"}`, "config": map[string]any{}},
+		}))
+	}))
+	t.Cleanup(server.Close)
+	manager := New(Options{
+		State:       st,
+		ServerURL:   func() string { return server.URL },
+		AccessToken: func() string { return testAccessToken },
+		HTTPClient:  server.Client(),
+	})
+	require.NoError(t, manager.Pull(context.Background()))
+
+	got, authoritative := manager.ResolveBackendConfig("be-cc")
+	require.True(t, authoritative)
+	assert.Equal(t, "high", got.ReasoningEffort)
+	assert.Equal(t, `{"HTTPS_PROXY":"http://127.0.0.1:7890"}`, got.EnvJSON)
+}
+
 // TestManager_GivenBackendConfigWithMutableFields_WhenResolving_ThenReturnsDefensiveCopies
 // 快照在多个运行轮次之间共享,消费方改自己手里那份不能反噬下一轮。
 func TestManager_GivenBackendConfigWithMutableFields_WhenResolving_ThenReturnsDefensiveCopies(t *testing.T) {

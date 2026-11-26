@@ -397,13 +397,15 @@ type SessionDetail struct {
 	LastActivityAt string `json:"lastActivityAt,omitempty"`
 	Pending        *int   `json:"pending,omitempty"`
 	// Initiator 是发起这条会话的人话标签，InitiatorKind 是它的种类
-	// （desktop | console | cli | token | agentred）；认不出发起方时两者都省略。
+	// （desktop | console | cli | token | agentred）；认不出发起方时两者都省略，
+	// 认得出是 token 却看不到它的名字时只省略 Initiator。
 	Initiator     string `json:"initiator,omitempty"`
 	InitiatorKind string `json:"initiatorKind,omitempty"`
 }
 
 // initiatorOf 把会话的发起对端指纹（空 = 调用方自己）换成人话标签与种类；认不出时交回两个空串。
-// token 的名字由宿主按指纹查（登录态读 token 列表，个人 token 只看得到自己）；查不到就只说「personal token」。
+// token 的名字由宿主按指纹查（登录态读 token 列表，个人 token 只看得到自己）；查不到时名字省略、
+// 种类仍是 token —— 不拿占位串冒充 token 名。
 func (a *Client) initiatorOf(ctx context.Context, peer string, devices []accountDevice) (label, kind string) {
 	self := ""
 	if a.opts.SelfFingerprint != nil {
@@ -426,7 +428,7 @@ func (a *Client) initiatorOf(ctx context.Context, peer string, devices []account
 				return name, "token"
 			}
 		}
-		return "personal token", "token"
+		return "", "token"
 	}
 	for _, d := range devices {
 		if d.Fingerprint != peer {

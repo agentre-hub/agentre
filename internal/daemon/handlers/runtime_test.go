@@ -80,6 +80,8 @@ type fullRT struct {
 	abortCalls   []int64
 	abortTokens  []uint64
 	abortOutcome agentruntime.AbortOutcome
+	// abortFn 在 Abort 回执之前跑(不持 r.mu):模拟 backend 的收尾帧抢在中断回执之前到。
+	abortFn func()
 
 	stopBgErr   error
 	stopBgCalls []stopBgCall
@@ -206,6 +208,9 @@ func (r *fullRT) DrainPending(_ context.Context, sid int64) []agentruntime.Consu
 }
 
 func (r *fullRT) Abort(_ context.Context, sid int64, turnToken uint64) (agentruntime.AbortOutcome, error) {
+	if r.abortFn != nil {
+		r.abortFn()
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.abortCalls = append(r.abortCalls, sid)
@@ -3992,6 +3997,45 @@ func TestRuntime_Run_GivenAccountDispatchWithoutModelTarget_WhenSnapshotBindsAFi
 	assert.Equal(t, agentruntime.EffectiveModeFixedModel, req.Effective.Mode)
 	assert.Equal(t, "claude-sonnet-5-5", req.Effective.ModelID)
 	assert.Equal(t, "pk", req.Backend.LLMProviderKey)
+}
+
+// Given 账号侧的派发（控制台 / agrctl）只带 {type, sync_id}，快照里这个后端配了思考力度 high 与
+// 透传环境变量 When Run Then 没有会话级覆盖时这一轮按后端自己的力度与环境跑；会话级力度（run
+// 参数）仍胜过它；桌面端交来的整份后端带了自己的值就不动。
+func TestRuntime_Run_GivenAccountDispatch_WhenSnapshotCarriesEffortAndEnv_ThenTheBackendGovernsUnlessOverridden(t *testing.T) {
+	account := enginesnapshot.Backend{ReasoningEffort: "high", EnvJSON: `{"HTTPS_PROXY":"http://127.0.0.1:7890"}`}
+	cases := []struct {
+		name                string
+		payload             agent_backend_entity.AgentBackend
+		runEffort           string
+		wantEffort, wantEnv string
+	}{
+		{"empty shell follows the backend", agent_backend_entity.AgentBackend{}, "", "high", account.EnvJSON},
+		{"session effort overrides", agent_backend_entity.AgentBackend{}, "low", "low", account.EnvJSON},
+		{"desktop payload keeps its own", agent_backend_entity.AgentBackend{ReasoningEffort: "medium", EnvJSON: `{"B":"2"}`}, "", "medium", `{"B":"2"}`},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rt := &fullRT{}
+			rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+				ch := make(chan agentruntime.Event)
+				close(ch)
+				return ch, &agentruntime.RunResult{}, nil
+			}
+			ctx, gw, _, h := setupRuntimeTestWithAccountBackend(t, rt, account)
+			gw.EXPECT().URL().Return("").AnyTimes()
+			be := tc.payload
+			be.Type = string(agent_backend_entity.TypeClaudeCode)
+			be.SyncID = "be-cc"
+
+			_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(int64(60 + i)), ReasoningEffort: tc.runEffort})
+			require.NoError(t, err)
+			require.Len(t, rt.runReqs, 1)
+			require.NotNil(t, rt.runReqs[0].req.Backend)
+			assert.Equal(t, tc.wantEffort, rt.runReqs[0].req.Backend.ReasoningEffort)
+			assert.Equal(t, tc.wantEnv, rt.runReqs[0].req.Backend.EnvJSON)
+		})
+	}
 }
 
 // Given 同一个绑了固定模型的后端，但会话钉了同家供应商的默认模型（wire 带 provider、不带

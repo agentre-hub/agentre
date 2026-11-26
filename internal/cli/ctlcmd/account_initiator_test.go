@@ -76,9 +76,11 @@ func TestAccountGetSession_InitiatorOfATokenIsItsName(t *testing.T) {
 	assert.Equal(t, "nightly", other["initiator"])
 	assert.Equal(t, "token", other["initiatorKind"])
 
-	// 个人 token 只看得到自己：别的 token 的名字不可见。
+	// 个人 token 只看得到自己：别的 token 的名字不可见 —— 名字省略（不拿占位串冒充 token 名），
+	// 种类仍如实是 token。
 	hidden := getDetail(t, sessY, envMap("AGENTRE_TOKEN", personalToken))
-	assert.Equal(t, "personal token", hidden["initiator"])
+	assert.NotContains(t, hidden, "initiator")
+	assert.Equal(t, "token", hidden["initiatorKind"])
 }
 
 func TestAccountGetSession_InitiatorOfTheConsoleIsConsole(t *testing.T) {

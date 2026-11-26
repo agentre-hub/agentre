@@ -314,7 +314,8 @@ desktop; `--limit` defaults to 50. `--mine` is refused on the desktop (exit `2`)
 await an answer) and `lastText` (the last turn's final text, shortened). A field that cannot be
 determined is omitted, not guessed. On the desktop `initiator` is `desktop` (it does not record
 which agrctl started a session). Against the account it is `this agrctl (<device>)` for
-your own sessions, another device's name, or `console`; when the initiator cannot be named both fields are left out.
+your own sessions, another device's name, or `console`; when the initiator cannot be named `initiator` is
+left out, and `initiatorKind` too unless its kind is known.
 
 Against the account (after `agrctl login`) the same commands work on the account's sessions:
 `list sessions` merges the sessions saved to the account (console and CLI started) with the ones
