@@ -25,6 +25,7 @@ import (
 	"github.com/cago-frame/agents/agent/blocks"
 
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
+	"github.com/agentre-hub/agentre/internal/daemon/enginesnapshot"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers/mock_handlers"
 
@@ -725,7 +726,7 @@ func setupRuntimeTestWithCLIOverlay(t *testing.T, rt agentruntime.Runtime,
 }
 
 func setupRuntimeTestWithBackendConfig(t *testing.T, rt agentruntime.Runtime,
-	resolve func(string) (syncwire.AgentBackendConfig, bool),
+	resolve func(string) (enginesnapshot.Backend, bool),
 ) (context.Context, *recordingOutbound, *handlers.RuntimeHandlers) {
 	t.Helper()
 	notif := newRecordingOutbound()
@@ -814,12 +815,12 @@ func TestRuntime_Run_GivenNoSuccessfulAccountSnapshot_WhenExecuting_ThenKeepsPai
 
 func TestRuntime_Run_GivenBrowserDispatchBySyncID_WhenSnapshotHasACPConfig_ThenAppliesConfigBeforeRuntimeStarts(t *testing.T) {
 	rt := &fullRT{}
-	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(syncID string) (syncwire.AgentBackendConfig, bool) {
+	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(syncID string) (enginesnapshot.Backend, bool) {
 		assert.Equal(t, "be-acp", syncID)
-		return syncwire.AgentBackendConfig{
+		return enginesnapshot.Backend{AgentBackendConfig: syncwire.AgentBackendConfig{
 			ACPCommand: "npx",
 			ACPArgs:    []string{"-y", "@agentclientprotocol/codex-acp"},
-		}, true
+		}}, true
 	})
 	// 浏览器/云派发只带 type + sync_id:身份在,启动配置不在。
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeACP)}
@@ -842,8 +843,8 @@ func TestRuntime_Run_GivenBrowserDispatchBySyncID_WhenSnapshotHasACPConfig_ThenA
 // 直接桌面调用残留在本轮副本上的旧值会把账号配置盖回去。
 func TestRuntime_Run_GivenSnapshotConfig_WhenApplying_ThenReplacesWholeConfigNotOneField(t *testing.T) {
 	rt := &fullRT{}
-	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(string) (syncwire.AgentBackendConfig, bool) {
-		return syncwire.AgentBackendConfig{Sandbox: "read-only"}, true
+	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(string) (enginesnapshot.Backend, bool) {
+		return enginesnapshot.Backend{AgentBackendConfig: syncwire.AgentBackendConfig{Sandbox: "read-only"}}, true
 	})
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex), Approval: "never"}
 	be.SyncID = "be-codex"
@@ -862,8 +863,8 @@ func TestRuntime_Run_GivenSnapshotConfig_WhenApplying_ThenReplacesWholeConfigNot
 
 func TestRuntime_Run_GivenNoSnapshotEntry_WhenRequestAlreadyHasBackendConfig_ThenLeavesItUnchanged(t *testing.T) {
 	rt := &fullRT{}
-	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(string) (syncwire.AgentBackendConfig, bool) {
-		return syncwire.AgentBackendConfig{}, false
+	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(string) (enginesnapshot.Backend, bool) {
+		return enginesnapshot.Backend{}, false
 	})
 	be := agent_backend_entity.AgentBackend{
 		Type: string(agent_backend_entity.TypeACP), ACPCommand: "desktop-agent", ACPArgs: []string{"--desktop"},
@@ -885,8 +886,8 @@ func TestRuntime_Run_GivenNoSnapshotEntry_WhenRequestAlreadyHasBackendConfig_The
 // TestRuntime_Run_GivenNoSnapshotEntryAndNoCommand_WhenDispatchingACP_ThenReturnsReadableMissingCommandError
 // 空快照条目不是崩溃条件:空壳请求交给真实 ACP runtime,得到的是既有的可读错误。
 func TestRuntime_Run_GivenNoSnapshotEntryAndNoCommand_WhenDispatchingACP_ThenReturnsReadableMissingCommandError(t *testing.T) {
-	ctx, _, h := setupRuntimeTestWithBackendConfig(t, acp.New(), func(string) (syncwire.AgentBackendConfig, bool) {
-		return syncwire.AgentBackendConfig{}, false
+	ctx, _, h := setupRuntimeTestWithBackendConfig(t, acp.New(), func(string) (enginesnapshot.Backend, bool) {
+		return enginesnapshot.Backend{}, false
 	})
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeACP)}
 	be.SyncID = "be-acp"
@@ -903,8 +904,8 @@ func TestRuntime_Run_GivenBackendConfigAndCLIPathOverlay_WhenExecuting_ThenKeeps
 	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
 		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
-		BackendConfigForSyncID: func(string) (syncwire.AgentBackendConfig, bool) {
-			return syncwire.AgentBackendConfig{DefaultPermissionMode: "plan"}, true
+		BackendConfigForSyncID: func(string) (enginesnapshot.Backend, bool) {
+			return enginesnapshot.Backend{AgentBackendConfig: syncwire.AgentBackendConfig{DefaultPermissionMode: "plan"}}, true
 		},
 		CLIPathForBackend: func(string) (string, bool) { return "/private/bin/claude", true },
 	})
@@ -3941,6 +3942,84 @@ func TestRuntime_Run_PinnedProviderDefault_NotDraggedByBackendFixedModel(t *test
 	assert.Equal(t, agentruntime.EffectiveModeProviderDefault, req.Effective.Mode)
 	assert.Equal(t, "model-default", req.Effective.ModelKey)
 	assert.Equal(t, "claude-sonnet-4-6", req.Effective.ModelID)
+}
+
+// setupRuntimeTestWithAccountBackend 同 setupRuntimeTest，再接上账号快照的后端条目。
+func setupRuntimeTestWithAccountBackend(t *testing.T, rt agentruntime.Runtime, account enginesnapshot.Backend) (
+	context.Context, *mock_handlers.MockGatewayPort, *mock_handlers.MockLLMProviderLookupPort, *handlers.RuntimeHandlers,
+) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	t.Cleanup(ctrl.Finish)
+	notif := newRecordingOutbound()
+	gw := mock_handlers.NewMockGatewayPort(ctrl)
+	lookup := mock_handlers.NewMockLLMProviderLookupPort(ctrl)
+	sess := newRecordingSessions()
+	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
+		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess, Gateway: gw, Lookup: lookup,
+		RuntimeFor:             func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
+		BackendConfigForSyncID: func(string) (enginesnapshot.Backend, bool) { return account, true },
+	})
+	return context.Background(), gw, lookup, h
+}
+
+// Given 账号侧的派发（控制台 / agrctl）只带 {type, sync_id}、不带模型目标，快照里这个后端绑了
+// 供应商 pk 与固定模型 model-fixed When Run Then 这一轮按后端的固定模型跑（与桌面端
+// 「跟随后端配置」同义），而不是落到 CLI 登录态或供应商默认模型上。
+func TestRuntime_Run_GivenAccountDispatchWithoutModelTarget_WhenSnapshotBindsAFixedModel_ThenRunsOnIt(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	ctx, gw, lookup, h := setupRuntimeTestWithAccountBackend(t, rt, enginesnapshot.Backend{ProviderKey: "pk", ModelKey: "model-fixed"})
+	lookup.EXPECT().FindByKey(ctx, "pk").Return(&llm_provider_entity.LLMProvider{
+		ProviderKey: "pk", Type: string(llm_provider_entity.TypeAnthropic),
+		DefaultModelKey: "model-default", Status: consts.ACTIVE,
+	}, nil)
+	lookup.EXPECT().ResolveModel(ctx, "pk", "model-fixed").Return(
+		handlers.EffectiveModel{ModelKey: "model-fixed", ModelID: "claude-sonnet-5-5"}, nil)
+	gw.EXPECT().URL().Return("").AnyTimes()
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+	be.SyncID = "be-cc"
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(43)})
+	require.NoError(t, err)
+	require.Len(t, rt.runReqs, 1)
+	req := rt.runReqs[0].req
+	require.NotNil(t, req.Effective, "the backend's provider binding must govern the turn")
+	assert.Equal(t, agentruntime.EffectiveModeFixedModel, req.Effective.Mode)
+	assert.Equal(t, "claude-sonnet-5-5", req.Effective.ModelID)
+	assert.Equal(t, "pk", req.Backend.LLMProviderKey)
+}
+
+// Given 同一个绑了固定模型的后端，但会话钉了同家供应商的默认模型（wire 带 provider、不带
+// model）When Run Then 仍按供应商默认模型跑 —— 快照里的后端固定模型只在「跟随后端配置」时生效。
+func TestRuntime_Run_GivenSnapshotFixedModel_WhenSessionPinsProviderDefault_ThenItIsNotDraggedToTheFixedModel(t *testing.T) {
+	rt := &fullRT{}
+	rt.runFn = func(_ context.Context) (<-chan agentruntime.Event, *agentruntime.RunResult, error) {
+		ch := make(chan agentruntime.Event)
+		close(ch)
+		return ch, &agentruntime.RunResult{}, nil
+	}
+	ctx, gw, lookup, h := setupRuntimeTestWithAccountBackend(t, rt, enginesnapshot.Backend{ProviderKey: "pk", ModelKey: "model-fixed"})
+	lookup.EXPECT().FindByKey(ctx, "pk").Return(&llm_provider_entity.LLMProvider{
+		ProviderKey: "pk", Type: string(llm_provider_entity.TypeAnthropic),
+		DefaultModelKey: "model-default", Status: consts.ACTIVE,
+	}, nil)
+	lookup.EXPECT().ResolveModel(ctx, "pk", "").Return(
+		handlers.EffectiveModel{ModelKey: "model-default", ModelID: "claude-opus-5-5"}, nil)
+	gw.EXPECT().URL().Return("").AnyTimes()
+	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}
+	be.SyncID = "be-cc"
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{Backend: backendProto(t, be), ConversationId: convID(44), LlmProviderKey: "pk"})
+	require.NoError(t, err)
+	require.Len(t, rt.runReqs, 1)
+	require.NotNil(t, rt.runReqs[0].req.Effective)
+	assert.Equal(t, agentruntime.EffectiveModeProviderDefault, rt.runReqs[0].req.Effective.Mode)
+	assert.Equal(t, "claude-opus-5-5", rt.runReqs[0].req.Effective.ModelID)
 }
 
 // TestRuntime_Run_ProviderDefault_ResolvesDefaultModel 钉死 provider-default 在 daemon

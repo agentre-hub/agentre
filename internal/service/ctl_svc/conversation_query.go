@@ -176,7 +176,7 @@ func (h *ctlHandler) serveConversation(w http.ResponseWriter, r *http.Request) {
 	}
 	out := sessionDetail{
 		ID: d.ConversationID, Title: d.Title, Agent: d.AgentName, Device: deviceOrLocal(d.Device),
-		Backend: d.Backend, Model: d.ModelKey, Status: string(d.Status),
+		Backend: d.Backend, Model: h.modelID(r.Context(), d.ProviderKey, d.ModelKey), Status: string(d.Status),
 		CreatedAt: rfc3339Ms(d.CreatedAt), LastActivityAt: rfc3339Ms(d.LastMessageAt),
 		Initiator: "desktop", InitiatorKind: "desktop",
 		Pending: len(pending.ToolPermissions) + len(pending.AskUserQuestions) + len(pending.Approvals), LastText: d.LastText,
@@ -194,6 +194,37 @@ func (h *ctlHandler) serveConversation(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// modelID 把会话钉的 (提供方 key, 模型 key) 换成用户认得的模型 id；没钉（跟随后端配置）、
+// 目录里已经没有或目录读不到时交回空串 —— 不把内部模型 key 当模型名写出去。
+func (h *ctlHandler) modelID(ctx context.Context, providerKey, modelKey string) string {
+	if modelKey == "" || h.resources.Providers == nil {
+		return ""
+	}
+	providers, err := h.resources.Providers.ListProviders(ctx)
+	if err != nil {
+		return ""
+	}
+	var providerID int64
+	for _, p := range providers {
+		if p.GetSyncId() == providerKey {
+			providerID = p.GetId()
+		}
+	}
+	if providerID == 0 {
+		return ""
+	}
+	models, err := h.resources.Providers.ListModels(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, m := range models {
+		if m.GetProviderId() == providerID && m.GetKey() == modelKey {
+			return m.GetModelId()
+		}
+	}
+	return ""
 }
 
 // ---- messages ----

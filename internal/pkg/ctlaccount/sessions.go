@@ -220,6 +220,24 @@ func (a *Client) names() names {
 	return n
 }
 
+// modelID 把会话记下的模型 key（服务生成的引用键）换成用户认得的模型 id；空 key（跟随
+// 后端配置）与目录里已经没有的 key 交回空串 —— 不往外写一串内部 key。
+func (a *Client) modelID(key string) string {
+	if key == "" {
+		return ""
+	}
+	items, err := a.cat.List(agentrewire.CtlKind_CTL_KIND_MODEL)
+	if err != nil {
+		return ""
+	}
+	for _, it := range items {
+		if m := it.GetModel(); m.GetKey() == key {
+			return m.GetModelId()
+		}
+	}
+	return ""
+}
+
 func (n names) agent(syncID string) string   { return orSync(n.agents, syncID) }
 func (n names) project(syncID string) string { return orSync(n.projects, syncID) }
 
@@ -449,7 +467,7 @@ func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, err
 		n := len(p.GetToolPermissions()) + len(p.GetAskUserQuestions()) + len(p.GetApprovals())
 		who, whoKind := a.initiatorFields(ctx, h.origin())
 		return &SessionDetail{Initiator: who, InitiatorKind: whoKind, ID: id, Title: s.GetTitle(), Agent: nm.agent(s.GetAgentSyncId()), Project: nm.project(s.GetProjectSyncId()),
-			Device: device, Backend: s.GetBackendType(), Model: s.GetModelKey(), LastActivityAt: rfc3339Ms(s.GetLastMessageAt()),
+			Device: device, Backend: s.GetBackendType(), Model: a.modelID(s.GetModelKey()), LastActivityAt: rfc3339Ms(s.GetLastMessageAt()),
 			Status: sessionStatus(s.GetLifecycleState(), s.GetWaitingForInput() || n > 0), Pending: &n}, nil
 	case errors.Is(err, relaypeer.ErrTargetOffline):
 		row, rerr := a.savedRow(ctx, id)
@@ -466,7 +484,7 @@ func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, err
 		label, _ := deviceByFP(devices, row.DeviceFingerprint)
 		who, whoKind := a.initiatorOf(ctx, row.PeerFingerprint, devices)
 		return &SessionDetail{Initiator: who, InitiatorKind: whoKind, ID: id, Title: row.Title, Agent: nm.agent(row.AgentSyncID), Project: nm.project(row.ProjectSyncID),
-			Device: label, DeviceOffline: true, Backend: row.BackendType, Model: row.ModelKey, LastActivityAt: rfc3339Ms(row.LastMessageAt),
+			Device: label, DeviceOffline: true, Backend: row.BackendType, Model: a.modelID(row.ModelKey), LastActivityAt: rfc3339Ms(row.LastMessageAt),
 			Status: sessionStatus(row.LifecycleState, row.WaitingForInput)}, nil
 	default:
 		return nil, a.ReachErr(err, "", id)

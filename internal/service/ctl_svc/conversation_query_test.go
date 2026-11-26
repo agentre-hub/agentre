@@ -11,6 +11,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 func listed(sessionID int64, id string, status chat_svc.CtlConversationStatus) *chat_svc.CtlConversation {
@@ -67,19 +68,26 @@ func TestConversations_ListRejections(t *testing.T) {
 // 待处理项数量来自待处理源。
 func TestConversation_GetOmitsWhatIsUnknown(t *testing.T) {
 	convs := newFakeConversations(listed(100, convA, chat_svc.CtlStatusWaiting))
-	convs.detail = &chat_svc.CtlConversationDetail{Backend: "claude-local", ModelKey: "opus", LastText: "all done"}
+	convs.detail = &chat_svc.CtlConversationDetail{Backend: "claude-local", ProviderKey: "pk-1", ModelKey: "mk-opus", LastText: "all done"}
 	convs.pending = wire.SessionPendingWaitersResult{
 		ToolPermissions:  []agentruntime.PendingToolPermission{{RequestID: "p1", ToolName: "Bash"}},
 		AskUserQuestions: []agentruntime.PendingAskUserQuestion{{RequestID: "q1"}},
 	}
 	rig := newConvRig(t, convs)
+	rig.h.resources = (&fakeResourceGateways{
+		providers: []*agentrewire.CtlProvider{{Id: 4, SyncId: "pk-1"}, {Id: 5, SyncId: "pk-2"}},
+		models: []*agentrewire.CtlModel{
+			{Id: 8, ProviderId: 5, Key: "mk-opus", ModelId: "other-providers-model"},
+			{Id: 9, ProviderId: 4, Key: "mk-opus", ModelId: "claude-opus-4-5"},
+		},
+	}).resources()
 
 	rec := do(t, rig.h, http.MethodPost, "/ctl/v1/conversation", testToken, `{"conversationId":"`+convA+`"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	out := decode(t, rec)
 	assert.Equal(t, convA, out["id"])
 	assert.Equal(t, "claude-local", out["backend"])
-	assert.Equal(t, "opus", out["model"])
+	assert.Equal(t, "claude-opus-4-5", out["model"], "the model is named by its model id, not the internal model key")
 	assert.Equal(t, "all done", out["lastText"])
 	assert.EqualValues(t, 2, out["pending"])
 	assert.Equal(t, "waiting", out["status"])
@@ -93,6 +101,19 @@ func TestConversation_GetOmitsWhatIsUnknown(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	rec = do(t, rig.h, http.MethodPost, "/ctl/v1/conversation", testToken, `{"conversationId":"42"}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// Given 会话钉的模型 key 在提供方目录里已经找不到（或目录读不到）When get session Then model
+// 省略 —— 不把那串内部 key 当模型名写出去。
+func TestConversation_GetOmitsAModelItCannotName(t *testing.T) {
+	convs := newFakeConversations(listed(100, convA, chat_svc.CtlStatusIdle))
+	convs.detail = &chat_svc.CtlConversationDetail{ProviderKey: "pk-1", ModelKey: "mk-gone"}
+	rig := newConvRig(t, convs)
+	rig.h.resources = (&fakeResourceGateways{providers: []*agentrewire.CtlProvider{{Id: 4, SyncId: "pk-1"}}}).resources()
+
+	rec := do(t, rig.h, http.MethodPost, "/ctl/v1/conversation", testToken, `{"conversationId":"`+convA+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, decode(t, rec), "model")
 }
 
 // Given 一页消息 When messages Then 带 last / before / full 下推,响应带游标。

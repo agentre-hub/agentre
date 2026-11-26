@@ -167,6 +167,29 @@ func TestAccountGetSession_GivenTheDeviceIsOfflineThenTheSavedRowAnswersWithItsL
 
 const sessB2 = "0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a80"
 
+// Given 会话钉了一个模型（机器与账号索引记的都是模型 key）When get session Then model 写的是
+// 模型 id，不是那串内部 key —— 在线时读机器，离线时读保存过的那一行，都一样。
+func TestAccountGetSession_GivenAPinnedModelThenModelIsTheModelIDNotItsKey(t *testing.T) {
+	w := listWorld(t)
+	live := w.box.session(sessA).summary
+	live.ProviderKey, live.ModelKey = "PV-4", "0b6c-22"
+	w.mu.Lock()
+	for _, row := range w.saved {
+		if row["conversation_id"] == sessC {
+			row["model_key"] = "0b6c-22"
+		}
+	}
+	w.mu.Unlock()
+
+	for _, id := range []string{sessA, sessC} {
+		r := runWith([]string{"get", "session", id}, envMap(), term{})
+		require.Equal(t, exitOK, r.code, r.stderr)
+		var out map[string]any
+		require.NoError(t, json.Unmarshal([]byte(r.stdout), &out), r.stdout)
+		assert.Equal(t, "openai/gpt-5.1-mini", out["model"], "session %s", id)
+	}
+}
+
 func TestAccountMessages_GivenALiveSessionThenTurnsPageBackwardWithACursor(t *testing.T) {
 	w := listWorld(t)
 	w.box.addTurn(sessA, "one?", "uno", false)

@@ -141,6 +141,38 @@ func TestManager_GivenSnapshotWithBackendConfigs_WhenPulling_ThenResolvesWholeCo
 	assert.False(t, authoritative, "an absent entry must not look like an authoritative empty config")
 }
 
+// TestManager_GivenSnapshotBackendBinding_WhenResolving_ThenCarriesTheBackendsProviderAndFixedModel
+// 账号侧派发（控制台、agrctl）只带 {type, sync_id}：后端绑定的供应商与固定模型只能从快照
+// 来，否则「跟随后端配置」的一轮会落到 CLI 自己的登录态与默认模型上。
+func TestManager_GivenSnapshotBackendBinding_WhenResolving_ThenCarriesTheBackendsProviderAndFixedModel(t *testing.T) {
+	st := loggedInState(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, snapshotBodyWithBackends("provider-1", "snapshot-key", testCLIPath, []map[string]any{
+			{"backend_sync_id": "be-cc", "provider_key": "provider-1", "model_key": "model-1", "config": map[string]any{}},
+			{"backend_sync_id": "be-login", "config": map[string]any{}},
+		}))
+	}))
+	t.Cleanup(server.Close)
+	manager := New(Options{
+		State:       st,
+		ServerURL:   func() string { return server.URL },
+		AccessToken: func() string { return testAccessToken },
+		HTTPClient:  server.Client(),
+	})
+	require.NoError(t, manager.Pull(context.Background()))
+
+	bound, authoritative := manager.ResolveBackendConfig("be-cc")
+	require.True(t, authoritative)
+	assert.Equal(t, "provider-1", bound.ProviderKey)
+	assert.Equal(t, "model-1", bound.ModelKey)
+
+	login, authoritative := manager.ResolveBackendConfig("be-login")
+	require.True(t, authoritative)
+	assert.Empty(t, login.ProviderKey, "a backend without a binding runs on the CLI's own login")
+	assert.Empty(t, login.ModelKey)
+}
+
 // TestManager_GivenBackendConfigWithMutableFields_WhenResolving_ThenReturnsDefensiveCopies
 // 快照在多个运行轮次之间共享,消费方改自己手里那份不能反噬下一轮。
 func TestManager_GivenBackendConfigWithMutableFields_WhenResolving_ThenReturnsDefensiveCopies(t *testing.T) {

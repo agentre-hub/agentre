@@ -31,6 +31,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
+	"github.com/agentre-hub/agentre/internal/daemon/enginesnapshot"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
@@ -39,7 +40,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/turnstats"
-	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
@@ -84,7 +84,7 @@ type RuntimeDeps struct {
 	// exclusive settings as one unit — this is what lets a browser/cloud
 	// dispatch send only {type, sync_id} without receiving ACPArgs (arbitrary
 	// argv, potentially credentials) over a browser API.
-	BackendConfigForSyncID func(backendSyncID string) (config syncwire.AgentBackendConfig, authoritative bool)
+	BackendConfigForSyncID func(backendSyncID string) (backend enginesnapshot.Backend, authoritative bool)
 	// LoggedInAccountID returns the daemon account authorized to target a
 	// non-caller origin peer in control requests.
 	LoggedInAccountID func() string
@@ -401,8 +401,15 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 	// 凭据),绝不能经浏览器 API 下发,由 daemon 侧从设备凭据快照补全。没有被点名的
 	// sync ID(直接桌面调用、尚未同步的后端)保持线上原值,不因快照缺项被清空。
 	if h.deps.BackendConfigForSyncID != nil {
-		if config, authoritative := h.deps.BackendConfigForSyncID(be.SyncID); authoritative {
-			be.SetConfig(config)
+		if account, authoritative := h.deps.BackendConfigForSyncID(be.SyncID); authoritative {
+			be.SetConfig(account.AgentBackendConfig)
+			// 绑定的供应商与固定模型同属账号配置:账号侧派发只带 {type, sync_id},
+			// 「跟随后端配置」的一轮要跑的供应商 / 模型只能从这里来(见 resolveTarget)。
+			// 桌面端交来的是它自己的整份后端(同一份同步数据),带了绑定就不动 —— 还没
+			// 下发这两个键的旧 server 也就清不掉它。
+			if be.LLMProviderKey == "" && be.LLMModelKey == "" {
+				be.LLMProviderKey, be.LLMModelKey = account.ProviderKey, account.ModelKey
+			}
 		}
 	}
 	if h.deps.CLIPathForBackend != nil {
@@ -1973,6 +1980,12 @@ func (h *RuntimeHandlers) resolveTarget(
 	// 固定模型带偏成 fixed-model，与本地路径 sessionModelKeyFor 的语义分叉（spec 决策 1）。
 	// 会话 provider 缺失回退 agent 绑定的情形在下方分支显式用 be.LLMModelKey。
 	modelKey := strings.TrimSpace(wireModelKey)
+	// wire 连 provider 都没带 = 调用方没有会话级目标(账号侧派发:控制台 / agrctl 只带
+	// {type, sync_id}),这一轮跟随后端配置 —— 与桌面端 backendModelKeyFor 同义,用后端的
+	// 固定模型。带了 provider 的(哪怕 model 空 = 钉了 provider-default)仍按上面那条不派生。
+	if strings.TrimSpace(wireProviderKey) == "" && modelKey == "" && be != nil {
+		modelKey = be.LLMModelKey
+	}
 	if effectiveKey == "" || h.deps.Lookup == nil {
 		return nil, nil, "", nil
 	}
