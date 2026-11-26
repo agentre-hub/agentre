@@ -553,13 +553,13 @@ func TestRootFor_KnownClaimedRootDoesNotRescanWrittenPaths(t *testing.T) {
 	assert.Zero(t, scans)
 }
 
-// spec「worktree 被移除」:变更窗里被移除的根以「<名称>（已移除）」分组显示。根消失时
-// 认领行被删掉,所以「它曾是一个根」只有做出移除的这一侧知道 —— 界面没开着这个会话时
-// (后台跑的会话、派发出去的会话)前端从没见过这个根。RemovedWorkRoots 交回本进程里从
-// 认领集合中消失的根:撤销的、重验时已不是认领时那个工作树的(目录没了 / 换成了别的
-// worktree);又被认领回来的不在其中;换到另一个仓库(会话目录改了)不算移除。
+// spec「worktree 被移除」:变更窗里被移除的根以「<名称>（已移除）」分组显示。界面没开着
+// 这个会话时(后台跑的会话、派发出去的会话)前端从没见过这个根,所以「它曾是一个根」
+// 记在认领行上(removed_at)。RemovedWorkRoots 交回从认领集合中消失的根:撤销的、重验时
+// 已不是认领时那个工作树的(目录没了 / 换成了别的 worktree);又被认领回来的不在其中;
+// 换到另一个仓库(会话目录改了)不算移除。
 func TestRemovedWorkRoots(t *testing.T) {
-	convey.Convey("本进程里从认领集合中消失的根", t, func() {
+	convey.Convey("从认领集合中消失的根", t, func() {
 		removedPaths := func(r *rig) []string {
 			t.Helper()
 			removed, err := r.svc.RemovedWorkRoots(r.ctx, 42)

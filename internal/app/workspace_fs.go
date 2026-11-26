@@ -9,8 +9,9 @@ import (
 // 下面几个方法的 root 参数只接受这里给出的路径,其余一律被拒。界面在挂载与轮次结束时
 // 取它,已认领的根因此各重验一次:进程里被删掉的 worktree 就此出集合。
 //
-// 集合之后接着本进程里从集合中消失的根(removed=true,不是可用的根):界面没开着这个
-// 会话时被移除的 worktree,前端只能从这里知道它曾是一个根(变更窗的「已移除」分组)。
+// 集合之后接着从集合中消失、至今没被认领回来的根(removed=true,不是可用的根;记在认领
+// 行的 removed_at 上,重启后照样在):界面没开着这个会话时被移除的 worktree,前端只能
+// 从这里知道它曾是一个根(变更窗的「已移除」分组)。
 // 移除清单在重验之后读,重验刚发现的移除也在其中。
 func (a *App) WorkspaceFsWorkRoots(sessionID int64) ([]workspace_fs_svc.WorkRootView, error) {
 	svc := workspace_fs_svc.Default()

@@ -241,7 +241,7 @@ describe("useSessionRoot · worktree 被移除", () => {
     expect(r.removed).toEqual([]);
   });
 
-  // Given 后端取数在集合之后带回本进程里已移除的根（removed=true）——这一页从没见过它
+  // Given 后端取数在集合之后带回已移除的根（removed=true，认领行上的 removed_at）——这一页从没见过它
   // （会话没开着时被移除）, When 落到 store, Then 它进「已移除」清单而不是集合；与集合里
   // 同路径的（取数之间又认领回来了）不算移除。
   it("takes roots the backend reports as removed into the removed list, not the set", () => {

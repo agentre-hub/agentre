@@ -95,7 +95,7 @@ func (s *stubWorkspaceFs) RemovedWorkRoots(_ context.Context, sessionID int64) (
 	return s.removed, nil
 }
 
-// 界面取工作根时同时拿到本进程里从集合中消失的根(带 removed 标记,排在集合之后):
+// 界面取工作根时同时拿到从集合中消失的根(带 removed 标记,排在集合之后):
 // 会话没开着时被移除的根,前端只能从这里知道它曾是一个根(spec「worktree 被移除」的
 // 「（已移除）」分组)。
 func TestWorkspaceFsWorkRoots_AppendsRemovedRootsAfterTheSet(t *testing.T) {
