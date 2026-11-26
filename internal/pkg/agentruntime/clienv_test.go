@@ -180,7 +180,7 @@ func TestBuildACPEnv(t *testing.T) {
 // 网关根地址（不带 /v1，agy 自己拼 /v1beta/...）进 GOOGLE_GEMINI_BASE_URL、关掉自更新；
 // env_json 排在其后（两个网关键已被 entity.Check 拒入，自更新开关用户可改）。
 func TestBuildAntigravityEnv(t *testing.T) {
-	deps := CLIDeps{Token: "sess-gw-tok", GatewayURL: "http://127.0.0.1:60080/"}
+	deps := CLIDeps{Token: "sess-gw-tok", GatewayURL: "http://127.0.0.1:60080/"} //nolint:gosec // G101: 用例造的替身网关 token,不是真凭据
 	t.Run("写入网关 token、网关根地址与关闭自更新", func(t *testing.T) {
 		env, err := BuildAntigravityEnv(&agent_backend_entity.AgentBackend{}, deps)
 		require.NoError(t, err)

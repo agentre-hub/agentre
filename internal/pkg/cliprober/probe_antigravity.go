@@ -17,6 +17,11 @@ import (
 // 安装后的命令是 agy）。
 const antigravityBinary = "agy"
 
+// resolveAntigravityBinary 是查找 agy 的注入点：clienv 的增强 PATH 还会并入登录 shell
+// 的 PATH 与用户工具目录（~/.local/bin 等），装了 agy 的机器上「PATH 里没有」的用例
+// 照样找得到。生产恒为 clienv.ResolveBinaryForEnv，只有单测替换。
+var resolveAntigravityBinary = clienv.ResolveBinaryForEnv
+
 // antigravityMinMajor / antigravityMinMinor 是 agy 的最低版本门槛（1.5）。
 const (
 	antigravityMinMajor = 1
@@ -32,11 +37,12 @@ func probeAntigravity(ctx context.Context, req ProbeRequest) (*ProbeResponse, er
 	if requested == "" {
 		requested = antigravityBinary
 	}
-	binary, ok := clienv.ResolveBinaryForEnv(requested, clienv.BuildEnv(req.Env, requested))
+	binary, ok := resolveAntigravityBinary(requested, clienv.BuildEnv(req.Env, requested))
 	if !ok {
 		return nil, fmt.Errorf("未安装 agy（Antigravity CLI）: %s", requested)
 	}
 
+	//nolint:gosec // G204: binary 来自 agent backend 配置的 CLIPath(或默认 agy),经 clienv 解析,非请求输入
 	cmd := exec.CommandContext(ctx, binary, "--version")
 	cmd.Env = clienv.BuildEnv(req.Env, binary)
 	var stdout, stderr bytes.Buffer

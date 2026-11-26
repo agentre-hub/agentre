@@ -154,7 +154,7 @@ func TestForwarder_Gemini_StreamsSSEChunkByChunk(t *testing.T) {
 	req.Header.Set("x-goog-api-key", issueGeminiToken(t, tokens, "g1"))
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	buf := make([]byte, len("data: one\n\n"))
 	_, err = io.ReadFull(resp.Body, buf)

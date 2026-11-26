@@ -26,7 +26,7 @@ func antigravityTestBackend() *agent_backend_entity.AgentBackend {
 }
 
 func antigravityRequest(t *testing.T, sessionID int64) agentruntime.RunRequest {
-	return agentruntime.RunRequest{
+	return agentruntime.RunRequest{ //nolint:gosec // G101: GatewayToken 是用例造的替身 token,不是真凭据
 		Backend:      antigravityTestBackend(),
 		SessionID:    sessionID,
 		UserText:     "hi",

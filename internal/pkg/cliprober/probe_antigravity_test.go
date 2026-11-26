@@ -55,8 +55,12 @@ func TestProbeAntigravity_VersionGate(t *testing.T) {
 }
 
 func TestProbeAntigravity_NotInstalled(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
+	// 「哪儿都找不到 agy」由注入点给出：清空 PATH 不够，增强 PATH 还会并入登录 shell 与
+	// ~/.local/bin，开发机上装着 agy 时用例会假红。
+	prev := resolveAntigravityBinary
+	resolveAntigravityBinary = func(string, []string) (string, bool) { return "", false }
 	_, err := Probe(context.Background(), ProbeRequest{Type: "antigravity"})
+	resolveAntigravityBinary = prev
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "未安装")
 
