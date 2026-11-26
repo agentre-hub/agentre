@@ -1,7 +1,8 @@
 // Package workspace_fs_entity 存放工作根认领的持久化实体。
 package workspace_fs_entity
 
-// WorkRoot 是一个会话认领到的、会话 cwd 之外的工作根(session_work_roots)。
+// WorkRoot 是一个会话认领到的、会话 cwd 之外的工作根(session_work_roots),或曾经认领、
+// 已被移除的根(RemovedAt 非零)。
 // 会话 cwd 本身是主根,恒在集合里,不入表。
 //
 // 同一会话的同一路径只记一行。Worktree 是该工作树在会话主仓库 git 公共目录下的
@@ -13,6 +14,10 @@ type WorkRoot struct {
 	Path       string `gorm:"column:path;type:text;not null"`
 	Worktree   string `gorm:"column:worktree;type:text;not null;default:''"`
 	Createtime int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
+	// RemovedAt 非零表示这个根已从认领集合中消失(被撤销,或重验时已不是认领时那个
+	// 工作树),值是移除时刻(毫秒)。行留着:变更窗的「已移除」分组要知道它曾是这个
+	// 会话的一个根;同一路径被认领回来时清零。
+	RemovedAt int64 `gorm:"column:removed_at;type:bigint;not null;default:0"`
 }
 
 func (WorkRoot) TableName() string { return "session_work_roots" }

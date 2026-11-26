@@ -15,11 +15,15 @@ import (
 
 // WorkRootRepo 是会话已认领工作根的读写口。
 type WorkRootRepo interface {
-	// ListBySession 交回本会话已认领的工作根,先认领的在前。
+	// ListBySession 交回本会话的全部行(已认领的与已移除的,见 RemovedAt),先认领的在前。
 	ListBySession(ctx context.Context, sessionID int64) ([]*workspace_fs_entity.WorkRoot, error)
-	// Create 记下一个认领;同一 (session_id, path) 已有时不重复记、不报错。
+	// Create 记下一个认领;同一 (session_id, path) 已有时不重复记、不报错,而是把那一行
+	// 重新记成已认领(清掉 removed_at,worktree 短名取这次的判定)。
 	Create(ctx context.Context, row *workspace_fs_entity.WorkRoot) error
-	// Delete 撤销本会话的这一个根;没有这一行不算错。
+	// MarkRemoved 把本会话这一个已认领的根记成已移除(removed_at = at,毫秒);行留着。
+	// 没有这一行、或它已是已移除的,不算错。
+	MarkRemoved(ctx context.Context, sessionID int64, path string, at int64) error
+	// Delete 删掉本会话的这一行;没有这一行不算错。
 	Delete(ctx context.Context, sessionID int64, path string) error
 	// DeleteBySession 删掉本会话的全部认领(会话被删除时的清理)。
 	DeleteBySession(ctx context.Context, sessionID int64) error
@@ -45,10 +49,19 @@ func (r *workRootRepo) Create(ctx context.Context, row *workspace_fs_entity.Work
 	if row.Createtime == 0 {
 		row.Createtime = time.Now().UnixMilli()
 	}
+	// 同一路径认领回来:清掉 removed_at,worktree 短名取这次的判定。
+	reclaim := append(clause.Assignments(map[string]any{"removed_at": int64(0)}),
+		clause.AssignmentColumns([]string{"worktree"})...)
 	return db.Ctx(ctx).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "session_id"}, {Name: "path"}},
-		DoNothing: true,
+		DoUpdates: reclaim,
 	}).Create(row).Error
+}
+
+func (r *workRootRepo) MarkRemoved(ctx context.Context, sessionID int64, path string, at int64) error {
+	return db.Ctx(ctx).Model(&workspace_fs_entity.WorkRoot{}).
+		Where("session_id = ? AND path = ? AND removed_at = 0", sessionID, path).
+		Update("removed_at", at).Error
 }
 
 func (r *workRootRepo) Delete(ctx context.Context, sessionID int64, path string) error {

@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   SESSION_ROOT_NOTICE_MS,
-  SESSION_ROOTS_STORAGE_KEY,
   useSessionRoot,
   useSessionRootStore,
   type WorkRoot,
@@ -261,61 +260,28 @@ describe("useSessionRoot · worktree 被移除", () => {
   });
 });
 
-/** 页面重新加载：内存状态全丢，store 从本机存储读回（见 removed-root-group 测试）。 */
-async function reload(stored?: string) {
-  const saved = stored ?? localStorage.getItem(SESSION_ROOTS_STORAGE_KEY);
-  useSessionRootStore.setState({ bySession: {} });
-  if (saved !== null) localStorage.setItem(SESSION_ROOTS_STORAGE_KEY, saved);
-  await act(async () => {
-    await useSessionRootStore.persist.rehydrate();
-  });
-}
-
-describe("useSessionRoot · 已移除清单跨重新加载", () => {
-  beforeEach(() => localStorage.clear());
-
-  // Given 当前根 worktree 被移除过, When 页面重新加载、集合里仍没有它, Then 它仍在
-  // 「已移除」清单里；跟随与当前根回到默认、移除提示不再出现（只提示一次）。
-  it("keeps removed roots across a reload while follow, selection and the notice reset", async () => {
+describe("useSessionRoot · 重新加载后的已移除清单", () => {
+  // Given 当前根 worktree 被移除过, When 页面重新加载（内存状态全丢）、后端集合里没有它
+  // 而在集合之后报告它已移除, Then 它仍在「已移除」清单里；跟随与当前根回到默认、移除
+  // 提示不再出现（只提示一次）。
+  it("takes removed roots back from the backend after a reload while follow, selection and the notice reset", () => {
     apply(7, rootsWithAI("main"));
     act(() => s().select(7, WT));
     const onlyMain = [root(CWD, "demo-app", { isPrimary: true, aiHere: true })];
     apply(7, onlyMain);
 
-    await reload();
+    act(() => useSessionRootStore.setState({ bySession: {} }));
     act(() => s().attach(7, CWD));
-    apply(7, onlyMain);
+    apply(7, [
+      ...onlyMain,
+      { ...root(WT, "dark-mode", { isWorktree: true }), removed: true },
+    ] as WorkRoot[]);
 
     const r = renderHook(() => useSessionRoot(7)).result.current;
     expect(r.removed.map((x) => x.path)).toEqual([WT]);
     expect(r.follow).toBe(true);
     expect(r.current).toBe(CWD);
     expect(r.notice).toBeNull();
-  });
-
-  // Given 存储里的值形状不对, When 读回, Then 逐项丢掉坏值，不抛错、不带出假的已移除根。
-  it("drops malformed stored entries on read-back", async () => {
-    await reload(
-      JSON.stringify({
-        state: {
-          bySession: {
-            7: { cwd: CWD, removed: "nope" },
-            8: { cwd: 3, removed: [] },
-            9: { cwd: CWD, removed: [{ path: 1 }, root(WT, "dark-mode")] },
-          },
-        },
-        version: 0,
-      }),
-    );
-    expect(renderHook(() => useSessionRoot(7)).result.current.removed).toEqual(
-      [],
-    );
-    expect(s().bySession[8]).toBeUndefined();
-    expect(
-      renderHook(() => useSessionRoot(9)).result.current.removed.map(
-        (x) => x.path,
-      ),
-    ).toEqual([WT]);
   });
 });
 

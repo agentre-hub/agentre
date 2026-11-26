@@ -97,3 +97,17 @@ func (mr *MockWorkRootRepoMockRecorder) ListBySession(ctx, sessionID any) *gomoc
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBySession", reflect.TypeOf((*MockWorkRootRepo)(nil).ListBySession), ctx, sessionID)
 }
+
+// MarkRemoved mocks base method.
+func (m *MockWorkRootRepo) MarkRemoved(ctx context.Context, sessionID int64, path string, at int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkRemoved", ctx, sessionID, path, at)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkRemoved indicates an expected call of MarkRemoved.
+func (mr *MockWorkRootRepoMockRecorder) MarkRemoved(ctx, sessionID, path, at any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkRemoved", reflect.TypeOf((*MockWorkRootRepo)(nil).MarkRemoved), ctx, sessionID, path, at)
+}

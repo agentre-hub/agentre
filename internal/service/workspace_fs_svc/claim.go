@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -29,8 +30,11 @@ import (
 //     目录不记,下次再试。
 //
 // 持久化的根在本进程第一次读入时按认领规则校验一次:路径不再是认领时的那个工作树
-// (不是 git 仓库、公共目录不同、worktree 短名变了)就剔除并从库里删掉;校验时 git
-// 判定失败则保留(判不准不收窄),下次取工作根时重试。
+// 就剔除 —— 不是 git 仓库或 worktree 短名变了(被移除)的行记成已移除(removed_at)
+// 留在库里,公共目录不同(会话换了仓库)的行删掉;校验时 git 判定失败则保留(判不准
+// 不收窄),下次取工作根时重试。撤销同样只记 removed_at:变更窗的「已移除」分组在重启
+// 后、会话从没打开过时也要知道它曾是一个根(RemovedWorkRoots)。同一路径被认领回来时
+// 那一行重新记成已认领。
 //
 // 并发:同一会话的取数与认领在 claimState.mu 下串行(含其间的 git 判定),避免两路
 // 同时爬同一个工作树、重复认领。
@@ -51,8 +55,6 @@ type claimState struct {
 	unverified map[string]struct{}      // 读入后尚未校验成功的持久化根(按路径)
 	judged     map[string]*GitStateView // 目录 → git 判定(只缓存工作树内的答案)
 	fed        map[string]struct{}      // 写入路径来源已喂过的目录
-	// removed 是本进程里从集合中消失、还没被认领回来的根(见 RemovedWorkRoots)。
-	removed []WorkRootView
 }
 
 func newClaimState(deviceID int64, cwd string) *claimState {
@@ -193,12 +195,11 @@ func (s *workspaceFsImpl) Revoke(ctx context.Context, sessionID int64, root stri
 		if cleanPath(r.Path) != target {
 			continue
 		}
-		if err := s.workRootRepo().Delete(ctx, sessionID, r.Path); err != nil {
-			logger.Ctx(ctx).Error("workspace_fs_svc.Revoke: delete claimed root failed",
+		if err := s.workRootRepo().MarkRemoved(ctx, sessionID, r.Path, time.Now().UnixMilli()); err != nil {
+			logger.Ctx(ctx).Error("workspace_fs_svc.Revoke: mark claimed root removed failed",
 				zap.Int64("sessionID", sessionID), zap.Error(err))
 			return false, err
 		}
-		st.noteRemoved(r)
 		st.drop(r.Path)
 		logger.Ctx(ctx).Info("workspace_fs_svc.Revoke: revoked work root",
 			zap.Int64("sessionID", sessionID), zap.Int64("deviceID", deviceID),
@@ -209,14 +210,19 @@ func (s *workspaceFsImpl) Revoke(ctx context.Context, sessionID int64, root stri
 }
 
 func (s *workspaceFsImpl) RemovedWorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error) {
-	deviceID, cwd, err := s.workspace(ctx, sessionID)
+	rows, err := s.workRootRepo().ListBySession(ctx, sessionID)
 	if err != nil {
+		logger.Ctx(ctx).Error("workspace_fs_svc.RemovedWorkRoots: list claimed roots failed",
+			zap.Int64("sessionID", sessionID), zap.Error(err))
 		return nil, err
 	}
-	st := s.stateFor(sessionID, deviceID, cwd)
-	st.mu.Lock()
-	defer st.mu.Unlock()
-	return append([]WorkRootView(nil), st.removed...), nil
+	var out []WorkRootView
+	for _, row := range rows {
+		if row.RemovedAt != 0 {
+			out = append(out, WorkRootView{Path: row.Path, Name: baseOf(row.Path), IsWorktree: row.Worktree != "", Removed: true})
+		}
+	}
+	return out, nil
 }
 
 func (s *workspaceFsImpl) ForgetSession(ctx context.Context, sessionID int64) error {
@@ -253,6 +259,9 @@ func (s *workspaceFsImpl) ensureLoaded(ctx context.Context, sessionID int64, st 
 			return err
 		}
 		for _, row := range rows {
+			if row.RemovedAt != 0 {
+				continue // 已移除的根(见 RemovedWorkRoots),不是集合的一员
+			}
 			if _, dup := st.identity[row.Worktree]; dup {
 				// 同一个工作树已在集合里(另一种路径写法,或它就是主根):这一行永远不会被用到。
 				if err := s.workRootRepo().Delete(ctx, sessionID, row.Path); err != nil {
@@ -277,13 +286,15 @@ func (s *workspaceFsImpl) ensureLoaded(ctx context.Context, sessionID int64, st 
 		}
 		delete(st.unverified, r.Path)
 		if gs.NotARepo || gs.CommonDir != st.primary.CommonDir || st.identity[gs.Worktree] != r.Path {
-			if gs.NotARepo || gs.CommonDir == st.primary.CommonDir {
-				// 目录没了,或同一仓库里那个工作树已不在这里:它被移除了。指向另一个
-				// 仓库的(会话目录换了仓库)只是不再属于这个会话,不算移除。
-				st.noteRemoved(r)
-			}
 			st.drop(r.Path)
-			if err := s.workRootRepo().Delete(ctx, sessionID, r.Path); err != nil {
+			if gs.NotARepo || gs.CommonDir == st.primary.CommonDir {
+				// 目录没了,或同一仓库里那个工作树已不在这里:它被移除了,行留着记成已移除。
+				// 指向另一个仓库的(会话目录换了仓库)只是不再属于这个会话,删掉。
+				if err := s.workRootRepo().MarkRemoved(ctx, sessionID, r.Path, time.Now().UnixMilli()); err != nil {
+					logger.Ctx(ctx).Warn("workspace_fs_svc.ensureLoaded: mark stale claimed root removed failed",
+						zap.Int64("sessionID", sessionID), zap.Error(err))
+				}
+			} else if err := s.workRootRepo().Delete(ctx, sessionID, r.Path); err != nil {
 				logger.Ctx(ctx).Warn("workspace_fs_svc.ensureLoaded: delete stale claimed root failed",
 					zap.Int64("sessionID", sessionID), zap.Error(err))
 			}
@@ -391,25 +402,6 @@ func (st *claimState) markClaimedUnverified() {
 func (st *claimState) add(view WorkRootView, worktree string) {
 	st.roots = append(st.roots, view)
 	st.identity[worktree] = view.Path
-	st.forgetRemoved(view.Path)
-}
-
-// noteRemoved 把从集合中消失的根 r 记进移除清单(同一路径只记一次)。
-func (st *claimState) noteRemoved(r WorkRootView) {
-	st.forgetRemoved(r.Path)
-	st.removed = append(st.removed, WorkRootView{Path: r.Path, Name: r.Name, IsWorktree: r.IsWorktree, Removed: true})
-}
-
-// forgetRemoved 把 path 移出移除清单:它又被认领回来了。
-func (st *claimState) forgetRemoved(path string) {
-	target := cleanPath(path)
-	kept := st.removed[:0]
-	for _, r := range st.removed {
-		if cleanPath(r.Path) != target {
-			kept = append(kept, r)
-		}
-	}
-	st.removed = kept
 }
 
 // drop 把 path 这个根移出集合,并清掉落在它之内的 git 判定缓存:同一路径以后若

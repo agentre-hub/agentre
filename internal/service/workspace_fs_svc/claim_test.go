@@ -26,12 +26,22 @@ type rootStore struct {
 	createErr error
 }
 
+// paths 是本会话已认领(未移除)的行。
 func (st *rootStore) paths(sessionID int64) []string {
+	return st.pathsWhere(sessionID, false)
+}
+
+// removedPaths 是本会话已移除(removed_at 非零)的行。
+func (st *rootStore) removedPaths(sessionID int64) []string {
+	return st.pathsWhere(sessionID, true)
+}
+
+func (st *rootStore) pathsWhere(sessionID int64, removed bool) []string {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	var out []string
 	for _, r := range st.rows {
-		if r.SessionID == sessionID {
+		if r.SessionID == sessionID && (r.RemovedAt != 0) == removed {
 			out = append(out, r.Path)
 		}
 	}
@@ -69,12 +79,25 @@ func (r *rig) useStore(t *testing.T, ctrl *gomock.Controller, store *rootStore) 
 			if store.createErr != nil {
 				return store.createErr
 			}
-			for _, existing := range store.rows {
+			for i, existing := range store.rows {
 				if existing.SessionID == row.SessionID && existing.Path == row.Path {
+					store.rows[i].RemovedAt = 0 // 同一路径认领回来:重新记成已认领
+					store.rows[i].Worktree = row.Worktree
 					return nil
 				}
 			}
 			store.rows = append(store.rows, *row)
+			return nil
+		})
+	repo.EXPECT().MarkRemoved(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().
+		DoAndReturn(func(_ context.Context, sessionID int64, path string, at int64) error {
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			for i, existing := range store.rows {
+				if existing.SessionID == sessionID && existing.Path == path && existing.RemovedAt == 0 {
+					store.rows[i].RemovedAt = at
+				}
+			}
 			return nil
 		})
 	repo.EXPECT().Delete(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().
@@ -608,4 +631,50 @@ func TestRemovedWorkRoots(t *testing.T) {
 			assert.Equal(t, []string{"/remote/wt"}, removedPaths(r))
 		})
 	})
+}
+
+// spec「worktree 被移除」+ R4:移除记在认领行上(removed_at),不只在进程内存里 —— 应用
+// 重启后,这一轮里从没打开过的会话取工作根时同样拿到它(removed=true);同一路径被认领
+// 回来时清掉;会话删除时连同已移除的行一起删掉。
+func TestRemovedWorkRoots_SurviveRestart(t *testing.T) {
+	wr := newWorktreeRig(t)
+	store := &rootStore{}
+
+	before := newRig(t, 0, wr.main)
+	before.useStore(t, gomock.NewController(t), store)
+	before.withWritten()
+	_, err := before.svc.Claim(before.ctx, 42, []string{wr.wt})
+	require.NoError(t, err)
+	revoked, err := before.svc.Revoke(before.ctx, 42, wr.wt)
+	require.NoError(t, err)
+	require.True(t, revoked)
+	assert.Empty(t, store.paths(42), "the row is no longer a claimed root")
+	assert.Equal(t, []string{wr.wt}, store.removedPaths(42), "the row stays, marked removed")
+
+	after := newRig(t, 0, wr.main)
+	after.useStore(t, gomock.NewController(t), store)
+	after.withWritten()
+	roots, err := after.svc.WorkRoots(after.ctx, 42)
+	require.NoError(t, err)
+	assert.Equal(t, []string{wr.main}, rootPaths(roots), "a removed row is not loaded as a root")
+	removed, err := after.svc.RemovedWorkRoots(after.ctx, 42)
+	require.NoError(t, err)
+	assert.Equal(t, []WorkRootView{{Path: wr.wt, Name: "wt", IsWorktree: true, Removed: true}}, removed)
+
+	// 认领回来:清掉 removed_at,不再出现在移除清单里。
+	added, err := after.svc.Claim(after.ctx, 42, []string{wr.wt})
+	require.NoError(t, err)
+	assert.Equal(t, []string{wr.wt}, rootPaths(added))
+	assert.Equal(t, []string{wr.wt}, store.paths(42))
+	assert.Empty(t, store.removedPaths(42))
+	removed, err = after.svc.RemovedWorkRoots(after.ctx, 42)
+	require.NoError(t, err)
+	assert.Empty(t, removed)
+
+	// 会话删除:已移除的行也一并删掉。
+	_, err = after.svc.Revoke(after.ctx, 42, wr.wt)
+	require.NoError(t, err)
+	require.NoError(t, after.svc.ForgetSession(after.ctx, 42))
+	assert.Empty(t, store.paths(42))
+	assert.Empty(t, store.removedPaths(42))
 }

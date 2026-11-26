@@ -49,10 +49,7 @@ import {
   selectActivePreviewTab,
   useFilePreviewTabsStore,
 } from "@/stores/file-preview-tabs-store";
-import {
-  SESSION_ROOTS_STORAGE_KEY,
-  useSessionRootStore,
-} from "@/stores/session-root-store";
+import { useSessionRootStore } from "@/stores/session-root-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { ChatContextToolWindows } from "../index";
@@ -225,15 +222,27 @@ function nestedRoots(withWorktree: boolean) {
 }
 
 /**
- * 页面重新加载：内存里的 store 状态全丢，只剩本机存储。先把存储里的快照留下，清空
- * 内存状态（这一步也会写存储），再放回快照，让 store 像刚启动一样从存储读回。
+ * 页面重新加载：内存里的 store 状态全丢，本机存储原样留着。先给存储拍快照，清空内存
+ * 状态（store 若有持久化，这一步也会写存储），再放回快照；store 若有持久化层就像刚启动
+ * 一样从存储读回。
  */
 async function reloadSessionRootStore() {
-  const saved = localStorage.getItem(SESSION_ROOTS_STORAGE_KEY);
+  const saved: [string, string][] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k !== null) saved.push([k, localStorage.getItem(k) ?? ""]);
+  }
   useSessionRootStore.setState({ bySession: {} });
-  if (saved !== null) localStorage.setItem(SESSION_ROOTS_STORAGE_KEY, saved);
-  await useSessionRootStore.persist.rehydrate();
+  localStorage.clear();
+  for (const [k, v] of saved) localStorage.setItem(k, v);
+  const persisted = useSessionRootStore as unknown as {
+    persist?: { rehydrate: () => Promise<void> | void };
+  };
+  await persisted.persist?.rehydrate();
 }
+
+/** 后端在集合之后带回的已移除的 feat-x（认领行记着 removed_at）。 */
+const removedNested = { ...nestedRoots(true)[1], aiHere: false, removed: true };
 
 function renderNested() {
   return render(
@@ -279,8 +288,9 @@ describe("变更 · 被移除的嵌套 worktree", () => {
     ).toEqual(["src/b.ts"]);
   });
 
-  // Given feat-x 在这一页上被移除过, When 页面重新加载、后端集合里已没有 feat-x,
-  // Then「feat-x（已移除）」分组仍在，b.ts 不作为主根下 .claude/worktrees/feat-x/src 的行。
+  // Given feat-x 在这一页上被移除过, When 页面重新加载、后端集合里已没有 feat-x、在集合
+  // 之后报告它已移除, Then「feat-x（已移除）」分组仍在，b.ts 不作为主根下
+  // .claude/worktrees/feat-x/src 的行。
   it("keeps the removed group across a reload instead of listing the file under the main root", async () => {
     workRootsMock.mockResolvedValue(nestedRoots(true));
     const first = renderNested();
@@ -297,7 +307,7 @@ describe("变更 · 被移除的嵌套 worktree", () => {
     first.unmount();
 
     await act(reloadSessionRootStore);
-    workRootsMock.mockResolvedValue(nestedRoots(false));
+    workRootsMock.mockResolvedValue([...nestedRoots(false), removedNested]);
     renderNested();
 
     const group = await screen.findByTestId("removed-root-group");
@@ -316,10 +326,7 @@ describe("变更 · 被移除的嵌套 worktree", () => {
   // 之后带回 removed=true 的 feat-x, Then 同样以「feat-x（已移除）」分组显示，主根没有
   // .claude/worktrees/... 的行，也不提示移除（这一页没有从它切走）。
   it("groups a nested worktree removed while the session was not open, from the backend's report", async () => {
-    workRootsMock.mockResolvedValue([
-      ...nestedRoots(false),
-      { ...nestedRoots(true)[1], aiHere: false, removed: true },
-    ]);
+    workRootsMock.mockResolvedValue([...nestedRoots(false), removedNested]);
     renderNested();
 
     const group = await screen.findByTestId("removed-root-group");
@@ -331,5 +338,33 @@ describe("变更 · 被移除的嵌套 worktree", () => {
     ).toEqual(["src/b.ts"]);
     expect(useSessionRootStore.getState().bySession[7].roots).toHaveLength(1);
     expect(useSessionRootStore.getState().bySession[7].notice).toBeNull();
+  });
+
+  // Given 这一页上 feat-x 被移除过, When 页面重新加载、后端既不在集合里也不再报告它已移除
+  // （会话的认领行已不在：例如认领回来后又被删了会话目录里的记录）, Then 不凭本机残留画
+  // 「已移除」分组 —— 已移除清单只以后端的认领行为准。
+  it("does not draw a removed group from leftover local state the backend no longer reports", async () => {
+    workRootsMock.mockResolvedValue(nestedRoots(true));
+    const first = renderNested();
+    await waitFor(() =>
+      expect(screen.getAllByTestId("change-row")).toHaveLength(1),
+    );
+    act(() =>
+      runtime.handlers.get("chat:workroots:7")!({
+        sessionId: 7,
+        roots: nestedRoots(false),
+      }),
+    );
+    await screen.findByTestId("removed-root-group");
+    first.unmount();
+
+    await act(reloadSessionRootStore);
+    workRootsMock.mockResolvedValue(nestedRoots(false));
+    renderNested();
+
+    await waitFor(() =>
+      expect(useSessionRootStore.getState().bySession[7]?.loaded).toBe(true),
+    );
+    expect(screen.queryByTestId("removed-root-group")).toBeNull();
   });
 });

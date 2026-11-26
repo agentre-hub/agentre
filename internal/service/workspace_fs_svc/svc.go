@@ -70,15 +70,15 @@ type WorkspaceFsSvc interface {
 	// 工作树的根认领并持久化。返回本次**新增**的根(没有新增时为空);git 判定
 	// 失败的候选不认领、不报错。
 	Claim(ctx context.Context, sessionID int64, candidates []string) ([]WorkRootView, error)
-	// Revoke 撤销本会话已认领的根 root(不再出现在集合里,也不再持久化)。主根不能
+	// Revoke 撤销本会话已认领的根 root(不再出现在集合里,认领行记成已移除)。主根不能
 	// 撤销;root 不是已认领的根时什么也不做。返回是否真的撤销了一个根。
 	Revoke(ctx context.Context, sessionID int64, root string) (bool, error)
 	// ForgetSession 在会话被删除时清掉它的认领:库里的行与本进程里的认领状态。
 	ForgetSession(ctx context.Context, sessionID int64) error
-	// RemovedWorkRoots 列出本进程里从本会话认领集合中消失的根(撤销的,或重验时已不是
-	// 认领时那个工作树的),每项 Removed=true;之后又被认领回来的不在其中。根消失时
-	// 认领行被删掉,这份清单只在内存里:界面没开着这个会话时,前端只能从这里知道它
-	// 曾是一个根(spec「worktree 被移除」)。
+	// RemovedWorkRoots 列出从本会话认领集合中消失的根(撤销的,或重验时已不是认领时那个
+	// 工作树的),每项 Removed=true;之后又被认领回来的不在其中。移除记在认领行上,
+	// 重启后照样在:界面没开着这个会话时,前端只能从这里知道它曾是一个根(spec
+	// 「worktree 被移除」)。
 	RemovedWorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error)
 	// ListDir 列出 root 下 relPath 这一层(relPath 为空即 root 本身)。root 为
 	// 空串表示会话 cwd;非空时必须命中本会话已认领的工作根集合,否则拒绝。
