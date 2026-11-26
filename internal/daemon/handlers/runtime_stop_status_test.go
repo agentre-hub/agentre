@@ -1,0 +1,55 @@
+package handlers_test
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/turnstate"
+)
+
+// Given 用户(agrctl / 桌面 / 控制台)对一轮发了 runtime.abort, When backend 回的是 Claude CLI
+// 软中断的收尾(一条不带 sentinel 的错误,码 0), Then 会话落 idle、终态帧带停止 sentinel,
+// 与桌面端「用户按的停止不算故障」同一句话;没有 abort 的同样错误仍是故障 failed。
+func TestRuntime_Fanout_GivenTheTurnWasAborted_WhenBackendEndsWithAnUnclassifiedError_ThenSettlesIdle(t *testing.T) {
+	interrupt := errors.New("[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null")
+	for name, tc := range map[string]struct {
+		abort    bool
+		wantStep string
+		wantCode int
+	}{
+		"stopped by user": {abort: true, wantStep: "finish:", wantCode: turnstate.AbortedCode},
+		"genuine failure": {abort: false, wantStep: "fail:", wantCode: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			turns := newScriptedTurns(1)
+			turns.turns[0].result.StopErr = interrupt
+			rt := &fullRT{runFn: turns.run, abortOutcome: agentruntime.AbortOutcome{TurnKind: agentruntime.TurnKindUser}}
+			ctx, notif, sess, h := setupRuntimeTestWithSessions(t, rt)
+			cid := convID(71)
+			runWithRT(t, h, ctx, cid)
+
+			if tc.abort {
+				_, err := h.Abort(ctx, &agentrewire.RuntimeAbortRequest{ConversationId: cid})
+				require.NoError(t, err)
+			}
+			close(turns.turns[0].events)
+			notif.waitFramesUntil(t, func(frames []notifyFrame) bool {
+				return frameIndex(frames, isMethod(wire.NotifyRunResultDone)) >= 0
+			}, func() string { return "the turn to end" })
+			steps := sess.waitSteps(t, 2)
+
+			assert.Contains(t, steps[len(steps)-1], tc.wantStep)
+			frames := notif.snapshot()
+			done := frames[frameIndex(frames, isMethod(wire.NotifyRunResultDone))]
+			frame, ok := done.params.(*wire.RunResultDoneFrame)
+			require.True(t, ok, "params %T", done.params)
+			assert.Equal(t, tc.wantCode, frame.StopErrCode)
+		})
+	}
+}

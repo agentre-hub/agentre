@@ -43,6 +43,7 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
+	"github.com/agentre-hub/agentre/pkg/wire/turnstate"
 )
 
 // RuntimeDeps are the explicit constructor inputs for RuntimeHandlers. All
@@ -172,9 +173,14 @@ type runtimeSession struct {
 	terminalClaimed   bool
 	finalizing        bool
 	aborting          bool
-	terminalDone      chan struct{}
-	terminalOnce      sync.Once
-	finalErr          error
+	// abortRequested 记「这一轮被 runtime.abort 打断过」(非 Pi 后端;Pi 走 cancelRequested)。
+	// backend 的软中断收尾未必带 stop sentinel(Claude CLI 回一条码 0 的诊断),fanout 据它把
+	// 这一轮认作用户停止而不是故障 —— 与桌面端 chat_svc 的 aborted 标记同一句话。随属主走:
+	// 下一轮是另一个属主,不继承。受 h.mu 保护。
+	abortRequested bool
+	terminalDone   chan struct{}
+	terminalOnce   sync.Once
+	finalErr       error
 }
 
 const (
@@ -861,6 +867,18 @@ func (h *RuntimeHandlers) settleSession(em *sessionEmitter, frame wire.RunResult
 	h.finishSession(em)
 }
 
+// markAbortedStop 把「被 runtime.abort 打断、却以未分类错误收场」的一轮认作用户停止:
+// 补上 stop sentinel 码,settleSession 与转录据 wire.IsTurnFailure 同一句话落 idle。
+// 没有 abort 请求的错误原样保留,仍是故障。
+func (h *RuntimeHandlers) markAbortedStop(owner *runtimeSession, frame *wire.RunResultDoneFrame) {
+	h.mu.RLock()
+	aborted := owner.abortRequested
+	h.mu.RUnlock()
+	if aborted && frame.StopErrMsg != "" {
+		frame.StopErrCode = turnstate.AbortedCode
+	}
+}
+
 // failSession 把会话落成 failed(这一轮以故障收场)。
 func (h *RuntimeHandlers) failSession(em *sessionEmitter) {
 	if err := h.deps.Sessions.Fail(em.ctx, em.peer, em.peerSessionID); err != nil {
@@ -951,6 +969,7 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 		}
 	}
 	frame := runResultToFrame(cid, result)
+	h.markAbortedStop(owner, &frame)
 	meter.stamp(&frame)
 	if owner.backendType != agent_backend_entity.TypePiAgent || owner.ctx == nil {
 		// 生命周期落回 idle 必须在终态帧**之前**:终态帧是客户端得知这一轮结束的那一刻,
@@ -1641,6 +1660,13 @@ func (h *RuntimeHandlers) Abort(ctx context.Context, req *agentrewire.RuntimeAbo
 	outcome, err := a.Abort(ctx, rid, req.GetTurnToken())
 	if err != nil {
 		return nil, err
+	}
+	if outcome.TurnKind != agentruntime.TurnKindNone {
+		h.mu.Lock()
+		if cur := h.sessions[rid]; cur == owner {
+			owner.abortRequested = true
+		}
+		h.mu.Unlock()
 	}
 	return &agentrewire.RuntimeAbortResponse{TurnKind: string(outcome.TurnKind)}, nil
 }
