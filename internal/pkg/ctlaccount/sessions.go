@@ -378,6 +378,58 @@ type SessionDetail struct {
 	Status         string `json:"status"`
 	LastActivityAt string `json:"lastActivityAt,omitempty"`
 	Pending        *int   `json:"pending,omitempty"`
+	// Initiator 是发起这条会话的人话标签，InitiatorKind 是它的种类
+	// （desktop | console | cli | token | agentred）；认不出发起方时两者都省略。
+	Initiator     string `json:"initiator,omitempty"`
+	InitiatorKind string `json:"initiatorKind,omitempty"`
+}
+
+// initiatorOf 把会话的发起对端指纹（空 = 调用方自己）换成人话标签与种类；认不出时交回两个空串。
+// 个人 token 的名字只有它自己的调用方看得到（server 的 token 列表不带对端指纹），别的 token
+// 只能说「personal token」。
+func (a *Client) initiatorOf(ctx context.Context, peer string, devices []accountDevice) (label, kind string) {
+	self := ""
+	if a.opts.SelfFingerprint != nil {
+		self, _ = a.opts.SelfFingerprint(ctx)
+	}
+	if peer == "" {
+		peer = self
+	}
+	if peer == "" {
+		return "", ""
+	}
+	if a.opts.ConsolePeer != nil {
+		if console, err := a.opts.ConsolePeer(ctx); err == nil && console != "" && console == peer {
+			return "console", "console"
+		}
+	}
+	if strings.HasPrefix(peer, "pat:") {
+		if peer == self && a.opts.SelfTokenName != nil {
+			if name, err := a.opts.SelfTokenName(ctx); err == nil && name != "" {
+				return name, "token"
+			}
+		}
+		return "personal token", "token"
+	}
+	for _, d := range devices {
+		if d.Fingerprint != peer {
+			continue
+		}
+		if peer == self && d.Kind == "cli" {
+			return "this agrctl (" + d.label() + ")", "cli"
+		}
+		return d.label(), d.Kind
+	}
+	return "", ""
+}
+
+// initiatorFields 读设备名单后解出发起方；名单读不到只是认不出，不让 get 失败。
+func (a *Client) initiatorFields(ctx context.Context, peer string) (label, kind string) {
+	devices, err := a.devices(ctx)
+	if err != nil {
+		devices = nil
+	}
+	return a.initiatorOf(ctx, peer, devices)
 }
 
 func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, error) {
@@ -396,7 +448,8 @@ func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, err
 			device = a.deviceOf(ctx, id)
 		}
 		n := len(p.GetToolPermissions()) + len(p.GetAskUserQuestions()) + len(p.GetApprovals())
-		return &SessionDetail{ID: id, Title: s.GetTitle(), Agent: nm.agent(s.GetAgentSyncId()), Project: nm.project(s.GetProjectSyncId()),
+		who, whoKind := a.initiatorFields(ctx, h.origin())
+		return &SessionDetail{Initiator: who, InitiatorKind: whoKind, ID: id, Title: s.GetTitle(), Agent: nm.agent(s.GetAgentSyncId()), Project: nm.project(s.GetProjectSyncId()),
 			Device: device, Backend: s.GetBackendType(), Model: s.GetModelKey(), LastActivityAt: rfc3339Ms(s.GetLastMessageAt()),
 			Status: sessionStatus(s.GetLifecycleState(), s.GetWaitingForInput() || n > 0), Pending: &n}, nil
 	case errors.Is(err, relaypeer.ErrTargetOffline):
@@ -412,7 +465,8 @@ func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, err
 			return nil, derr
 		}
 		label, _ := deviceByFP(devices, row.DeviceFingerprint)
-		return &SessionDetail{ID: id, Title: row.Title, Agent: nm.agent(row.AgentSyncID), Project: nm.project(row.ProjectSyncID),
+		who, whoKind := a.initiatorOf(ctx, row.PeerFingerprint, devices)
+		return &SessionDetail{Initiator: who, InitiatorKind: whoKind, ID: id, Title: row.Title, Agent: nm.agent(row.AgentSyncID), Project: nm.project(row.ProjectSyncID),
 			Device: label, DeviceOffline: true, Backend: row.BackendType, Model: row.ModelKey, LastActivityAt: rfc3339Ms(row.LastMessageAt),
 			Status: sessionStatus(row.LifecycleState, row.WaitingForInput)}, nil
 	default:

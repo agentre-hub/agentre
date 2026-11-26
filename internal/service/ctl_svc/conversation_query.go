@@ -140,7 +140,11 @@ type sessionDetail struct {
 	LastActivityAt string    `json:"lastActivityAt,omitempty"`
 	Usage          *usageDTO `json:"usage,omitempty"`
 	Pending        int       `json:"pending"`
-	LastText       string    `json:"lastText,omitempty"`
+	// Initiator / InitiatorKind:桌面只能如实说「这台桌面」——会话在它自己的库里,发起经过它
+	// (界面或本机 ctl);它不记更细的发起方(是哪个 agrctl / token),所以不往下编。
+	Initiator     string `json:"initiator,omitempty"`
+	InitiatorKind string `json:"initiatorKind,omitempty"`
+	LastText      string `json:"lastText,omitempty"`
 }
 
 func (h *ctlHandler) serveConversation(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +178,7 @@ func (h *ctlHandler) serveConversation(w http.ResponseWriter, r *http.Request) {
 		ID: d.ConversationID, Title: d.Title, Agent: d.AgentName, Device: deviceOrLocal(d.Device),
 		Backend: d.Backend, Model: d.ModelKey, Status: string(d.Status),
 		CreatedAt: rfc3339Ms(d.CreatedAt), LastActivityAt: rfc3339Ms(d.LastMessageAt),
+		Initiator: "desktop", InitiatorKind: "desktop",
 		Pending: len(pending.ToolPermissions) + len(pending.AskUserQuestions) + len(pending.Approvals), LastText: d.LastText,
 	}
 	if d.InputTokens > 0 || d.OutputTokens > 0 {

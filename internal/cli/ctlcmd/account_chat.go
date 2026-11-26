@@ -40,6 +40,7 @@ func newAccountChat(s *sys, x *executor, args []string) *ctlaccount.Client {
 		CredentialRejected: rejected,
 		Warn:               func(msg string) { _, _ = fmt.Fprintf(s.stderr, "warning: %s\n", msg) },
 		SelfFingerprint:    func(ctx context.Context) (string, error) { return selfFingerprint(ctx, x.acct) },
+		SelfTokenName:      func(ctx context.Context) (string, error) { return selfTokenName(ctx, x.acct) },
 		PollInterval:       accountPollInterval,
 		ReconnectDelay:     reconnectDelay,
 	})
@@ -51,17 +52,36 @@ func selfFingerprint(ctx context.Context, acct *ctlclient.Account) (string, erro
 	if !acct.PersonalToken() {
 		return acct.Fingerprint(), nil
 	}
+	self, err := selfToken(ctx, acct)
+	return self.PeerFingerprint, err
+}
+
+// selfTokenName 是调用方这枚个人 token 的名字；登录态不是 token，交回空串。
+func selfTokenName(ctx context.Context, acct *ctlclient.Account) (string, error) {
+	if !acct.PersonalToken() {
+		return "", nil
+	}
+	self, err := selfToken(ctx, acct)
+	return self.Item.Name, err
+}
+
+type selfTokenInfo struct {
+	Item struct {
+		Name string `json:"name"`
+	} `json:"item"`
+	PeerFingerprint string `json:"peer_fingerprint"`
+}
+
+func selfToken(ctx context.Context, acct *ctlclient.Account) (selfTokenInfo, error) {
+	var out selfTokenInfo
 	raw, err := acct.GetRaw(ctx, "/v1/personal-tokens/self")
 	if err != nil {
-		return "", serverErr(err)
-	}
-	var out struct {
-		PeerFingerprint string `json:"peer_fingerprint"`
+		return out, serverErr(err)
 	}
 	if err := cagoenvelope.Decode(raw, &out); err != nil {
-		return "", fmt.Errorf("decode the personal token: %w", err)
+		return out, fmt.Errorf("decode the personal token: %w", err)
 	}
-	return out.PeerFingerprint, nil
+	return out, nil
 }
 
 // accountCatalog 把 agrctl 的目录交给 ctlaccount：定位走 agrctl 自己的 locate（歧义时给出可

@@ -83,7 +83,9 @@ func TestConversation_GetOmitsWhatIsUnknown(t *testing.T) {
 	assert.Equal(t, "all done", out["lastText"])
 	assert.EqualValues(t, 2, out["pending"])
 	assert.Equal(t, "waiting", out["status"])
-	for _, k := range []string{"project", "usage", "initiator", "createdAt"} {
+	assert.Equal(t, "desktop", out["initiator"], "a session in the desktop's own store was started through this desktop")
+	assert.Equal(t, "desktop", out["initiatorKind"])
+	for _, k := range []string{"project", "usage", "createdAt"} {
 		assert.NotContains(t, out, k, "unknown field %s must be omitted, not invented", k)
 	}
 

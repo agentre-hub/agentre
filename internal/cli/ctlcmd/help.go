@@ -142,8 +142,8 @@ their last known status and are marked offline). -o json prints an array of
 
 const getSessionUsage = `agrctl get session <session>
 
-Prints one session as JSON: id, title, agent, project, device, backend, model, status, createdAt,
-lastActivityAt, usage {input, output}, pending (count of unanswered items) and lastText (the
+Prints one session as JSON: id, title, agent, project, device, backend, model, status, initiator
+(who started it) with initiatorKind (desktop, console, cli, token or agentred), createdAt, lastActivityAt, usage {input, output}, pending (count of unanswered items) and lastText (the
 last turn's final text, shortened). A field that cannot be determined is left out, never guessed.`
 
 func sessionResourceUsage(verb string) string {

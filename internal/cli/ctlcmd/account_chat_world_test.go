@@ -51,6 +51,8 @@ type world struct {
 	plans  []string // dispatch-target 收到的 query
 	saves  []map[string]any
 	saveOK bool
+	// extraDevices 是 /v1/devices 在固定三台之外再报的设备（按需由用例加）。
+	extraDevices []map[string]any
 }
 
 func newWorld(t *testing.T) *world {
@@ -159,11 +161,15 @@ func (w *world) serveDevices(rw http.ResponseWriter, r *http.Request) {
 	if !w.srv.authed(rw, r, true) {
 		return
 	}
-	writeEnvelope(rw, map[string]any{"devices": []map[string]any{
+	devices := []map[string]any{
 		{"id": 1, "name": "laptop", "kind": "desktop", "fingerprint": laptopFP, "online": false, "version": "0.8.0", "last_seen_at": 1_700_000_000_000},
 		{"id": 2, "name": "build-box", "kind": "agentred", "fingerprint": boxFP, "online": true, "version": "0.9.0"},
 		{"id": 42, "name": "build-box", "kind": "cli", "fingerprint": ownFP, "online": false, "version": "agrctl abc1234", "last_seen_at": 1_750_000_000_000, "is_this_device": true},
-	}})
+	}
+	w.mu.Lock()
+	devices = append(devices, w.extraDevices...)
+	w.mu.Unlock()
+	writeEnvelope(rw, map[string]any{"devices": devices})
 }
 
 func (w *world) serveSave(rw http.ResponseWriter, r *http.Request) {

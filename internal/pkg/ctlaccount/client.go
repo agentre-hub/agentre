@@ -56,6 +56,14 @@ type Options struct {
 	// under when no online device reports it (list sessions --mine); nil = only
 	// a device can tell.
 	SelfFingerprint func(ctx context.Context) (string, error)
+	// SelfTokenName answers the name of the personal token this caller is ("" = the
+	// caller is not a token); nil = unknown. get session labels the caller's own
+	// token-started sessions with it.
+	SelfTokenName func(ctx context.Context) (string, error)
+	// ConsolePeer answers the account's console (browser) peer fingerprint so get
+	// session can label console-started sessions; nil = the host cannot tell, and a
+	// peer nobody else claims stays unlabelled rather than guessed as the console.
+	ConsolePeer func(ctx context.Context) (string, error)
 	// PollInterval is how often wait / tail recheck the session; 0 = 1s.
 	PollInterval time.Duration
 	// ReconnectDelay is the pause before redialing after a drop; 0 = 1s.
