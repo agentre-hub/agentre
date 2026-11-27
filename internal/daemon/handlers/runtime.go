@@ -173,18 +173,97 @@ type runtimeSession struct {
 	terminalClaimed   bool
 	finalizing        bool
 	aborting          bool
-	// abortsInFlight / abortDelivered 记「这一轮被 runtime.abort 要求停止」(非 Pi 后端;Pi 走
-	// cancelRequested):每次 abort 在下发中断之前把 abortsInFlight 加一,回执回来再减一;
-	// 中断真下发到了这一轮(backend 没报错、也不是 TurnKindNone)就置 abortDelivered,之后
-	// 不再撤回。没打断任何东西的那一次只撤回它自己 —— 并发 / 先后到达的另一次已下发的
-	// 中断不受影响。backend 的软中断收尾未必带 stop sentinel(Claude CLI 回一条码 0 的诊断),
-	// fanout 据它们把这一轮认作用户停止而不是故障 —— 与桌面端 chat_svc 的 aborted 标记同一
-	// 句话。随属主走:下一轮是另一个属主,不继承。受 h.mu 保护。
-	abortsInFlight int
-	abortDelivered bool
-	terminalDone   chan struct{}
-	terminalOnce   sync.Once
-	finalErr       error
+	// stop 记「这一轮被 runtime.abort 要求停止」(非 Pi 后端;Pi 走 cancelRequested),见
+	// turnStop。只有真在跑一轮的属主(newTurnOwner)才有;占位行(adopted)与 Pi 属主为 nil。
+	// 随属主走:下一轮是另一个属主,不继承。
+	stop         *turnStop
+	terminalDone chan struct{}
+	terminalOnce sync.Once
+	finalErr     error
+}
+
+// turnStop 是一轮(非 Pi)的停止记号:每次 abort 在下发中断之前 begin(),回执回来 end();
+// 中断真下发到了这一轮(backend 没报错、也不是 TurnKindNone)就记 delivered,之后不再撤回。
+// 没打断任何东西的那一次只撤回它自己 —— 并发 / 先后到达的另一次已下发的中断不受影响。
+// backend 的软中断收尾未必带 stop sentinel(Claude CLI 回一条码 0 的诊断),fanout 据它把
+// 这一轮认作用户停止而不是故障 —— 与桌面端 chat_svc 的 aborted 标记同一句话。
+//
+// 它有自己的锁、不归 h.mu:RuntimeHandlers 是 per-connection 的,停止常常落在**另一条**
+// 连接上(agrctl 每条命令一条新连接、控制台的中继通道、承载 send 的连接断开后停子会话),
+// 那条连接的 handler 手里只有 attach 放进来的占位行,经 liveTurnStops 找到的是这一轮自己
+// 的记号,而这一轮的 fanout 跑在发起它的那条连接的 handler 上。
+type turnStop struct {
+	mu        sync.Mutex
+	inFlight  int
+	delivered bool
+}
+
+func (s *turnStop) begin() {
+	s.mu.Lock()
+	s.inFlight++
+	s.mu.Unlock()
+}
+
+func (s *turnStop) end(delivered bool) {
+	s.mu.Lock()
+	s.inFlight--
+	if delivered {
+		s.delivered = true
+	}
+	s.mu.Unlock()
+}
+
+func (s *turnStop) requested() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.delivered || s.inFlight > 0
+}
+
+// turnStopTable 是「会话键 → 正在跑的那一轮的停止记号」。它与 backend 的轮次表同一个作用域:
+// backend runtime 按 agentruntime.RuntimeFor 进程级共享、按同一个会话键(runtimeSessionID)
+// 持有在跑的一轮,任意一条连接的 abort 都打到它那里 —— 这一轮被要求停止的记号因此也得
+// 让任意一条连接找得到,而不是锁在某一条连接的内存会话表里。
+type turnStopTable struct {
+	mu   sync.Mutex
+	live map[int64]*turnStop
+}
+
+var liveTurnStops = &turnStopTable{live: map[int64]*turnStop{}}
+
+// open 为 sid 上新开的一轮登记一枚记号(顶掉上一轮遗留的)。
+func (t *turnStopTable) open(sid int64) *turnStop {
+	s := &turnStop{}
+	t.mu.Lock()
+	t.live[sid] = s
+	t.mu.Unlock()
+	return s
+}
+
+// close 撤下 sid 上这一轮的记号;已经被下一轮顶掉的不动。
+func (t *turnStopTable) close(sid int64, s *turnStop) {
+	if s == nil {
+		return
+	}
+	t.mu.Lock()
+	if t.live[sid] == s {
+		delete(t.live, sid)
+	}
+	t.mu.Unlock()
+}
+
+func (t *turnStopTable) lookup(sid int64) *turnStop {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.live[sid]
+}
+
+// newTurnOwner 是 sid 上真开起来的一轮(非 Pi)的属主:streaming 在登记那一刻就置上(见
+// Run),停止记号随它登记进 liveTurnStops。
+func newTurnOwner(sid int64, bt agent_backend_entity.BackendType) *runtimeSession {
+	return &runtimeSession{backendType: bt, streaming: true, stop: liveTurnStops.open(sid)}
 }
 
 const (
@@ -597,7 +676,7 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 	}
 	// streaming 在**登记那一刻**就置上,不等下面那句 go h.fanout:登记与起 fanout
 	// 之间落进来的一次 attach 同样顶得掉它,而那一轮的事件已经在路上了。
-	owner := &runtimeSession{backendType: bt, streaming: true}
+	owner := newTurnOwner(em.rid, bt)
 	h.register(em.rid, owner)
 	ack := &agentrewire.RuntimeRunResponse{ConversationId: request.GetConversationId()}
 	if providerFallbackKey != "" {
@@ -890,10 +969,7 @@ func (h *RuntimeHandlers) settleSession(em *sessionEmitter, frame wire.RunResult
 // 补上 stop sentinel 码,settleSession 与转录据 wire.IsTurnFailure 同一句话落 idle。
 // 没有 abort 请求的错误原样保留,仍是故障。
 func (h *RuntimeHandlers) markAbortedStop(owner *runtimeSession, frame *wire.RunResultDoneFrame) {
-	h.mu.RLock()
-	aborted := owner.abortDelivered || owner.abortsInFlight > 0
-	h.mu.RUnlock()
-	if aborted && frame.StopErrMsg != "" {
+	if owner.stop.requested() && frame.StopErrMsg != "" {
 		frame.StopErrCode = turnstate.AbortedCode
 	}
 }
@@ -989,6 +1065,7 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 	}
 	frame := runResultToFrame(cid, result)
 	h.markAbortedStop(owner, &frame)
+	liveTurnStops.close(rid, owner.stop)
 	meter.stamp(&frame)
 	if owner.backendType != agent_backend_entity.TypePiAgent || owner.ctx == nil {
 		// 生命周期落回 idle 必须在终态帧**之前**:终态帧是客户端得知这一轮结束的那一刻,
@@ -1152,7 +1229,7 @@ func (h *RuntimeHandlers) openSteerReplay(em *sessionEmitter, origin *turnOrigin
 		zap.Int("steerCount", len(steers)))
 	replay := &steerReplay{
 		origin: &turnOrigin{rt: origin.rt, req: req, replay: true},
-		owner:  &runtimeSession{backendType: agent_backend_entity.BackendType(req.Backend.Type), streaming: true},
+		owner:  newTurnOwner(em.rid, agent_backend_entity.BackendType(req.Backend.Type)),
 		events: events,
 		result: nextResult,
 	}
@@ -1673,17 +1750,22 @@ func (h *RuntimeHandlers) Abort(ctx context.Context, req *agentrewire.RuntimeAbo
 	}
 	// 「这一轮被要求停止」在下发中断**之前**记下(与桌面端 takeActiveTurn 先记 aborted 同序):
 	// backend 的收尾帧与中断回执没有先后保证,等回执回来再补就会把抢先到的收尾记成故障。
-	owner.abortsInFlight++
+	//
+	// 这条连接手里若只是 attach 放进来的占位行,这一轮跑在别的连接的 handler 上:记号记到
+	// 那一轮自己身上(liveTurnStops),否则那边的 fanout 看不见这次停止,把软中断记成故障。
+	stop := owner.stop
 	h.mu.Unlock()
+	if stop == nil {
+		stop = liveTurnStops.lookup(rid)
+	}
+	if stop == nil {
+		stop = &turnStop{} // 没有在跑的一轮可记:交给 backend 去判
+	}
+	stop.begin()
 	outcome, err := h.abortNonPi(ctx, req)
 	// 中断没下发下去,或 backend 说没有可停的一轮(过期的轮 token):这一次只撤回它自己,
 	// 这一轮之后的真故障照旧是故障 —— 除非另一次 abort 已经把中断下发到了这一轮。
-	h.mu.Lock()
-	owner.abortsInFlight--
-	if err == nil && outcome.TurnKind != agentruntime.TurnKindNone {
-		owner.abortDelivered = true
-	}
-	h.mu.Unlock()
+	stop.end(err == nil && outcome.TurnKind != agentruntime.TurnKindNone)
 	if err != nil {
 		return nil, err
 	}
