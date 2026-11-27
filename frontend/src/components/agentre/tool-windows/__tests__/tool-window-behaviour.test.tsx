@@ -676,6 +676,20 @@ describe("工具窗行为", () => {
       expect(layer).toHaveAttribute("aria-hidden", "true");
     });
 
+    it("Given 隐藏着的大纲, When 从图标条打开（窗口挂载时即拿焦点）, Then 描边随之出现", async () => {
+      const user = userEvent.setup();
+      act(() =>
+        useToolWindowLayout.setState({
+          shown: { ...layout().shown, rightTop: null },
+        }),
+      );
+      renderLayout();
+
+      await user.click(stripButton("Outline"));
+      expect(region("Outline")).toHaveFocus();
+      expect(ring("Outline")).not.toBeNull();
+    });
+
     it("Given 大纲有描边, When 焦点回到输入框, Then 描边消失", async () => {
       const user = userEvent.setup();
       renderLayout();
@@ -731,31 +745,31 @@ describe("工具窗行为", () => {
       expect(el).not.toHaveClass("shadow-overlay");
     });
 
-    it("Given 大纲是浮动窗, Then 保持浮层阴影、不用 --sheet-shadow", () => {
+    it("Given 大纲是浮动窗, Then 圆角与对话卡相同、保持浮层阴影、不用 --sheet-shadow", () => {
       act(() => layout().setMode("outline", "float"));
       renderLayout();
       const el = region("Outline");
-      expect(el).toHaveClass("shadow-overlay");
+      expect(el).toHaveClass("shadow-overlay", "rounded-xl");
       expect(el).not.toHaveClass("shadow-[var(--sheet-shadow)]");
     });
 
-    it("Given 窄窗口里盖在对话上的大纲, Then 保持浮层阴影、不用 --sheet-shadow", async () => {
+    it("Given 窄窗口里盖在对话上的大纲, Then 圆角与对话卡相同、保持浮层阴影、不用 --sheet-shadow", async () => {
       const user = userEvent.setup();
       stubWidth(1000);
       renderLayout();
       await user.click(stripButton("Outline"));
       const el = region("Outline");
       expect(el).toHaveAttribute("data-auto-hide", "true");
-      expect(el).toHaveClass("shadow-overlay");
+      expect(el).toHaveClass("shadow-overlay", "rounded-xl");
       expect(el).not.toHaveClass("shadow-[var(--sheet-shadow)]");
     });
 
-    it("Given 大纲最大化, Then 保持浮层阴影、不用 --sheet-shadow", () => {
+    it("Given 大纲最大化, Then 圆角与对话卡相同、保持浮层阴影、不用 --sheet-shadow", () => {
       act(() => layout().toggleMaximize("outline"));
       renderLayout();
       const el = region("Outline");
       expect(el).toHaveAttribute("data-maximized", "true");
-      expect(el).toHaveClass("shadow-overlay");
+      expect(el).toHaveClass("shadow-overlay", "rounded-xl");
       expect(el).not.toHaveClass("shadow-[var(--sheet-shadow)]");
     });
   });

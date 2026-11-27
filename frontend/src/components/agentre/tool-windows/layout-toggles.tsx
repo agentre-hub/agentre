@@ -109,7 +109,12 @@ function LayoutToggle({
 
 function RegionToggle({ region }: { region: ToolWindowRegion }) {
   const { t } = useTranslation();
-  const { shown, available } = useToolWindowLayout(selectRegionState(region));
+  const state = useToolWindowLayout(selectRegionState(region));
+  // 新建会话提示页不显示图标条与工具窗：屏幕上这个区域什么都没有，⌘J / ⌥⌘B 此时也
+  // 不生效，开关跟着读为未显示、不可点。
+  const stripShown = useToolWindowLayout((s) => s.stripMounts > 0);
+  const shown = stripShown && state.shown;
+  const available = stripShown && state.available;
   const toggleRegion = useToolWindowLayout((s) => s.toggleRegion);
   const name =
     region === "bottom"

@@ -4,10 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@agentre-hub/agentre-ui";
-import {
-  DEFAULT_TOOL_WINDOW_SLOTS,
-  useToolWindowLayout,
-} from "@/stores/tool-window-layout-store";
+import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
 
 import { AppTopBar } from "../../chrome";
 import {
@@ -35,7 +32,12 @@ const bottomBtn = () => screen.getByTestId("layout-toggle-bottom");
 const rightBtn = () => screen.getByTestId("layout-toggle-right");
 
 beforeEach(() => {
-  useToolWindowLayout.setState({ ...initial, sessionListCollapsed: false });
+  // 对话页上有图标条（新建会话提示页没有，见最后一组用例）。
+  useToolWindowLayout.setState({
+    ...initial,
+    sessionListCollapsed: false,
+    stripMounts: 1,
+  });
 });
 afterEach(() => {
   useToolWindowLayout.setState(initial, true);
@@ -83,7 +85,6 @@ describe("LayoutToggles", () => {
     );
     useToolWindowLayout.setState({ toggleRegion });
     renderToggles();
-    const initialBottom = bottomBtn().getAttribute("aria-pressed");
     expect(bottomBtn()).toBeEnabled();
     expect(rightBtn()).toBeEnabled();
 
@@ -91,18 +92,18 @@ describe("LayoutToggles", () => {
     expect(toggleRegion).toHaveBeenLastCalledWith("bottom");
     await user.click(rightBtn());
     expect(toggleRegion).toHaveBeenLastCalledWith("right");
-    expect(initialBottom).toMatch(/true|false/);
   });
 
   it("when a region is shown it is pressed with a filled icon and 'Hide' wording", () => {
-    renderToggles();
-    const r = useToolWindowLayout.getState();
-    expect(r.slotOf).toBeDefined();
-    const pressed = rightBtn().getAttribute("aria-pressed") === "true";
-    expect(rightBtn()).toHaveAccessibleName(
-      pressed ? "Hide right tool windows" : "Show right tool windows",
+    act(() =>
+      useToolWindowLayout.setState({
+        shown: { ...useToolWindowLayout.getState().shown, rightTop: "outline" },
+      }),
     );
-    expect(rightBtn().querySelector("[data-filled]") !== null).toBe(pressed);
+    renderToggles();
+    expect(rightBtn()).toHaveAttribute("aria-pressed", "true");
+    expect(rightBtn()).toHaveAccessibleName("Hide right tool windows");
+    expect(rightBtn().querySelector("[data-filled]")).not.toBeNull();
   });
 
   it("when a region has no windows it is disabled and the tooltip says so", async () => {
@@ -119,7 +120,28 @@ describe("LayoutToggles", () => {
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
       "The right area has no tool windows",
     );
-    expect(DEFAULT_TOOL_WINDOW_SLOTS).toBeDefined();
+  });
+
+  // Given 对话页的新建会话提示页（不显示图标条与工具窗，2026-11-24 spec）, When 渲染,
+  // Then 底部 / 右侧开关读为未显示且不可点（屏幕上没有工具窗，与 ⌘J / ⌥⌘B 此时不生效
+  // 一致），保存的布局不被改写；会话列表开关照常可用。
+  it("on the new-session page (no strip) the region toggles read hidden and are disabled", async () => {
+    const user = userEvent.setup();
+    act(() =>
+      useToolWindowLayout.setState({
+        stripMounts: 0,
+        shown: { ...useToolWindowLayout.getState().shown, rightTop: "outline" },
+      }),
+    );
+    renderToggles();
+    for (const btn of [bottomBtn(), rightBtn()]) {
+      expect(btn).toBeDisabled();
+      expect(btn).toHaveAttribute("aria-pressed", "false");
+      expect(btn.querySelector("[data-filled]")).toBeNull();
+    }
+    await user.click(rightBtn());
+    expect(useToolWindowLayout.getState().shown.rightTop).toBe("outline");
+    expect(sessionBtn()).toBeEnabled();
   });
 
   it("is keyboard reachable with Tab in order", async () => {

@@ -239,6 +239,24 @@ describe("TerminalToolWindow · 在工具窗外壳里", () => {
     expect(screen.getByTestId("terminal-panel").dataset.surface).toBe("sheet");
   });
 
+  // Given 终端面板挂在常驻宿主那棵 React 树里, When 焦点进入、再离开终端, Then 工具窗的
+  // 焦点描边随之出现、消失（spec「焦点框与工具窗外观」：焦点离开工具窗时描边消失）。
+  it("shows the focus ring while focus is inside the terminal and drops it when focus leaves", async () => {
+    oneRoot();
+    render(<FramedHarness />);
+    await newTerminal();
+    const region = screen.getByRole("region", { name: "Terminal" });
+    const ring = () => region.querySelector("[data-tool-window-focus-ring]");
+    const inside = within(screen.getByTestId("terminal-panel")).getByRole(
+      "button",
+      { name: "panel-close" },
+    );
+    act(() => inside.focus());
+    expect(ring()).not.toBeNull();
+    act(() => inside.blur());
+    expect(ring()).toBeNull();
+  });
+
   // Given 焦点在终端里, When 按 ⇧Esc, Then 隐藏终端工具窗（终端面板挂在常驻宿主里，按键要照样落到外壳）。
   it("hides the window on shift+Esc pressed inside the terminal", async () => {
     oneRoot();

@@ -146,11 +146,24 @@ function ToolWindowFrameImpl({
     handleKey(e.nativeEvent);
 
   // 描边画在内容之上，由「焦点是否在工具窗内」这个事实决定渲不渲染（鼠标、键盘聚焦都算）。
+  // 用原生 focusin / focusout：终端面板属于常驻宿主那棵 React 树，它的焦点事件不经
+  // React 冒到外壳，但在 DOM 上就在窗口里。用 layout effect 挂，赶在上面那个「挂载即
+  // 拿焦点」的 effect 之前。
   const [focused, setFocused] = React.useState(false);
-  const onFocus = () => setFocused(true);
-  const onBlur = (e: React.FocusEvent<HTMLElement>) => {
-    if (!e.currentTarget.contains(e.relatedTarget)) setFocused(false);
-  };
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const onFocusIn = () => setFocused(true);
+    const onFocusOut = (e: FocusEvent) => {
+      if (!el.contains(e.relatedTarget as Node | null)) setFocused(false);
+    };
+    el.addEventListener("focusin", onFocusIn);
+    el.addEventListener("focusout", onFocusOut);
+    return () => {
+      el.removeEventListener("focusin", onFocusIn);
+      el.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
 
   const [titleBar, setTitleBar] = React.useState<HTMLElement | null>(null);
   const slots = React.useMemo<FrameSlots>(
@@ -219,15 +232,12 @@ function ToolWindowFrameImpl({
       data-auto-hide={autoHide}
       data-maximized={presentation === "maximized"}
       onKeyDown={onKeyDown}
-      onFocus={onFocus}
-      onBlur={onBlur}
       style={{ ...floatStyle, ...style }}
       className={cn(
-        "group/tool-window flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sheet outline-none",
-        // 停靠的与对话卡同一张纸：同圆角、同 --sheet-shadow；浮动 / 覆盖 / 最大化保持浮层的样子。
-        presentation === "docked"
-          ? "rounded-xl shadow-[var(--sheet-shadow)]"
-          : "rounded-[10px]",
+        // 圆角与对话卡相同；停靠的再与它同一卡片阴影（--sheet-shadow），浮动 / 覆盖 /
+        // 最大化保持浮层阴影。
+        "group/tool-window flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl bg-sheet outline-none",
+        presentation === "docked" && "shadow-[var(--sheet-shadow)]",
         presentation !== "float" && "relative",
         // 盖在工具窗区域上方的那几种：所在的覆盖层不接指针，它们自己接。
         presentation !== "docked" && "pointer-events-auto",
