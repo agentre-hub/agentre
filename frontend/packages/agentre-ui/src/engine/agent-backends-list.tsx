@@ -28,6 +28,7 @@ import { FailureDetail } from "../transcript/failure-detail";
 import { backendDeviceLocation } from "./agent-backends-utils";
 import {
   isCliBackend,
+  requiresAgentreProvider,
   type Backend,
   type BackendType,
   type FailureNotice,
@@ -254,10 +255,12 @@ export function BackendRow({
   const typ = (backend.type as BackendType) ?? "builtin";
   const cliBased = isCliBackend(typ);
   const openClaw = typ === "openclaw";
-  // 未关联 provider 的 CLI 后端 = 走 CLI 自身 login，不算需处理。
+  // 未关联 provider 的 CLI 后端 = 走 CLI 自身 login，不算需处理；必须绑定
+  // provider 的（antigravity）没有这条退路，未关联就是失效。
   const providerKey =
     (backend as unknown as { llmProviderKey?: string }).llmProviderKey ?? "";
-  const unlinkedCli = cliBased && providerKey === "";
+  const unlinkedCli =
+    cliBased && !requiresAgentreProvider(typ) && providerKey === "";
   const warning = !openClaw && !unlinkedCli && !backend.llmProviderActive;
   const bindingVariant: BindingVariant = openClaw
     ? "openclaw"

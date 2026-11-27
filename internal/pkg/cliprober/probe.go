@@ -44,6 +44,8 @@ func Probe(ctx context.Context, req ProbeRequest) (*ProbeResponse, error) {
 		return probeCodex(ctx, req)
 	case "piagent":
 		return probePiAgent(ctx, req)
+	case "antigravity":
+		return probeAntigravity(ctx, req)
 	default:
 		return nil, ErrInvalidType
 	}

@@ -53,6 +53,7 @@ var backendTypes = []backendType{
 		{"acpCommand", "executable: absolute path or a name on PATH"},
 		{"acpArgs", `["arg", …]`},
 	}},
+	{name: "antigravity", summary: "Antigravity CLI (agy acp); needs a gemini --provider"},
 }
 
 func lookupBackendType(name string) *backendType {

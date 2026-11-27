@@ -40,7 +40,9 @@ export type PickerProvider = {
 //   - claudecode 只收 anthropic；
 //   - codex 只收 openai-response；
 //   - piagent 收 anthropic / openai-chat / openai-response；
-//   - builtin（与 chat/route 的继承来源）收所有 Agentre provider。
+//   - antigravity 只收 gemini；
+//   - builtin（与 chat/route 的继承来源）收除 gemini 外的所有 Agentre provider
+//     ——gemini 只归 antigravity（kinds.go 的 builtinKind.ProviderTypeMatch）。
 export function providerCompatibleForBackend(
   backendType: string,
   providerType: string,
@@ -56,8 +58,10 @@ export function providerCompatibleForBackend(
         providerType === "openai-chat" ||
         providerType === "openai-response"
       );
+    case "antigravity":
+      return providerType === "gemini";
     default:
-      return true;
+      return providerType !== "gemini";
   }
 }
 

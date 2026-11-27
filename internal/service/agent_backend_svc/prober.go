@@ -27,12 +27,13 @@ import (
 // 默认注册表只包含 builtin in-process 路径；单测可临时替换这个包级 var
 // 验证 Test() 的 BackendType 派发。
 var proberRegistry = map[agent_backend_entity.BackendType]Prober{
-	agent_backend_entity.TypeBuiltin:    builtinProber{},
-	agent_backend_entity.TypeClaudeCode: cliProber{},
-	agent_backend_entity.TypeCodex:      cliProber{},
-	agent_backend_entity.TypePiAgent:    cliProber{},
-	agent_backend_entity.TypeHermes:     hermesProber{creds: defaultHermesCredentials},
-	agent_backend_entity.TypeACP:        acpProber{},
+	agent_backend_entity.TypeBuiltin:     builtinProber{},
+	agent_backend_entity.TypeClaudeCode:  cliProber{},
+	agent_backend_entity.TypeCodex:       cliProber{},
+	agent_backend_entity.TypePiAgent:     cliProber{},
+	agent_backend_entity.TypeAntigravity: cliProber{},
+	agent_backend_entity.TypeHermes:      hermesProber{creds: defaultHermesCredentials},
+	agent_backend_entity.TypeACP:         acpProber{},
 }
 
 // providerBuilder 是 agentprovider.Build 的间接引用，让单测能把 fake provider
@@ -261,6 +262,9 @@ func buildCLIProbeEnv(b *agent_backend_entity.AgentBackend, deps ProbeDeps) (map
 	case agent_backend_entity.TypePiAgent:
 		env, err := agentruntime.BuildPiAgentEnv(b, cliDeps)
 		return env, nil, err
+	case agent_backend_entity.TypeAntigravity:
+		// 只探 `agy --version`，不需要 env。
+		return nil, nil, nil
 	default:
 		return nil, nil, errors.New("unsupported CLI backend")
 	}

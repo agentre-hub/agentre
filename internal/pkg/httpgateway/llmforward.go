@@ -59,6 +59,97 @@ func (f *Forwarder) OpenAIChatHandler() http.HandlerFunc {
 	return f.handle(llm_provider_entity.TypeOpenAIChat)
 }
 
+// GeminiHandler POST /v1beta/models/{model}:{method} → 严格匹配 type=gemini。
+//
+// 与另三条路由的差别：只收 POST；token 在 x-goog-api-key 头或 ?key= 查询参数里，模型名
+// 在路径里而不在 body 里。路径模型一律改写成 token 绑定的模型（含 agy 每轮的旁路模型），
+// 解析不出就 502 —— 这条路没有 CLI --model 兜底，透传路径模型等于打到 agy 的内置模型。
+// body 原样透传，原查询参数保留（key 除外），上游错误与 SSE 都由 ReverseProxy 原样回传。
+func (f *Forwarder) GeminiHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeJSONError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		token := extractGeminiKey(r)
+		if token == "" {
+			writeJSONError(w, http.StatusUnauthorized, "missing token")
+			return
+		}
+		entry, ok := f.tokens.Resolve(token)
+		if !ok {
+			writeJSONError(w, http.StatusUnauthorized, "invalid or expired token")
+			return
+		}
+		pathModel, method, ok := splitGeminiPath(r.URL.Path)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		rt, _ := entry.ResolveModel(pathModel)
+		provider, ok := f.resolveProvider(w, r, rt, llm_provider_entity.TypeGemini)
+		if !ok {
+			return
+		}
+		modelID, err := f.resolveModelID(r.Context(), provider, rt)
+		if err != nil {
+			writeJSONError(w, http.StatusBadGateway, "resolve model: "+err.Error())
+			return
+		}
+		if modelID == "" {
+			writeJSONError(w, http.StatusBadGateway, "resolve model: no bound model to rewrite the path model to")
+			return
+		}
+		target, err := llmurl.Build(
+			llmurl.EffectiveBaseURL(provider.Type, provider.BaseURL), geminiModelsPrefix+modelID+":"+method)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "build upstream URL: "+err.Error())
+			return
+		}
+		query := r.URL.Query()
+		query.Del("key")
+
+		proxy := &httputil.ReverseProxy{
+			Transport:     f.transport,
+			FlushInterval: -1, // SSE 立刻 flush
+			Rewrite: func(pr *httputil.ProxyRequest) {
+				pr.SetURL(target)
+				pr.Out.URL.Path = target.Path
+				pr.Out.URL.RawPath = ""
+				pr.Out.URL.RawQuery = query.Encode()
+				pr.Out.Host = target.Host
+				pr.Out.Header.Del("Authorization")
+				pr.Out.Header.Set("x-goog-api-key", provider.APIKey)
+			},
+		}
+		proxy.ServeHTTP(w, r)
+	}
+}
+
+const geminiModelsPrefix = "/v1beta/models/"
+
+// extractGeminiKey 取会话 token：x-goog-api-key 头优先，其次 ?key=。
+func extractGeminiKey(r *http.Request) string {
+	if v := strings.TrimSpace(r.Header.Get("x-goog-api-key")); v != "" {
+		return v
+	}
+	return strings.TrimSpace(r.URL.Query().Get("key"))
+}
+
+// splitGeminiPath 把 /v1beta/models/{model}:{method} 拆成 model 与 method。
+func splitGeminiPath(path string) (model, method string, ok bool) {
+	rest, found := strings.CutPrefix(path, geminiModelsPrefix)
+	if !found {
+		return "", "", false
+	}
+	model, method, found = strings.Cut(rest, ":")
+	if !found || model == "" || method == "" || strings.Contains(rest, "/") {
+		return "", "", false
+	}
+	return model, method, true
+}
+
 // handle 是统一转发逻辑：鉴权 → 模型路由 → 严格匹配 provider type → body 改写 →
 // httputil.ReverseProxy 透传上游。
 func (f *Forwarder) handle(expected llm_provider_entity.ProviderType) http.HandlerFunc {
@@ -85,17 +176,8 @@ func (f *Forwarder) handle(expected llm_provider_entity.ProviderType) http.Handl
 		modelField := extractModelField(body)
 		rt, _ := entry.ResolveModel(modelField)
 
-		provider, err := f.lookup.FindByKey(r.Context(), rt.ProviderKey)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "lookup provider: "+err.Error())
-			return
-		}
-		if provider == nil || !provider.IsActive() {
-			writeJSONError(w, http.StatusBadGateway, "provider missing or inactive")
-			return
-		}
-		if llm_provider_entity.ProviderType(provider.Type) != expected {
-			writeJSONError(w, http.StatusBadRequest, "provider type mismatch")
+		provider, ok := f.resolveProvider(w, r, rt, expected)
+		if !ok {
 			return
 		}
 
@@ -136,6 +218,26 @@ func (f *Forwarder) handle(expected llm_provider_entity.ProviderType) http.Handl
 		}
 		proxy.ServeHTTP(w, r)
 	}
+}
+
+// resolveProvider 按 token target 取 provider 并严格校验类型；失败时已写好错误响应并返回 false。
+func (f *Forwarder) resolveProvider(
+	w http.ResponseWriter, r *http.Request, rt TokenTarget, expected llm_provider_entity.ProviderType,
+) (*llm_provider_entity.LLMProvider, bool) {
+	provider, err := f.lookup.FindByKey(r.Context(), rt.ProviderKey)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "lookup provider: "+err.Error())
+		return nil, false
+	}
+	if provider == nil || !provider.IsActive() {
+		writeJSONError(w, http.StatusBadGateway, "provider missing or inactive")
+		return nil, false
+	}
+	if llm_provider_entity.ProviderType(provider.Type) != expected {
+		writeJSONError(w, http.StatusBadRequest, "provider type mismatch")
+		return nil, false
+	}
+	return provider, true
 }
 
 // resolveModelID 解析 token target 对应的真实 ModelID（供 body 模型改写）。

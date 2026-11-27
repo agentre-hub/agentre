@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -207,6 +208,28 @@ func TestTestConnection(t *testing.T) {
 			resp, err := svc.TestConnection(ctx, &TestConnectionRequest{UseDraft: true, Type: "openai-chat", APIKey: "k"})
 			assert.NoError(t, err)
 			assert.False(t, resp.OK)
+		})
+
+		convey.Convey("gemini 草稿走 GET /v1beta/models 且 key 在 x-goog-api-key", func() {
+			doer.respond(200, `{"models":[{"name":"glm-5.3-flash-free"}]}`)
+			resp, err := svc.TestConnection(ctx, &TestConnectionRequest{
+				UseDraft: true, Type: "gemini", APIKey: "gk", BaseURL: "https://huu.dqy.ink", ModelID: "glm-5.3-flash-free",
+			})
+			assert.NoError(t, err)
+			assert.True(t, resp.OK)
+			assert.Equal(t, http.MethodGet, doer.last.Method)
+			assert.Equal(t, "https://huu.dqy.ink/v1beta/models", doer.last.URL.String())
+			assert.Equal(t, "gk", doer.last.Header.Get("x-goog-api-key"))
+		})
+
+		convey.Convey("gemini 401 → OK=false", func() {
+			doer.respond(401, `{}`)
+			resp, err := svc.TestConnection(ctx, &TestConnectionRequest{
+				UseDraft: true, Type: "gemini", APIKey: "bad", ModelID: "m",
+			})
+			assert.NoError(t, err)
+			assert.False(t, resp.OK)
+			assert.Contains(t, resp.Message, "401")
 		})
 
 		convey.Convey("openai-response 草稿按 ModelID 走 /responses", func() {

@@ -33,6 +33,9 @@ const (
 	// 适用于 o-series、gpt-5-codex 等仅支持 Responses API 的 OpenAI 模型；
 	// 多数 OpenAI 兼容端尚未实现此协议，请优先选 TypeOpenAIChat。
 	TypeOpenAIResponse ProviderType = "openai-response"
+	// TypeGemini 是 Gemini 原生协议（/v1beta/...）的网关或官方端点；Base URL 填根地址，
+	// 留空走 https://generativelanguage.googleapis.com。只供 antigravity 后端使用。
+	TypeGemini ProviderType = "gemini"
 )
 
 const (
@@ -85,7 +88,7 @@ func (p *LLMProvider) Check(ctx context.Context) error {
 		return i18n.NewError(ctx, code.InvalidParameter)
 	}
 	switch ProviderType(p.Type) {
-	case TypeAnthropic, TypeOpenAIChat, TypeOpenAIResponse:
+	case TypeAnthropic, TypeOpenAIChat, TypeOpenAIResponse, TypeGemini:
 		return nil
 	default:
 		return i18n.NewError(ctx, code.LLMProviderInvalidType)

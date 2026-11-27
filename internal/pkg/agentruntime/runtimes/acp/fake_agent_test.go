@@ -42,6 +42,11 @@ type fakeAgent struct {
 	lastLoadID  string
 	lastCwd     string
 	promptReq   acpsdk.PromptRequest
+	// calls 是收到的 client→agent 方法名(按到达顺序),authIDs 是 authenticate 的 methodId,
+	// specs 是每次 dial 收到的 launchSpec —— 握手顺序与启动参数都按它们断言。
+	calls   []string
+	authIDs []string
+	specs   []launchSpec
 
 	promptSeen chan acpsdk.PromptRequest
 	cancels    chan struct{}
@@ -53,13 +58,17 @@ type fakeAgentOptions struct {
 	mcpHTTP         bool
 	loadSession     bool
 	loadFails       bool
-	sessionID       string // 默认 "acp-sess-1"
+	sessionID       string   // 默认 "acp-sess-1"
+	authMethods     []string // initialize 回包里通告的认证方式 id
+	authError       string   // 非空时 authenticate 回这条错误
+	stderr          string   // transport 的 stderr 尾巴
 }
 
 // fakeTransport 把一对内存管道适配成 agentTransport。
 type fakeTransport struct {
-	r *os.File // client 读(agent 写)
-	w *os.File // client 写(agent 读)
+	r      *os.File // client 读(agent 写)
+	w      *os.File // client 写(agent 读)
+	stderr string
 }
 
 func (t *fakeTransport) Read(p []byte) (int, error)  { return t.r.Read(p) }
@@ -75,7 +84,7 @@ func (t *fakeTransport) Kill() error {
 	return nil
 }
 func (t *fakeTransport) PID() int           { return 0 }
-func (t *fakeTransport) StderrTail() string { return "" }
+func (t *fakeTransport) StderrTail() string { return t.stderr }
 
 // installFakeAgent 起 fake agent 并把 dialAgentTransport 换成内存管道,
 // 返回 fake。每次 dial 各建一对新管道(生产里是一次新 spawn),全都接到同一个
@@ -96,7 +105,7 @@ func installFakeAgent(t *testing.T, opts fakeAgentOptions) *fakeAgent {
 		cancels:     make(chan struct{}, 8),
 	}
 	orig := dialAgentTransport
-	dialAgentTransport = func(context.Context, launchSpec) (agentTransport, error) {
+	dialAgentTransport = func(_ context.Context, spec launchSpec) (agentTransport, error) {
 		agentRead, clientWrite, err := os.Pipe()
 		if err != nil {
 			return nil, err
@@ -108,9 +117,10 @@ func installFakeAgent(t *testing.T, opts fakeAgentOptions) *fakeAgent {
 		fa.mu.Lock()
 		fa.w = agentWrite
 		fa.dials = append(fa.dials, [4]*os.File{agentRead, agentWrite, clientRead, clientWrite})
+		fa.specs = append(fa.specs, spec)
 		fa.mu.Unlock()
 		go fa.run(agentRead)
-		return &fakeTransport{r: clientRead, w: clientWrite}, nil
+		return &fakeTransport{r: clientRead, w: clientWrite, stderr: opts.stderr}, nil
 	}
 	t.Cleanup(func() {
 		dialAgentTransport = orig
@@ -142,6 +152,11 @@ func (fa *fakeAgent) run(r io.Reader) {
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 			continue
 		}
+		if msg.Method != "" {
+			fa.mu.Lock()
+			fa.calls = append(fa.calls, msg.Method)
+			fa.mu.Unlock()
+		}
 		switch msg.Method {
 		case "":
 			// 客户端对我们发出的 session/request_permission 的应答。
@@ -169,7 +184,12 @@ func (fa *fakeAgent) run(r io.Reader) {
 			fa.initReq = req
 			fa.initSeen = true
 			fa.mu.Unlock()
+			authMethods := make([]acpsdk.AuthMethod, 0, len(fa.opts.authMethods))
+			for _, id := range fa.opts.authMethods {
+				authMethods = append(authMethods, acpsdk.AuthMethod{Agent: &acpsdk.AuthMethodAgent{Id: id, Name: id}})
+			}
 			fa.respond(msg.ID, acpsdk.InitializeResponse{
+				AuthMethods:     authMethods,
 				ProtocolVersion: acpsdk.ProtocolVersion(fa.opts.protocolVersion),
 				AgentCapabilities: acpsdk.AgentCapabilities{
 					LoadSession: fa.opts.loadSession,
@@ -180,6 +200,17 @@ func (fa *fakeAgent) run(r io.Reader) {
 				},
 				AgentInfo: &acpsdk.Implementation{Name: "fake-agent", Version: "0.0.1"},
 			})
+		case "authenticate":
+			var req acpsdk.AuthenticateRequest
+			_ = json.Unmarshal(msg.Params, &req)
+			fa.mu.Lock()
+			fa.authIDs = append(fa.authIDs, req.MethodId)
+			fa.mu.Unlock()
+			if fa.opts.authError != "" {
+				fa.respondError(msg.ID, -32000, fa.opts.authError)
+				continue
+			}
+			fa.respond(msg.ID, acpsdk.AuthenticateResponse{})
 		case "session/new":
 			var req acpsdk.NewSessionRequest
 			_ = json.Unmarshal(msg.Params, &req)
@@ -371,4 +402,25 @@ func (fa *fakeAgent) lastLoadedSessionID() string {
 	fa.mu.Lock()
 	defer fa.mu.Unlock()
 	return fa.lastLoadID
+}
+
+// methodCalls 回收到的 client→agent 方法名(到达顺序)。
+func (fa *fakeAgent) methodCalls() []string {
+	fa.mu.Lock()
+	defer fa.mu.Unlock()
+	return append([]string(nil), fa.calls...)
+}
+
+// authenticateIDs 回每次 authenticate 请求的 methodId。
+func (fa *fakeAgent) authenticateIDs() []string {
+	fa.mu.Lock()
+	defer fa.mu.Unlock()
+	return append([]string(nil), fa.authIDs...)
+}
+
+// launchSpecs 回每次 dial 收到的启动参数。
+func (fa *fakeAgent) launchSpecs() []launchSpec {
+	fa.mu.Lock()
+	defer fa.mu.Unlock()
+	return append([]launchSpec(nil), fa.specs...)
 }

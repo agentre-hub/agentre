@@ -1358,7 +1358,12 @@ func (s *chatSvc) resolveAgentBackend(ctx context.Context, sess *chat_entity.Ses
 		if prov == nil || !prov.IsActive() {
 			return nil, nil, nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
 		}
-	case agent_backend_entity.TypeClaudeCode, agent_backend_entity.TypeCodex, agent_backend_entity.TypePiAgent:
+	case agent_backend_entity.TypeClaudeCode, agent_backend_entity.TypeCodex, agent_backend_entity.TypePiAgent,
+		agent_backend_entity.TypeAntigravity:
+		// antigravity 与 claudecode/codex 同档经网关取 LLM，但没有 CLI 登录态可退：必须绑供应商。
+		if be.LLMProviderKey == "" && be.IsAntigravity() {
+			return nil, nil, nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
+		}
 		if be.LLMProviderKey != "" {
 			prov, err = llm_provider_repo.LLMProvider().FindByKey(ctx, be.LLMProviderKey)
 			if err != nil {
@@ -2504,8 +2509,13 @@ func (s *chatSvc) buildRunRequest(
 	if err != nil {
 		return agentruntime.RunRequest{}, err
 	}
+	// 执行设备的 cli_path 覆盖写在交给 runtime 的副本上（见 withDeviceCLIOverlay）。
+	runBackend, err := withDeviceCLIOverlay(ctx, effectiveBackendForSession(sess, be))
+	if err != nil {
+		return agentruntime.RunRequest{}, err
+	}
 	req := agentruntime.RunRequest{
-		Backend:           effectiveBackendForSession(sess, be),
+		Backend:           runBackend,
 		Provider:          prov,
 		Effective:         cfg,
 		AgentID:           a.ID,

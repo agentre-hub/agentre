@@ -75,7 +75,7 @@ func newLLMAddCmd() *cobra.Command {
 	}
 	cmd.Flags().String("key", "", "stable provider key (UUIDv4 from desktop UI)")
 	cmd.Flags().String("name", "", "human label")
-	cmd.Flags().String("type", "", "anthropic|openai-chat|openai-response")
+	cmd.Flags().String("type", "", "anthropic|openai-chat|openai-response|gemini")
 	cmd.Flags().String("base-url", "", "endpoint base URL")
 	cmd.Flags().String("model", "", "default model id")
 	cmd.Flags().String("api-key", "", "API key")

@@ -12,6 +12,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 )
 
 // ProviderLookup implements httpgateway.ProviderLookup: given a stable provider key,
@@ -45,6 +46,35 @@ func (l *ProviderLookup) FindByKey(ctx context.Context, key string) (*llm_provid
 		DefaultModelKey: meta.DefaultModelKey,
 		Status:          consts.ACTIVE,
 	}, nil
+}
+
+// FindModelByKey satisfies httpgateway.ModelLookup：按稳定 model_key 在 daemon 目录里
+// 找模型，使远端网关与桌面一样改写请求里的模型。model_key 全局唯一，故遍历各供应商。
+// 找不到返回 (nil, nil)（与桌面仓储一致，由网关报 model not found）；停用的模型照实
+// 返回，由网关按 IsEnabled 拒绝。
+func (l *ProviderLookup) FindModelByKey(_ context.Context, modelKey string) (*llm_provider_model_entity.LLMProviderModel, error) {
+	snap := l.state.Snapshot()
+	for _, meta := range snap.LLMProviders {
+		for _, m := range meta.Models {
+			if m.ModelKey != modelKey {
+				continue
+			}
+			enabled := llm_provider_model_entity.EnabledOff
+			if m.Enabled {
+				enabled = llm_provider_model_entity.EnabledOn
+			}
+			return &llm_provider_model_entity.LLMProviderModel{
+				ModelKey:      m.ModelKey,
+				ModelID:       m.ModelID,
+				Name:          m.Name,
+				ContextWindow: intFromPtr(m.ContextWindow),
+				MaxOutput:     intFromPtr(m.MaxOutput),
+				Enabled:       enabled,
+				Status:        consts.ACTIVE,
+			}, nil
+		}
+	}
+	return nil, nil
 }
 
 // ResolveModel satisfies handlers.LLMProviderLookupPort: resolve the provider's

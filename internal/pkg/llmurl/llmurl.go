@@ -11,6 +11,7 @@ import (
 const (
 	defaultAnthropicBaseURL = "https://api.anthropic.com"
 	defaultOpenAIBaseURL    = "https://api.openai.com/v1"
+	defaultGeminiBaseURL    = "https://generativelanguage.googleapis.com"
 )
 
 // EffectiveBaseURL resolves the base URL actually used for a provider. A blank
@@ -23,6 +24,9 @@ func EffectiveBaseURL(providerType, configured string) string {
 	}
 	if providerType == "anthropic" {
 		return defaultAnthropicBaseURL
+	}
+	if providerType == "gemini" {
+		return defaultGeminiBaseURL
 	}
 	return defaultOpenAIBaseURL
 }

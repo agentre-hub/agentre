@@ -6,6 +6,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -208,3 +209,36 @@ func TestProviderLookup_ResolveModel(t *testing.T) {
 }
 
 func ptrInt64(v int64) *int64 { return &v }
+
+func TestProviderLookup_FindModelByKey(t *testing.T) {
+	st, err := state.Load(t.TempDir())
+	require.NoError(t, err)
+	st.Mutate(func(s *state.State) {
+		s.LLMProviders["p1"] = state.LLMProviderMeta{Name: "g", Type: "gemini", APIKey: "k", Models: []state.LLMModelMeta{
+			{ModelKey: "mk-on", ModelID: "gemini-3.1-pro-preview", Enabled: true},
+			{ModelKey: "mk-off", ModelID: "gemini-old", Enabled: false},
+		}}
+	})
+	lookup := NewProviderLookup(st)
+
+	m, err := lookup.FindModelByKey(context.Background(), "mk-on")
+	require.NoError(t, err)
+	require.NotNil(t, m)
+	assert.Equal(t, "gemini-3.1-pro-preview", m.ModelID)
+	assert.True(t, m.IsEnabled())
+	assert.True(t, m.IsActive())
+
+	// 停用的模型照实返回，由网关按 IsEnabled 判 502。
+	m, err = lookup.FindModelByKey(context.Background(), "mk-off")
+	require.NoError(t, err)
+	assert.False(t, m.IsEnabled())
+
+	// 不存在：与桌面仓储一致返回 (nil, nil)，由网关报 model not found。
+	m, err = lookup.FindModelByKey(context.Background(), "mk-none")
+	require.NoError(t, err)
+	assert.Nil(t, m)
+}
+
+func TestProviderLookup_ImplementsGatewayModelLookup(t *testing.T) {
+	var _ httpgateway.ModelLookup = (*ProviderLookup)(nil)
+}

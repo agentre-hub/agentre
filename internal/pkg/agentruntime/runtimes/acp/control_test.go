@@ -173,7 +173,7 @@ func TestSubmitToolPermission_UnknownRequestIDIdemponent(t *testing.T) {
 // 答取消应答(协议硬要求),而不是让它们悬在连接上。
 func TestAbort_AnswersPendingPermissionsCancelled(t *testing.T) {
 	r, fa, events, reply := startPermissionTurn(t, allKindsOptions())
-	waitForPermissionRequest(t, events)
+	req := waitForPermissionRequest(t, events)
 
 	_, err := r.Abort(context.Background(), 21, 0)
 	require.NoError(t, err)
@@ -181,5 +181,65 @@ func TestAbort_AnswersPendingPermissionsCancelled(t *testing.T) {
 	require.NotNil(t, resp.Outcome.Cancelled, "abort must cancel pending request_permission") //nolint:misspell // SDK field name
 
 	fa.respondPrompt(acpsdk.StopReasonCancelled, nil)
-	drainEvents(t, events)
+	got := drainEvents(t, events)
+
+	// 挂着的审批卡必须随中断收起:事件流里要有对应的 Resolved(拒绝),
+	// 且排在轮次终态事件之前。
+	resolvedAt, doneAt := -1, -1
+	for i, ev := range got {
+		switch e := ev.(type) {
+		case agentruntime.ToolPermissionResolved:
+			require.Equal(t, req.RequestID, e.RequestID)
+			require.False(t, e.Allowed)
+			require.False(t, e.AlwaysAllow)
+			require.Equal(t, -1, resolvedAt, "exactly one resolved event per pending request")
+			resolvedAt = i
+		case agentruntime.Done:
+			doneAt = i
+		}
+	}
+	require.GreaterOrEqual(t, resolvedAt, 0, "abort must emit ToolPermissionResolved for the pending request")
+	require.GreaterOrEqual(t, doneAt, 0, "an aborted turn still ends with Done")
+	require.Less(t, resolvedAt, doneAt, "resolved must precede the terminal event")
+}
+
+// TestContextCancel_AnswersPendingPermissionsCancelled 真实的停止路径是 chat_svc.Stop
+// 先取消 turnCtx、之后才调 Abort —— 此时这一轮已经以 context canceled 收尾,Abort
+// 只会拿到 ErrNoActiveTurn。所以 ctx 取消收尾这一轮时,同样要把挂着的审批答成取消
+// 应答、在终态事件之前发出 Resolved(拒绝),并通知 agent 取消这一轮。
+func TestContextCancel_AnswersPendingPermissionsCancelled(t *testing.T) {
+	fa := installFakeAgent(t, fakeAgentOptions{})
+	r := New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	events, _, err := r.Run(ctx, agentruntime.RunRequest{
+		Backend: acpTestBackend(), SessionID: 22, UserText: "go", Cwd: t.TempDir(),
+	})
+	require.NoError(t, err)
+	fa.waitPrompt(2 * time.Second)
+	reply := fa.requestPermission(allKindsOptions(), permissionToolCall())
+	req := waitForPermissionRequest(t, events)
+
+	cancel()
+	got := drainEvents(t, events)
+
+	resp := fa.waitPermissionReply(reply, 2*time.Second)
+	require.NotNil(t, resp.Outcome.Cancelled, "ctx cancel must cancel pending request_permission") //nolint:misspell // SDK field name
+	assert.True(t, fa.waitCancel(2*time.Second), "agent must receive session/cancel")
+
+	resolvedAt, endAt := -1, -1
+	for i, ev := range got {
+		switch e := ev.(type) {
+		case agentruntime.ToolPermissionResolved:
+			require.Equal(t, req.RequestID, e.RequestID)
+			require.False(t, e.Allowed)
+			require.Equal(t, -1, resolvedAt, "exactly one resolved event per pending request")
+			resolvedAt = i
+		case agentruntime.ErrorEvent, agentruntime.Done:
+			endAt = i
+		}
+	}
+	require.GreaterOrEqual(t, resolvedAt, 0, "ctx cancel must emit ToolPermissionResolved for the pending request")
+	require.GreaterOrEqual(t, endAt, 0, "the turn still ends with a terminal event")
+	require.Less(t, resolvedAt, endAt, "resolved must precede the terminal event")
 }

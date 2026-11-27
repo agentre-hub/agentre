@@ -231,6 +231,21 @@ describe("provider compatibility gate（与后端 ProviderTypeMatch 对齐）", 
     expect(isProviderSelectableBackend("codex")).toBe(true);
     expect(isProviderSelectableBackend("piagent")).toBe(true);
   });
+
+  // gemini 供应商只归 antigravity（kinds.go 的 antigravityKind / builtinKind）。
+  it("antigravity 可选供应商，且只列 gemini", () => {
+    expect(isProviderSelectableBackend("antigravity")).toBe(true);
+    expect(isProviderCompatible("antigravity", "gemini")).toBe(true);
+    expect(isProviderCompatible("antigravity", "anthropic")).toBe(false);
+    expect(isProviderCompatible("antigravity", "openai-chat")).toBe(false);
+    expect(isProviderCompatible("antigravity", "openai-response")).toBe(false);
+  });
+
+  it("其余后端都不列 gemini 供应商", () => {
+    for (const backendType of ["builtin", "claudecode", "codex", "piagent"]) {
+      expect(isProviderCompatible(backendType, "gemini")).toBe(false);
+    }
+  });
 });
 
 describe("ProviderPill · 新建会话 ModelTarget 选择器", () => {

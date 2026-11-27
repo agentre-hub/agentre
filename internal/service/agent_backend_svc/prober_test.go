@@ -596,3 +596,14 @@ func TestProberRegistry_RegistersACP(t *testing.T) {
 	_, ok := p.(acpProber)
 	assert.True(t, ok, "TypeACP must dispatch to acpProber")
 }
+
+func TestCLIProber_Antigravity(t *testing.T) {
+	require.IsType(t, cliProber{}, proberFor(agent_backend_entity.TypeAntigravity))
+
+	bin := filepath.Join(t.TempDir(), "agy")
+	require.NoError(t, os.WriteFile(bin, []byte("#!/bin/sh\necho 1.5.16\n"), 0o755))
+	b := &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeAntigravity), CLIPath: bin, LLMProviderKey: "gem"}
+	got, err := cliProber{}.Run(context.Background(), b, ProbeDeps{})
+	require.NoError(t, err)
+	assert.Equal(t, "1.5.16", got)
+}

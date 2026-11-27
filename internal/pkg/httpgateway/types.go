@@ -24,8 +24,11 @@ const (
 	RouteAnthropic       = "/v1/messages"
 	RouteOpenAIResponses = "/v1/responses"
 	RouteOpenAIChat      = "/v1/chat/completions"
-	RouteMCPPrefix       = "/mcp/"
-	RouteHookInbox       = "/hook/v1/inbox"
+	// RouteGemini 是 Gemini 原生直通前缀：POST /v1beta/models/{model}:{method}
+	// （ServeMux 通配符只能占整段，故挂前缀，由 handler 拆 model:method）。
+	RouteGemini    = "/v1beta/models/"
+	RouteMCPPrefix = "/mcp/"
+	RouteHookInbox = "/hook/v1/inbox"
 	// RouteCtlPrefix 本地控制 API 前缀（/ctl/*），由 RegisterControl 注册的 handler
 	// 统一接管，供 `agrctl ctl` 外部 CLI 驱动（新建会话/派发任务等）。
 	RouteCtlPrefix = "/ctl/"
@@ -33,7 +36,7 @@ const (
 
 // DefaultRoutes 在 Status() State=running 时回显给前端。
 func DefaultRoutes() []string {
-	return []string{RouteAnthropic, RouteOpenAIResponses, RouteOpenAIChat, RouteHookInbox, RouteMCPPrefix + "*"}
+	return []string{RouteAnthropic, RouteOpenAIResponses, RouteOpenAIChat, RouteGemini + "*", RouteHookInbox, RouteMCPPrefix + "*"}
 }
 
 // TokenIssuer 给 Prober 和 backend 自测发临时 token、撤销 token、读 URL。

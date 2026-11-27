@@ -587,6 +587,9 @@ describe("RemoteDevicesPanel", () => {
     await user.click(screen.getByRole("button", { name: "Pair and verify" }));
 
     expect(await screen.findByTestId("device-row")).toBeInTheDocument();
+    expect(screen.getByText(/Choose Claude Code/)).toHaveTextContent(
+      "Antigravity",
+    );
     await user.click(
       screen.getByRole("button", { name: "Configure Agent Backends" }),
     );

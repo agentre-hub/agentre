@@ -449,6 +449,19 @@ func TestBackend_GivenConfigOfItsTypeThenSentAsConfigJSON(t *testing.T) {
 	}
 }
 
+// 规格「用户能新建一个 Antigravity 后端」：agrctl 认得 antigravity 这个类型，create 与
+// list --type 都不报未知类型。
+func TestBackend_GivenAntigravityTypeThenCreatedAndFilterable(t *testing.T) {
+	f, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"create", "backend", "--type", "antigravity", "--name", "agy", "--provider", "openrouter"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+	if b := f.onlyWrite(t).GetResource().GetBackend(); b.GetType() != "antigravity" || b.GetProviderId() != 4 {
+		t.Fatalf("backend = %v", b)
+	}
+	r = runWith([]string{"list", "backends", "--type", "antigravity"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+}
+
 func TestBackend_GivenConfigFileThenReadFromFile(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
 	path := filepath.Join(t.TempDir(), "cfg.json")
@@ -842,6 +855,8 @@ func TestHelp_GivenTypeNeedingProviderThenExampleCarriesIt(t *testing.T) {
 	for typ, wants := range map[string][]string{
 		"builtin": {"--provider "},
 		"piagent": {"--provider ", "--model "},
+		// antigravity 必须绑定 gemini 供应商（规格「建后端：必须绑定一个 gemini 供应商」）。
+		"antigravity": {"--provider "},
 	} {
 		r := runWith([]string{"help", "backend", typ}, noEnv, term{})
 		wantCode(t, r, 0)
