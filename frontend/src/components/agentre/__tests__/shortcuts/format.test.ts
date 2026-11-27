@@ -158,6 +158,27 @@ describe("chordFromEvent", () => {
     ).toEqual({ mod: "primary-alt", key: "," });
   });
 
+  it("Given Windows, When AltGr (reported as Ctrl+Alt) types a character such as { on a Hungarian layout, Then it is text, not a chord", () => {
+    expect(
+      chordFromEvent(
+        mkEvent({ key: "{", code: "KeyB", ctrlKey: true, altKey: true }),
+        "windows",
+      ),
+    ).toBeNull();
+    expect(
+      chordFromEvent(
+        mkEvent({ key: "@", code: "KeyQ", ctrlKey: true, altKey: true }),
+        "windows",
+      ),
+    ).toBeNull();
+    expect(
+      chordFromEvent(
+        mkEvent({ key: "b", code: "KeyB", ctrlKey: true, altKey: true }),
+        "windows",
+      ),
+    ).toEqual({ mod: "primary-alt", key: "B" });
+  });
+
   it("rejects alt+shift, alt without the primary key, and meta+ctrl combos", () => {
     expect(
       chordFromEvent(

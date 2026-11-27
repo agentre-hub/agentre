@@ -734,8 +734,29 @@ describe("工具窗行为", () => {
       renderLayout();
 
       await user.click(screen.getByRole("button", { name: "outline item" }));
-      act(() => region("Outline").focus());
+      // 只派发 focusout（目标仍在窗口内），不跟一个 focusin：描边不能靠随后的
+      // focusin 重新点亮来掩盖被误灭。
+      act(() => {
+        screen.getByRole("button", { name: "outline item" }).dispatchEvent(
+          new FocusEvent("focusout", {
+            bubbles: true,
+            relatedTarget: region("Outline"),
+          }),
+        );
+      });
       expect(ring("Outline")).not.toBeNull();
+    });
+
+    it("Given 大纲里拿着焦点的元素被移除（焦点落回 body、不发 focusout）, When 焦点随后落到输入框, Then 描边消失", async () => {
+      renderLayout();
+      const transient = document.createElement("button");
+      region("Outline").appendChild(transient);
+      act(() => transient.focus());
+      expect(ring("Outline")).not.toBeNull();
+
+      act(() => transient.remove());
+      act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+      expect(ring("Outline")).toBeNull();
     });
 
     it("Given 停靠的大纲, Then 用对话卡的圆角与 --sheet-shadow、不带浮层阴影", () => {

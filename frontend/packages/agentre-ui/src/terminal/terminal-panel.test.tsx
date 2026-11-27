@@ -721,4 +721,29 @@ describe("TerminalPanel", () => {
       root.style.removeProperty("--sheet");
     }
   });
+
+  it("Given a mounted terminal on the default surface, When surface changes to sheet, Then xterm is re-themed to --sheet without being rebuilt", () => {
+    const root = document.documentElement;
+    root.style.setProperty("--background", "#bbbbbb");
+    root.style.setProperty("--sheet", "#fefefe");
+    try {
+      const props = {
+        terminalID: "t1",
+        projectId: 42,
+        deviceId: "",
+        onClose: vi.fn(),
+      };
+      const view = render(<TerminalPanel {...props} />);
+      const term = vi.mocked(Terminal).mock.results[0].value;
+      expect(term.options.theme.background).toBe("#bbbbbb");
+
+      view.rerender(<TerminalPanel {...props} surface="sheet" />);
+      expect(vi.mocked(Terminal)).toHaveBeenCalledTimes(1);
+      expect(term.options.theme.background).toBe("#fefefe");
+      expect(view.getByTestId("terminal-panel")).toHaveClass("bg-sheet");
+    } finally {
+      root.style.removeProperty("--background");
+      root.style.removeProperty("--sheet");
+    }
+  });
 });

@@ -148,19 +148,21 @@ function ToolWindowFrameImpl({
   // 描边画在内容之上，由「焦点是否在工具窗内」这个事实决定渲不渲染（鼠标、键盘聚焦都算）。
   // 用原生 focusin / focusout：终端面板属于常驻宿主那棵 React 树，它的焦点事件不经
   // React 冒到外壳，但在 DOM 上就在窗口里。用 layout effect 挂，赶在上面那个「挂载即
-  // 拿焦点」的 effect 之前。
+  // 拿焦点」的 effect 之前。focusin 听在 document 上：拿着焦点的元素被移除时浏览器
+  // 不发 focusout，焦点落回 body；下一次焦点落到任何地方都据此重新判定。
   const [focused, setFocused] = React.useState(false);
   React.useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const onFocusIn = () => setFocused(true);
+    const onFocusIn = (e: FocusEvent) =>
+      setFocused(el.contains(e.target as Node | null));
     const onFocusOut = (e: FocusEvent) => {
       if (!el.contains(e.relatedTarget as Node | null)) setFocused(false);
     };
-    el.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusin", onFocusIn);
     el.addEventListener("focusout", onFocusOut);
     return () => {
-      el.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusin", onFocusIn);
       el.removeEventListener("focusout", onFocusOut);
     };
   }, []);

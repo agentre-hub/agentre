@@ -78,6 +78,16 @@ export function chordFromEvent(
       ? raw.toUpperCase()
       : raw;
   if (key === null || !ACCEPTABLE_KEY_RE.test(key)) return null;
+  // Windows 把 AltGr 报成 Ctrl+Alt：此时 key 是它打出的字符（匈牙利布局 AltGr+B 是
+  // 「{」），那是输入文字，不是和弦。macOS 上 ⌘ 组合不出字，⌥ 改写的 key 照收。
+  if (
+    event.altKey &&
+    platform !== "darwin" &&
+    raw.length === 1 &&
+    raw.toUpperCase() !== key
+  ) {
+    return null;
+  }
 
   const mod: ModifierKind = event.altKey
     ? "primary-alt"

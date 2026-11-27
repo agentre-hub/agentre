@@ -68,7 +68,8 @@ export function TerminalPanel({
   useEffect(() => {
     passThroughRef.current = passThroughKey;
   }, [passThroughKey]);
-  // 同理,换肤时按最新的 surface 取色,不因它重建 xterm。
+  // 建 xterm 时按当时的 surface 取色;之后它变了由下面的换肤 effect 重新取色,
+  // 不因它重建 xterm。
   const surfaceRef = useRef(surface);
   useEffect(() => {
     surfaceRef.current = surface;
@@ -202,10 +203,10 @@ export function TerminalPanel({
     const applyTheme = () => {
       const term = xtermRef.current;
       if (!term) return;
-      term.options.theme = readTerminalTheme(surfaceRef.current);
+      term.options.theme = readTerminalTheme(surface);
     };
-    // Apply once on mount. App toggles the `.dark` class in its own layout
-    // effect; on a same-commit mount (a restored terminal tab on app startup)
+    // Apply once on mount and whenever `surface` changes. App toggles the
+    // `.dark` class in its own layout effect; on a same-commit mount (a restored terminal tab on app startup)
     // that runs AFTER this terminal's xterm was constructed but BEFORE this
     // observer registers, so the MutationObserver never sees that initial class
     // and the terminal would stay light. This passive effect runs after all
@@ -217,7 +218,7 @@ export function TerminalPanel({
       attributeFilter: ["class"],
     });
     return () => observer.disconnect();
-  }, []);
+  }, [surface]);
 
   useEffect(() => {
     const term = xtermRef.current;

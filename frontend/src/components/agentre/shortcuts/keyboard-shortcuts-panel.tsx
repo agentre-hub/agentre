@@ -210,6 +210,22 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
   const cycleFwdLabel = isMac ? "⌃Tab" : "Ctrl+Tab";
   const cycleBackLabel = isMac ? "⌃⇧Tab" : "Ctrl+Shift+Tab";
 
+  // 可改绑的一行：当前绑定、录制态与冲突高亮都按 def.id 取。
+  const rebindableRow = (def: ShortcutDef) => (
+    <ShortcutRow
+      key={def.id}
+      def={def}
+      chord={bindings.get(def.id) ?? null}
+      recording={recordingId === def.id}
+      highlighted={conflict?.highlightId === def.id}
+      onStartRecord={() => {
+        setRecordingId(def.id);
+        setConflict(null);
+      }}
+      onCancelRecord={() => setRecordingId(null)}
+    />
+  );
+
   const performReset = () => {
     resetAll();
     setRecordingId(null);
@@ -232,20 +248,7 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
         <h2 className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           {t("shortcuts.sections.global")}
         </h2>
-        {globalDefs.map((def) => (
-          <ShortcutRow
-            key={def.id}
-            def={def}
-            chord={bindings.get(def.id) ?? null}
-            recording={recordingId === def.id}
-            highlighted={conflict?.highlightId === def.id}
-            onStartRecord={() => {
-              setRecordingId(def.id);
-              setConflict(null);
-            }}
-            onCancelRecord={() => setRecordingId(null)}
-          />
-        ))}
+        {globalDefs.map(rebindableRow)}
       </section>
 
       <section className="flex flex-col gap-3">
@@ -307,18 +310,7 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
         </h2>
         {toolWindowDefs.map((def) =>
           def.rebindable ? (
-            <ShortcutRow
-              key={def.id}
-              def={def}
-              chord={bindings.get(def.id) ?? null}
-              recording={recordingId === def.id}
-              highlighted={conflict?.highlightId === def.id}
-              onStartRecord={() => {
-                setRecordingId(def.id);
-                setConflict(null);
-              }}
-              onCancelRecord={() => setRecordingId(null)}
-            />
+            rebindableRow(def)
           ) : (
             <ShortcutRow
               key={def.id}

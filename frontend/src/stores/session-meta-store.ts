@@ -51,6 +51,30 @@ function isSameMeta(a: SessionMeta, b: SessionMeta): boolean {
   );
 }
 
+/** 会话索引行（ListChatIndexSessions / ListChatSessionsByIDs 同一种行）里 meta 关心的字段。 */
+export type IndexRowMeta = {
+  agentId?: number;
+  projectId?: number;
+  title?: string;
+  lastMessageAt?: number;
+  lastReadAt?: number;
+};
+
+/**
+ * 一条索引行 → bulkUpsert 用的 meta 补丁，两处取索引行的入口共用这一份投影。
+ * agentId / projectId 是索引的两个分组维度：projectId 为 0 即「随手对话」——这是个有意义
+ * 的取值，所以载荷**没提到**它们时不写这个键，而不是补一个 0 把会话搬到别的组去。
+ */
+export function metaPatchFromIndexRow(s: IndexRowMeta): Partial<SessionMeta> {
+  return {
+    ...(s.agentId === undefined ? {} : { agentId: s.agentId }),
+    ...(s.projectId === undefined ? {} : { projectId: s.projectId }),
+    title: s.title || "",
+    lastMessageAt: s.lastMessageAt ?? 0,
+    lastReadAt: s.lastReadAt ?? 0,
+  };
+}
+
 // loadMissing 已经发出去过的 id。挂在模块上而不是 state 里: 它不驱动渲染, 只给几个
 // 同时调 loadMissing 的投影 (标签条 / 溢出菜单 / 快捷键作用域) 去重。
 const requested = new Set<number>();
@@ -104,13 +128,7 @@ export const useSessionMetaStore = create<State & Actions>((set, get) => ({
         .filter((s) => !current.has(s.id))
         .map((s): [number, Partial<SessionMeta>] => [
           s.id,
-          {
-            agentId: s.agentId,
-            projectId: s.projectId,
-            title: s.title || "",
-            lastMessageAt: s.lastMessageAt ?? 0,
-            lastReadAt: s.lastReadAt ?? 0,
-          },
+          metaPatchFromIndexRow(s),
         ]),
     );
   },
