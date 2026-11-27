@@ -107,7 +107,7 @@ func TestList_GivenModelsOfProviderWhenListedThenDefaultMarked(t *testing.T) {
 	}
 }
 
-func TestList_GivenJSONOutputWhenListedThenArrayWithMaskedKeys(t *testing.T) {
+func TestList_GivenJSONOutputWhenListedThenArrayWithAPIKeySetOnly(t *testing.T) {
 	_, srv := newFakeExecutor(t, tok)
 	r := runWith([]string{"list", "providers", "-o", "json"}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
@@ -115,8 +115,30 @@ func TestList_GivenJSONOutputWhenListedThenArrayWithMaskedKeys(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.stdout), &got); err != nil {
 		t.Fatalf("stdout is not a JSON array: %v (%q)", err, r.stdout)
 	}
-	if len(got) != 2 || got[1]["name"] != "openrouter" || got[1]["apiKey"] != "sk-o••••••••3f9a" {
+	if len(got) != 2 || got[1]["name"] != "openrouter" || got[1]["apiKeySet"] != true {
 		t.Fatalf("json = %v", got)
+	}
+	if _, ok := got[1]["apiKey"]; ok {
+		t.Fatalf("apiKey 字段不得出现在输出里：%v", got[1])
+	}
+	assertNoKeyCharacters(t, r.stdout)
+}
+
+func TestList_GivenProvidersTableThenNoKeyOrMaskPrinted(t *testing.T) {
+	_, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"list", "providers"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+	assertNoKeyCharacters(t, r.stdout)
+}
+
+// assertNoKeyCharacters 钉死「agrctl 输出里不出现 API key 的任何字符，连掩码也不」。
+// fake 执行者故意回了掩码形状的值（sk-o••••3f9a），输出里不得出现它的任何片段。
+func assertNoKeyCharacters(t *testing.T, out string) {
+	t.Helper()
+	for _, leak := range []string{"sk-o", "sk-a", "3f9a", "1111", "•"} {
+		if strings.Contains(out, leak) {
+			t.Fatalf("输出泄露了密钥片段 %q：%q", leak, out)
+		}
 	}
 }
 
@@ -231,7 +253,7 @@ func TestGet_GivenProviderThenMaskedKeyModelsAndReferences(t *testing.T) {
 	r := runWith([]string{"get", "provider", "openrouter"}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
 	var got struct {
-		APIKey       string `json:"apiKey"`
+		APIKeySet    bool   `json:"apiKeySet"`
 		DefaultModel string `json:"defaultModel"`
 		Models       []struct {
 			Key string `json:"key"`
@@ -243,9 +265,10 @@ func TestGet_GivenProviderThenMaskedKeyModelsAndReferences(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.stdout), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.APIKey != "sk-o••••••••3f9a" || got.DefaultModel != "openai/gpt-5.1" || len(got.Models) != 2 || got.References.AgentBackends != 2 {
+	if !got.APIKeySet || got.DefaultModel != "openai/gpt-5.1" || len(got.Models) != 2 || got.References.AgentBackends != 2 {
 		t.Fatalf("json = %+v", got)
 	}
+	assertNoKeyCharacters(t, r.stdout)
 }
 
 func TestGet_GivenMissingLocatorThenUsageError(t *testing.T) {

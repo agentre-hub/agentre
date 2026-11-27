@@ -243,7 +243,7 @@ func TestAuth_Account_GivenLoggedInDaemon_WhenTheServerConfirmsTheSameAccount_Th
 	result, err := ah.HandleAccount(context.Background(), AccountParams{Credential: peerPresented})
 
 	require.NoError(t, err)
-	assert.Equal(t, &AccountResult{OK: true, InstanceUUID: st.DaemonInstanceUUID, PeerFingerprint: "sha256:from-server"}, result)
+	assert.Equal(t, &AccountResult{OK: true, InstanceUUID: st.DaemonInstanceUUID, PeerFingerprint: "sha256:from-server", Kind: "desktop"}, result)
 }
 
 func TestAuth_Account_GivenTheServerConfirmsAnotherAccount_WhenAuthenticating_ThenRejectsAsCredentialInvalid(t *testing.T) {

@@ -36,6 +36,10 @@ type Introspection struct {
 	DeviceID        int64
 	Kind            string
 	PeerFingerprint string
+	// Scopes and TokenName are set for a personal token (Kind ==
+	// KindPersonalToken) only; every other kind carries full account trust.
+	Scopes    []string
+	TokenName string
 }
 
 // HTTPDoer is the Introspector's HTTP port. agentred supplies a plain client;
@@ -274,11 +278,13 @@ func (i *Introspector) post(ctx context.Context, serverURL, ownToken, token stri
 }
 
 type introspectResponse struct {
-	AccountID       string `json:"account_id"`
-	DeviceID        int64  `json:"device_id"`
-	Kind            string `json:"kind"`
-	PeerFingerprint string `json:"peer_fingerprint"`
-	ExpiresIn       int64  `json:"expires_in"`
+	AccountID       string   `json:"account_id"`
+	DeviceID        int64    `json:"device_id"`
+	Kind            string   `json:"kind"`
+	PeerFingerprint string   `json:"peer_fingerprint"`
+	ExpiresIn       int64    `json:"expires_in"`
+	Scopes          []string `json:"scopes"`
+	TokenName       string   `json:"token_name"`
 }
 
 // verdict classifies an answered round trip: 2xx is the server vouching for
@@ -307,6 +313,7 @@ func (i *Introspector) verdict(ctx context.Context, status int, payload []byte) 
 		return Introspection{
 			AccountID: answer.AccountID, DeviceID: answer.DeviceID,
 			Kind: answer.Kind, PeerFingerprint: answer.PeerFingerprint,
+			Scopes: answer.Scopes, TokenName: answer.TokenName,
 		}, ttl, nil
 	case status == http.StatusTooManyRequests:
 		logger.Ctx(ctx).Warn("auth.Introspector.Verify: account server rate-limited the introspect request",

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -77,6 +76,8 @@ type Resources struct {
 	Cascade CascadeCounter
 	// Memory 是会话里 agent 的记忆读写；缺席时记忆请求 503。
 	Memory MemoryService
+	// Probes 是供应商测试 / 模型发现；缺席时这两个端点 503（不影响 ready）。
+	Probes ProviderProbes
 }
 
 func (r Resources) ready() bool {
@@ -190,7 +191,7 @@ func (h *ctlHandler) listResources(ctx context.Context, kind agentrewire.CtlKind
 	case agentrewire.CtlKind_CTL_KIND_PROVIDER:
 		items, err := h.resources.Providers.ListProviders(ctx)
 		for _, it := range items {
-			it.ApiKey = MaskSecret(it.GetApiKey())
+			it.ApiKey = "" // 只写字段：响应里永不带 key，连掩码也不给；是否已设置看 api_key_set。
 			out = append(out, &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Provider{Provider: it}})
 		}
 		return out, err
@@ -242,22 +243,6 @@ func resourceID(r *agentrewire.CtlResource) int64 {
 		return d.Backend.GetId()
 	}
 	return 0
-}
-
-// maskBullets 是掩码中间的圆点数，与服务层 LLMProvider.MaskedAPIKey 同形。
-const maskBullets = 6
-
-// MaskSecret 把密钥收成「前 4 位、圆点、后 4 位」；8 位以内全部换成圆点，不露任何字符。
-// 按字符（rune）计，并且幂等：服务层已掩码的值再过一遍不变，所以 ctl 出口可以无条件套用。
-func MaskSecret(s string) string {
-	if s == "" {
-		return ""
-	}
-	runes := []rune(s)
-	if len(runes) <= 8 {
-		return strings.Repeat("•", len(runes))
-	}
-	return string(runes[:4]) + strings.Repeat("•", maskBullets) + string(runes[len(runes)-4:])
 }
 
 // writeCtl 以 protojson 写成功响应。

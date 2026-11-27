@@ -34,6 +34,8 @@ type sys struct {
 	stdinIsTTY bool
 	// readSecret 在终端上无回显地读一行；只在 stdinIsTTY 时调用。
 	readSecret func(prompt string) (string, error)
+	// desktop 是全局 flag --desktop：强制本机桌面为执行者（run 在分派前从参数里取出）。
+	desktop bool
 }
 
 func osSys() *sys {
@@ -53,6 +55,8 @@ const (
 	exitFailed   = 1 // 执行失败、被拒绝、审批超时、连接不上执行者
 	exitUsage    = 2 // 未知子命令或 flag、缺必填项、定位有歧义
 	exitNeedsTTY = 3 // 没有 TTY 却要输入密钥
+	exitWaiting  = 4 // 会话在等待输入(stdout 为待处理项 JSON)
+	exitTimeout  = 5 // 等待超时,会话仍在运行
 )
 
 // cliError 是带退出码的错误；其它错误一律按执行失败（1）处理。
@@ -75,6 +79,11 @@ func needsTTY(flagName string) error {
 
 // run is the testable core; returns the exit code.
 func run(args []string, s *sys) int {
+	args, desktop, err := extractDesktopFlag(args)
+	if err != nil {
+		return report(s, err)
+	}
+	s.desktop = desktop
 	if len(args) == 0 {
 		_, _ = fmt.Fprintln(s.stderr, usageText)
 		return exitUsage
@@ -84,17 +93,54 @@ func run(args []string, s *sys) int {
 
 func dispatch(args []string, s *sys) error {
 	verb, rest := args[0], args[1:]
+	if u := verbUsage(verb); u != "" && wantsHelp(rest) {
+		_, _ = fmt.Fprintln(s.stdout, u)
+		return nil
+	}
+	if (verb == "list" || verb == "get") && len(rest) > 0 && isSessionResource(rest[0]) && wantsHelp(rest[1:]) {
+		_, _ = fmt.Fprintln(s.stdout, sessionResourceUsage(verb))
+		return nil
+	}
+	if deviceVerb(verb, rest) {
+		return runDevice(verb, rest[1:], s)
+	}
+	if providerOp(verb, rest) {
+		return runProviderOp(verb, rest, s)
+	}
+	if action, ok := tokenVerb(verb, rest); ok {
+		return runToken(action, rest[1:], s)
+	}
 	switch verb {
 	case "help", "-h", "--help":
 		return runHelp(rest, s.stdout)
+	case "login":
+		return runLogin(rest, s)
+	case "logout":
+		return runLogout(rest, s)
+	case "whoami":
+		return runWhoami(rest, s)
 	case "send":
 		return runSend(rest, s)
+	case "wait":
+		return runWait(rest, s)
+	case "tail":
+		return runTail(rest, s)
+	case "stop":
+		return runStop(rest, s)
+	case "messages":
+		return runMessages(rest, s)
+	case "pending":
+		return runPending(rest, s)
+	case "answer":
+		return runAnswer(rest, s)
 	case "list":
 		return runList(rest, s)
 	case "get":
 		return runGet(rest, s)
 	case "create", "update", "delete":
 		return runWrite(verb, args, s)
+	case "upgrade":
+		return usageErrorf("upgrade supports: device (agrctl upgrade device <device>)")
 	default:
 		return usageErrorf("unknown command %q (run 'agrctl help')", verb)
 	}
@@ -105,11 +151,15 @@ func report(s *sys, err error) int {
 	if err == nil {
 		return exitOK
 	}
+	err = accountErr(err)
 	var ce *cliError
 	if errors.As(err, &ce) {
 		prefix := "Error: "
-		if ce.code == exitNeedsTTY {
+		switch ce.code {
+		case exitNeedsTTY:
 			prefix = "NEEDS TTY: "
+		case exitWaiting, exitTimeout:
+			prefix = "" // 不是失败:会话在等输入 / 还在跑
 		}
 		_, _ = fmt.Fprintln(s.stderr, prefix+ce.msg)
 		return ce.code

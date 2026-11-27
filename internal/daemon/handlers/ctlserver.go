@@ -77,6 +77,8 @@ func (c *CtlServerClient) do(ctx context.Context, method, pathAndQuery string, b
 		return 0, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	// server 的错误正文原样透回 agrctl，而 agrctl 的文案是英文：按英文回才一致。
+	req.Header.Set("Accept-Language", "en")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

@@ -64,6 +64,8 @@ type ProviderService interface {
 	SetModelDefault(ctx context.Context, req *llm_provider_svc.SetModelDefaultRequest) (*llm_provider_svc.SetModelDefaultResponse, error)
 	SetModelEnabled(ctx context.Context, req *llm_provider_svc.SetModelEnabledRequest) (*llm_provider_svc.SetModelEnabledResponse, error)
 	DeleteModel(ctx context.Context, req *llm_provider_svc.DeleteModelRequest) (*llm_provider_svc.DeleteModelResponse, error)
+	TestConnection(ctx context.Context, req *llm_provider_svc.TestConnectionRequest) (*llm_provider_svc.TestConnectionResponse, error)
+	PreviewModels(ctx context.Context, req *llm_provider_svc.PreviewModelsRequest) (*llm_provider_svc.PreviewModelsResponse, error)
 }
 
 // BackendService Agent 后端读写（agent_backend_svc）。OpenClaw 的 token 由它路由到后端

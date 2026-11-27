@@ -97,7 +97,15 @@ func (f *fakeChat) SubscribeSessionEvents(sessionID int64) (<-chan chat_svc.Chat
 }
 
 func newTestHandler(a *fakeAgents, p *fakeProjects, c *fakeChat) http.Handler {
-	return &ctlHandler{token: testToken, agents: a, projects: p, chat: c}
+	return &ctlHandler{token: testToken, agents: a, projects: p, chat: c, conversations: defaultConversations(), pollInterval: 5 * time.Millisecond}
+}
+
+// defaultConversations 是这批用例共用的会话端口:本机只有会话 100(convA),空闲,最后一轮
+// 的 assistant 消息是 200。
+func defaultConversations() *fakeConversations {
+	c := conv(100, convA, chat_svc.CtlStatusIdle)
+	c.LastAssistantMessageID = 200
+	return newFakeConversations(c)
 }
 
 // 回归：bootstrap 起 gateway 时就挂 handler，deps 却要等 app.Startup(registerChatService
@@ -220,7 +228,7 @@ func TestControl_SendByName_CreatesUserChatSession(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.SessionID != 100 || out.AssistantMessageID != 200 || out.Done {
+	if out.ConversationID != convA || out.AssistantMessageID != 200 || out.Done {
 		t.Fatalf("unexpected send resp: %+v", out)
 	}
 	// 建的是普通可见会话，绑定解析出的 agent 与传入的 project。
@@ -281,8 +289,8 @@ func TestControl_SendWait_ReturnsFinalText(t *testing.T) {
 func TestControl_SendByID(t *testing.T) {
 	agents := &fakeAgents{byID: map[int64]*agent_entity.Agent{9: {ID: 9, Name: "byid"}}}
 	chat := &fakeChat{
-		ensured:  &chat_svc.EnsureSessionResponse{SessionID: 1},
-		sendResp: &chat_svc.SendResponse{SessionID: 1, AssistantMessageID: 2},
+		ensured:  &chat_svc.EnsureSessionResponse{SessionID: 100},
+		sendResp: &chat_svc.SendResponse{SessionID: 100, AssistantMessageID: 2},
 	}
 	h := newTestHandler(agents, &fakeProjects{}, chat)
 	rec := do(t, h, http.MethodPost, "/ctl/v1/send", testToken, `{"agentId":9,"text":"hi"}`)
@@ -314,13 +322,13 @@ func TestControl_CreateSession_ByName(t *testing.T) {
 		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
 	}
 	var out struct {
-		SessionID int64 `json:"sessionId"`
+		ConversationID string `json:"conversationId"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if out.SessionID != 100 {
-		t.Fatalf("sessionId = %d, want 100", out.SessionID)
+	if out.ConversationID != convA {
+		t.Fatalf("conversationId = %q, want %q", out.ConversationID, convA)
 	}
 	if chat.lastEnsure == nil || chat.lastEnsure.AgentID != 11 || chat.lastEnsure.ProjectID != 3 {
 		t.Fatalf("ensure = %+v", chat.lastEnsure)
@@ -347,8 +355,9 @@ func TestControl_CreateSession_RequiresPost(t *testing.T) {
 
 func TestControl_Stop(t *testing.T) {
 	chat := &fakeChat{}
-	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, chat)
-	rec := do(t, h, http.MethodPost, "/ctl/v1/stop", testToken, `{"sessionId":100}`)
+	h := &ctlHandler{token: testToken, agents: &fakeAgents{}, projects: &fakeProjects{}, chat: chat,
+		conversations: newFakeConversations(conv(100, convA, chat_svc.CtlStatusRunning))}
+	rec := do(t, h, http.MethodPost, "/ctl/v1/stop", testToken, `{"conversationId":"`+convA+`"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
 	}
@@ -359,7 +368,7 @@ func TestControl_Stop(t *testing.T) {
 
 func TestControl_Stop_RequiresSessionID(t *testing.T) {
 	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, &fakeChat{})
-	rec := do(t, h, http.MethodPost, "/ctl/v1/stop", testToken, `{"sessionId":0}`)
+	rec := do(t, h, http.MethodPost, "/ctl/v1/stop", testToken, `{"conversationId":""}`)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("code = %d, want 400 (body=%s)", rec.Code, rec.Body.String())
 	}
@@ -390,7 +399,7 @@ func TestControl_SendWithImages(t *testing.T) {
 func TestControl_SendToExistingSession_SkipsEnsure(t *testing.T) {
 	chat := &fakeChat{sendResp: &chat_svc.SendResponse{SessionID: 100, AssistantMessageID: 200}}
 	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, chat)
-	rec := do(t, h, http.MethodPost, "/ctl/v1/send", testToken, `{"sessionId":100,"text":"again"}`)
+	rec := do(t, h, http.MethodPost, "/ctl/v1/send", testToken, `{"conversationId":"`+convA+`","text":"again"}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
 	}
@@ -409,7 +418,7 @@ func TestControl_Stream_PushesEvents(t *testing.T) {
 	srv := httptest.NewServer(newTestHandler(&fakeAgents{}, &fakeProjects{}, chat))
 	defer srv.Close()
 
-	req, err := http.NewRequest(http.MethodGet, srv.URL+"/ctl/v1/stream?sessionId=42", nil)
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/ctl/v1/stream?conversationId="+convA, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,8 +462,8 @@ func TestControl_Stream_PushesEvents(t *testing.T) {
 		}
 		got = append(got, ev)
 	}
-	if chat.streamSessionID != 42 {
-		t.Fatalf("subscribed sessionId = %d, want 42", chat.streamSessionID)
+	if chat.streamSessionID != 100 {
+		t.Fatalf("subscribed sessionId = %d, want 100", chat.streamSessionID)
 	}
 	if got[0].Delta != "he" || got[1].Delta != "llo" || got[2].Kind != chat_svc.StreamDone {
 		t.Fatalf("events = %+v", got)
@@ -463,7 +472,7 @@ func TestControl_Stream_PushesEvents(t *testing.T) {
 
 func TestControl_Stream_BadSessionID_400(t *testing.T) {
 	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, &fakeChat{})
-	rec := do(t, h, http.MethodGet, "/ctl/v1/stream?sessionId=0", testToken, "")
+	rec := do(t, h, http.MethodGet, "/ctl/v1/stream?conversationId=0", testToken, "")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("code = %d, want 400", rec.Code)
 	}
@@ -471,7 +480,7 @@ func TestControl_Stream_BadSessionID_400(t *testing.T) {
 
 func TestControl_Stream_RequiresGet(t *testing.T) {
 	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, &fakeChat{})
-	rec := do(t, h, http.MethodPost, "/ctl/v1/stream?sessionId=1", testToken, "")
+	rec := do(t, h, http.MethodPost, "/ctl/v1/stream?conversationId="+convA, testToken, "")
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("code = %d, want 405", rec.Code)
 	}
@@ -486,7 +495,7 @@ func TestControl_AnswerPermission_ForwardsDecision(t *testing.T) {
 	chat := &fakeChat{}
 	h := newTestHandler(&fakeAgents{}, &fakeProjects{}, chat)
 	rec := do(t, h, http.MethodPost, "/ctl/v1/answer-permission", testToken,
-		`{"sessionId":100,"requestId":"req-1","allow":true,"alwaysAllowSession":true}`)
+		`{"conversationId":"`+convA+`","requestId":"req-1","allow":true,"alwaysAllowSession":true}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200 (body=%s)", rec.Code, rec.Body.String())
 	}
@@ -504,9 +513,9 @@ func TestControl_AnswerPermission_ValidatesParams(t *testing.T) {
 		name string
 		body string
 	}{
-		{"missing sessionId", `{"requestId":"req-1","allow":true}`},
-		{"missing requestId", `{"sessionId":100,"allow":true}`},
-		{"blank requestId", `{"sessionId":100,"requestId":"  ","allow":true}`},
+		{"missing conversationId", `{"requestId":"req-1","allow":true}`},
+		{"missing requestId", `{"conversationId":"` + convA + `","allow":true}`},
+		{"blank requestId", `{"conversationId":"` + convA + `","requestId":"  ","allow":true}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -523,7 +532,7 @@ func TestControl_AnswerPermission_UnavailableWithoutDeps(t *testing.T) {
 	// 直接传 nil ChatGateway(而不是 (*fakeChat)(nil) 这种 typed-nil),后者会让
 	// h.chat != nil 恒成立,测不到 503。
 	h := &ctlHandler{token: testToken, agents: &fakeAgents{}, projects: &fakeProjects{}}
-	rec := do(t, h, http.MethodPost, "/ctl/v1/answer-permission", testToken, `{"sessionId":1,"requestId":"req-1"}`)
+	rec := do(t, h, http.MethodPost, "/ctl/v1/answer-permission", testToken, `{"conversationId":"`+convA+`","requestId":"req-1"}`)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("code = %d, want 503 (body=%s)", rec.Code, rec.Body.String())
 	}

@@ -12,7 +12,7 @@ package rpcerror
 // 的连续码:
 //
 //	-32001..-32007   daemon 会话 / 鉴权(见 error.go)
-//	-32010..-32015   runtime.*
+//	-32010..-32016   runtime.*
 //	-32030..-32035   remotefs.*
 //	-32040..-32043   workspacefs.*
 //	-32050..-32052   project.*
@@ -52,6 +52,11 @@ const (
 	// daemon 回给 remote 客户端,而这一条是桌面端 peer 回给浏览器。浏览器靠它把
 	// 「执行目标不可用」与普通拒绝分开。
 	CodeRuntimePeerExecutionUnavailable = -32015
+	// CodeRuntimeSessionRunning:这条会话正在跑一轮,agentred 拒绝在它上面再开一轮
+	// (runtime.run)。任何对端来都一样 —— 运行中的会话不会被再塞进一个新的轮次;要往
+	// 当前这一轮里加话走 runtime.steer,当前轮没送进去的插话由 agentred 自己在下一轮
+	// 补发。调用方据它提示「会话运行中」,而不是把它当成一次普通失败。
+	CodeRuntimeSessionRunning = -32016
 
 	// ── remotefs.* ─────────────────────────────────────────────────────────
 	//

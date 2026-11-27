@@ -23,7 +23,7 @@ type RefCounts struct {
 	Backends int64
 	// Sessions 会话级钉住该 key 的 chat_sessions 数。
 	Sessions int64
-	// Routes 其 model_routes 结构化 target 引用了该 key 的 agent_backends 数。
+	// Routes 其 config_json.modelRoutes 结构化 target 引用了该 key 的 agent_backends 数。
 	Routes int64
 }
 
@@ -407,7 +407,7 @@ func (r *llmProviderRepo) countRefs(ctx context.Context, backendColumn, sessionC
 		return out, err
 	}
 	if err := db.Ctx(ctx).Table("agent_backends").
-		Where("status = ? AND model_routes LIKE ?", consts.ACTIVE, "%"+key+"%").
+		Where("status = ? AND json_extract(config_json, '$.modelRoutes') LIKE ?", consts.ACTIVE, "%"+key+"%").
 		Count(&out.Routes).Error; err != nil {
 		return out, err
 	}

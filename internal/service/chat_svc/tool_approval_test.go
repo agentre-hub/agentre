@@ -117,3 +117,30 @@ func TestAnswerToolApproval(t *testing.T) {
 		})
 	})
 }
+
+// Given 一轮上出了两张审批卡、其中一张已决 When PendingCtlApprovals Then 只列仍待决的那张,
+// 带工具族、工具名与变更清单;没有在跑的一轮时为空(agrctl pending 的 approval 来源)。
+func TestPendingCtlApprovals(t *testing.T) {
+	Convey("PendingCtlApprovals 只列这一轮上仍待决的审批卡", t, func() {
+		svc, _ := newToolApprovalSvc(t)
+		ctx := context.Background()
+		So(svc.PendingCtlApprovals(ctx, 42), ShouldBeEmpty)
+
+		registerActiveTurn(svc, 42)
+		_, err := svc.BeginToolApproval(ctx, 42, &blocks.ToolApprovalBlock{ToolKey: "ctl", RequestID: "req-a",
+			ToolName: "ctl_update_provider", ToolInput: map[string]any{"command": "agrctl update provider x"}, Status: "pending"})
+		So(err, ShouldBeNil)
+		_, err = svc.BeginToolApproval(ctx, 42, &blocks.ToolApprovalBlock{ToolKey: "org", RequestID: "req-b",
+			ToolName: "org_invite", Status: "pending"})
+		So(err, ShouldBeNil)
+		So(svc.FinishToolApproval(ctx, 42, "req-b", "denied", ""), ShouldBeNil)
+
+		got := svc.PendingCtlApprovals(ctx, 42)
+		So(got, ShouldHaveLength, 1)
+		So(got[0].RequestID, ShouldEqual, "req-a")
+		So(got[0].Kind, ShouldEqual, "ctl")
+		So(got[0].Title, ShouldEqual, "ctl_update_provider")
+		So(string(got[0].Summary), ShouldEqual, `{"command":"agrctl update provider x"}`)
+		So(got[0].Createtime, ShouldBeGreaterThan, 0)
+	})
+}

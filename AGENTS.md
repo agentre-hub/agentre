@@ -13,7 +13,7 @@ This repository produces three binaries:
 
 - **`agentre`** (root `main.go`) — the desktop app, **GUI-only**. It no longer routes any CLI subcommand; the hook shim moved out (see `agrctl`).
 - **`agentred`** (`cmd/agentred/`) — a headless daemon that executes claude-code / codex subprocesses on behalf of a paired desktop over binary Protobuf RPC on WebSocket. The daemon-side handlers live in `internal/daemon/`.
-- **`agrctl`** (`cmd/agrctl/`, `make agrctl`) — a small companion CLI carrying the `claudecode` hook shim (`internal/cli/claudecodecmd`), `acp` (`internal/cli/acpcmd`), and the top-level control verbs `list` / `get` / `create` / `update` / `delete` / `help` / `send` (`internal/cli/ctlcmd`; their request/response contract is the `Ctl*` messages in `pkg/wire/proto/agentre/wire/wire.proto`). The app installs it under `<AppDataDir>/bin` and points the Claude Code hooks at it, so a hook subprocess never boots the GUI binary.
+- **`agrctl`** (`cmd/agrctl/`, `make agrctl`) — a small companion CLI carrying the `claudecode` hook shim (`internal/cli/claudecodecmd`), `acp` (`internal/cli/acpcmd`), the top-level control verbs `list` / `get` / `create` / `update` / `delete` / `help` / `send` / `wait` / `tail` / `stop` / `messages` / `pending` / `answer` (`internal/cli/ctlcmd`; their resource request/response contract is the `Ctl*` messages in `pkg/wire/proto/agentre/wire/wire.proto`), and the account verbs `login` / `logout` / `whoami`. A command reaches one executor — the Agentre session, the local desktop, or the account server (after `agrctl login`, or with a personal token) — see [docs/architecture.md](docs/architecture.md#agrctl-as-an-account-peer). The app installs it under `<AppDataDir>/bin` and points the Claude Code hooks at it, so a hook subprocess never boots the GUI binary; `./cmd/agrctl` must not reach service / repository / bootstrap / app / Wails / cago packages (`internal/guard/production_dependencies_test.go`).
 
 ## High-Priority Constraints (mandatory, non-negotiable)
 
@@ -88,7 +88,7 @@ make verify-up        # launch isolated formal desktop for drive.mjs verificatio
 make verify-status    # inspect the live formal verification target
 make verify-down      # stop it; add VERIFY_FLAGS=--wipe to remove isolated state
 
-# agrctl companion CLI (claudecode hook shim + acp + list/get/create/update/delete/help/send)
+# agrctl companion CLI (claudecode hook shim + acp + control verbs + login/logout/whoami)
 make agrctl                  # build → build/bin/agrctl (the app installs it into <AppDataDir>/bin)
 
 # agentred daemon (remote execution box)

@@ -34,6 +34,8 @@ type ctlSvc struct {
 	projects  ProjectGateway
 	chat      ChatGateway
 	resources Resources
+	// conversations 按 conversation_id 定位与操作会话;nil = 按请求现取 chat_svc。
+	conversations Conversations
 	// cards 把 send --wait 的子会话升级成父转录里的子代理卡(nil = 不升级)。
 	cards SubagentCards
 	// approvals / external 是写操作的两条审批通路（会话审批卡 / 桌面端弹窗队列）。
@@ -156,7 +158,8 @@ func (s *ctlSvc) ControlHandler() http.Handler {
 		h := &ctlHandler{
 			token: s.token, sessions: s.sessions,
 			agents: s.agents, projects: s.projects, chat: s.chat, resources: s.resources, cards: s.cards,
-			approvals: s.approvals, external: s.external, approvalTimeout: s.approvalTimeout,
+			conversations: s.conversationsPort(),
+			approvals:     s.approvals, external: s.external, approvalTimeout: s.approvalTimeout,
 		}
 		s.mu.RUnlock()
 		h.ServeHTTP(w, r)

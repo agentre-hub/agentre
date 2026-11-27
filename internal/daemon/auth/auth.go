@@ -64,7 +64,10 @@ type AccountResult struct {
 	InstanceUUID string `json:"instanceUUID"`
 	// PeerFingerprint 是 server 核验凭据后给出的对端身份 —— 对端会话落进
 	// peer_fingerprint 的那个值,也回写给调用方(AuthAccountResponse.peer_fingerprint)。
-	PeerFingerprint string `json:"peerFingerprint"`
+	PeerFingerprint string   `json:"peerFingerprint"`
+	Kind            string   `json:"-"`
+	Scopes          []string `json:"-"`
+	TokenName       string   `json:"-"`
 	// Direct is the auto-direct delivery for a desktop caller (D3); nil when the
 	// caller is not a desktop or the daemon has no address to offer (D5).
 	Direct *DirectDelivery `json:"-"`
@@ -188,23 +191,39 @@ func (a *AuthHandlers) HandleConnect(ctx context.Context, p ConnectParams) (*Con
 // The connection's peer identity is the one the server's verdict names.
 func (a *AuthHandlers) HandleAccount(ctx context.Context, p AccountParams) (*AccountResult, error) {
 	snapshot := a.st.Snapshot()
-	if snapshot.AccountID == "" {
-		return nil, ErrReceiverNotReady
-	}
-	verified, err := a.accounts.Verify(ctx, p.Credential)
+	verified, err := a.VerifyAccount(ctx, p.Credential)
 	if err != nil {
 		return nil, err
-	}
-	if verified.AccountID != snapshot.AccountID {
-		logger.Ctx(ctx).Info("auth.HandleAccount: rejected a credential that belongs to another account",
-			zap.String("accountId", snapshot.AccountID), zap.String("credentialAccountId", verified.AccountID))
-		return nil, ErrCredentialInvalid
 	}
 	return &AccountResult{
 		OK: true, InstanceUUID: snapshot.DaemonInstanceUUID,
 		PeerFingerprint: verified.PeerFingerprint,
+		Kind:            verified.Kind,
+		Scopes:          verified.Scopes,
+		TokenName:       verified.TokenName,
 		Direct:          a.deliverDirect(ctx, verified, snapshot.AccountID),
 	}, nil
+}
+
+// VerifyAccount is Mode C's verdict on a credential without the handshake
+// around it: the daemon must belong to an account, the server must vouch for
+// the credential, and the credential must belong to that same account. The
+// handshake runs it once; MethodGuard runs it again on every personal-token call.
+func (a *AuthHandlers) VerifyAccount(ctx context.Context, credential string) (Introspection, error) {
+	accountID := a.st.Snapshot().AccountID
+	if accountID == "" {
+		return Introspection{}, ErrReceiverNotReady
+	}
+	verified, err := a.accounts.Verify(ctx, credential)
+	if err != nil {
+		return Introspection{}, err
+	}
+	if verified.AccountID != accountID {
+		logger.Ctx(ctx).Info("auth.VerifyAccount: rejected a credential that belongs to another account",
+			zap.String("accountId", accountID), zap.String("credentialAccountId", verified.AccountID))
+		return Introspection{}, ErrCredentialInvalid
+	}
+	return verified, nil
 }
 
 // deliverDirect issues (or reuses, D4) the local direct credential of a

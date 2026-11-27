@@ -390,3 +390,39 @@ func TestPostRaw_CancelledUnderCodexSandboxHasNoSandboxHint(t *testing.T) {
 		t.Fatalf("err = %q, a cancellation is not a dial failure", err.Error())
 	}
 }
+
+// TestResolveDesktop_GivenNoHandshakeFileThenTheDesktopIsNotRunning：显式 --desktop 时没有
+// 握手文件就是「桌面端未运行」，不回落到别的执行者。
+func TestResolveDesktop_GivenNoHandshakeFileThenTheDesktopIsNotRunning(t *testing.T) {
+	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
+	t.Setenv("AGENTRED_DATA_DIR", t.TempDir())
+	if _, err := ResolveDesktop(); !errors.Is(err, ErrDesktopNotRunning) {
+		t.Fatalf("ResolveDesktop without a handshake file = %v, want ErrDesktopNotRunning", err)
+	}
+}
+
+// TestResolveDesktop_GivenAStaleHandshakeFileThenDialingSaysTheDesktopIsNotRunning：桌面停掉后
+// 留下的握手文件拨不通，同样是「桌面端未运行」。
+func TestResolveDesktop_GivenAStaleHandshakeFileThenDialingSaysTheDesktopIsNotRunning(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := "http://" + ln.Addr().String()
+	_ = ln.Close()
+	dir := t.TempDir()
+	if err := ctlendpoint.Write(dir, ctlendpoint.Endpoint{URL: stale, Token: "tok"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTRE_DATA_DIR", dir)
+	ep, err := ResolveDesktop()
+	if err != nil {
+		t.Fatalf("ResolveDesktop: %v", err)
+	}
+	if ep.Base != stale || ep.Token != "tok" || ep.TokenFromEnv {
+		t.Fatalf("endpoint = %+v, want the handshake file's", ep)
+	}
+	if _, err := ep.PostRaw(context.Background(), "/ctl/v1/resources", []byte(`{}`)); !errors.Is(err, ErrDesktopNotRunning) {
+		t.Fatalf("PostRaw to a stale handshake = %v, want ErrDesktopNotRunning", err)
+	}
+}

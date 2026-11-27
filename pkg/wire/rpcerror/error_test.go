@@ -26,3 +26,16 @@ func TestError_GivenStandardCodes_WhenUsedAcrossTransports_ThenValuesStayStable(
 	require.Equal(t, int32(-32603), rpcerror.CodeInternal)
 	require.Equal(t, int32(-32800), rpcerror.CodeCanceled)
 }
+
+// Given a personal token that lacks the scope a method needs, When the refusal is
+// built, Then it carries its own stable code (not -32001, which would make the
+// caller refresh a credential that was never rejected) and names the missing scope.
+func TestErrScopeDenied_GivenAMissingScope_ThenCarriesItsOwnCodeAndNamesTheScope(t *testing.T) {
+	require.Equal(t, int32(-32005), rpcerror.CodeScopeDenied)
+
+	err := rpcerror.ErrScopeDenied("chat")
+
+	require.Equal(t, rpcerror.CodeScopeDenied, err.Code)
+	require.Equal(t, "token lacks scope chat", err.Error())
+	require.NotEqual(t, rpcerror.CodeUnauthorized, err.Code)
+}

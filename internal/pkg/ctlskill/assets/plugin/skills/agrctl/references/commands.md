@@ -14,9 +14,11 @@ only fixes the output and error contract.
 | Code | Meaning |
 | --- | --- |
 | `0` | the command succeeded |
-| `1` | it failed: not found, rejected by the desktop or by the user's approval, approval timed out, or the desktop could not be reached |
-| `2` | usage error — unknown command or flag, missing required flag or argument, a `--config` key the backend type does not accept, or an ambiguous name |
+| `1` | it failed: not found, rejected by the desktop, the account or the user's approval, approval timed out, the session is running, a turn failed, the login expired, or the desktop or the account could not be reached |
+| `2` | usage error — unknown command or flag, missing required flag or argument, a `--config` key the backend type does not accept, an ambiguous name, a session reference that is not a full session UUID, a value the target backend does not support, or sending to your own session |
 | `3` | a human is needed: a bare secret flag was given without a terminal (`NEEDS TTY:`) |
+| `4` | the session waits for input; stdout holds the pending items as JSON |
+| `5` | `--timeout` passed while waiting; the session is still running |
 
 Errors go to stderr as `Error: <message>`; messages from the desktop (validation, "still in
 use", …) are shown verbatim. Exit code `3` prints `NEEDS TTY: <explanation>` instead.
@@ -71,7 +73,7 @@ shown by `get` only.
   "type": "openai-chat",
   "baseUrl": "<url>",
   "enabled": true,
-  "apiKey": "sk-o••••••••3f9a",
+  "apiKeySet": true,
   "defaultModel": "openai/gpt-5.1",
   "models": [ { "modelId": "openai/gpt-5.1", "contextWindow": 400000, "enabled": true } ],
   "references": { "agentBackends": 2 }
@@ -79,7 +81,8 @@ shown by `get` only.
 ```
 
 Field names match the create/update flags. References to other resources are printed as
-paths you can pass straight back to a flag. API keys are masked; other secrets only print
+paths you can pass straight back to a flag. API keys are never printed — `apiKeySet` says
+whether one is set; other secrets only print
 `set` / `unset`, or `unknown` when the device that keeps them cannot be asked (it is offline,
 or the backend is managed through the server). `list backends` shows the same state in its
 last column: `set`, `-` or `unknown`.
@@ -176,7 +179,10 @@ chat. `--api-key=<value>` also works, but the value stays in shell history.
 ## `send`
 
 ```
-{{AGRCTL_PATH}} send --agent <name> [--agent-id <id>] [--project <id>] [--wait] [--isolated] <task text...>
+{{AGRCTL_PATH}} send --agent <name> [--agent-id <id>] [--device <device> | --backend <ref>] [--project <ref>] [--title <title>] [--isolated]
+                    [--model <provider>/<model> | --cli-model <model>] [--effort <level>]
+                    [--permission-mode <mode>] [--image <file>]... [--wait [--timeout <duration>]] [-o json] <task text...>
+{{AGRCTL_PATH}} send --session <id> [--steer] [--image <file>]... [--wait [--timeout <duration>]] [-o json] <text...>
 ```
 
 The task text is everything after the flags; quote it so the shell keeps it as one argument
@@ -188,7 +194,8 @@ when it contains spaces.
   {{AGRCTL_PATH}} send --agent reviewer --project 3 "review the diff on branch feat/x"
   ```
 
-  Stdout is the new session id; stderr carries a `dispatched to …` line.
+  Stdout is the session id — a full UUID such as `0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a7b`;
+  stderr carries `dispatched to reviewer — this desktop` (or the device that runs it).
 
 - Wait for the answer (only for a short question):
 
@@ -196,7 +203,8 @@ when it contains spaces.
   {{AGRCTL_PATH}} send --agent reviewer --wait "which files did you touch last?"
   ```
 
-  Stdout is that agent's final text, once its turn ends.
+  Stdout is that agent's final text once the session is idle; the exit codes are those of
+  `wait` below.
 
 - One-shot session that stays out of the sidebar:
 
@@ -204,10 +212,210 @@ when it contains spaces.
   {{AGRCTL_PATH}} send --agent-id 12 --isolated "summarize the release notes"
   ```
 
-Reminders: `--wait` blocks for the whole remote turn, and dispatching to the agent this
-session is running as deadlocks both sides. Foreground shell tools time out (Claude Code's
-foreground Bash stops after 10 minutes), so for a long turn run the `--wait` call
-as a background shell command.
+  Against the account (after `agrctl login`, outside an Agentre session) `send`, `wait` and
+  `stop` reach the device running the session directly; a session is saved to the account
+  (the console and the desktop list it) unless `--isolated`, which keeps it out of the account.
+  A device on another release fails naming the older end to upgrade — `device <name> needs to be
+  upgraded …` or `this agrctl needs to be upgraded to reach device <name> …` (exit `1`).
+
+- Continue a session, or interject into its running turn:
+
+  ```
+  {{AGRCTL_PATH}} send --session 0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a7b "now add the tests"
+  Error: session is running; use --steer to interject, or agrctl wait first
+  {{AGRCTL_PATH}} send --session 0193b6f0-7c5e-7d2a-9f4b-3c1d2e5f6a7b --steer "also cover the empty case"
+  ```
+
+- Pick where a new session runs (default: the agent's first available backend):
+
+  ```
+  {{AGRCTL_PATH}} send --agent reviewer --device build-box "run the slow suite"
+  {{AGRCTL_PATH}} send --agent reviewer --device nowhere "…"
+  Error: --device "nowhere" is not one of agent reviewer's devices (one of: this desktop, build-box)
+  ```
+
+  `--device` takes a device name or fingerprint (`local` is this desktop) and picks the agent's
+  first backend there; `--backend` names one of the agent's backends exactly. A device or
+  backend the agent does not have is a usage error (exit `2`); an offline device, or one with no
+  path for the project, fails with the reason (exit `1`).
+
+- Change a setting for this session (from the next turn on):
+
+  ```
+  {{AGRCTL_PATH}} send --agent reviewer --effort turbo "…"
+  Error: --effort "turbo" is not supported by the target backend (one of: low, medium, high, xhigh, max)
+  ```
+
+- `-o json` prints one object: `{"session": "<id>", "status": "running|idle|failed|waiting", "text": …, "error": …, "pending": …}`.
+
+Reminders: `--wait` blocks until the session settles, dispatching to the agent this session is
+running as deadlocks both sides, and `send --session` to your own session is refused (exit `2`).
+Foreground shell tools time out (Claude Code's foreground Bash stops after 10 minutes), so for a
+long turn dispatch without `--wait` and run `wait <session>` as a background shell command.
+
+## `wait`
+
+```
+{{AGRCTL_PATH}} wait <session> [--timeout <duration>] [-o json]
+```
+
+| Session state | stdout | exit |
+| --- | --- | --- |
+| idle | final text of the last turn | `0` |
+| the last turn failed | — (stderr: its error) | `1` |
+| waiting for input | the pending items as JSON | `4` |
+| `--timeout` passed | — (stderr: `still running …`) | `5` |
+
+A dropped connection to the executor is retried and the wait continues. No timeout by default.
+
+## `tail`
+
+```
+{{AGRCTL_PATH}} tail <session> [--from <cursor>] [--until-idle]
+{"cursor":"v1:12","type":"tool_call","kind":"tool_use_start","data":{…}}
+{"cursor":"v1:12","type":"text","kind":"text_delta","preview":true,"data":{"kind":"text_delta","text":"Done"}}
+{"cursor":"v1:14","type":"turn_done","kind":"runtime.runResultDone","data":{…}}
+{"cursor":"v1:14","type":"status","status":"idle"}
+```
+
+One JSON object per line. `type` is one of `turn_started`, `text`, `thinking`, `tool_call`,
+`tool_result`, `user_message`, `pending`, `pending_resolved`, `turn_done`, `status`, `event`
+(anything else); `data` is the event as the executor saw it. `preview: true` lines are live
+increments — the settled content follows as a line without it. Treat `cursor` as opaque:
+`--from <cursor>` replays what came after it, then follows live. An expired cursor fails
+(exit `1`): read the history with `agrctl messages`. `--until-idle` exits `0` when the session
+goes idle and `4` when it waits for input; without it, `tail` follows until Ctrl-C.
+
+## `stop`
+
+```
+{{AGRCTL_PATH}} stop <session>
+stopped — dropped 1 undelivered steer message(s)
+```
+
+A session that is not running prints `session is not running` (exit `0`). Stopping is refused
+from inside an Agentre session.
+
+## `list sessions`, `get session`
+
+```
+{{AGRCTL_PATH}} list sessions [--agent <name|id>] [--project <ref>] [--device <device>]
+                     [--status running|idle|waiting|failed] [--limit <n>] [-o json]
+{{AGRCTL_PATH}} get session <session>
+```
+
+`list sessions` shows this desktop's sessions (including the ones it runs on remote devices),
+most recently active first; the first column is the full session id. `--device local` means this
+desktop; `--limit` defaults to 50. `--mine` is refused on the desktop (exit `2`). `-o json` prints
+`[{id, title, agent, device, status, lastActivityAt}]`.
+
+`get session` prints one JSON object: `id`, `title`, `agent`, `project`, `device`, `backend`,
+`model`, `status`, `initiator` (who started the session) with `initiatorKind` (`desktop`,
+`console`, `cli`, ...), `createdAt`, `lastActivityAt`, `usage {input, output}`, `pending` (how many items
+await an answer) and `lastText` (the last turn's final text, shortened). A field that cannot be
+determined is omitted, not guessed. On the desktop `initiator` is `desktop` (it does not record
+which agrctl started a session). Against the account it is `this agrctl (<device>)` for
+your own sessions, another device's name, or `console`; when the initiator cannot be named `initiator` is
+left out, and `initiatorKind` too unless its kind is known.
+
+Against the account (after `agrctl login`) the same commands work on the account's sessions:
+`list sessions` merges the sessions saved to the account (console and CLI started) with the ones
+running on online devices; a saved session on an offline device keeps its last known status and
+is marked (`deviceOffline: true`, `(offline)` in the table), and unsaved sessions of an offline
+device are absent. `--mine` keeps only the sessions this caller started. `messages` falls back to
+the account's mirror when the device is offline (`device … is offline` when nothing was mirrored),
+and `tail` needs the device online.
+
+## `messages`
+
+```
+{{AGRCTL_PATH}} messages <session> [--last <n>] [--before <cursor>] [--full] [-o json]
+```
+
+Prints the last 20 turns by default, oldest first: user messages and the assistant's text
+(`user: …` / `assistant: …`). `--full` adds tool calls and results (thinking is never shown).
+When earlier messages exist, stderr prints the next command: `messages <session> --before <cursor>`.
+`-o json` prints `{session, messages: [{role, at, text, blocks}], hasMore, before}`.
+
+## `pending`, `answer`
+
+```
+{{AGRCTL_PATH}} pending [<session>] [-o json]
+{{AGRCTL_PATH}} answer <session> <id> --option 2
+{{AGRCTL_PATH}} answer <session> <id> --text "use sqlite"
+{{AGRCTL_PATH}} answer <session> <id> --allow
+{{AGRCTL_PATH}} answer <session> <id> --deny --message "not in this repo"
+```
+
+`pending` lists what a session waits for: `kind` `question` (an AskUserQuestion card, with its
+options), `tool_permission` (a tool, plan or execution approval) or `approval` (the card a session's
+agent raised by writing with agrctl, with `title` and `summary`). Without a session it covers every
+waiting session. `-o json` prints `{items: [{id, session, kind, tool, input, questions, title, summary}]}`.
+
+`answer` takes the item `id`. A question takes `--option` (its text or its 1-based number; repeat for
+multi-select) or `--text`; a tool permission takes `--allow` or `--deny [--message <reason>]`, an
+approval card `--allow` or `--deny`.
+The wrong kind of answer for an item is a usage error (exit `2`). An item already answered
+elsewhere, or timed out, fails with "the pending item no longer exists" (exit `1`). A card that
+asks several questions at once is answered in the desktop app. `answer` is refused from inside an
+Agentre session (exit `1`).
+
+## `test provider`, `discover models`, `import models`
+
+```
+{{AGRCTL_PATH}} test provider <provider> [--model <model id>] [--device <device>]
+{{AGRCTL_PATH}} discover models <provider> [--device <device>] [-o json]
+{{AGRCTL_PATH}} import models <provider> (--all | <model id>...) [--device <device>]
+```
+
+`test provider` sends one real request with the saved configuration and prints success, or the
+upstream error summary (exit `1`; never the API key). `discover models` lists the models the
+upstream offers and marks the ones already imported (`-o json`: `modelId`, `name`, `imported`).
+`import models` creates the missing ones as models of the provider through the same write path
+as `create model` (so the same approval rules apply) and skips existing ones, printing both
+counts. Against the account these run on `--device` (default: the first online device that
+already has the provider); `--device` is not available against the desktop, which runs them
+itself. A provider created or changed a moment ago may not have reached the device yet:
+`device <name> has not received this provider yet — try again shortly` (exit `1`); wait and retry.
+
+## `list devices`, `get device`, `update device`, `delete device`, `upgrade device`
+
+```
+{{AGRCTL_PATH}} list devices [-o json]
+{{AGRCTL_PATH}} get device <device>
+{{AGRCTL_PATH}} update device <device> --name <name>
+{{AGRCTL_PATH}} delete device <device>
+{{AGRCTL_PATH}} upgrade device <device>
+```
+
+Account only: against the desktop or a session these fail with `device management needs an
+account login — run 'agrctl login'` (exit `1`). `list devices` shows name, kind, online state (a
+`cli` device shows when it was last used), version and a `*` on the device this `agrctl` is
+logged in as. `get device` also lists the backends bound to it. `update`, `delete` and `upgrade`
+change the account, so a program using the user's login is refused like any other write;
+`delete device` on the current device is the same as `logout`; only an `agentred` device can be
+upgraded. Pairing a new `agentred` is done on that machine with `agentred login`.
+
+## `login`, `logout`, `whoami`
+
+```
+{{AGRCTL_PATH}} login [--server <url>]
+{{AGRCTL_PATH}} logout
+{{AGRCTL_PATH}} whoami
+```
+
+`login` and `logout` are the user's, run in their own terminal. `login` prints a code to approve
+in the browser and makes this machine's `agrctl` a device of the account; it fails (exit `1`)
+when denied, expired, unreachable, or already logged in (`already logged in as <account> — run
+'agrctl logout' first`). `logout` revokes that device, then deletes the local login; if the
+server cannot be reached it still deletes it and says to remove the device from the account's
+device list. `whoami` prints the executor the next command reaches (`session`, `desktop` or
+`account`) and the login's server, account and device.
+
+With the user's login, a program without a terminal or one run by an agent CLI can read, but
+writes and sending, stopping or answering fail (exit `1`) with a message to use a personal
+credential instead. `memory` and a project's local `--path` are not available on the account;
+`--desktop` reaches the desktop.
 
 ## `acp` (run as an ACP agent)
 

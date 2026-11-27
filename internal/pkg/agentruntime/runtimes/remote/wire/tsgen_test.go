@@ -256,7 +256,7 @@ type tsRPCErrorDecl struct {
 // 完整性由 TestTSGenCoversRPCErrorCodes 机械保证。
 func tsRPCErrorDecls() []tsRPCErrorDecl {
 	return []tsRPCErrorDecl{
-		// ── runtime.*(-32010..-32015)──
+		// ── runtime.*(-32010..-32016)──
 		//
 		// 前六个的 TS 名字**逐字保持不变**:消费方(agentre-server)已经在按这些名字
 		// import。机械的 Code → ErrCode 替换会把它们改成 ErrCodeRuntimeNoActiveTurn,
@@ -271,6 +271,7 @@ func tsRPCErrorDecls() []tsRPCErrorDecl {
 			"CodeRuntimePeerExecutionUnavailable",
 			rpcerror.CodeRuntimePeerExecutionUnavailable,
 		},
+		{"ErrCodeSessionRunning", "CodeRuntimeSessionRunning", rpcerror.CodeRuntimeSessionRunning},
 
 		// ── remotefs.*(-32030..-32035)──
 		{"ErrCodeRemoteFSPathRefused", "CodeRemoteFSPathRefused", rpcerror.CodeRemoteFSPathRefused},
@@ -326,6 +327,7 @@ func tsRPCErrorDecls() []tsRPCErrorDecl {
 		{"ErrCodeSessionMissing", "CodeSessionMissing", rpcerror.CodeSessionMissing},
 		{"ErrCodeProviderMissing", "CodeProviderMissing", rpcerror.CodeProviderMissing},
 		{"ErrCodePairing", "CodePairing", rpcerror.CodePairing},
+		{"ErrCodeScopeDenied", "CodeScopeDenied", rpcerror.CodeScopeDenied},
 		{"ErrCodeProtocolVersion", "CodeProtocolVersion", rpcerror.CodeProtocolVersion},
 		{"ErrCodeAccountServerUnreachable", "CodeAccountServerUnreachable", rpcerror.CodeAccountServerUnreachable},
 		{"ErrCodeMethodNotFound", "CodeMethodNotFound", rpcerror.CodeMethodNotFound},

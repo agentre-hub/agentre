@@ -32,6 +32,10 @@ type fakeExecutor struct {
 	nextID int64
 	// writeResp 非 nil 时由它给出写入的响应（记忆写入要带回所在的层、是否已存在、超预算）。
 	writeResp func(*agentrewire.CtlWriteRequest) *agentrewire.CtlWriteResponse
+	// probes 是桌面的 provider-test / provider-discover：记下收到的请求体，按 probeTest / probeModels 作答。
+	probes     []string
+	probeTest  string
+	probeModel []string
 }
 
 func deptDoc(d *agentrewire.CtlDepartment) *agentrewire.CtlResource {
@@ -97,6 +101,8 @@ func newFakeExecutor(t *testing.T, token string) (*fakeExecutor, *httptest.Serve
 	}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ctl/v1/resources", f.serve)
+	mux.HandleFunc("/ctl/v1/provider-test", f.serveProbe)
+	mux.HandleFunc("/ctl/v1/provider-discover", f.serveProbe)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return f, srv
@@ -173,6 +179,35 @@ func (f *fakeExecutor) serve(w http.ResponseWriter, r *http.Request) {
 		f.t.Fatalf("marshal: %v", err)
 	}
 	_, _ = w.Write(out)
+}
+
+func (f *fakeExecutor) serveProbe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer "+f.token {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":"invalid control token"}`)
+		return
+	}
+	raw, _ := io.ReadAll(r.Body)
+	f.mu.Lock()
+	f.probes = append(f.probes, r.URL.Path+" "+string(raw))
+	test, models := f.probeTest, f.probeModel
+	f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if strings.HasSuffix(r.URL.Path, "provider-test") {
+		_, _ = io.WriteString(w, test)
+		return
+	}
+	var out []string
+	for _, m := range models {
+		out = append(out, `{"modelId":"`+m+`","name":"`+m+`"}`)
+	}
+	_, _ = io.WriteString(w, `{"models":[`+strings.Join(out, ",")+`]}`)
+}
+
+func (f *fakeExecutor) probeLog() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.probes...)
 }
 
 func (f *fakeExecutor) byID(kind agentrewire.CtlKind, id int64) *agentrewire.CtlResource {

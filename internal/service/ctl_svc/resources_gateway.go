@@ -35,6 +35,7 @@ func ProductionResources() Resources {
 		Writers:   productionWriters(ports),
 		Cascade:   departmentWriter{ports},
 		Memory:    liveMemory{},
+		Probes:    liveProbes{providers: ports.providers},
 	}
 }
 
@@ -178,6 +179,7 @@ func projectDocFrom(
 		Color:       p.Color,
 		Description: p.Description,
 		Path:        p.Path,
+		SyncId:      p.SyncID,
 	}
 	for _, m := range members {
 		doc.MemberAgentIds = append(doc.MemberAgentIds, m.AgentID)
@@ -260,6 +262,7 @@ func providerDocFrom(p *llm_provider_svc.ProviderItem, backendRefs int64) *agent
 		ApiKeySet:       p.HasAPIKey,
 		DefaultModelKey: p.DefaultModelKey,
 		BackendRefs:     int32(backendRefs),
+		SyncId:          p.ProviderKey,
 	}
 }
 

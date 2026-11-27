@@ -14,6 +14,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/pkg/cliprober"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 const engineProviderKey = "provider-key-must-not-return"
@@ -77,17 +78,36 @@ func TestEngineTest_GivenDisabledModel_WhenTesting_ThenDoesNotCallUpstream(t *te
 	assert.Zero(t, doer.calls, "a disabled model must not be sent to the upstream provider")
 }
 
-func TestEngineTest_GivenUnknownProvider_WhenTesting_ThenReportsFailureWithoutLeakingConfiguredCredentials(t *testing.T) {
+func TestEngineTest_GivenProviderAbsentFromSnapshot_WhenTesting_ThenReportsProviderMissingWithoutLeakingCredentials(t *testing.T) {
 	st, h := setupEngineTest(t, nil)
 	st.Mutate(func(s *state.State) { s.LLMProviders[engineProviderKey] = state.LLMProviderMeta{APIKey: engineAPIKey} })
 	result, err := h.Test(context.Background(), handlers.EngineTestParams{ProviderKey: "missing-provider"})
+	var rpcErr *rpcerror.Error
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, rpcerror.CodeProviderMissing, rpcErr.Code)
+	payload, merr := json.Marshal(result)
+	require.NoError(t, merr)
+	assert.NotContains(t, string(payload)+rpcErr.Message, engineAPIKey)
+	assert.NotContains(t, string(payload)+rpcErr.Message, engineProviderKey)
+}
+
+func TestEngineTest_GivenKnownProviderWithUnknownModel_WhenTesting_ThenStaysAnOKFalseResult(t *testing.T) {
+	st, h := setupEngineTest(t, nil)
+	st.Mutate(func(s *state.State) {
+		s.LLMProviders[engineProviderKey] = state.LLMProviderMeta{Type: "openai-chat", BaseURL: "https://api.example", APIKey: engineAPIKey}
+	})
+	result, err := h.Test(context.Background(), handlers.EngineTestParams{ProviderKey: engineProviderKey, ModelKey: "nope"})
 	require.NoError(t, err)
 	assert.False(t, result.OK)
 	assert.NotEmpty(t, result.Message)
-	payload, err := json.Marshal(result)
-	require.NoError(t, err)
-	assert.NotContains(t, string(payload), engineAPIKey)
-	assert.NotContains(t, string(payload), engineProviderKey)
+}
+
+func TestEngineDiscover_GivenProviderAbsentFromSnapshot_WhenDiscovering_ThenReportsProviderMissing(t *testing.T) {
+	_, h := setupEngineTest(t, nil)
+	_, err := h.Discover(context.Background(), handlers.EngineDiscoverParams{ProviderKey: "missing-provider"})
+	var rpcErr *rpcerror.Error
+	require.ErrorAs(t, err, &rpcErr)
+	assert.Equal(t, rpcerror.CodeProviderMissing, rpcErr.Code)
 }
 
 func TestEngineDiscover_GivenConfiguredProvider_WhenDiscoveringModels_ThenReturnsOnlyModelIDAndName(t *testing.T) {

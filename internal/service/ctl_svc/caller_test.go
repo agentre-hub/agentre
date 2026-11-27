@@ -48,20 +48,21 @@ func TestSessionToken_Permissions(t *testing.T) {
 	h := &ctlHandler{
 		token: testToken, sessions: signer,
 		agents: &fakeAgents{}, projects: &fakeProjects{}, chat: chat, resources: fakeResources(),
+		conversations: newFakeConversations(conv(100, convA, chat_svc.CtlStatusRunning), conv(42, convB, chat_svc.CtlStatusIdle)),
 	}
 
 	t.Run("stop → 403，不调 chat.Stop", func(t *testing.T) {
-		rec := do(t, h, http.MethodPost, "/ctl/v1/stop", sessionTok, `{"sessionId":42}`)
+		rec := do(t, h, http.MethodPost, "/ctl/v1/stop", sessionTok, `{"conversationId":"`+convA+`"}`)
 		assert.Equal(t, http.StatusForbidden, rec.Code)
 		assert.False(t, chat.stopped)
 	})
 	t.Run("answer-permission → 403，不调 chat.AnswerToolPermission", func(t *testing.T) {
-		rec := do(t, h, http.MethodPost, "/ctl/v1/answer-permission", sessionTok, `{"sessionId":42,"requestId":"r","allow":true}`)
+		rec := do(t, h, http.MethodPost, "/ctl/v1/answer-permission", sessionTok, `{"conversationId":"`+convA+`","requestId":"r","allow":true}`)
 		assert.Equal(t, http.StatusForbidden, rec.Code)
 		assert.Nil(t, chat.answerPermissionReq)
 	})
 	t.Run("同样的请求用握手 token → 放行", func(t *testing.T) {
-		rec := do(t, h, http.MethodPost, "/ctl/v1/stop", testToken, `{"sessionId":42}`)
+		rec := do(t, h, http.MethodPost, "/ctl/v1/stop", testToken, `{"conversationId":"`+convA+`"}`)
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
 	t.Run("读资源 → 200", func(t *testing.T) {
@@ -72,8 +73,10 @@ func TestSessionToken_Permissions(t *testing.T) {
 		rec := do(t, h, http.MethodGet, "/ctl/v1/agents", sessionTok, "")
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
-	t.Run("send → 放行（不是 401/403）", func(t *testing.T) {
-		rec := do(t, h, http.MethodPost, "/ctl/v1/send", sessionTok, `{"sessionId":42,"text":"hi"}`)
+	t.Run("send 别的会话 → 放行（不是 401/403）", func(t *testing.T) {
+		chat.lastSend = nil
+		h.conversations.(*fakeConversations).sessions[100].Status = chat_svc.CtlStatusIdle
+		rec := do(t, h, http.MethodPost, "/ctl/v1/send", sessionTok, `{"conversationId":"`+convA+`","text":"hi"}`)
 		assert.NotEqual(t, http.StatusForbidden, rec.Code)
 		assert.NotEqual(t, http.StatusUnauthorized, rec.Code)
 		assert.NotNil(t, chat.lastSend)

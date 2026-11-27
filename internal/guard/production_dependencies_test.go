@@ -28,6 +28,32 @@ func TestProductionEntrypointsExcludeE2EDependenciesAndBuildTags(t *testing.T) {
 		}
 	})
 
+	t.Run("Given the agrctl companion CLI When its dependencies are inspected Then no service, bootstrap, app, Wails or cago package is reachable", func(t *testing.T) {
+		cmd := exec.Command("go", "list", "-deps", "./cmd/agrctl")
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("go list ./cmd/agrctl: %v\n%s", err, out)
+		}
+		if offenders := agrctlForbiddenDeps(string(out)); len(offenders) > 0 {
+			t.Fatalf("agrctl must stay a slim client (spec 2026-11-25 agrctl account peer); it reaches %v", offenders)
+		}
+	})
+
+	t.Run("Given the agrctl dependency rule When it sees a forbidden package Then it names it", func(t *testing.T) {
+		listing := strings.Join([]string{
+			"github.com/agentre-hub/agentre/internal/pkg/ctlclient",
+			"github.com/agentre-hub/agentre/internal/service/server_svc",
+			"github.com/agentre-hub/agentre/internal/bootstrap",
+			"github.com/agentre-hub/agentre/internal/app",
+			"github.com/wailsapp/wails/v2/pkg/runtime",
+			"github.com/cago-frame/cago/configs",
+		}, "\n")
+		if got := agrctlForbiddenDeps(listing); len(got) != 5 {
+			t.Fatalf("agrctlForbiddenDeps = %v, want the five forbidden packages and not ctlclient", got)
+		}
+	})
+
 	t.Run("Given production entrypoints When source imports are inspected Then they contain no E2E imports", func(t *testing.T) {
 		for _, source := range []string{filepath.Join(root, "main.go"), filepath.Join(root, "cmd", "agentred", "run.go")} {
 			raw, err := os.ReadFile(source) //nolint:gosec // G304: fixed repository-owned entrypoint paths
@@ -55,6 +81,32 @@ func TestProductionEntrypointsExcludeE2EDependenciesAndBuildTags(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+}
+
+// agrctlForbiddenPrefixes 是 agrctl 不许依赖到的包：它只能是一个瘦客户端（ctlclient /
+// agrctlcred / 协议包），不能把桌面端的服务、启动装配、Wails 绑定或 cago 运行时拖进来。
+var agrctlForbiddenPrefixes = []string{
+	"github.com/agentre-hub/agentre/internal/service/",
+	"github.com/agentre-hub/agentre/internal/repository/",
+	"github.com/agentre-hub/agentre/internal/bootstrap/",
+	"github.com/agentre-hub/agentre/internal/app/",
+	"github.com/wailsapp/",
+	"github.com/cago-frame/cago/",
+}
+
+// agrctlForbiddenDeps 从 `go list -deps` 的输出里挑出 agrctl 不许依赖的包。
+func agrctlForbiddenDeps(listing string) []string {
+	var offenders []string
+	for _, line := range strings.Split(listing, "\n") {
+		pkg := strings.TrimSpace(line)
+		for _, prefix := range agrctlForbiddenPrefixes {
+			if pkg == strings.TrimSuffix(prefix, "/") || strings.HasPrefix(pkg, prefix) {
+				offenders = append(offenders, pkg)
+				break
+			}
+		}
+	}
+	return offenders
 }
 
 func repositoryRoot(t *testing.T) string {

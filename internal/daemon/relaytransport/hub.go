@@ -91,6 +91,10 @@ type HubLinkOptions struct {
 	// without the link itself knowing how tokens are renewed (R4/R14): a token
 	// that expires mid-connection is replaced by the fresh one on the next dial.
 	AccessTokenProvider func() string
+	// Header carries extra handshake headers sent on every dial (agrctl names the
+	// language the relay answers channel failures in). Authorization is always
+	// the bearer token above and cannot be overridden here.
+	Header http.Header
 
 	HeartbeatInterval time.Duration
 	RetryInitial      time.Duration
@@ -342,6 +346,31 @@ func (l *HubLink) Run(ctx context.Context) error {
 	}
 }
 
+// Connect dials the relay once and serves that one physical connection in the
+// background until it drops or ctx ends. Unlike Run it never redials: a
+// one-shot client (agrctl) decides for itself whether a drop is worth another
+// Connect. The dial error comes back as is — ErrRelayCredentialRejected for an
+// HTTP 401. The returned channel receives the reason the connection ended and
+// is then closed; lifecycle listeners see the same dial and disconnect as Run's.
+func (l *HubLink) Connect(ctx context.Context) (<-chan error, error) {
+	conn, err := l.dial(ctx)
+	if err != nil {
+		return nil, err
+	}
+	l.setConn(conn)
+	l.notifyDial()
+	done := make(chan error, 1)
+	go func() {
+		defer close(done)
+		err, _ := l.serve(ctx, conn)
+		l.clearConn(conn)
+		_ = conn.Close()
+		l.notifyDisconnect(err)
+		done <- err
+	}()
+	return done, nil
+}
+
 // stopRetrying classifies why a backoff wait ended the reconnect loop. A wait
 // that ends because ctx was canceled is Run's normal shutdown, so it exits nil.
 // Any other wait failure means the retry clock itself is broken: swallowing it
@@ -441,7 +470,10 @@ func (l *HubLink) dial(ctx context.Context) (*websocket.Conn, error) {
 	if l.opts.AccessTokenProvider != nil {
 		token = l.opts.AccessTokenProvider()
 	}
-	headers := make(http.Header)
+	headers := l.opts.Header.Clone()
+	if headers == nil {
+		headers = make(http.Header)
+	}
 	headers.Set("Authorization", "Bearer "+token)
 	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, endpoint, headers)
 	// The handshake response body is a no-op reader on both outcomes (gorilla

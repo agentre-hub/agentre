@@ -2342,6 +2342,38 @@ public nonisolated struct Agentre_Wire_SessionPendingWaitersResponse: Sendable {
 
   public var askUserQuestions: [Agentre_Wire_PendingAskUserQuestion] = []
 
+  /// approvals are the ctl / org approval cards an in-session agent raised by
+  /// calling agrctl writes; they live in agentred memory and in the transcript,
+  /// not in the backend's waiter table.
+  public var approvals: [Agentre_Wire_PendingApproval] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// PendingApproval is one open approval card. It is answered with
+/// toolApproval.answer (conversation_id + request_id).
+public nonisolated struct Agentre_Wire_PendingApproval: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var requestID: String = String()
+
+  /// kind is "ctl" (resource write) or "org" (organization operation).
+  public var kind: String = String()
+
+  /// title is the card's tool name, e.g. ctl_update_provider.
+  public var title: String = String()
+
+  /// summary is the JSON of the change list the card shows: the redacted
+  /// command and its changes. It never carries a secret value.
+  public var summary: Data = Data()
+
+  /// createtime is when the card was raised, unix seconds.
+  public var createtime: Int64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -3131,6 +3163,12 @@ public nonisolated struct Agentre_Wire_MCPServer: Sendable {
   public init() {}
 }
 
+/// runtime.run starts a new turn. A conversation that is already running a turn
+/// is refused for every caller with CodeRuntimeSessionRunning (-32016): add to
+/// the running turn with runtime.steer instead. Steers the turn did not deliver
+/// before it ended are replayed by the executing daemon itself, in order, as the
+/// next turn (announced with autonomousTurn.started, trigger "steer"); callers
+/// no longer drain and resend them.
 public nonisolated struct Agentre_Wire_RuntimeRunRequest: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -5155,6 +5193,10 @@ public nonisolated struct Agentre_Wire_AutonomousTurnStartedNotification: Sendab
 
   public var seq: Int64 = 0
 
+  /// Why the turn started without a runtime.run: "background_task" (the CLI woke
+  /// up after a background task finished), "external" (woken up by something
+  /// outside agentre), or "steer" (the daemon replaying steers the previous turn
+  /// left undelivered; the turn's transcript opens with them as a user message).
   public var trigger: String = String()
 
   public var turnToken: UInt64 = 0
@@ -6592,6 +6634,9 @@ public nonisolated struct Agentre_Wire_CtlAgent: Sendable {
   /// 只读：非空表示系统 Agent。
   public var systemBadge: String = String()
 
+  /// 只读：Agent 的账号级同步标识；账号执行者据它向 server 取派发计划、在执行端开会话。
+  public var syncID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -6669,6 +6714,9 @@ public nonisolated struct Agentre_Wire_CtlProject: Sendable {
   /// 只读：各设备上的路径。
   public var locations: [Agentre_Wire_CtlProjectLocation] = []
 
+  /// 只读：项目的账号级同步标识；账号执行者据它向 server 取派发计划（含该设备上的路径）。
+  public var syncID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -6690,7 +6738,7 @@ public nonisolated struct Agentre_Wire_CtlProvider: Sendable {
 
   public var enabled: Bool = false
 
-  /// 写入时是明文；响应里只能是掩码（前 4 位、圆点、后 4 位），未设置时为空。
+  /// 只写：写入时是明文；响应里恒为空（连掩码也不给），是否已设置看 api_key_set。
   public var apiKey: String = String()
 
   /// 只读：是否已设置 API key。
@@ -6701,6 +6749,9 @@ public nonisolated struct Agentre_Wire_CtlProvider: Sendable {
 
   /// 只读：引用它的后端数。
   public var backendRefs: Int32 = 0
+
+  /// 只读：提供方的账号级同步标识（即 provider key）；账号执行者据它钉会话的模型目标。
+  public var syncID: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -10637,7 +10688,7 @@ nonisolated extension Agentre_Wire_SessionPendingWaitersRequest: SwiftProtobuf.M
 
 nonisolated extension Agentre_Wire_SessionPendingWaitersResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".SessionPendingWaitersResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}tool_permissions\0\u{3}ask_user_questions\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}tool_permissions\0\u{3}ask_user_questions\0\u{1}approvals\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -10647,6 +10698,7 @@ nonisolated extension Agentre_Wire_SessionPendingWaitersResponse: SwiftProtobuf.
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.toolPermissions) }()
       case 2: try { try decoder.decodeRepeatedMessageField(value: &self.askUserQuestions) }()
+      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.approvals) }()
       default: break
       }
     }
@@ -10659,12 +10711,66 @@ nonisolated extension Agentre_Wire_SessionPendingWaitersResponse: SwiftProtobuf.
     if !self.askUserQuestions.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.askUserQuestions, fieldNumber: 2)
     }
+    if !self.approvals.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.approvals, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentre_Wire_SessionPendingWaitersResponse, rhs: Agentre_Wire_SessionPendingWaitersResponse) -> Bool {
     if lhs.toolPermissions != rhs.toolPermissions {return false}
     if lhs.askUserQuestions != rhs.askUserQuestions {return false}
+    if lhs.approvals != rhs.approvals {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_PendingApproval: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".PendingApproval"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}kind\0\u{1}title\0\u{1}summary\0\u{1}createtime\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.kind) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.title) }()
+      case 4: try { try decoder.decodeSingularBytesField(value: &self.summary) }()
+      case 5: try { try decoder.decodeSingularInt64Field(value: &self.createtime) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
+    }
+    if !self.kind.isEmpty {
+      try visitor.visitSingularStringField(value: self.kind, fieldNumber: 2)
+    }
+    if !self.title.isEmpty {
+      try visitor.visitSingularStringField(value: self.title, fieldNumber: 3)
+    }
+    if !self.summary.isEmpty {
+      try visitor.visitSingularBytesField(value: self.summary, fieldNumber: 4)
+    }
+    if self.createtime != 0 {
+      try visitor.visitSingularInt64Field(value: self.createtime, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_PendingApproval, rhs: Agentre_Wire_PendingApproval) -> Bool {
+    if lhs.requestID != rhs.requestID {return false}
+    if lhs.kind != rhs.kind {return false}
+    if lhs.title != rhs.title {return false}
+    if lhs.summary != rhs.summary {return false}
+    if lhs.createtime != rhs.createtime {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -19420,7 +19526,7 @@ nonisolated extension Agentre_Wire_BackendConnectionTestResponse: SwiftProtobuf.
 
 nonisolated extension Agentre_Wire_CtlAgent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CtlAgent"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}description\0\u{3}department_id\0\u{3}backend_ids\0\u{1}pinned\0\u{3}avatar_color\0\u{3}avatar_icon\0\u{3}system_badge\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}description\0\u{3}department_id\0\u{3}backend_ids\0\u{1}pinned\0\u{3}avatar_color\0\u{3}avatar_icon\0\u{3}system_badge\0\u{3}sync_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -19437,6 +19543,7 @@ nonisolated extension Agentre_Wire_CtlAgent: SwiftProtobuf.Message, SwiftProtobu
       case 7: try { try decoder.decodeSingularStringField(value: &self.avatarColor) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.avatarIcon) }()
       case 9: try { try decoder.decodeSingularStringField(value: &self.systemBadge) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.syncID) }()
       default: break
       }
     }
@@ -19470,6 +19577,9 @@ nonisolated extension Agentre_Wire_CtlAgent: SwiftProtobuf.Message, SwiftProtobu
     if !self.systemBadge.isEmpty {
       try visitor.visitSingularStringField(value: self.systemBadge, fieldNumber: 9)
     }
+    if !self.syncID.isEmpty {
+      try visitor.visitSingularStringField(value: self.syncID, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -19483,6 +19593,7 @@ nonisolated extension Agentre_Wire_CtlAgent: SwiftProtobuf.Message, SwiftProtobu
     if lhs.avatarColor != rhs.avatarColor {return false}
     if lhs.avatarIcon != rhs.avatarIcon {return false}
     if lhs.systemBadge != rhs.systemBadge {return false}
+    if lhs.syncID != rhs.syncID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -19590,7 +19701,7 @@ nonisolated extension Agentre_Wire_CtlProjectLocation: SwiftProtobuf.Message, Sw
 
 nonisolated extension Agentre_Wire_CtlProject: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CtlProject"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}parent_id\0\u{1}name\0\u{1}icon\0\u{1}color\0\u{1}description\0\u{1}path\0\u{3}member_agent_ids\0\u{1}locations\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}parent_id\0\u{1}name\0\u{1}icon\0\u{1}color\0\u{1}description\0\u{1}path\0\u{3}member_agent_ids\0\u{1}locations\0\u{3}sync_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -19607,6 +19718,7 @@ nonisolated extension Agentre_Wire_CtlProject: SwiftProtobuf.Message, SwiftProto
       case 7: try { try decoder.decodeSingularStringField(value: &self.path) }()
       case 8: try { try decoder.decodeRepeatedInt64Field(value: &self.memberAgentIds) }()
       case 9: try { try decoder.decodeRepeatedMessageField(value: &self.locations) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.syncID) }()
       default: break
       }
     }
@@ -19640,6 +19752,9 @@ nonisolated extension Agentre_Wire_CtlProject: SwiftProtobuf.Message, SwiftProto
     if !self.locations.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.locations, fieldNumber: 9)
     }
+    if !self.syncID.isEmpty {
+      try visitor.visitSingularStringField(value: self.syncID, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -19653,6 +19768,7 @@ nonisolated extension Agentre_Wire_CtlProject: SwiftProtobuf.Message, SwiftProto
     if lhs.path != rhs.path {return false}
     if lhs.memberAgentIds != rhs.memberAgentIds {return false}
     if lhs.locations != rhs.locations {return false}
+    if lhs.syncID != rhs.syncID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -19660,7 +19776,7 @@ nonisolated extension Agentre_Wire_CtlProject: SwiftProtobuf.Message, SwiftProto
 
 nonisolated extension Agentre_Wire_CtlProvider: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CtlProvider"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}type\0\u{3}base_url\0\u{1}enabled\0\u{3}api_key\0\u{3}api_key_set\0\u{3}default_model_key\0\u{3}backend_refs\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}type\0\u{3}base_url\0\u{1}enabled\0\u{3}api_key\0\u{3}api_key_set\0\u{3}default_model_key\0\u{3}backend_refs\0\u{3}sync_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -19677,6 +19793,7 @@ nonisolated extension Agentre_Wire_CtlProvider: SwiftProtobuf.Message, SwiftProt
       case 7: try { try decoder.decodeSingularBoolField(value: &self.apiKeySet) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.defaultModelKey) }()
       case 9: try { try decoder.decodeSingularInt32Field(value: &self.backendRefs) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.syncID) }()
       default: break
       }
     }
@@ -19710,6 +19827,9 @@ nonisolated extension Agentre_Wire_CtlProvider: SwiftProtobuf.Message, SwiftProt
     if self.backendRefs != 0 {
       try visitor.visitSingularInt32Field(value: self.backendRefs, fieldNumber: 9)
     }
+    if !self.syncID.isEmpty {
+      try visitor.visitSingularStringField(value: self.syncID, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -19723,6 +19843,7 @@ nonisolated extension Agentre_Wire_CtlProvider: SwiftProtobuf.Message, SwiftProt
     if lhs.apiKeySet != rhs.apiKeySet {return false}
     if lhs.defaultModelKey != rhs.defaultModelKey {return false}
     if lhs.backendRefs != rhs.backendRefs {return false}
+    if lhs.syncID != rhs.syncID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

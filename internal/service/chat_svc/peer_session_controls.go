@@ -256,6 +256,14 @@ func (s *chatSvc) PendingPeerSessionWaiters(
 	if session == nil {
 		return wire.SessionPendingWaitersResult{}, ErrPeerSessionNotFound
 	}
+	return s.pendingSessionWaiters(ctx, session)
+}
+
+// pendingSessionWaiters 是一条会话此刻卡着的待决策快照:对端(PendingPeerSessionWaiters)
+// 与 agrctl(PendingCtlWaiters)读的是同一份。
+func (s *chatSvc) pendingSessionWaiters(
+	ctx context.Context, session *chat_entity.Session,
+) (wire.SessionPendingWaitersResult, error) {
 	backend, err := s.peerSessionExecBackend(ctx, session)
 	if err != nil {
 		return wire.SessionPendingWaitersResult{}, err
