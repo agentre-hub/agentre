@@ -10,6 +10,7 @@ import {
   TOOL_WINDOW_IDS,
   TOOL_WINDOW_LAYOUT_KEY,
   resolvePresentation,
+  selectRegionState,
   useToolWindowLayout,
   type SlotId,
   type ToolWindowId,
@@ -52,8 +53,19 @@ function resetToDefaults() {
     ratios: { ...DEFAULT_DIVIDER_RATIOS },
     sessionListCollapsed: false,
     focusSnapshot: null,
+    regionMemory: {
+      rightTop: null,
+      rightBottom: null,
+      bottomLeft: null,
+      bottomRight: null,
+    },
     maximized: null,
+    narrowCollapsed: {},
   });
+}
+
+function regionState(region: "right" | "bottom") {
+  return selectRegionState(region)(useToolWindowLayout.getState());
 }
 
 describe("tool-window-layout-store", () => {
@@ -590,6 +602,210 @@ describe("tool-window-layout-store", () => {
       );
       useToolWindowLayout.getState().toggleSessionList();
       expect(useToolWindowLayout.getState().sessionListCollapsed).toBe(false);
+    });
+  });
+
+  describe("区域开关（底部 / 右侧）", () => {
+    it("Given 右上大纲、右下目录显示, When 隐藏右侧区域, Then 两个都隐藏、右侧读为未显示；再显示时两个都恢复", () => {
+      useToolWindowLayout.getState().show("directory");
+      expect(regionState("right")).toEqual({ shown: true, available: true });
+
+      useToolWindowLayout.getState().toggleRegion("right");
+      expect(shownWindows()).toEqual([]);
+      expect(regionState("right")).toEqual({ shown: false, available: true });
+
+      useToolWindowLayout.getState().toggleRegion("right");
+      expect(useToolWindowLayout.getState().shown).toEqual({
+        rightTop: "outline",
+        rightBottom: "directory",
+        bottomLeft: null,
+        bottomRight: null,
+      });
+      expect(regionState("right").shown).toBe(true);
+    });
+
+    it("Given 右侧与底部都显示着, When 隐藏底部区域, Then 只有底部的窗口隐藏、右侧不动", () => {
+      useToolWindowLayout.getState().show("terminal");
+      useToolWindowLayout.getState().toggleRegion("bottom");
+      expect(shownWindows()).toEqual(["outline"]);
+      expect(regionState("bottom").shown).toBe(false);
+      expect(regionState("right").shown).toBe(true);
+    });
+
+    it("Given 底部最大化着终端, When 隐藏底部区域, Then 最大化一并还原", () => {
+      useToolWindowLayout.getState().show("terminal");
+      useToolWindowLayout.getState().toggleMaximize("terminal");
+      useToolWindowLayout.getState().toggleRegion("bottom");
+      expect(useToolWindowLayout.getState().maximized).toBeNull();
+    });
+
+    it("Given 出厂布局且从没隐藏过底部, When 显示底部区域, Then 显示底部按图标条顺序的第一个（终端）并请求焦点", () => {
+      expect(regionState("bottom")).toEqual({ shown: false, available: true });
+      useToolWindowLayout.getState().toggleRegion("bottom");
+      expect(useToolWindowLayout.getState().shown.bottomLeft).toBe("terminal");
+      expect(useToolWindowLayout.getState().focusRequest).toBe("terminal");
+    });
+
+    it("Given 右侧什么都没显示过, When 显示右侧区域, Then 显示右侧按图标条顺序的第一个（大纲）", () => {
+      useToolWindowLayout.getState().hide("outline");
+      useToolWindowLayout.getState().toggleRegion("right");
+      expect(shownWindows()).toEqual(["outline"]);
+    });
+
+    it("Given 大纲被移到右下、右侧都没显示, When 无记录地显示右侧, Then 取图标条第一组（右上）的第一个：变更", () => {
+      useToolWindowLayout.setState({
+        slotOf: {
+          ...DEFAULT_TOOL_WINDOW_SLOTS,
+          outline: "rightBottom",
+        },
+        shown: {
+          rightTop: null,
+          rightBottom: null,
+          bottomLeft: null,
+          bottomRight: null,
+        },
+      });
+      useToolWindowLayout.getState().toggleRegion("right");
+      expect(shownWindows()).toEqual(["changes"]);
+    });
+
+    it("Given 记住的窗口后来被移出了这个区域, When 显示区域, Then 不把它拉回来，按无记录处理", () => {
+      useToolWindowLayout.getState().show("terminal");
+      useToolWindowLayout.getState().toggleRegion("bottom");
+      useToolWindowLayout.getState().moveTo("terminal", "rightBottom");
+      useToolWindowLayout.getState().hide("terminal");
+      useToolWindowLayout.getState().moveTo("relations", "bottomRight");
+      useToolWindowLayout.getState().hide("relations");
+
+      useToolWindowLayout.getState().toggleRegion("bottom");
+      expect(useToolWindowLayout.getState().slotOf.terminal).toBe(
+        "rightBottom",
+      );
+      expect(useToolWindowLayout.getState().shown.bottomRight).toBe(
+        "relations",
+      );
+      expect(useToolWindowLayout.getState().shown.rightBottom).toBeNull();
+    });
+
+    it("Given 底部两个槽位都没有分配工具窗, Then 底部开关不可用，点它什么都不变", () => {
+      useToolWindowLayout.getState().moveTo("terminal", "rightBottom");
+      expect(regionState("bottom")).toEqual({ shown: false, available: false });
+
+      const before = useToolWindowLayout.getState().shown;
+      useToolWindowLayout.getState().toggleRegion("bottom");
+      expect(useToolWindowLayout.getState().shown).toBe(before);
+    });
+
+    it("Given 读数不变, Then 选择器返回同一个对象（直接给 useStore 用不会反复渲染）", () => {
+      const a = regionState("right");
+      useToolWindowLayout.getState().setRatio("right", 0.4);
+      expect(regionState("right")).toBe(a);
+    });
+
+    it("Given 隐藏过右侧区域, When 重启后再显示, Then 恢复隐藏前的窗口", async () => {
+      useToolWindowLayout.getState().toggle("changes");
+      useToolWindowLayout.getState().show("directory");
+      useToolWindowLayout.getState().toggleRegion("right");
+      const saved = localStorage.getItem(TOOL_WINDOW_LAYOUT_KEY);
+      resetToDefaults();
+      localStorage.setItem(TOOL_WINDOW_LAYOUT_KEY, saved ?? "");
+      await rehydrate();
+      expect(shownWindows()).toEqual([]);
+
+      useToolWindowLayout.getState().toggleRegion("right");
+      expect(useToolWindowLayout.getState().shown).toEqual({
+        rightTop: "changes",
+        rightBottom: "directory",
+        bottomLeft: null,
+        bottomRight: null,
+      });
+    });
+
+    it("Given 读回的区域记录有未知工具窗、有不住在该槽位的、有合法的, Then 只留下合法的", async () => {
+      persistLayout({
+        regionMemory: {
+          rightTop: "nope",
+          rightBottom: "directory",
+          bottomLeft: "outline",
+          bottomRight: null,
+        },
+      });
+      await rehydrate();
+      expect(useToolWindowLayout.getState().regionMemory).toEqual({
+        rightTop: null,
+        rightBottom: "directory",
+        bottomLeft: null,
+        bottomRight: null,
+      });
+
+      persistLayout({ regionMemory: "garbage" });
+      await rehydrate();
+      expect(useToolWindowLayout.getState().regionMemory).toEqual({
+        rightTop: null,
+        rightBottom: null,
+        bottomLeft: null,
+        bottomRight: null,
+      });
+    });
+
+    it("Given 隐藏过右侧区域, When 恢复默认布局, Then 记录清空", () => {
+      useToolWindowLayout.getState().toggle("changes");
+      useToolWindowLayout.getState().toggleRegion("right");
+      useToolWindowLayout.getState().restoreDefaults();
+      expect(useToolWindowLayout.getState().regionMemory).toEqual({
+        rightTop: null,
+        rightBottom: null,
+        bottomLeft: null,
+        bottomRight: null,
+      });
+
+      useToolWindowLayout.getState().toggleRegion("right");
+      useToolWindowLayout.getState().toggleRegion("right");
+      expect(shownWindows()).toEqual(["outline"]);
+    });
+
+    it("Given 窄窗口规则把右侧大纲收起了, Then 右侧读为未显示；When 点右侧, Then 按窄窗口规则重新盖上来并拿焦点，保存的布局不变", () => {
+      useToolWindowLayout.getState().show("changes");
+      useToolWindowLayout.getState().collapseNarrow("changes");
+      expect(regionState("right").shown).toBe(false);
+
+      useToolWindowLayout.getState().toggleRegion("right");
+      const s = useToolWindowLayout.getState();
+      expect(s.narrowCollapsed).toEqual({});
+      expect(s.focusRequest).toBe("changes");
+      expect(s.shown.rightTop).toBe("changes");
+      expect(regionState("right").shown).toBe(true);
+    });
+
+    it("Given 窄窗口下右上盖着、右下被收起, Then 右侧读为显示；When 点右侧, Then 两个都隐藏并被记住", () => {
+      useToolWindowLayout.getState().show("directory");
+      useToolWindowLayout.getState().collapseNarrow("directory");
+      expect(regionState("right").shown).toBe(true);
+
+      useToolWindowLayout.getState().toggleRegion("right");
+      const s = useToolWindowLayout.getState();
+      expect(shownWindows()).toEqual([]);
+      expect(s.narrowCollapsed).toEqual({});
+      expect(s.regionMemory.rightTop).toBe("outline");
+      expect(s.regionMemory.rightBottom).toBe("directory");
+    });
+
+    it("Given 处于专注, Then 底部、右侧都读为未显示；When 点右侧, Then 与在图标条上打开工具窗相同：显示并退出专注", () => {
+      useToolWindowLayout.getState().show("terminal");
+      useToolWindowLayout.getState().toggleFocusMode();
+      expect(regionState("right").shown).toBe(false);
+      expect(regionState("bottom").shown).toBe(false);
+
+      useToolWindowLayout.getState().toggleRegion("right");
+      const s = useToolWindowLayout.getState();
+      expect(shownWindows()).toEqual(["outline"]);
+      expect(s.focusSnapshot).toBeNull();
+      expect(s.focusRequest).toBe("outline");
+
+      // 退出专注后再按专注，是把它隐藏，而不是恢复旧的（与点图标同一口径）。
+      useToolWindowLayout.getState().toggleFocusMode();
+      useToolWindowLayout.getState().toggleFocusMode();
+      expect(shownWindows()).toEqual(["outline"]);
     });
   });
 

@@ -31,6 +31,15 @@ export const SLOT_IDS = [
 
 export type SlotId = (typeof SLOT_IDS)[number];
 
+/** 标题栏区域开关作用的两个区域（2026-11-27 spec 决策 7）。 */
+export type ToolWindowRegion = "right" | "bottom";
+
+/** 每个区域的槽位，按图标条里分组的先后排列。 */
+const REGION_SLOTS: Readonly<Record<ToolWindowRegion, readonly SlotId[]>> = {
+  right: ["rightTop", "rightBottom"],
+  bottom: ["bottomLeft", "bottomRight"],
+};
+
 /** 默认槽位（spec 决策 6）：网页预览放右上是因为它要高度；底部右默认为空。 */
 export const DEFAULT_TOOL_WINDOW_SLOTS: Readonly<Record<ToolWindowId, SlotId>> =
   {
@@ -155,6 +164,11 @@ type PersistedLayout = {
    * 即退出专注（丢掉它）。
    */
   focusSnapshot: Record<SlotId, ToolWindowId | null> | null;
+  /**
+   * 区域开关隐藏一个区域前，该区域各槽位显示着的工具窗（2026-11-27 spec 决策 7）；
+   * 再次显示这个区域时恢复它们。随布局一起保存，恢复默认布局时清空。
+   */
+  regionMemory: Record<SlotId, ToolWindowId | null>;
 };
 
 type ToolWindowLayoutState = PersistedLayout & {
@@ -207,9 +221,18 @@ type ToolWindowLayoutState = PersistedLayout & {
   toggleMaximize: (id: ToolWindowId) => void;
   /** 让一个正在显示的工具窗拿焦点（换了呈现位置、被重新挂载之后）。 */
   requestFocus: (id: ToolWindowId) => void;
-  /** 恢复默认布局：槽位、显示、模式、比例、浮动位置；会话列表收起状态不在其中。 */
+  /**
+   * 恢复默认布局：槽位、显示、模式、比例、浮动位置，并清空区域开关的记录；会话列表
+   * 收起状态不在其中。
+   */
   restoreDefaults: () => void;
   toggleSessionList: () => void;
+  /**
+   * 标题栏区域开关（2026-11-27 spec 决策 7–8）：区域读为显示 → 记住各槽位的窗口后
+   * 全部隐藏；否则 → 窄窗口下被收起的重新盖上来，没有的话恢复记住的、再没有就取
+   * 图标条顺序里的第一个，效果与在图标条上打开它们相同。区域里没有工具窗时什么都不做。
+   */
+  toggleRegion: (region: ToolWindowRegion) => void;
 };
 
 const TOOL_WINDOW_ID_SET: ReadonlySet<string> = new Set(TOOL_WINDOW_IDS);
@@ -250,6 +273,7 @@ function sanitizeLayout(raw: unknown): PersistedLayout {
     !Array.isArray(saved.focusSnapshot)
       ? sanitizeShown(saved.focusSnapshot, slotOf, EMPTY_SHOWN)
       : null;
+  const regionMemory = sanitizeShown(saved.regionMemory, slotOf, EMPTY_SHOWN);
   const savedMode = asRecord(saved.mode);
   const mode = {} as Record<ToolWindowId, ToolWindowMode>;
   for (const id of TOOL_WINDOW_IDS) {
@@ -284,6 +308,7 @@ function sanitizeLayout(raw: unknown): PersistedLayout {
     ratios,
     sessionListCollapsed,
     focusSnapshot,
+    regionMemory,
   };
 }
 
@@ -347,6 +372,7 @@ function defaultLayoutParts(): Omit<
     mode: { ...DEFAULT_TOOL_WINDOW_MODES },
     floatRect: {},
     ratios: { ...DEFAULT_DIVIDER_RATIOS },
+    regionMemory: { ...EMPTY_SHOWN },
   };
 }
 
@@ -576,6 +602,26 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
         }),
       toggleSessionList: () =>
         set((s) => ({ sessionListCollapsed: !s.sessionListCollapsed })),
+      toggleRegion: (region) =>
+        set((s) => {
+          const slots = REGION_SLOTS[region];
+          if (isRegionShown(s, slots)) return hideRegion(s, slots);
+          const targets = regionShowTargets(s, slots);
+          if (targets.length === 0) return s;
+          // 与在图标条上打开它们相同：显示、退出专注、不再收着、请求焦点。
+          const shown = { ...s.shown };
+          let narrowCollapsed = s.narrowCollapsed;
+          for (const id of targets) {
+            shown[s.slotOf[id]] = id;
+            narrowCollapsed = withoutCollapsed(narrowCollapsed, id);
+          }
+          return {
+            shown,
+            focusRequest: targets[0],
+            focusSnapshot: null,
+            narrowCollapsed,
+          };
+        }),
     }),
     {
       name: TOOL_WINDOW_LAYOUT_KEY,
@@ -588,6 +634,7 @@ export const useToolWindowLayout = create<ToolWindowLayoutState>()(
         ratios: s.ratios,
         sessionListCollapsed: s.sessionListCollapsed,
         focusSnapshot: s.focusSnapshot,
+        regionMemory: s.regionMemory,
       }),
       // 读回值缺失时同样逐项回落到默认，而不是沿用内存里的当前值。
       merge: (persisted, current) => ({
@@ -611,4 +658,86 @@ function withoutCollapsed(
 /** 这个工具窗此刻是否显示。 */
 export function selectIsToolWindowShown(id: ToolWindowId) {
   return (s: ToolWindowLayoutState) => s.shown[s.slotOf[id]] === id;
+}
+
+/** 区域里此刻有工具窗真的在屏幕上：保存为显示、且没有被窄窗口规则收起。 */
+function isRegionShown(
+  s: ToolWindowLayoutState,
+  slots: readonly SlotId[],
+): boolean {
+  return slots.some((slot) => {
+    const id = s.shown[slot];
+    return id !== null && s.narrowCollapsed[id] !== true;
+  });
+}
+
+/** 记住区域各槽位保存的显示，再全部隐藏（含窄窗口下收着的）。 */
+function hideRegion(
+  s: ToolWindowLayoutState,
+  slots: readonly SlotId[],
+): Partial<ToolWindowLayoutState> {
+  const shown = { ...s.shown };
+  const regionMemory = { ...s.regionMemory };
+  let narrowCollapsed = s.narrowCollapsed;
+  let { focusRequest, maximized } = s;
+  for (const slot of slots) {
+    const id = s.shown[slot];
+    regionMemory[slot] = id;
+    if (id === null) continue;
+    shown[slot] = null;
+    narrowCollapsed = withoutCollapsed(narrowCollapsed, id);
+    if (focusRequest === id) focusRequest = null;
+    if (maximized === id) maximized = null;
+  }
+  return { shown, regionMemory, narrowCollapsed, focusRequest, maximized };
+}
+
+/**
+ * 区域读为未显示时要显示哪些窗口：窄窗口下被收起的（保存的布局里仍显示）；没有的话
+ * 记住的、且仍住在那个槽位的；再没有就取图标条顺序里的第一个。
+ */
+function regionShowTargets(
+  s: ToolWindowLayoutState,
+  slots: readonly SlotId[],
+): ToolWindowId[] {
+  const collapsed = slots
+    .map((slot) => s.shown[slot])
+    .filter((id): id is ToolWindowId => id !== null);
+  if (collapsed.length > 0) return collapsed;
+  const remembered = slots
+    .map((slot) => s.regionMemory[slot])
+    .filter(
+      (id, i): id is ToolWindowId => id !== null && s.slotOf[id] === slots[i],
+    );
+  if (remembered.length > 0) return remembered;
+  for (const slot of slots) {
+    const first = TOOL_WINDOW_IDS.find((id) => s.slotOf[id] === slot);
+    if (first !== undefined) return [first];
+  }
+  return [];
+}
+
+export type ToolWindowRegionState = { shown: boolean; available: boolean };
+
+// 读数各用一个固定对象：选择器可以直接交给 useStore，读数不变时返回同一个引用，
+// 不会引起重新渲染。显示着就一定分配了工具窗，所以只有三种。
+const REGION_SHOWN: ToolWindowRegionState = { shown: true, available: true };
+const REGION_HIDDEN: ToolWindowRegionState = { shown: false, available: true };
+const REGION_UNAVAILABLE: ToolWindowRegionState = {
+  shown: false,
+  available: false,
+};
+
+/**
+ * 区域开关的读数（2026-11-27 spec 决策 8）：shown = 区域里有工具窗此刻在屏幕上
+ * （窄窗口下被收起、专注中的都算未显示）；available = 区域的槽位里分配了工具窗。
+ */
+export function selectRegionState(region: ToolWindowRegion) {
+  const slots = REGION_SLOTS[region];
+  return (s: ToolWindowLayoutState): ToolWindowRegionState => {
+    if (!TOOL_WINDOW_IDS.some((id) => slots.includes(s.slotOf[id]))) {
+      return REGION_UNAVAILABLE;
+    }
+    return isRegionShown(s, slots) ? REGION_SHOWN : REGION_HIDDEN;
+  };
 }
