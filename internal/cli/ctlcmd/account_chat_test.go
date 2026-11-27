@@ -399,13 +399,28 @@ func TestAccountStop_GivenAnIdleSessionThenItSaysSo(t *testing.T) {
 
 // ─── 失败与恢复 ───
 
-func TestAccountSend_GivenTheDeviceRunsAnotherReleaseThenItNamesTheDeviceToUpgrade(t *testing.T) {
-	w := newWorld(t)
-	w.relay.AddMachine(&relaypeertest.Machine{Fingerprint: boxFP, Registry: w.box.registry(), Identify: identify, RejectVersion: true})
-	r := runWith([]string{"send", "--agent", "reviewer", "go"}, envMap(), human)
-	assert.Equal(t, exitFailed, r.code)
-	assert.Contains(t, r.stderr, "device build-box needs to be upgraded")
-	assert.Empty(t, w.box.runRequests())
+// 失败与恢复「版本：…不满足时提示升级哪一端」：旧的那一端是要升级的那一端。
+func TestAccountSend_GivenTheDeviceRunsAnotherReleaseThenItNamesTheEndToUpgrade(t *testing.T) {
+	for name, c := range map[string]struct {
+		protocol string
+		says     string
+		not      string
+	}{
+		"an older device": {"0.0.1", "device build-box needs to be upgraded", "this agrctl needs to be upgraded"},
+		"a newer device":  {"99.0.0", "this agrctl needs to be upgraded to reach device build-box", "device build-box needs to be upgraded"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			w.relay.AddMachine(&relaypeertest.Machine{Fingerprint: boxFP, Registry: w.box.registry(), Identify: identify,
+				RejectVersion: true, Protocol: c.protocol})
+			r := runWith([]string{"send", "--agent", "reviewer", "go"}, envMap(), human)
+			assert.Equal(t, exitFailed, r.code)
+			assert.Contains(t, r.stderr, c.says)
+			assert.NotContains(t, r.stderr, c.not)
+			assert.Contains(t, r.stderr, c.protocol, "the device's version is named")
+			assert.Empty(t, w.box.runRequests())
+		})
+	}
 }
 
 func TestAccountSend_GivenTheSessionsDeviceIsOfflineThenItFailsNamingIt(t *testing.T) {

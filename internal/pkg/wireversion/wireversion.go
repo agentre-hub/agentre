@@ -10,6 +10,9 @@ package wireversion
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"github.com/agentre-hub/agentre/pkg/wire/protocolversion"
 )
@@ -67,5 +70,76 @@ func Reject(peerProtocol string) string {
 	if Match(peerProtocol) {
 		return ""
 	}
-	return fmt.Sprintf("peer speaks wire protocol version %q, this build speaks %q; both ends must run the same release", peerProtocol, Protocol)
+	return Rejection(peerProtocol, Protocol)
+}
+
+// Rejection is the sentence a build speaking selfProtocol refuses a peer speaking
+// peerProtocol with — Reject is this build saying it. It is written from the
+// refusing side: "peer" is the other end, "this build" is the speaker.
+func Rejection(peerProtocol, selfProtocol string) string {
+	return fmt.Sprintf("peer speaks wire protocol version %q, this build speaks %q; both ends must run the same release", peerProtocol, selfProtocol)
+}
+
+var rejectionRE = regexp.MustCompile(`peer speaks wire protocol version ("(?:[^"\\]|\\.)*"), this build speaks ("(?:[^"\\]|\\.)*")`)
+
+// ParseRejection reads back the two versions of a Rejection sentence: peer is
+// the version the refused side presented, self the refusing build's own. A
+// sentence it does not recognize yields ok=false — it is not guessed at. It lives
+// beside Rejection so the sentence and its reader cannot drift apart.
+func ParseRejection(reason string) (peer, self string, ok bool) {
+	m := rejectionRE.FindStringSubmatch(reason)
+	if m == nil {
+		return "", "", false
+	}
+	peer, err1 := strconv.Unquote(m[1])
+	self, err2 := strconv.Unquote(m[2])
+	if err1 != nil || err2 != nil {
+		return "", "", false
+	}
+	return peer, self, true
+}
+
+// Compare orders two protocol versions by their dot-separated numeric parts
+// (-1, 0, +1; a missing part counts as 0). Compatibility is still Match's exact
+// equality — this only tells which of two mismatched ends is the older one, so a
+// message can say which end to upgrade. A version that is not purely numeric
+// parts has no order: ok=false.
+func Compare(a, b string) (int, bool) {
+	pa, okA := numericParts(a)
+	pb, okB := numericParts(b)
+	if !okA || !okB {
+		return 0, false
+	}
+	for i := 0; i < max(len(pa), len(pb)); i++ {
+		var x, y int
+		if i < len(pa) {
+			x = pa[i]
+		}
+		if i < len(pb) {
+			y = pb[i]
+		}
+		if x != y {
+			if x < y {
+				return -1, true
+			}
+			return 1, true
+		}
+	}
+	return 0, true
+}
+
+func numericParts(v string) ([]int, bool) {
+	if v == "" {
+		return nil, false
+	}
+	fields := strings.Split(v, ".")
+	parts := make([]int, 0, len(fields))
+	for _, f := range fields {
+		n, err := strconv.Atoi(f)
+		if err != nil || n < 0 || strings.HasPrefix(f, "+") {
+			return nil, false
+		}
+		parts = append(parts, n)
+	}
+	return parts, true
 }

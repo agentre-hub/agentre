@@ -215,7 +215,8 @@ when it contains spaces.
   Against the account (after `agrctl login`, outside an Agentre session) `send`, `wait` and
   `stop` reach the device running the session directly; a session is saved to the account
   (the console and the desktop list it) unless `--isolated`, which keeps it out of the account.
-  A device on another release fails with `device <name> needs to be upgraded …` (exit `1`).
+  A device on another release fails naming the older end to upgrade — `device <name> needs to be
+  upgraded …` or `this agrctl needs to be upgraded to reach device <name> …` (exit `1`).
 
 - Continue a session, or interject into its running turn:
 

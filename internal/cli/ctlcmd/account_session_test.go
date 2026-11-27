@@ -225,7 +225,26 @@ func TestAccountGetSession_GivenTheSessionFollowsItsBackendThenModelIsTheBackend
 
 	live := w.box.session(sessA).summary
 	live.CliModelMode, live.CliModel = "fixed", "gpt-5.1-codex"
-	assert.Nil(t, model(sessA), "a pinned CLI model is not the backend's model")
+	assert.Equal(t, "gpt-5.1-codex", model(sessA), "a pinned CLI model is the session's model, not the backend's")
+	live.CliModelMode, live.CliModel = "cli-default", ""
+	assert.Nil(t, model(sessA), "the CLI's own default is not known here")
+
+	// 离线时读保存过的那一行：它同样记着会话自己钉的供应商与 CLI 模型，不冒充后端的模型。
+	setRow := func(fields map[string]any) {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		for _, row := range w.saved {
+			if row["conversation_id"] == sessC {
+				for k, v := range fields {
+					row[k] = v
+				}
+			}
+		}
+	}
+	setRow(map[string]any{"provider_key": "PV-4"})
+	assert.Nil(t, model(sessC), "offline, pinned to the provider's default: not the backend's model")
+	setRow(map[string]any{"provider_key": "", "cli_model_mode": "fixed", "cli_model": "gpt-5.1-codex"})
+	assert.Equal(t, "gpt-5.1-codex", model(sessC), "offline, a pinned CLI model")
 }
 
 func TestAccountMessages_GivenALiveSessionThenTurnsPageBackwardWithACursor(t *testing.T) {

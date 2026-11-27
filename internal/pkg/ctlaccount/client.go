@@ -155,9 +155,10 @@ func (a *Client) ReachErr(err error, device, session string) error {
 			what = "the device holding session " + session
 		}
 	}
+	var mismatch *relaypeer.VersionMismatchError
 	switch {
-	case errors.Is(err, relaypeer.ErrPeerVersionMismatch):
-		return fmt.Errorf("%s needs to be upgraded to the release this agrctl speaks: %v", what, err)
+	case errors.As(err, &mismatch):
+		return versionMismatchErr(what, mismatch)
 	case errors.Is(err, relaypeer.ErrTargetOffline):
 		return fmt.Errorf("%s is offline", what)
 	case errors.Is(err, relaypeer.ErrTargetNotFound), errors.Is(err, relaypeer.ErrTargetForbidden):
@@ -178,6 +179,20 @@ func (a *Client) ReachErr(err error, device, session string) error {
 		return errors.New(rpcErr.Message)
 	}
 	return err
+}
+
+// versionMismatchErr 说该升级哪一端（失败与恢复「版本」）：旧的那一端；说不出先后时两个版本都摆出来。
+func versionMismatchErr(what string, e *relaypeer.VersionMismatchError) error {
+	switch e.Stale() {
+	case relaypeer.StaleDevice:
+		return fmt.Errorf("%s needs to be upgraded: it speaks wire protocol version %q, this agrctl speaks %q", what, e.Device, e.Self)
+	case relaypeer.StaleSelf:
+		return fmt.Errorf("this agrctl needs to be upgraded to reach %s: the device speaks wire protocol version %q, this agrctl speaks %q", what, e.Device, e.Self)
+	}
+	if e.Device == "" {
+		return fmt.Errorf("%s and this agrctl run different releases (this agrctl speaks wire protocol version %q); upgrade the older one", what, e.Self)
+	}
+	return fmt.Errorf("%s and this agrctl run different releases (the device speaks wire protocol version %q, this agrctl speaks %q); upgrade the older one", what, e.Device, e.Self)
 }
 
 // transient 报告一次失败值不值得重连再试：执行端或 server 明确的拒绝不重试。

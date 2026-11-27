@@ -40,10 +40,11 @@ type Machine struct {
 	Fingerprint string
 	// Registry serves every method except auth.account, which the relay adds.
 	Registry *protorpc.Registry
-	// Protocol is the protocol_version auth.account reports; "" = this build's.
+	// Protocol is the protocol_version this machine speaks: auth.account reports it,
+	// and a RejectVersion refusal names it as the machine's own; "" = this build's.
 	Protocol string
 	// RejectVersion makes auth.account refuse the caller with CodeProtocolVersion,
-	// the way agentred refuses a peer on another release.
+	// the way agentred on another release refuses a peer (its sentence, its version).
 	RejectVersion bool
 	// Identify maps the caller's credential to the identity the machine files
 	// its sessions under (AuthAccountResponse.peer_fingerprint). nil = "fp:" + credential.
@@ -83,8 +84,12 @@ func (r *Relay) AddMachine(m *Machine) {
 			r.mu.Lock()
 			r.credentials = append(r.credentials, req.GetCredential())
 			r.mu.Unlock()
+			protocol := m.Protocol
+			if protocol == "" {
+				protocol = wireversion.Protocol
+			}
 			if m.RejectVersion {
-				return nil, &rpcerror.Error{Code: rpcerror.CodeProtocolVersion, Message: wireversion.Reject(req.GetProtocolVersion() + "-other")}
+				return nil, &rpcerror.Error{Code: rpcerror.CodeProtocolVersion, Message: wireversion.Rejection(req.GetProtocolVersion(), protocol)}
 			}
 			fp := "fp:" + req.GetCredential()
 			if m.Identify != nil {
@@ -92,10 +97,6 @@ func (r *Relay) AddMachine(m *Machine) {
 			}
 			if conn := protorpc.ConnFromContext(ctx); conn != nil {
 				conn.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: fp})
-			}
-			protocol := m.Protocol
-			if protocol == "" {
-				protocol = wireversion.Protocol
 			}
 			return &agentrewire.AuthAccountResponse{Ok: true, ProtocolVersion: protocol, PeerFingerprint: fp}, nil
 		})

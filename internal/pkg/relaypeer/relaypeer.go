@@ -51,8 +51,49 @@ var (
 	// ErrTargetForbidden: the target exists but cannot be addressed by this account.
 	ErrTargetForbidden = errors.New("relaypeer: the target cannot be addressed")
 	// ErrPeerVersionMismatch: the machine speaks another wire protocol version.
+	// The error is a *VersionMismatchError, which says which end is older.
 	ErrPeerVersionMismatch = errors.New("relaypeer: the target machine runs another wire protocol version")
 )
+
+// Stale names the end of a version mismatch that has to be upgraded: the older one.
+type Stale string
+
+const (
+	// StaleDevice: the machine runs the older release.
+	StaleDevice Stale = "device"
+	// StaleSelf: this build is the older one.
+	StaleSelf Stale = "self"
+	// StaleUnknown: the machine's version is not known or has no order.
+	StaleUnknown Stale = ""
+)
+
+// VersionMismatchError is ErrPeerVersionMismatch with both versions: Self is this
+// build's, Device the machine's own ("" when it did not say).
+type VersionMismatchError struct {
+	Self   string
+	Device string
+}
+
+func (e *VersionMismatchError) Error() string {
+	if e.Device == "" {
+		return fmt.Sprintf("%v: this build speaks wire protocol version %q", ErrPeerVersionMismatch, e.Self)
+	}
+	return fmt.Sprintf("%v: the device speaks wire protocol version %q, this build speaks %q", ErrPeerVersionMismatch, e.Device, e.Self)
+}
+
+func (e *VersionMismatchError) Is(target error) bool { return target == ErrPeerVersionMismatch }
+
+// Stale is the end to upgrade — the older of the two releases.
+func (e *VersionMismatchError) Stale() Stale {
+	switch order, ok := wireversion.Compare(e.Device, e.Self); {
+	case !ok || order == 0:
+		return StaleUnknown
+	case order < 0:
+		return StaleDevice
+	default:
+		return StaleSelf
+	}
+}
 
 // Channel-level failure codes the account relay answers on a channel it
 // cannot route (relay_svc.ChannelCode*). They collide numerically with the
@@ -293,10 +334,13 @@ func authAccount(ctx context.Context, channel relaytransport.PayloadChannel, cre
 				return nil, channelError(body.Error)
 			}
 			if body.Error.GetCode() == rpcerror.CodeProtocolVersion {
-				// The daemon's message is written from its own side ("peer" = us), so it is
-				// not echoed; the device's version is unknown on this path.
-				return nil, fmt.Errorf("%w: the device refused this build (wire protocol version %s); both ends must run the same release",
-					ErrPeerVersionMismatch, wireversion.Protocol)
+				// The daemon's sentence is written from its own side ("peer" = us, "this
+				// build" = the device), so it is read for the device's version, not echoed.
+				mismatch := &VersionMismatchError{Self: wireversion.Protocol}
+				if _, device, ok := wireversion.ParseRejection(body.Error.GetMessage()); ok {
+					mismatch.Device = device
+				}
+				return nil, mismatch
 			}
 			return nil, &rpcerror.Error{Code: body.Error.GetCode(), Message: body.Error.GetMessage()}
 		case *agentrewire.RpcFrame_Response:
@@ -310,9 +354,8 @@ func authAccount(ctx context.Context, channel relaytransport.PayloadChannel, cre
 			if !resp.GetOk() {
 				return nil, errors.New("the target machine refused the account credential")
 			}
-			if wireversion.Reject(resp.GetProtocolVersion()) != "" {
-				return nil, fmt.Errorf("%w: the device speaks wire protocol version %q, this build speaks %q; both ends must run the same release",
-					ErrPeerVersionMismatch, resp.GetProtocolVersion(), wireversion.Protocol)
+			if !wireversion.Match(resp.GetProtocolVersion()) {
+				return nil, &VersionMismatchError{Self: wireversion.Protocol, Device: resp.GetProtocolVersion()}
 			}
 			return &resp, nil
 		}

@@ -89,7 +89,10 @@ type savedSession struct {
 	LifecycleState    string `json:"lifecycle_state"`
 	WaitingForInput   bool   `json:"waiting_for_input"`
 	LastMessageAt     int64  `json:"last_message_at"`
+	ProviderKey       string `json:"provider_key"`
 	ModelKey          string `json:"model_key"`
+	CLIModelMode      string `json:"cli_model_mode"`
+	CLIModel          string `json:"cli_model"`
 }
 
 // savedIndexPages 是翻索引的页数上限（一页的大小由 server 定）。
@@ -468,10 +471,8 @@ func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, err
 			label, fp := a.savedDevice(ctx, id)
 			device, deviceFP = cmp.Or(device, label), cmp.Or(deviceFP, fp)
 		}
-		model := a.modelID(s.GetModelKey())
-		if s.GetProviderKey() == "" && s.GetModelKey() == "" && s.GetCliModelMode() == "" {
-			model = a.followedModelID(s.GetAgentSyncId(), s.GetBackendType(), deviceFP)
-		}
+		model := a.sessionModel(modelChoice{providerKey: s.GetProviderKey(), modelKey: s.GetModelKey(),
+			cliMode: s.GetCliModelMode(), cliModel: s.GetCliModel()}, s.GetAgentSyncId(), s.GetBackendType(), deviceFP)
 		n := len(p.GetToolPermissions()) + len(p.GetAskUserQuestions()) + len(p.GetApprovals())
 		who, whoKind := a.initiatorFields(ctx, h.origin())
 		return &SessionDetail{Initiator: who, InitiatorKind: whoKind, ID: id, Title: s.GetTitle(), Agent: nm.agent(s.GetAgentSyncId()), Project: nm.project(s.GetProjectSyncId()),
@@ -491,10 +492,8 @@ func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, err
 		}
 		label, _ := deviceByFP(devices, row.DeviceFingerprint)
 		who, whoKind := a.initiatorOf(ctx, row.PeerFingerprint, devices)
-		model := a.modelID(row.ModelKey)
-		if row.ModelKey == "" {
-			model = a.followedModelID(row.AgentSyncID, row.BackendType, row.DeviceFingerprint)
-		}
+		model := a.sessionModel(modelChoice{providerKey: row.ProviderKey, modelKey: row.ModelKey,
+			cliMode: row.CLIModelMode, cliModel: row.CLIModel}, row.AgentSyncID, row.BackendType, row.DeviceFingerprint)
 		return &SessionDetail{Initiator: who, InitiatorKind: whoKind, ID: id, Title: row.Title, Agent: nm.agent(row.AgentSyncID), Project: nm.project(row.ProjectSyncID),
 			Device: label, DeviceOffline: true, Backend: row.BackendType, Model: model, LastActivityAt: rfc3339Ms(row.LastMessageAt),
 			Status: sessionStatus(row.LifecycleState, row.WaitingForInput)}, nil
@@ -521,6 +520,29 @@ func (a *Client) savedDevice(ctx context.Context, id string) (label, fingerprint
 	}
 	label, _ = deviceByFP(devices, row.DeviceFingerprint)
 	return label, row.DeviceFingerprint
+}
+
+// modelChoice 是一条会话自己钉的模型（机器上的会话摘要与账号索引那一行记的是同一组）。
+type modelChoice struct {
+	providerKey, modelKey string
+	cliMode, cliModel     string
+}
+
+// sessionModel 是 get session 的 model：会话钉了 CLI 模型就是它；钉了固定模型就是那个模型 id；
+// 什么都没钉（跟随后端配置）就是后端的固定模型。钉了供应商默认或 CLI 自身默认时这里不知道
+// 是哪个，交回空串 —— 不猜。
+func (a *Client) sessionModel(c modelChoice, agentSyncID, backendType, deviceFP string) string {
+	switch {
+	case c.cliMode == "fixed":
+		return c.cliModel
+	case c.cliMode != "":
+		return ""
+	case c.modelKey != "":
+		return a.modelID(c.modelKey)
+	case c.providerKey != "":
+		return ""
+	}
+	return a.followedModelID(agentSyncID, backendType, deviceFP)
 }
 
 // followedModelID 是一条没钉模型（跟随后端配置）的会话实际跑的固定模型 id：它那位 agent 的

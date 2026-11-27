@@ -79,24 +79,33 @@ func TestPeer_GivenAnUnreachableTarget_ThenTheChannelFailureIsTyped(t *testing.T
 	assert.True(t, errors.Is(err, ErrTargetOffline), "err = %v", err)
 }
 
-func TestPeer_GivenAMachineOnAnotherRelease_ThenOpenSaysItNeedsAnUpgrade(t *testing.T) {
-	for name, m := range map[string]*relaypeertest.Machine{
-		"the machine refuses us": {Fingerprint: "sha256:old", RejectVersion: true},
-		"we refuse the machine":  {Fingerprint: "sha256:old", Protocol: "0.0.1"},
+func TestPeer_GivenAMachineOnAnotherRelease_ThenOpenSaysWhichEndIsOlder(t *testing.T) {
+	for name, c := range map[string]struct {
+		m     *relaypeertest.Machine
+		stale Stale
+	}{
+		"an older machine refuses us": {&relaypeertest.Machine{Fingerprint: "sha256:old", RejectVersion: true, Protocol: "0.0.1"}, StaleDevice},
+		"a newer machine refuses us":  {&relaypeertest.Machine{Fingerprint: "sha256:old", RejectVersion: true, Protocol: "99.0.0"}, StaleSelf},
+		"we refuse an older machine":  {&relaypeertest.Machine{Fingerprint: "sha256:old", Protocol: "0.0.1"}, StaleDevice},
+		"we refuse a newer machine":   {&relaypeertest.Machine{Fingerprint: "sha256:old", Protocol: "99.0.0"}, StaleSelf},
+		"a refusal we cannot read":    {&relaypeertest.Machine{Fingerprint: "sha256:old", RejectVersion: true, Protocol: "not-a-version"}, StaleUnknown},
 	} {
 		t.Run(name, func(t *testing.T) {
 			relay, srv := relayWith(t, "tok")
-			relay.AddMachine(m)
+			relay.AddMachine(c.m)
 			p := New(Options{ServerURL: srv.URL, Token: staticToken("tok")})
 			t.Cleanup(p.Close)
 			_, err := p.Open(context.Background(), MachineTarget("sha256:old"))
 			assert.True(t, errors.Is(err, ErrPeerVersionMismatch), "err = %v", err)
+			var vm *VersionMismatchError
+			require.True(t, errors.As(err, &vm), "err = %v", err)
+			assert.Equal(t, c.stale, vm.Stale(), "the older end is the one to upgrade")
+			assert.Equal(t, wireversion.Protocol, vm.Self)
+			if c.stale != StaleUnknown {
+				assert.Equal(t, c.m.Protocol, vm.Device, "the device's own version is named when it is known")
+			}
 			assert.Contains(t, err.Error(), wireversion.Protocol, "the message names this build's version")
 			assert.NotContains(t, err.Error(), "peer speaks", "no text written from the other side's perspective")
-			assert.NotContains(t, err.Error(), "this build speaks wire protocol version \"0.", "no echo of a self-perspective sentence")
-			if m.Protocol != "" {
-				assert.Contains(t, err.Error(), m.Protocol, "the device's own version is named when it is known")
-			}
 		})
 	}
 }

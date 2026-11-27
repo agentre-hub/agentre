@@ -96,7 +96,8 @@ An unsupported --model / --cli-model / --effort / --permission-mode value fails 
 choices listed (exit 2); the values apply to this session from the next turn on.
 Against the account the session runs on the chosen device and is saved to the account (the
 console and the desktop see it) unless --isolated; a device that is offline, or on another
-release ("device <name> needs to be upgraded"), fails with exit 1.
+release (the message names the older end to upgrade: "device <name> needs to be upgraded" or
+"this agrctl needs to be upgraded to reach device <name>"), fails with exit 1.
 
 `)
 	b.WriteString(shellTimeoutNote)
