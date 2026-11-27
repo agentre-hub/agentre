@@ -830,6 +830,25 @@ describe("工具窗行为", () => {
         expect(ring("Outline")).not.toBeNull();
       });
 
+      it("Given 焦点在大纲里的嵌入页面, When 点回对话的空白处（父窗口 focus、activeElement 为 body、不发 focusin）, Then 描边消失", async () => {
+        renderLayout();
+        const frame = embed("Outline");
+        act(() => {
+          active = frame;
+          window.dispatchEvent(new FocusEvent("blur"));
+        });
+        expect(ring("Outline")).not.toBeNull();
+
+        act(() => {
+          active = null;
+          window.dispatchEvent(new FocusEvent("focus"));
+        });
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(ring("Outline")).toBeNull();
+      });
+
       it("Given 大纲带描边, When 整个应用失焦（activeElement 仍是大纲里的按钮、先发 focusout）, Then 描边照旧消失", async () => {
         renderLayout();
         const item = screen.getByRole("button", { name: "outline item" });
