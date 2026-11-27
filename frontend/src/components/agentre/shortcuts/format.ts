@@ -5,7 +5,7 @@ import type { KeyChord, ModifierKind } from "./types";
 const ACCEPTABLE_KEY_RE = /^[A-Z0-9,]$/;
 
 export function isPrimaryModifier(
-  event: KeyboardEvent,
+  event: Pick<KeyboardEvent, "metaKey" | "ctrlKey">,
   platform: DesktopPlatform,
 ): boolean {
   return platform === "darwin" ? event.metaKey : event.ctrlKey;
@@ -44,22 +44,46 @@ export function isPrimaryShortcut(
   );
 }
 
+/** 物理键 → 可绑定按键：⌥ 会改写 event.key（macOS 上 ⌥B 是「∫」），只能看 code。 */
+function keyFromCode(code: string): string | null {
+  const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(code);
+  if (m) return m[1] ?? m[2] ?? null;
+  return code === "Comma" ? "," : null;
+}
+
+/**
+ * 录制 / 查表用的和弦：主修饰键 + 可选的 ⇧ 或 ⌥（其它平台为 Alt），⇧⌥ 同按不收。
+ * 不带 ⌥ 时按 event.key 取键（沿用至今的行为）；带 ⌥ 时按物理键取。
+ */
 export function chordFromEvent(
-  event: KeyboardEvent,
+  event: Pick<
+    KeyboardEvent,
+    "code" | "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey"
+  >,
   platform: DesktopPlatform,
 ): KeyChord | null {
   if (!isPrimaryModifier(event, platform)) return null;
-  if (isOtherModifier(event, platform)) return null;
+  // Forbid mixing ctrl+meta — we only accept the platform's primary key.
+  if (platform === "darwin" ? event.ctrlKey : event.metaKey) return null;
+  if (event.altKey && event.shiftKey) return null;
 
   const raw = event.key;
   if (raw === "Meta" || raw === "Control" || raw === "Shift" || raw === "Alt") {
     return null;
   }
 
-  const key = raw.length === 1 ? raw.toUpperCase() : raw;
-  if (!ACCEPTABLE_KEY_RE.test(key)) return null;
+  const key = event.altKey
+    ? keyFromCode(event.code)
+    : raw.length === 1
+      ? raw.toUpperCase()
+      : raw;
+  if (key === null || !ACCEPTABLE_KEY_RE.test(key)) return null;
 
-  const mod: ModifierKind = event.shiftKey ? "primary-shift" : "primary";
+  const mod: ModifierKind = event.altKey
+    ? "primary-alt"
+    : event.shiftKey
+      ? "primary-shift"
+      : "primary";
   return { mod, key };
 }
 
@@ -82,9 +106,11 @@ export function formatChord(
       break;
   }
   if (isMac) {
+    if (chord.mod === "primary-alt") return `⌥⌘${key}`;
     const shift = chord.mod === "primary-shift" ? "⇧" : "";
     return `⌘${shift}${key}`;
   }
+  if (chord.mod === "primary-alt") return `Ctrl+Alt+${key}`;
   const shift = chord.mod === "primary-shift" ? "Shift+" : "";
   // Keep the comma literal so "Ctrl+," reads as a key, not a separator.
   return `Ctrl+${shift}${key}`;
@@ -124,9 +150,11 @@ export function matchesChord(
   switch (chord.mod) {
     case "primary":
     case "primary-shift":
+    case "primary-alt":
       if (isMac) want.meta = true;
       else want.ctrl = true;
       want.shift = chord.mod === "primary-shift";
+      want.alt = chord.mod === "primary-alt";
       break;
     case "secondary":
       if (isMac) want.ctrl = true;

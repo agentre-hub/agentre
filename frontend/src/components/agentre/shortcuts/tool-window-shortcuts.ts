@@ -2,16 +2,20 @@ import {
   TOOL_WINDOW_IDS,
   useToolWindowLayout,
   type ToolWindowId,
+  type ToolWindowRegion,
 } from "@/stores/tool-window-layout-store";
 
 import type { DesktopPlatform } from "../chrome";
 
-import { formatChord, matchesChord } from "./format";
+import { sameChord } from "./conflict";
+import { effectiveChord } from "./effective-bindings";
+import { chordFromEvent, formatChord, matchesChord } from "./format";
 import {
   SESSION_LIST_TOGGLE_ID,
   TOOL_WINDOWS_HIDE_ALL_ID,
   TOOL_WINDOW_HIDE_FOCUSED_ID,
   TOOL_WINDOW_MAXIMIZE_ID,
+  TOOL_WINDOW_REGION_TOGGLE_IDS,
   TOOL_WINDOW_RETURN_FOCUS_ID,
   TOOL_WINDOW_TOGGLE_IDS,
   getDef,
@@ -31,9 +35,28 @@ function matchesId(
   return def !== undefined && matchesChord(event, def.defaultBinding, platform);
 }
 
+const REGIONS: readonly ToolWindowRegion[] = ["bottom", "right"];
+
 /**
- * 全局派发的工具窗快捷键（不论焦点在哪）：⌃1–6 / ⌃` 切换工具窗、⇧⌘\ 专注、⌘0
- * 收起 / 展开会话列表。命中就执行并返回 true。
+ * 按下的是不是某个区域开关（默认 ⌘J / ⌥⌘B）。它们可改绑，所以按用户当前的绑定比，
+ * 并且和录制时一样经 chordFromEvent 取和弦——录下什么就认什么。
+ */
+function matchRegionToggle(
+  event: KeyEventLike,
+  platform: DesktopPlatform,
+): ToolWindowRegion | null {
+  const chord = chordFromEvent(event, platform);
+  if (!chord) return null;
+  for (const region of REGIONS) {
+    const bound = effectiveChord(TOOL_WINDOW_REGION_TOGGLE_IDS[region]);
+    if (bound && sameChord(chord, bound)) return region;
+  }
+  return null;
+}
+
+/**
+ * 全局派发的工具窗快捷键（不论焦点在哪）：⌃1–6 / ⌃` 切换工具窗、⇧⌘\ 专注、⌘J /
+ * ⌥⌘B 底部 / 右侧区域开关、⌘0 收起 / 展开会话列表。命中就执行并返回 true。
  */
 export function dispatchGlobalToolWindowShortcut(
   event: KeyEventLike,
@@ -58,6 +81,11 @@ export function dispatchGlobalToolWindowShortcut(
     layout.toggleFocusMode();
     return true;
   }
+  const region = matchRegionToggle(event, platform);
+  if (region) {
+    layout.toggleRegion(region);
+    return true;
+  }
   return false;
 }
 
@@ -78,7 +106,7 @@ export function matchFocusedToolWindowShortcut(
 
 /**
  * 焦点在终端里时要交还给应用的按键：工具窗切换（⌃1–6 / Alt+数字、⌃`）、专注
- * （⇧⌘\）、⇧Esc、⇧⌘'。xterm 自己会吃掉其中一些（⌃3–⌃7、Alt+键、Esc 一类），不放行
+ * （⇧⌘\）、区域开关（⌘J / ⌥⌘B 或用户改绑的组合）、⇧Esc、⇧⌘'。xterm 自己会吃掉其中一些（⌃3–⌃7、Alt+键、Esc 一类），不放行
  * 它们就到不了应用的键盘监听。单按 Esc 不在其中：它留给终端里的程序（vim 等），
  * 是对「Esc 把焦点还给输入框」的有意偏离。
  */
@@ -90,6 +118,7 @@ export function isToolWindowShortcutForTerminal(
     if (matchesId(event, TOOL_WINDOW_TOGGLE_IDS[id], platform)) return true;
   }
   if (matchesId(event, TOOL_WINDOWS_HIDE_ALL_ID, platform)) return true;
+  if (matchRegionToggle(event, platform)) return true;
   const focused = matchFocusedToolWindowShortcut(event, platform);
   return focused === "hide" || focused === "maximize";
 }

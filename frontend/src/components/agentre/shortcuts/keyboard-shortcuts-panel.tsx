@@ -305,18 +305,33 @@ export function KeyboardShortcutsPanel(): React.ReactElement {
         <h2 className="text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           {t("shortcuts.sections.toolWindows")}
         </h2>
-        {toolWindowDefs.map((def) => (
-          <ShortcutRow
-            key={def.id}
-            fixed
-            def={def}
-            chord={def.defaultBinding}
-            recording={false}
-            highlighted={false}
-            onStartRecord={() => {}}
-            onCancelRecord={() => {}}
-          />
-        ))}
+        {toolWindowDefs.map((def) =>
+          def.rebindable ? (
+            <ShortcutRow
+              key={def.id}
+              def={def}
+              chord={bindings.get(def.id) ?? null}
+              recording={recordingId === def.id}
+              highlighted={conflict?.highlightId === def.id}
+              onStartRecord={() => {
+                setRecordingId(def.id);
+                setConflict(null);
+              }}
+              onCancelRecord={() => setRecordingId(null)}
+            />
+          ) : (
+            <ShortcutRow
+              key={def.id}
+              fixed
+              def={def}
+              chord={def.defaultBinding}
+              recording={false}
+              highlighted={false}
+              onStartRecord={() => {}}
+              onCancelRecord={() => {}}
+            />
+          ),
+        )}
       </section>
 
       <div className="flex items-center justify-end gap-3">

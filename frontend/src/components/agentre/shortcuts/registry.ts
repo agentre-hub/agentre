@@ -1,5 +1,8 @@
 import i18n from "@/i18n";
-import type { ToolWindowId } from "@/stores/tool-window-layout-store";
+import type {
+  ToolWindowId,
+  ToolWindowRegion,
+} from "@/stores/tool-window-layout-store";
 
 import type { KeyChord, ShortcutDef } from "./types";
 
@@ -136,7 +139,7 @@ const PALETTE_REGISTRY: ShortcutDef[] = [
   },
 ];
 
-// 工具窗快捷键（spec 决策 10、「快捷键」）：本轮不可改绑。⌃数字（Windows / Linux 为
+// 工具窗快捷键（spec 决策 10、「快捷键」）：除下面的区域开关外不可改绑。⌃数字（Windows / Linux 为
 // Alt+数字）切换工具窗，因为 ⌘1–9 已被标签页切换占用；终端两边都是 ⌃`。
 // ⇧Esc / Esc / ⇧⌘' 只在焦点落在工具窗里时生效，由工具窗自己处理；其余由
 // ShortcutsProvider 全局派发。
@@ -154,6 +157,14 @@ export const TOOL_WINDOW_HIDE_FOCUSED_ID = "toolWindow.hideFocused";
 export const TOOL_WINDOW_RETURN_FOCUS_ID = "toolWindow.returnFocus";
 export const TOOL_WINDOW_MAXIMIZE_ID = "toolWindow.maximize";
 export const SESSION_LIST_TOGGLE_ID = "sessionList.toggle";
+// 区域开关（2026-11-27 spec 决策 6）：与标题栏的布局开关同一动作，可改绑。⌥⌘B 与
+// ⌘B（nav.issues）是两个组合。
+export const TOOL_WINDOW_REGION_TOGGLE_IDS: Readonly<
+  Record<ToolWindowRegion, string>
+> = {
+  bottom: "toolWindow.region.bottom",
+  right: "toolWindow.region.right",
+};
 
 const fixedToolWindowDef = (
   id: string,
@@ -242,6 +253,22 @@ const TOOL_WINDOW_REGISTRY: ShortcutDef[] = [
     i18n.t("shortcuts.registry.toolWindows.sessionList.hint"),
     { mod: "primary", key: "0" },
   ),
+  {
+    id: TOOL_WINDOW_REGION_TOGGLE_IDS.bottom,
+    label: i18n.t("shortcuts.registry.toolWindows.bottomRegion.label"),
+    hint: i18n.t("shortcuts.registry.toolWindows.bottomRegion.hint"),
+    scope: "toolWindows",
+    defaultBinding: { mod: "primary", key: "J" },
+    rebindable: true,
+  },
+  {
+    id: TOOL_WINDOW_REGION_TOGGLE_IDS.right,
+    label: i18n.t("shortcuts.registry.toolWindows.rightRegion.label"),
+    hint: i18n.t("shortcuts.registry.toolWindows.rightRegion.hint"),
+    scope: "toolWindows",
+    defaultBinding: { mod: "primary-alt", key: "B" },
+    rebindable: true,
+  },
 ];
 
 export const REGISTRY: ShortcutDef[] = [

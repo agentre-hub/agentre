@@ -21,7 +21,9 @@ function parseChord(raw: unknown): KeyChord | null {
   const o = raw as { mod?: unknown; key?: unknown };
   const mod = o.mod;
   const key = o.key;
-  if (mod !== "primary" && mod !== "primary-shift") return null;
+  if (mod !== "primary" && mod !== "primary-shift" && mod !== "primary-alt") {
+    return null;
+  }
   if (typeof key !== "string") return null;
   const upper = key.length === 1 ? key.toUpperCase() : key;
   if (!VALID_KEY_RE.test(upper)) return null;

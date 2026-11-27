@@ -8,6 +8,7 @@ import { useSidebarAxisStore } from "@/stores/sidebar-axis-store";
 import type { DesktopPlatform } from "../chrome";
 
 import { findConflict, sameChord } from "./conflict";
+import { publishBindings } from "./effective-bindings";
 import { chordFromEvent, isPrimaryModifier } from "./format";
 import {
   CMD_NEW_CHAT_ID,
@@ -142,6 +143,7 @@ export function ShortcutsProvider({
   }, [platform]);
   React.useEffect(() => {
     bindingsRef.current = bindings;
+    return publishBindings(bindings);
   }, [bindings]);
 
   const navigate = useNavigate();
@@ -156,6 +158,10 @@ export function ShortcutsProvider({
       if (!id) return { matched: false, consumed: false };
       const def = getDef(id);
       if (!def) return { matched: false, consumed: false };
+      // 工具窗快捷键（含可改绑的区域开关）已由 dispatchGlobalToolWindowShortcut 处理；
+      // 落到这里说明它此刻不生效（页面上没有图标条），按键照常往下走。
+      if (def.scope === "toolWindows")
+        return { matched: false, consumed: false };
 
       // TabsScope: ⌘1..9 → switch tab by sorted index; ⌘W → close active tab.
       // TabsScope takes priority over SessionScope for the same chord.
@@ -219,8 +225,8 @@ export function ShortcutsProvider({
       // 不能当作 ⌘P / ⌘1-9 / nav.* 来用。
       if (event.isComposing) return;
 
-      // 工具窗快捷键（⌃1–6 / ⌃` / ⇧⌘\ / ⌘0）是固定的、按物理键比的和弦，有的不带
-      // 主修饰键，有的按键不在可绑定集里，所以不走下面的 KeyChord 查表。
+      // 工具窗快捷键（⌃1–6 / ⌃` / ⇧⌘\ / ⌘0 及区域开关）先于下面的 KeyChord 查表：
+      // 固定的那些按物理键比，有的不带主修饰键、有的按键不在可绑定集里。
       if (dispatchGlobalToolWindowShortcut(event, platformRef.current)) {
         event.preventDefault();
         return;

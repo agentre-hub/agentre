@@ -190,6 +190,10 @@
         "label": "切换到第 {{index}} 个 Tab"
       },
       "toolWindows": {
+        "bottomRegion": {
+          "hint": "与标题栏的底部布局开关相同",
+          "label": "显示 / 隐藏底部工具窗"
+        },
         "changes": {
           "hint": "与点击图标条上的图标相同",
           "label": "显示 / 隐藏变更"
@@ -221,6 +225,10 @@
         "returnFocus": {
           "hint": "焦点在工具窗内时，把焦点还给输入框",
           "label": "回到输入框"
+        },
+        "rightRegion": {
+          "hint": "与标题栏的右侧布局开关相同",
+          "label": "显示 / 隐藏右侧工具窗"
         },
         "sessionInfo": {
           "hint": "与点击图标条上的图标相同",
