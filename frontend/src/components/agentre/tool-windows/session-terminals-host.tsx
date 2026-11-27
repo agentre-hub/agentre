@@ -141,6 +141,8 @@ const HostedSessionTerminal = React.memo(function HostedSessionTerminal({
         onClose={handleClose}
         onNewTerminal={handleNewTerminal}
         passThroughKey={passThroughKey}
+        // 工具窗里的终端与窗口同底色（标题栏同色），别处的终端不变。
+        surface="sheet"
       />
     </TerminalTransportProvider>,
     terminalContainer(sessionId, tab.id),

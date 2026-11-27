@@ -98,14 +98,23 @@ export const TERMINAL_FONT_FAMILY = [
 // 跟随应用主题：用 .dark class 选 light/dark 调色板，并把应用实时的 --background/
 // --foreground 叠加为终端底色，使终端与周围 UI 一致。SSR / 无 document 时回退 dark
 // 默认调色板。交互终端与只读命令卡片共用同一主题解析,确保两处颜色一致。
-export function readTerminalTheme(): ITheme {
+//
+// surface 选底色取自哪个令牌：默认 "background"（应用背景）；"sheet" 取窗口表面
+// --sheet，给浮在外框上的工具窗用，使终端正文与所在窗口同色。光标、ANSI 色不受影响。
+export type TerminalSurface = "background" | "sheet";
+
+export function readTerminalTheme(
+  surface: TerminalSurface = "background",
+): ITheme {
   if (typeof document === "undefined") {
     return resolveTerminalTheme(true);
   }
   const root = document.documentElement;
   const isDark = root.classList.contains("dark");
   const styles = getComputedStyle(root);
-  const bg = styles.getPropertyValue("--background").trim();
+  const bg = styles
+    .getPropertyValue(surface === "sheet" ? "--sheet" : "--background")
+    .trim();
   const fg = styles.getPropertyValue("--foreground").trim();
   return resolveTerminalTheme(isDark, bg, fg);
 }

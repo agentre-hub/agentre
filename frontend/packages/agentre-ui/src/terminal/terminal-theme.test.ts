@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { resolveTerminalTheme } from "./terminal-theme";
+import { describe, it, expect, afterEach } from "vitest";
+import { readTerminalTheme, resolveTerminalTheme } from "./terminal-theme";
 
 // xterm only ships visible glyph colors for the 16-entry ANSI palette when each
 // entry is set; leaving them at xterm's black-bg defaults makes light mode wash
@@ -57,5 +57,45 @@ describe("resolveTerminalTheme", () => {
     const theme = resolveTerminalTheme(false, "", "  ");
     expect(theme.background).toBe("#fafafa");
     expect(theme.foreground).toBe("#18181b");
+  });
+});
+
+describe("readTerminalTheme surface", () => {
+  const root = document.documentElement;
+  afterEach(() => {
+    root.classList.remove("dark");
+    root.style.removeProperty("--background");
+    root.style.removeProperty("--foreground");
+    root.style.removeProperty("--sheet");
+  });
+  const paint = (dark: boolean, sheet: string) => {
+    root.classList.toggle("dark", dark);
+    root.style.setProperty("--background", "#bbbbbb");
+    root.style.setProperty("--foreground", "#222222");
+    root.style.setProperty("--sheet", sheet);
+  };
+
+  it("Given the default surface, Then the background is --background", () => {
+    paint(false, "#ffffff");
+    expect(readTerminalTheme().background).toBe("#bbbbbb");
+    expect(readTerminalTheme("background").background).toBe("#bbbbbb");
+  });
+
+  it("Given the sheet surface in light and dark, Then the background is --sheet and ANSI / cursor / foreground are unchanged", () => {
+    for (const [dark, sheet] of [
+      [false, "#ffffff"],
+      [true, "#1b1c1f"],
+    ] as const) {
+      paint(dark, sheet);
+      const plain = readTerminalTheme();
+      const onSheet = readTerminalTheme("sheet");
+      expect(onSheet.background).toBe(sheet);
+      expect({ ...onSheet, background: plain.background }).toEqual(plain);
+    }
+  });
+
+  it("Given the sheet surface but no --sheet value, Then it falls back to the palette background", () => {
+    root.classList.add("dark");
+    expect(readTerminalTheme("sheet").background).toBe("#18191b");
   });
 });

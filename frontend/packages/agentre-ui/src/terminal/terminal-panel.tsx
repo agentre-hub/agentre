@@ -14,11 +14,13 @@ import { toast } from "sonner";
 
 import { useUiTranslation } from "../i18n";
 import { copyTextToClipboard } from "../lib/clipboard-toast";
+import { cn } from "../lib/utils";
 
 import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_MIN_CONTRAST_RATIO,
   readTerminalTheme,
+  type TerminalSurface,
 } from "./terminal-theme";
 import { useTerminal } from "./use-terminal";
 import { useAttachedTerminal } from "./use-attached-terminal";
@@ -40,6 +42,9 @@ export interface TerminalPanelProps {
   // 宿主自己的快捷键:返回 true 的 keydown 不交给 xterm(它不处理、不拦冒泡),照常
   // 冒到宿主的键盘监听上。不传时所有按键都归终端。
   passThroughKey?: (ev: KeyboardEvent) => boolean;
+  // 终端正文底色取自哪个令牌:默认 "background"(应用背景,独立终端标签等);
+  // "sheet" 取窗口表面 --sheet,供浮在外框上的工具窗使用。
+  surface?: TerminalSurface;
 }
 
 export function TerminalPanel({
@@ -51,6 +56,7 @@ export function TerminalPanel({
   onClose,
   onNewTerminal,
   passThroughKey,
+  surface = "background",
 }: TerminalPanelProps) {
   const { t } = useUiTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -62,6 +68,11 @@ export function TerminalPanel({
   useEffect(() => {
     passThroughRef.current = passThroughKey;
   }, [passThroughKey]);
+  // 同理,换肤时按最新的 surface 取色,不因它重建 xterm。
+  const surfaceRef = useRef(surface);
+  useEffect(() => {
+    surfaceRef.current = surface;
+  }, [surface]);
 
   // Stable dismiss for the banner — calls onClose, which unmounts us.
   const dismissAndClose = useCallback(() => {
@@ -132,7 +143,7 @@ export function TerminalPanel({
     const term = new Terminal({
       fontFamily: TERMINAL_FONT_FAMILY,
       fontSize: 13,
-      theme: readTerminalTheme(),
+      theme: readTerminalTheme(surfaceRef.current),
       minimumContrastRatio: TERMINAL_MIN_CONTRAST_RATIO,
       scrollback: 500,
       cursorBlink: true,
@@ -191,7 +202,7 @@ export function TerminalPanel({
     const applyTheme = () => {
       const term = xtermRef.current;
       if (!term) return;
-      term.options.theme = readTerminalTheme();
+      term.options.theme = readTerminalTheme(surfaceRef.current);
     };
     // Apply once on mount. App toggles the `.dark` class in its own layout
     // effect; on a same-commit mount (a restored terminal tab on app startup)
@@ -234,7 +245,10 @@ export function TerminalPanel({
 
   return (
     <div
-      className="flex flex-1 min-h-0 flex-col bg-background"
+      className={cn(
+        "flex flex-1 min-h-0 flex-col",
+        surface === "sheet" ? "bg-sheet" : "bg-background",
+      )}
       data-testid="terminal-panel"
     >
       {connectionLost ? (

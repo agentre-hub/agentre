@@ -48,6 +48,7 @@ vi.mock("@agentre-hub/agentre-ui/terminal", async () => {
     onClose: () => void;
     onNewTerminal?: () => void;
     passThroughKey?: (ev: KeyboardEvent) => boolean;
+    surface?: string;
   }) {
     const transport = ui.useTerminalTransport();
     R.useEffect(() => {
@@ -88,6 +89,7 @@ vi.mock("@agentre-hub/agentre-ui/terminal", async () => {
         data-testid="terminal-panel"
         data-terminal={props.terminalID}
         data-active={String(props.active)}
+        data-surface={props.surface}
       >
         <button type="button" onClick={props.onNewTerminal}>
           panel-new-terminal
@@ -227,6 +229,14 @@ describe("TerminalToolWindow · 在工具窗外壳里", () => {
     expect(
       within(titleBar as HTMLElement).getByRole("tab", { name: /Terminal 1/ }),
     ).toBeTruthy();
+  });
+
+  // Given 终端放在工具窗里, When 面板挂载, Then 它取窗口表面(--sheet)作底色。
+  it("mounts the terminal on the window surface", async () => {
+    oneRoot();
+    render(<FramedHarness />);
+    await newTerminal();
+    expect(screen.getByTestId("terminal-panel").dataset.surface).toBe("sheet");
   });
 
   // Given 焦点在终端里, When 按 ⇧Esc, Then 隐藏终端工具窗（终端面板挂在常驻宿主里，按键要照样落到外壳）。
