@@ -150,6 +150,10 @@ function ToolWindowFrameImpl({
   // React 冒到外壳，但在 DOM 上就在窗口里。用 layout effect 挂，赶在上面那个「挂载即
   // 拿焦点」的 effect 之前。focusin 听在 document 上：拿着焦点的元素被移除时浏览器
   // 不发 focusout，焦点落回 body；下一次焦点落到任何地方都据此重新判定。
+  // 焦点进入嵌入页面（网页预览的 iframe）时父文档也不发 focusin，只有窗口 blur，
+  // document.activeElement 变成那个 iframe（常常要到 blur 之后才变）：blur 时与随后
+  // 一拍各按 activeElement 判定一次，每个工具窗据同一个 activeElement 判定，最多一个亮。
+  // 应用整体失焦时 activeElement 不是 iframe，不改动 focusout 已经给出的结果。
   const [focused, setFocused] = React.useState(false);
   React.useLayoutEffect(() => {
     const el = ref.current;
@@ -159,11 +163,24 @@ function ToolWindowFrameImpl({
     const onFocusOut = (e: FocusEvent) => {
       if (!el.contains(e.relatedTarget as Node | null)) setFocused(false);
     };
+    const syncEmbeddedFocus = () => {
+      const active = document.activeElement;
+      if (active instanceof HTMLIFrameElement) setFocused(el.contains(active));
+    };
+    let pendingSync: ReturnType<typeof setTimeout> | undefined;
+    const onWindowBlur = () => {
+      syncEmbeddedFocus();
+      clearTimeout(pendingSync);
+      pendingSync = setTimeout(syncEmbeddedFocus, 0);
+    };
     document.addEventListener("focusin", onFocusIn);
     el.addEventListener("focusout", onFocusOut);
+    window.addEventListener("blur", onWindowBlur);
     return () => {
       document.removeEventListener("focusin", onFocusIn);
       el.removeEventListener("focusout", onFocusOut);
+      window.removeEventListener("blur", onWindowBlur);
+      clearTimeout(pendingSync);
     };
   }, []);
 

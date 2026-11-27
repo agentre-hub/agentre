@@ -759,6 +759,99 @@ describe("工具窗行为", () => {
       expect(ring("Outline")).toBeNull();
     });
 
+    describe("焦点进入嵌入页面（iframe）", () => {
+      // 浏览器把焦点交给（跨源）iframe 时，父文档不发 focusin：父窗口收到一个 blur，
+      // document.activeElement 变成那个 iframe 元素（常常要到 blur 之后才变）。
+      let active: Element | null = null;
+      beforeEach(() => {
+        active = null;
+        Object.defineProperty(document, "activeElement", {
+          configurable: true,
+          get: () => active ?? document.body,
+        });
+      });
+      afterEach(() => {
+        delete (document as { activeElement?: unknown }).activeElement;
+      });
+
+      const embed = (name: string) => {
+        const frame = document.createElement("iframe");
+        region(name).appendChild(frame);
+        return frame;
+      };
+
+      it("Given 变更带描边, When 焦点进入大纲里的嵌入页面（只有窗口 blur、activeElement 为该 iframe）, Then 大纲带描边、变更的描边消失；焦点回到输入框后描边消失", () => {
+        act(() =>
+          useToolWindowLayout.setState({
+            shown: { ...layout().shown, rightBottom: "changes" },
+          }),
+        );
+        renderLayout();
+        const frame = embed("Outline");
+        act(() => {
+          active = region("Changes");
+          active.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+        });
+        expect(ring("Changes")).not.toBeNull();
+
+        act(() => {
+          active = frame;
+          window.dispatchEvent(new FocusEvent("blur"));
+        });
+        expect(ring("Outline")).not.toBeNull();
+        expect(ring("Changes")).toBeNull();
+        expect(
+          document.querySelectorAll("[data-tool-window-focus-ring]"),
+        ).toHaveLength(1);
+
+        const composer = screen.getByRole("textbox", { name: "Message" });
+        act(() => {
+          active = composer;
+          window.dispatchEvent(new FocusEvent("focus"));
+          composer.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+        });
+        expect(ring("Outline")).toBeNull();
+        expect(
+          document.querySelectorAll("[data-tool-window-focus-ring]"),
+        ).toHaveLength(0);
+      });
+
+      it("Given 窗口 blur 时 activeElement 还没变成 iframe, When 它随后才指向大纲里的 iframe, Then 描边随之出现", async () => {
+        renderLayout();
+        const frame = embed("Outline");
+
+        act(() => {
+          window.dispatchEvent(new FocusEvent("blur"));
+          active = frame;
+        });
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(ring("Outline")).not.toBeNull();
+      });
+
+      it("Given 大纲带描边, When 整个应用失焦（activeElement 仍是大纲里的按钮、先发 focusout）, Then 描边照旧消失", async () => {
+        renderLayout();
+        const item = screen.getByRole("button", { name: "outline item" });
+        act(() => {
+          active = item;
+          item.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+        });
+        expect(ring("Outline")).not.toBeNull();
+
+        act(() => {
+          item.dispatchEvent(
+            new FocusEvent("focusout", { bubbles: true, relatedTarget: null }),
+          );
+          window.dispatchEvent(new FocusEvent("blur"));
+        });
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(ring("Outline")).toBeNull();
+      });
+    });
+
     it("Given 停靠的大纲, Then 用对话卡的圆角与 --sheet-shadow、不带浮层阴影", () => {
       renderLayout();
       const el = region("Outline");
