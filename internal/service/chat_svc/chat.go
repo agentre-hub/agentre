@@ -86,6 +86,9 @@ type ChatSvc interface {
 	// ListIndexSessions 给单一会话索引翻页：scope=recent 是跨 agent、跨项目的全局
 	// 最近活动（「按时间」档），scope=free 是未挂项目的会话（「随手对话」组）。
 	ListIndexSessions(ctx context.Context, req *ListIndexSessionsRequest) (*ListIndexSessionsResponse, error)
+	// ListSessionsByIDs 按 id 取一组会话的索引行（与 ListIndexSessions 同形），不拉消息：
+	// 给恢复的会话标签补标题与 agent 用。不认识的 id 不出现，不算错。
+	ListSessionsByIDs(ctx context.Context, req *ListSessionsByIDsRequest) (*ListSessionsByIDsResponse, error)
 	LoadSession(ctx context.Context, req *LoadSessionRequest) (*LoadSessionResponse, error)
 	// LoadMessageBlocks 取回更早一段消息的正文(前端向上滚动时续接转录)。
 	LoadMessageBlocks(ctx context.Context, req *LoadMessageBlocksRequest) (*LoadMessageBlocksResponse, error)
@@ -586,6 +589,41 @@ func (s *chatSvc) ListIndexSessions(ctx context.Context, req *ListIndexSessionsR
 		Total:    total,
 		HasMore:  int64(req.Offset+len(sessions)) < total,
 	}
+	for _, sess := range sessions {
+		resp.Sessions = append(resp.Sessions, s.sessionLiteFromEntity(sess))
+	}
+	return resp, nil
+}
+
+// ── ListSessionsByIDs ────────────────────────────────────────────────────────
+
+// ListSessionsByIDs 见接口注释。行由 sessionLiteFromEntity 组装，与索引翻页同一处，
+// 两边因此不会对同一条会话给出两种形状。
+func (s *chatSvc) ListSessionsByIDs(ctx context.Context, req *ListSessionsByIDsRequest) (*ListSessionsByIDsResponse, error) {
+	if req == nil {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	ids := make([]int64, 0, len(req.IDs))
+	seen := make(map[int64]struct{}, len(req.IDs))
+	for _, id := range req.IDs {
+		if id <= 0 {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	resp := &ListSessionsByIDsResponse{Sessions: []ChatSessionLite{}}
+	if len(ids) == 0 {
+		return resp, nil
+	}
+	sessions, err := chat_repo.Session().FindByIDs(ctx, ids)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	resp.Sessions = make([]ChatSessionLite, 0, len(sessions))
 	for _, sess := range sessions {
 		resp.Sessions = append(resp.Sessions, s.sessionLiteFromEntity(sess))
 	}

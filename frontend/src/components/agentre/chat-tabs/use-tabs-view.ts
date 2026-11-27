@@ -59,6 +59,11 @@ export function useTabsView(): TabView[] {
     () => tabs.map((t) => sessionIdOf(t.meta)).filter((sid) => sid > 0),
     [tabs],
   );
+  // 恢复出来、还没激活过的标签没有面板替它拉详情，也未必落在会话列表已加载的那一页
+  // 里：缺元数据的会话按 id 批量补一次，否则标题与头像一直停在占位。
+  React.useEffect(() => {
+    void useSessionMetaStore.getState().loadMissing(sessionTabIds);
+  }, [sessionTabIds]);
   const attentionItems = useSessionAttentionList(sessionTabIds);
   const attentionBySid = React.useMemo(() => {
     const m = new Map<number, AttentionReason>();

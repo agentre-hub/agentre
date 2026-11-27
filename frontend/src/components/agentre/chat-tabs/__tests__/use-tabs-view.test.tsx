@@ -1,5 +1,5 @@
 // frontend/src/components/agentre/chat-tabs/__tests__/use-tabs-view.test.tsx
-import { renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useTabsView } from "../use-tabs-view";
@@ -8,6 +8,15 @@ import { useChatStreamsStore } from "@/stores/chat-streams-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useSessionMetaStore } from "@/stores/session-meta-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
+
+// 恢复的会话标签按 id 批量取元数据（规格 2026-11-27 决策 9）。默认取回空：
+// 别的用例里打开的标签都没有对应的会话行，与「会话已不存在」同一口径。
+const appMocks = vi.hoisted(() => ({
+  ListChatSessionsByIDs: vi.fn(async (_req: { ids: number[] }) => ({
+    sessions: [] as unknown[],
+  })),
+}));
+vi.mock("../../../../../wailsjs/go/app/App", () => appMocks);
 
 vi.mock("@/hooks/use-project-tree", () => ({
   useProjectTree: () => ({
@@ -58,6 +67,8 @@ describe("useTabsView 数据派生", () => {
     useChatAgentsStore.getState().__reset();
     useSessionMetaStore.getState().__reset();
     useSessionStatusStore.getState().__reset();
+    appMocks.ListChatSessionsByIDs.mockReset();
+    appMocks.ListChatSessionsByIDs.mockResolvedValue({ sessions: [] });
   });
 
   it("meta 未到位时 avatar fallback 到 ?/灰色", () => {
@@ -268,6 +279,90 @@ describe("useTabsView 数据派生", () => {
         avatarIcon: "",
         avatarDataUrl: "",
       });
+    });
+  });
+
+  describe("Given 重启后恢复出一个从没激活过、也不在已加载列表页里的会话标签", () => {
+    const restoreTab = (sessionId: number) => {
+      useChatTabsStore.setState({
+        tabs: [
+          {
+            id: "restored-1",
+            meta: { kind: "session", sessionId },
+            isPreview: false,
+            isPinned: false,
+            pinAt: 0,
+            openedAt: 1,
+          },
+        ],
+        activeTabId: null,
+      });
+    };
+
+    it("When 标签条投影, Then 取回该会话的元数据并显示真实标题与 Agent 头像", async () => {
+      useChatAgentsStore.setState({
+        agents: [
+          {
+            id: 3,
+            name: "设计师",
+            avatarColor: "agent-9",
+            avatarIcon: "",
+            avatarDataUrl: "",
+          },
+        ] as never,
+      });
+      appMocks.ListChatSessionsByIDs.mockResolvedValue({
+        sessions: [
+          {
+            id: 6,
+            agentId: 3,
+            projectId: 0,
+            title: "真实标题",
+            lastMessageAt: 5,
+          },
+        ],
+      });
+      restoreTab(6);
+
+      const { result } = renderHook(() => useTabsView());
+
+      await waitFor(() => expect(result.current[0].title).toBe("真实标题"));
+      expect(result.current[0].avatar).toMatchObject({
+        letter: "设",
+        color: "var(--agent-9)",
+      });
+      expect(appMocks.ListChatSessionsByIDs).toHaveBeenCalledWith({ ids: [6] });
+    });
+
+    it("When 取元数据失败, Then 标签安静地保持占位标题", async () => {
+      appMocks.ListChatSessionsByIDs.mockRejectedValue(new Error("db gone"));
+      restoreTab(6);
+
+      const { result } = renderHook(() => useTabsView());
+
+      await waitFor(() =>
+        expect(appMocks.ListChatSessionsByIDs).toHaveBeenCalledTimes(1),
+      );
+      await Promise.resolve();
+      expect(result.current[0].title).toBe("(session)");
+      expect(result.current[0].avatar.letter).toBe("?");
+    });
+
+    it("When 会话元数据已在缓存里, Then 不再去取", async () => {
+      useSessionMetaStore.getState().setMeta(6, {
+        agentId: 3,
+        agentName: "CEO",
+        agentColor: "agent-2",
+        projectId: 0,
+        title: "已缓存",
+      });
+      restoreTab(6);
+
+      const { result } = renderHook(() => useTabsView());
+
+      await Promise.resolve();
+      expect(result.current[0].title).toBe("已缓存");
+      expect(appMocks.ListChatSessionsByIDs).not.toHaveBeenCalled();
     });
   });
 });

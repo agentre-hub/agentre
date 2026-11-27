@@ -1,15 +1,18 @@
 // frontend/src/stores/session-meta-store.ts
 //
-// session-meta-store 缓存「显示一个 session tab 所需的静态字段」, 比如 agentColor /
-// agentName / projectId。这些字段在 ChatSessionLite (ListChatAgents) 里没有 —
-// 只能从 ChatSessionDetail (LoadChatSession) 拿。Tab strip 不主动 LoadSession,
-// 但 ChatPanelHost 给每个 tab 都 mount 了 ChatPanel, 后者用 useChatSession 拉详情,
-// 顺手往这里 setMeta, 让 TabStrip 在 detail 到位后能渲染出 agent 色 / 项目色等线索。
+// session-meta-store 缓存「显示一个 session tab 所需的静态字段」: 标题 / agentId /
+// agentName / agentColor / projectId / 活动与已读时间。三条路往里写:
+//   - useChatSession 拉到 ChatSessionDetail (LoadChatSession) 后 setMeta —— 只有被激活、
+//     mount 了 ChatPanel 的标签才走这条;
+//   - 会话列表 (chat-agents-store / session-index-store) 把已加载那几页 bulkUpsert 进来;
+//   - loadMissing 给剩下的 (典型是重启后恢复、从没激活过、又不在已加载页里的标签)
+//     按 id 批量取索引行 (ListChatSessionsByIDs, 不带消息) 补上。
 //
-// 不持久化: 重启后由 useChatSession 重新填。
+// 不持久化: 重启后由上面三条路重新填。
 
 import { create } from "zustand";
 
+import { ListChatSessionsByIDs } from "../../wailsjs/go/app/App";
 import type { SessionMetaSnapshot } from "./types";
 
 // SessionMeta 是 session-meta-store 持有的静态字段快照。
@@ -28,6 +31,9 @@ type Actions = {
   // chat-agents-store 从 ListChatAgents 批量灌的时候用 —— 它只有 ChatSessionLite 的子集,
   // 不能整条 replace, 否则会把 useChatSession 写好的 projectId 等字段擦掉。
   bulkUpsert: (entries: Iterable<[number, Partial<SessionMeta>]>) => void;
+  // loadMissing 把缓存里还没有的那些 id 一次批量取回来。每个 id 一辈子只取一次:
+  // 会话已不存在或读取失败时安静作罢, 标签保持占位, 不反复去取。
+  loadMissing: (sessionIds: Iterable<number>) => Promise<void>;
   // reset 仅用于测试隔离, 生产代码不该调。
   __reset: () => void;
 };
@@ -45,7 +51,11 @@ function isSameMeta(a: SessionMeta, b: SessionMeta): boolean {
   );
 }
 
-export const useSessionMetaStore = create<State & Actions>((set) => ({
+// loadMissing 已经发出去过的 id。挂在模块上而不是 state 里: 它不驱动渲染, 只给几个
+// 同时调 loadMissing 的投影 (标签条 / 溢出菜单 / 快捷键作用域) 去重。
+const requested = new Set<number>();
+
+export const useSessionMetaStore = create<State & Actions>((set, get) => ({
   metas: new Map(),
   setMeta: (sessionId, meta) =>
     set((state) => {
@@ -72,5 +82,40 @@ export const useSessionMetaStore = create<State & Actions>((set) => ({
       }
       return changed ? { metas } : state;
     }),
-  __reset: () => set({ metas: new Map() }),
+  loadMissing: async (sessionIds) => {
+    const metas = get().metas;
+    const ids: number[] = [];
+    for (const sid of sessionIds) {
+      if (sid <= 0 || metas.has(sid) || requested.has(sid)) continue;
+      requested.add(sid);
+      ids.push(sid);
+    }
+    if (ids.length === 0) return;
+    let sessions;
+    try {
+      ({ sessions } = await ListChatSessionsByIDs({ ids }));
+    } catch {
+      return;
+    }
+    // 取的途中面板可能已经 setMeta 了较新的详情: 只填仍然空着的, 不拿索引行盖它。
+    const current = get().metas;
+    get().bulkUpsert(
+      (sessions ?? [])
+        .filter((s) => !current.has(s.id))
+        .map((s): [number, Partial<SessionMeta>] => [
+          s.id,
+          {
+            agentId: s.agentId,
+            projectId: s.projectId,
+            title: s.title || "",
+            lastMessageAt: s.lastMessageAt ?? 0,
+            lastReadAt: s.lastReadAt ?? 0,
+          },
+        ]),
+    );
+  },
+  __reset: () => {
+    requested.clear();
+    set({ metas: new Map() });
+  },
 }));

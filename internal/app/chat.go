@@ -25,6 +25,12 @@ func (a *App) ListChatIndexSessions(req *chat_svc.ListIndexSessionsRequest) (*ch
 	return chat_svc.Chat().ListIndexSessions(a.ctx, req)
 }
 
+// ListChatSessionsByIDs 按 id 取一组会话的索引行（与 ListChatIndexSessions 同形，不带
+// 消息）。恢复出来、还没激活过的会话标签靠它显示真实标题与 agent 头像。
+func (a *App) ListChatSessionsByIDs(req *chat_svc.ListSessionsByIDsRequest) (*chat_svc.ListSessionsByIDsResponse, error) {
+	return chat_svc.Chat().ListSessionsByIDs(a.ctx, req)
+}
+
 // ListAgentExecTargetAvailability 逐档判定 R15 执行目标列表的可用性，供组织架构页
 // Agent 详情展示（任务 12）。projectID<=0 表示自由会话，不做项目路径判定。
 func (a *App) ListAgentExecTargetAvailability(agentID int64, projectID int64) ([]exec_target_svc.ExecTargetAvailabilityView, error) {

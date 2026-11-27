@@ -930,6 +930,18 @@ type ListIndexSessionsResponse struct {
 	HasMore  bool              `json:"hasMore"`
 }
 
+// ListSessionsByIDsRequest 按 id 取一组会话的索引行 —— 恢复出来、还没激活过的会话
+// 标签用它补标题与 agent（规格 2026-11-27-toolwindow-polish 决策 9）。
+type ListSessionsByIDsRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+// ListSessionsByIDsResponse 与 ListIndexSessionsResponse 同一种行。不认识（已删 /
+// 从未存在）的 id 只是不出现，顺序不保证与请求一致。
+type ListSessionsByIDsResponse struct {
+	Sessions []ChatSessionLite `json:"sessions"`
+}
+
 type SessionPurpose string
 
 const (
