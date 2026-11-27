@@ -10,7 +10,10 @@ import {
 } from "@/stores/tool-window-layout-store";
 
 import { AppTopBar } from "../../chrome";
-import { ShortcutsProvider } from "../../shortcuts/shortcuts-provider";
+import {
+  ShortcutsProvider,
+  useShortcutsContext,
+} from "../../shortcuts/shortcuts-provider";
 import { LayoutToggles } from "../layout-toggles";
 
 const initial = useToolWindowLayout.getState();
@@ -158,5 +161,101 @@ describe("LayoutToggles", () => {
     await user.dblClick(bottomBtn());
     expect(max).not.toHaveBeenCalled();
     Reflect.deleteProperty(window, "runtime");
+  });
+
+  describe.each([
+    {
+      region: "bottom" as const,
+      slots: ["bottomLeft", "bottomRight"] as const,
+      hide: "Hide bottom tool windows",
+      show: "Show bottom tool windows",
+      shortcut: "⌘J",
+      rebound: { mod: "primary" as const, key: "K" },
+      reboundLabel: "⌘K",
+      id: "toolWindow.region.bottom",
+    },
+    {
+      region: "right" as const,
+      slots: ["rightTop", "rightBottom"] as const,
+      hide: "Hide right tool windows",
+      show: "Show right tool windows",
+      shortcut: "⌥⌘B",
+      rebound: { mod: "primary-alt" as const, key: "R" },
+      reboundLabel: "⌥⌘R",
+      id: "toolWindow.region.right",
+    },
+  ])("$region toggle", (c) => {
+    const btn = () => screen.getByTestId(`layout-toggle-${c.region}`);
+
+    function hideRegionInStore() {
+      const shown = { ...useToolWindowLayout.getState().shown };
+      for (const slot of c.slots) shown[slot] = null;
+      act(() => useToolWindowLayout.setState({ shown }));
+    }
+    const storeShown = () =>
+      c.slots.some(
+        (slot) => useToolWindowLayout.getState().shown[slot] !== null,
+      );
+
+    it("goes hidden -> shown -> hidden in the store and in aria-pressed, filled icon, name and tooltip", async () => {
+      const user = userEvent.setup();
+      hideRegionInStore();
+      renderToggles();
+
+      expect(btn()).toHaveAttribute("aria-pressed", "false");
+      expect(btn()).toHaveAccessibleName(c.show);
+      expect(btn().querySelector("[data-filled]")).toBeNull();
+      await user.hover(btn());
+      let tip = await screen.findByRole("tooltip");
+      expect(tip).toHaveTextContent(c.show);
+      expect(tip).toHaveTextContent(c.shortcut);
+      await user.unhover(btn());
+
+      await user.click(btn());
+      expect(storeShown()).toBe(true);
+      expect(btn()).toHaveAttribute("aria-pressed", "true");
+      expect(btn()).toHaveAccessibleName(c.hide);
+      expect(btn().querySelector("[data-filled]")).not.toBeNull();
+      // 点击已把指针停在按钮上并收起提示；先移开再悬停才会重新打开。
+      await user.unhover(btn());
+      await user.hover(btn());
+      tip = (await screen.findAllByRole("tooltip")).at(-1) as HTMLElement;
+      expect(tip).toHaveTextContent(c.hide);
+      expect(tip).toHaveTextContent(c.shortcut);
+      await user.unhover(btn());
+
+      await user.click(btn());
+      expect(storeShown()).toBe(false);
+      expect(btn()).toHaveAttribute("aria-pressed", "false");
+      expect(btn()).toHaveAccessibleName(c.show);
+      expect(btn().querySelector("[data-filled]")).toBeNull();
+    });
+
+    it("shows the rebound shortcut in the tooltip after the binding changes", async () => {
+      const user = userEvent.setup();
+      function Rebind() {
+        const ctx = useShortcutsContext();
+        return (
+          <button type="button" onClick={() => ctx.setBinding(c.id, c.rebound)}>
+            rebind
+          </button>
+        );
+      }
+      render(
+        <MemoryRouter>
+          <ShortcutsProvider platform="darwin">
+            <TooltipProvider>
+              <Rebind />
+              <LayoutToggles />
+            </TooltipProvider>
+          </ShortcutsProvider>
+        </MemoryRouter>,
+      );
+      await user.click(screen.getByText("rebind"));
+      await user.hover(btn());
+      const tip = await screen.findByRole("tooltip");
+      expect(tip).toHaveTextContent(c.reboundLabel);
+      expect(tip).not.toHaveTextContent(c.shortcut);
+    });
   });
 });
