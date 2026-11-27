@@ -415,6 +415,8 @@ func callServer(ctx context.Context, server, method, path, token string, body an
 		return 0, nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	// agrctl 自己的文案是英文；server 的错误消息按这个语言回，原样打印才一致。
+	req.Header.Set("Accept-Language", "en")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
