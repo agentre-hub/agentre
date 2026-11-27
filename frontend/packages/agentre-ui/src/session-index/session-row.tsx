@@ -25,6 +25,7 @@ import { AgentAvatar } from "../ui/agent-avatar";
 import type { AgentAvatarProps } from "../ui/agent-avatar";
 import { StatusDot } from "../ui/status-dot";
 import { StatusMark } from "../ui/status-mark";
+import { useTouch } from "../ui/touch";
 import type { SessionTrailingMark } from "./types";
 
 /**
@@ -144,6 +145,24 @@ type SessionRowProps = Omit<React.ComponentProps<"button">, "onClick"> & {
   onStopTurn?: () => void;
   onFilterAgent?: () => void;
   onFilterMachine?: () => void;
+  /**
+   * 触屏档：长按菜单锚定到本行（贴行下方右对齐，放不下翻上方，行完整露出），菜单行
+   * 44px / 15px。不传则跟随最近的 `TouchProvider`，再不然与桌面一致。菜单由行自己
+   * 渲染，宿主传不进 `anchorRef`，所以锚点由行自己登记。
+   */
+  touch?: boolean;
+  /**
+   * 行菜单（长按 / 右键）打开与关闭时回调，无论怎么关的（选项、点外面、Esc、宿主
+   * 经 `menuOpen` 关）。宿主据此登记「系统返回先关浮层」的历史记号。
+   */
+  onMenuOpenChange?: (open: boolean) => void;
+  /**
+   * 宿主**只能关**菜单：Radix ContextMenu 没有受控的 `open`，菜单只能由用户手势打开。
+   * 菜单开着时收到 `menuOpen={false}`（先前是 `true` 或未传都算）就关掉它，并回调
+   * `onMenuOpenChange(false)`；`true` / 不传不会打开任何东西。典型接法：
+   * `menuOpen={open}` + `onMenuOpenChange={setOpen}`，返回键里 `setOpen(false)`。
+   */
+  menuOpen?: boolean;
 };
 
 function SessionRow({
@@ -174,9 +193,29 @@ function SessionRow({
   onStopTurn,
   onFilterAgent,
   onFilterMachine,
+  touch: touchProp,
+  onMenuOpenChange,
+  menuOpen,
   ...props
 }: SessionRowProps) {
   const { t } = useUiTranslation();
+  const touch = useTouch(touchProp);
+  // 菜单锚点：Trigger 的 ref 会落到行元素上（按钮、原生 <a>、宿主 renderLink 的元素）。
+  const rowRef = React.useRef<HTMLElement>(null);
+  // Radix 不让外部控制 open，镜像一份内部状态，宿主要求关时才知道有没有东西可关。
+  const menuIsOpenRef = React.useRef(false);
+  const handleMenuOpenChange = (open: boolean) => {
+    menuIsOpenRef.current = open;
+    onMenuOpenChange?.(open);
+  };
+  React.useEffect(() => {
+    if (menuOpen !== false || !menuIsOpenRef.current) return;
+    // 菜单层只听 document 上的 Esc（DismissableLayer），模拟一下即走它自己的关闭路径
+    // （焦点归还、onOpenChange(false)），行 DOM 不重建。
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+  }, [menuOpen]);
   const config = statusConfig[status];
   const hiddenFromAccessibility = ariaHidden === true || ariaHidden === "true";
   const hasContextMenu = Boolean(
@@ -375,12 +414,14 @@ function SessionRow({
   }
 
   const withMenu = hasContextMenu ? (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+    <ContextMenu onOpenChange={handleMenuOpenChange}>
+      <ContextMenuTrigger asChild ref={rowRef}>
+        {row}
+      </ContextMenuTrigger>
       {/* 只摆宿主真的给了 handler 的能力：没有 rename 就没这一项，而不是摆一个
           按下去什么都不发生的死项。分隔线只在它真的隔开两项时才画 —— delete 是
           第一项时，那条线只是凭空多出来的一行。 */}
-      <ContextMenuContent>
+      <ContextMenuContent touch={touch} anchorRef={touch ? rowRef : undefined}>
         {onRenameSession ? (
           <ContextMenuItem onSelect={onRenameSession}>
             <Pencil className="size-4" aria-hidden="true" />

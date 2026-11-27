@@ -304,6 +304,7 @@
       "run": "Run command"
     },
     "touch": {
+      "placeholder": "Reply…",
       "sendAfterAITitle": "Insert after AI finishes",
       "stopTitle": "Stop current turn",
       "commandBanner": "Command mode · runs in the project directory · delete ! to exit"

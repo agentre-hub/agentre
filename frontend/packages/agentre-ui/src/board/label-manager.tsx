@@ -19,6 +19,15 @@ const ACTION_CLASS = cn(
 export interface LabelManagerPanelProps {
   labels: LabelUsageView[];
   onLabelMutate: (mutation: LabelMutation) => LabelMutateResult;
+  /**
+   * 新建标签超时（可能已经建好）时给：错误块换成一行「网络超时，可能已经建好了」+
+   * 「刷新看看」，点按带上那次的名字调用它——宿主刷新标签后，找到了返回 `true`
+   * （面板当作建成、清空输入），没找到返回 `false`（面板说一句，允许再提交）。
+   * 不传时超时与其它失败一样显示原文。
+   */
+  onCreateTimeoutRecheck?: (
+    name: string,
+  ) => Promise<boolean | void> | boolean | void;
   className?: string;
 }
 
@@ -34,20 +43,44 @@ export interface LabelManagerPanelProps {
 export function LabelManagerPanel({
   labels,
   onLabelMutate,
+  onCreateTimeoutRecheck,
   className,
 }: LabelManagerPanelProps) {
   const { t } = useUiTranslation();
-  const state = useLabelManager(onLabelMutate);
+  const state = useLabelManager(onLabelMutate, onCreateTimeoutRecheck);
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      {state.failed ? (
+      {state.createNotFound || state.failed ? (
         <p
           role="alert"
           data-testid="label-manager-error"
-          className="shrink-0 rounded-md bg-destructive-soft px-2 py-1.5 text-2xs text-destructive-text"
+          className={cn(
+            "shrink-0 rounded-md bg-destructive-soft px-2 py-1.5 text-2xs text-destructive-text",
+            state.createTimedOut && "flex items-center gap-2",
+          )}
         >
-          {state.error ?? t("board.labels.failed")}
+          {state.createTimedOut ? (
+            <>
+              <span className="min-w-0 flex-1">
+                {state.createRecheckFailed
+                  ? t("projectSettings.create.timeoutRefreshFailed")
+                  : t("board.form.timeout")}
+              </span>
+              <button
+                type="button"
+                disabled={state.busy}
+                onClick={state.recheckCreate}
+                className="min-h-11 shrink-0 cursor-pointer rounded-md px-2 font-medium underline-offset-2 hover:underline focus-visible:focus-outline disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {t("board.form.timeoutRefresh")}
+              </button>
+            </>
+          ) : state.createNotFound ? (
+            t("projectSettings.create.timeoutNotFound")
+          ) : (
+            (state.error ?? t("board.labels.failed"))
+          )}
         </p>
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-1">

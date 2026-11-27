@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { TouchProvider } from "../ui/touch";
 import {
   CliPathField,
   DefaultPermissionModeField,
@@ -326,5 +327,46 @@ describe("DefaultPermissionModeField 的整屏排法", () => {
       name: "Default Permission Mode",
     });
     expect(trigger).toHaveClass("h-7", "w-[170px]", "text-2xs");
+  });
+});
+
+// F22：手机触屏档不把开发者参数名当标签念；桌面（不传、无 TouchProvider）原样。
+describe("开发者参数名的人话标签（F22）", () => {
+  it("推理强度：桌面仍有 reasoning_effort，触屏只剩人话标签", () => {
+    const { unmount } = render(
+      <ReasoningEffortField value="" onChange={vi.fn()} />,
+    );
+    expect(screen.getByText("reasoning_effort")).toBeInTheDocument();
+    unmount();
+    render(
+      <TouchProvider>
+        <ReasoningEffortField value="" onChange={vi.fn()} />
+      </TouchProvider>,
+    );
+    expect(screen.queryByText("reasoning_effort")).toBeNull();
+    expect(screen.getByText("Reasoning Effort")).toBeInTheDocument();
+  });
+
+  it("默认权限模式：桌面仍写 --permission-mode，触屏换成一句人话", () => {
+    const base = {
+      value: "acceptEdits",
+      onChange: vi.fn(),
+      isRemote: false,
+      hasIsSandbox: false,
+      canAddIsSandbox: false,
+      onAddIsSandbox: vi.fn(),
+    };
+    const { unmount } = render(<DefaultPermissionModeField {...base} />);
+    expect(screen.getByText(/--permission-mode/)).toBeInTheDocument();
+    unmount();
+    render(
+      <TouchProvider>
+        <DefaultPermissionModeField {...base} />
+      </TouchProvider>,
+    );
+    expect(screen.queryByText(/--permission-mode/)).toBeNull();
+    expect(
+      screen.getByText("Which permission mode new sessions start in"),
+    ).toBeInTheDocument();
   });
 });

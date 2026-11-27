@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "i18next";
 
 import { AGENTRE_UI_NAMESPACE, agentreUiResources } from "../i18n";
+import { TouchProvider } from "../ui/touch";
 import { IdentityFields, type IdentityFieldsProps } from "./identity-fields";
 
 function open(over: Partial<IdentityFieldsProps> = {}) {
@@ -49,6 +50,35 @@ describe("IdentityFields", () => {
     expect(name).not.toHaveClass("text-prose");
     expect(description).toHaveClass("text-xs");
     expect(description).not.toHaveClass("text-base");
+  });
+
+  it("Given the touch tier When the fields render Then the description is 16px; without it the 12px stays", () => {
+    open({ touch: true });
+    const description = screen.getByTestId("identity-description");
+    expect(description).toHaveClass("text-base");
+    expect(description).not.toHaveClass("text-xs");
+  });
+
+  it("Given a TouchProvider When the fields render Then the description is 16px too", () => {
+    render(
+      <TouchProvider>
+        <IdentityFields
+          kind="project"
+          name="Atlas"
+          description="Maps"
+          mark={{
+            iconKey: "",
+            color: "agent-1",
+            onPickIcon: vi.fn(),
+            onPickColor: vi.fn(),
+          }}
+          onNameChange={vi.fn()}
+          onDescriptionChange={vi.fn()}
+          testIdPrefix="identity"
+        />
+      </TouchProvider>,
+    );
+    expect(screen.getByTestId("identity-description")).toHaveClass("text-base");
   });
 
   it("Given a controlled identity When edited Then only changes are reported and blur remains host-owned", async () => {

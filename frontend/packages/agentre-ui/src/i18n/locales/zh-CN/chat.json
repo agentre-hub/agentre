@@ -304,6 +304,7 @@
       "run": "运行命令"
     },
     "touch": {
+      "placeholder": "回复…",
       "sendAfterAITitle": "AI 完成后插入",
       "stopTitle": "停止当前回合",
       "commandBanner": "命令模式 · 在项目目录直接执行 · 删除 ! 退出"

@@ -54,7 +54,22 @@ type Manager struct {
 	paths  map[string]string
 	// backends 是账号级后端配置,按 backend sync ID 存放。它只在内存里 ——
 	// config 可能带任意 argv(含凭据),落盘会把执行期秘密写进 state.json。
-	backends map[string]syncwire.AgentBackendConfig
+	backends map[string]Backend
+}
+
+// Backend 是快照里一条账号级后端：独占设置（整份 syncwire.AgentBackendConfig）加上它绑定的
+// 供应商与固定模型。账号侧的派发（控制台、agrctl）只带 {type, sync_id}，这一轮跟随后端
+// 配置时要跑的供应商与模型只能从这里来。
+type Backend struct {
+	syncwire.AgentBackendConfig
+	// ProviderKey / ModelKey 是后端绑定的供应商与固定模型（皆空 = CLI 自身登录态；
+	// ModelKey 空 = 跟随供应商默认模型）。
+	ProviderKey string
+	ModelKey    string
+	// ReasoningEffort / EnvJSON 是后端自己的思考力度与透传环境变量（空 = 走模型 / CLI 默认、
+	// 不透传）；同样只在内存里。
+	ReasoningEffort string
+	EnvJSON         string
 }
 
 // New constructs an engine snapshot manager.
@@ -70,7 +85,7 @@ func New(opts Options) *Manager {
 	return &Manager{
 		state: opts.State, serverURL: opts.ServerURL, accessToken: opts.AccessToken,
 		httpClient: client, logf: logf, paths: map[string]string{},
-		backends: map[string]syncwire.AgentBackendConfig{},
+		backends: map[string]Backend{},
 	}
 }
 
@@ -106,8 +121,12 @@ type snapshotCLIOverlay struct {
 // 它对应 agentre-server 那份 SnapshotResponse 的 backends 数组;服务端字段名与这里
 // 逐字一致,两端共用一个形状。
 type snapshotBackendConfig struct {
-	BackendSyncID string                      `json:"backend_sync_id"`
-	Config        syncwire.AgentBackendConfig `json:"config"`
+	BackendSyncID   string                      `json:"backend_sync_id"`
+	ProviderKey     string                      `json:"provider_key"`
+	ModelKey        string                      `json:"model_key"`
+	ReasoningEffort string                      `json:"reasoning_effort"`
+	EnvJSON         string                      `json:"env_json"`
+	Config          syncwire.AgentBackendConfig `json:"config"`
 }
 
 type snapshotResponse struct {
@@ -176,10 +195,14 @@ func (m *Manager) Pull(ctx context.Context) error {
 			paths[key] = overlay.CLIPath
 		}
 	}
-	backends := make(map[string]syncwire.AgentBackendConfig, len(snapshot.Backends))
+	backends := make(map[string]Backend, len(snapshot.Backends))
 	for _, backend := range snapshot.Backends {
 		if key := strings.TrimSpace(backend.BackendSyncID); key != "" {
-			backends[key] = cloneBackendConfig(backend.Config)
+			backends[key] = Backend{
+				AgentBackendConfig: cloneBackendConfig(backend.Config),
+				ProviderKey:        strings.TrimSpace(backend.ProviderKey), ModelKey: strings.TrimSpace(backend.ModelKey),
+				ReasoningEffort: strings.TrimSpace(backend.ReasoningEffort), EnvJSON: strings.TrimSpace(backend.EnvJSON),
+			}
 		}
 	}
 
@@ -215,18 +238,19 @@ func (m *Manager) ResolveCLIPath(backendSyncID string) (string, bool) {
 //
 // The returned config is a defensive copy: the snapshot is shared across turns,
 // so a caller mutating slices or RawMessage must not reach the stored copy.
-func (m *Manager) ResolveBackendConfig(backendSyncID string) (syncwire.AgentBackendConfig, bool) {
+func (m *Manager) ResolveBackendConfig(backendSyncID string) (Backend, bool) {
 	key := strings.TrimSpace(backendSyncID)
 	if key == "" {
-		return syncwire.AgentBackendConfig{}, false
+		return Backend{}, false
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	cfg, ok := m.backends[key]
+	b, ok := m.backends[key]
 	if !ok {
-		return syncwire.AgentBackendConfig{}, false
+		return Backend{}, false
 	}
-	return cloneBackendConfig(cfg), true
+	b.AgentBackendConfig = cloneBackendConfig(b.AgentBackendConfig)
+	return b, true
 }
 
 // cloneBackendConfig deep-copies the mutable fields (the argv slice and the

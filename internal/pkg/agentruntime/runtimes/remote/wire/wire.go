@@ -163,6 +163,8 @@ const (
 	ErrCodeUnsupported     = rpcerror.CodeRuntimeUnsupported
 	ErrCodeAborted         = rpcerror.CodeRuntimeAborted
 	ErrCodeSessionNotFound = rpcerror.CodeRuntimeSessionNotFound
+	// ErrCodeSessionRunning:会话正在跑一轮,runtime.run 被拒(见 ErrSessionRunning)。
+	ErrCodeSessionRunning = rpcerror.CodeRuntimeSessionRunning
 	// ErrCodeSessionProcessNotOwned:要结束的进程已不属于这条会话(见 agentruntime.ErrSessionProcessNotOwned)。
 	ErrCodeSessionProcessNotOwned = rpcerror.CodeSessionProcessNotOwned
 	// ErrCodePeerExecutionUnavailable:会话钉住的执行目标(agentred)当前不可用。
@@ -186,6 +188,12 @@ const (
 	ErrCodeProjectInvalidPath  = rpcerror.CodeProjectInvalidPath
 	ErrCodeProjectPathNotFound = rpcerror.CodeProjectPathNotFound
 )
+
+// ErrSessionRunning 是「这条会话正在跑一轮」:agentred 拒绝在它上面再开一轮
+// (runtime.run),任何对端来都一样。它是这条协议自己的 sentinel,不对应任何
+// agentruntime 的错误 —— 「一条会话同时只有一轮」是执行端对所有对端的承诺,本机
+// runtime 那一层没有这个概念。要往当前这一轮里加话走 runtime.steer。
+var ErrSessionRunning = errors.New("runtime: conversation is running a turn")
 
 // ToRPCError 把 agentruntime 的 sentinel 包成 *rpcerror.Error,daemon 端返回。
 // 非 sentinel 错误返 nil,调用方应自己包装(ErrInternal 之类)。
@@ -227,6 +235,8 @@ func SentinelFromCode(code int) error {
 		return agentruntime.ErrSessionNotFound
 	case ErrCodeSessionProcessNotOwned:
 		return agentruntime.ErrSessionProcessNotOwned
+	case ErrCodeSessionRunning:
+		return ErrSessionRunning
 	}
 	return nil
 }
@@ -247,6 +257,8 @@ func CodeForSentinel(err error) (int, bool) {
 		return ErrCodeSessionNotFound, true
 	case errors.Is(err, agentruntime.ErrSessionProcessNotOwned):
 		return ErrCodeSessionProcessNotOwned, true
+	case errors.Is(err, ErrSessionRunning):
+		return ErrCodeSessionRunning, true
 	}
 	return 0, false
 }

@@ -494,6 +494,21 @@ func (mr *MockProviderServiceMockRecorder) ListModels(ctx, req any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListModels", reflect.TypeOf((*MockProviderService)(nil).ListModels), ctx, req)
 }
 
+// PreviewModels mocks base method.
+func (m *MockProviderService) PreviewModels(ctx context.Context, req *llm_provider_svc.PreviewModelsRequest) (*llm_provider_svc.PreviewModelsResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PreviewModels", ctx, req)
+	ret0, _ := ret[0].(*llm_provider_svc.PreviewModelsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PreviewModels indicates an expected call of PreviewModels.
+func (mr *MockProviderServiceMockRecorder) PreviewModels(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreviewModels", reflect.TypeOf((*MockProviderService)(nil).PreviewModels), ctx, req)
+}
+
 // SetModelDefault mocks base method.
 func (m *MockProviderService) SetModelDefault(ctx context.Context, req *llm_provider_svc.SetModelDefaultRequest) (*llm_provider_svc.SetModelDefaultResponse, error) {
 	m.ctrl.T.Helper()
@@ -537,6 +552,21 @@ func (m *MockProviderService) SetProviderEnabled(ctx context.Context, req *llm_p
 func (mr *MockProviderServiceMockRecorder) SetProviderEnabled(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetProviderEnabled", reflect.TypeOf((*MockProviderService)(nil).SetProviderEnabled), ctx, req)
+}
+
+// TestConnection mocks base method.
+func (m *MockProviderService) TestConnection(ctx context.Context, req *llm_provider_svc.TestConnectionRequest) (*llm_provider_svc.TestConnectionResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TestConnection", ctx, req)
+	ret0, _ := ret[0].(*llm_provider_svc.TestConnectionResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TestConnection indicates an expected call of TestConnection.
+func (mr *MockProviderServiceMockRecorder) TestConnection(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TestConnection", reflect.TypeOf((*MockProviderService)(nil).TestConnection), ctx, req)
 }
 
 // Update mocks base method.

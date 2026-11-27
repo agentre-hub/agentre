@@ -216,6 +216,7 @@ export {
 } from "./ui/table";
 export { Textarea } from "./ui/textarea";
 export { Toggle } from "./ui/toggle";
+export { TouchProvider, useTouch } from "./ui/touch";
 export {
   Tooltip,
   TooltipContent,
@@ -417,6 +418,7 @@ export type {
 } from "./chat-input/types";
 export { ChatComposer } from "./composer/chat-composer";
 export type {
+  ChatComposerDraft,
   ChatComposerDropZone,
   ChatComposerHandle,
   ChatComposerProps,
@@ -451,8 +453,15 @@ export type { UsageLevel } from "./composer/usage-level";
 export { formatTokens } from "./lib/format-tokens";
 export { ToolPermissionDock } from "./transcript/canonical-tool/tool-permission/dock";
 export type { ToolPermissionDockProps } from "./transcript/canonical-tool/tool-permission/dock";
+export { UserAskCard } from "./transcript/canonical-tool/user-ask/card";
+export type { UserAskCardProps } from "./transcript/canonical-tool/user-ask/card";
 export { ShortcutHintsProvider } from "./transcript/canonical-tool/tool-permission/shortcut-hints";
 export type { ShortcutHintsProviderProps } from "./transcript/canonical-tool/tool-permission/shortcut-hints";
+export { DecisionCardEnvProvider } from "./transcript/canonical-tool/tool-permission/decision-card-env";
+export type {
+  DecisionCardEnv,
+  DecisionCardEnvProviderProps,
+} from "./transcript/canonical-tool/tool-permission/decision-card-env";
 export { isPendingToolPermission } from "./transcript/canonical-tool/tool-permission/use-tool-permission-decision";
 export { groupAgentsForPicking } from "./lib/agent-picking";
 export { StatusBanner } from "./session-status/status-banner";

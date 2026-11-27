@@ -3,6 +3,7 @@ import { ShieldAlert } from "lucide-react";
 
 import type { TranscriptBlock } from "../../dto";
 import { Button } from "../../../ui/button";
+import { Spinner } from "../../../ui/spinner";
 import { cn } from "../../../lib/utils";
 import { useUiTranslation } from "../../../i18n";
 
@@ -19,6 +20,12 @@ export type ToolPermissionDockProps = {
   cwd?: string;
   /** 停止槽:画在决策按钮下面,由宿主给(比如「■ 停止」)。 */
   stop?: React.ReactNode;
+  /**
+   * 对话的执行端连接还没就绪。传了这个入参(true / false 都算)就打开宿主级反馈:
+   * true 时三键禁用并在上方写「正在连接」;点下的那颗单独转圈;失败给「重试」;
+   * 超时写「没收到确认」。不传:保持原样。
+   */
+  connecting?: boolean;
   className?: string;
 };
 
@@ -35,11 +42,32 @@ export function ToolPermissionDock({
   messageId,
   cwd,
   stop,
+  connecting,
   className,
 }: ToolPermissionDockProps) {
   const { t } = useUiTranslation();
-  const { payload, isResolved, submitting, error, errorDetail, submit } =
-    useToolPermissionDecision({ toolBlock, sessionId, messageId });
+  const {
+    payload,
+    isResolved,
+    submitting,
+    pending,
+    error,
+    errorDetail,
+    timedOut,
+    submit,
+    retry,
+  } = useToolPermissionDecision({ toolBlock, sessionId, messageId });
+  const managed = connecting !== undefined;
+  const notReady = !!connecting;
+  const busy = submitting || notReady;
+  // 连接断了时上一次的失败已经过时：只留「正在连接」一条，不叠失败与灰掉的「重试」。
+  const hideStaleError = managed && notReady;
+  const spin = (allow: boolean, always: boolean) =>
+    managed &&
+    pending?.allow === allow &&
+    pending.alwaysAllowSession === always ? (
+      <Spinner className="size-4" />
+    ) : null;
 
   if (!payload || !payload.requestId || isResolved) return null;
 
@@ -70,39 +98,76 @@ export function ToolPermissionDock({
           <ToolInputBody toolName={payload.toolName} input={input} />
         </div>
       ) : null}
+      {notReady ? (
+        <p
+          data-testid="tool-permission-dock-connecting"
+          className="flex items-center gap-2 text-aux text-muted-foreground"
+        >
+          <Spinner className="size-3.5" />
+          {t("canonical.toolPermission.dock.connecting")}
+        </p>
+      ) : null}
       <Button
         className={cn(TARGET_CLASS, "w-full")}
-        disabled={submitting}
+        disabled={busy}
         onClick={() => submit(true, false)}
       >
+        {spin(true, false)}
         {t("canonical.toolPermission.allowOnce")}
       </Button>
       <div className="grid grid-cols-2 gap-2">
         <Button
           variant="secondary"
           className={TARGET_CLASS}
-          disabled={submitting}
+          disabled={busy}
           onClick={() => submit(true, true)}
         >
+          {spin(true, true)}
           {t("canonical.toolPermission.allowSession")}
         </Button>
         <Button
           variant="secondary"
           className={cn(TARGET_CLASS, "text-destructive-text")}
-          disabled={submitting}
+          disabled={busy}
           onClick={() => submit(false, false)}
         >
+          {spin(false, false)}
           {t("common.reject")}
         </Button>
       </div>
-      {error ? (
+      {error && !hideStaleError ? (
         <p
           role="alert"
           title={errorDetail}
-          className="text-aux text-destructive-text"
+          className={cn(
+            "text-aux text-destructive-text",
+            managed && "flex flex-col gap-0.5",
+          )}
         >
-          {error}
+          {managed && timedOut ? (
+            t("canonical.toolPermission.dock.timedOut")
+          ) : managed && errorDetail ? (
+            // 宿主级反馈：原因要看得见（触屏没有 title 悬停）。
+            <>
+              <span>{error}</span>
+              <span className="break-words text-muted-foreground">
+                {errorDetail}
+              </span>
+            </>
+          ) : (
+            error
+          )}
         </p>
+      ) : null}
+      {managed && error && !hideStaleError ? (
+        <Button
+          variant="outline"
+          className={TARGET_CLASS}
+          disabled={busy}
+          onClick={retry}
+        >
+          {t("common.retry")}
+        </Button>
       ) : null}
       {stop}
     </section>

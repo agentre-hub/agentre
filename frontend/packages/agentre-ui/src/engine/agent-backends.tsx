@@ -20,6 +20,7 @@ import {
 import { Input } from "../ui/input";
 import { StatusMark } from "../ui/status-mark";
 import { cn } from "../lib/utils";
+import { useTouch } from "../ui/touch";
 
 import {
   accountDeviceOptions,
@@ -38,6 +39,7 @@ import {
   EngineSettingsPortsProvider,
   useEngineSettingsPorts,
 } from "./ports-context";
+import { LoadFailureNotice } from "./llm-provider-models/load-failure";
 import { AgentBackendsEmptyState, BackendRow } from "./agent-backends-list";
 import {
   useModelTargetCatalog,
@@ -205,8 +207,21 @@ function AgentBackendsPanelBody({
     const allowed = new Set<string>(supported);
     return backends.filter((backend) => allowed.has(backend.type));
   }, [backends, ports.supportedBackendTypes]);
+  const backendsRef = React.useRef(backends);
+  React.useEffect(() => {
+    backendsRef.current = backends;
+  });
+  // 读失败的新呈现（原位说明 + 重试、条幅不带原文）只在触屏档；桌面保持空态 + 带原文
+  // 详情的条幅。回调里读 ref，免得切档位把首屏再拉一次。
+  const touch = useTouch();
+  const touchRef = React.useRef(touch);
+  React.useEffect(() => {
+    touchRef.current = touch;
+  });
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [loading, setLoading] = React.useState(true);
+  // 读清单失败：清单为空但并非「没有后端」，不画空态。
+  const [loadFailed, setLoadFailed] = React.useState(false);
   const [editor, setEditor] = React.useState<EditorState>({ kind: "closed" });
   const [pendingDelete, setPendingDelete] = React.useState<Backend | null>(
     null,
@@ -411,8 +426,15 @@ function AgentBackendsPanelBody({
         ]);
         setBackends(b?.items ?? []);
         setProviders(p?.items ?? []);
+        setLoadFailed(false);
       } catch (err) {
-        setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
+        setLoadFailed(true);
+        if (!touchRef.current) {
+          setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
+        } else if (backendsRef.current.length > 0) {
+          // 清单为空时只靠原位说明；还有旧清单时补一条条幅，且只说人话、不带原文详情。
+          setFlash({ text: t("agentBackends.flash.loadFailed") });
+        }
       } finally {
         setLoading(false);
       }
@@ -427,10 +449,15 @@ function AgentBackendsPanelBody({
         if (!mounted) return;
         setBackends(b?.items ?? []);
         setProviders(p?.items ?? []);
+        setLoadFailed(false);
       })
       .catch((err: unknown) => {
         if (!mounted) return;
-        setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
+        setLoadFailed(true);
+        // 触屏档首次读取时清单必为空：只靠原位说明。桌面照旧贴带原文详情的条幅。
+        if (!touchRef.current) {
+          setFlash(failureNotice(t("agentBackends.flash.loadFailed"), err, t));
+        }
       })
       .finally(() => {
         if (!mounted) return;
@@ -654,6 +681,13 @@ function AgentBackendsPanelBody({
               <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               {t("common.loading")}
             </div>
+          ) : visibleBackends.length === 0 && loadFailed && touch ? (
+            <LoadFailureNotice
+              testId="backend-load-failure"
+              title={t("agentBackends.loadFailed.title")}
+              description={t("agentBackends.loadFailed.description")}
+              onRetry={() => void reload()}
+            />
           ) : visibleBackends.length === 0 ? (
             <AgentBackendsEmptyState
               onCreate={openCreate}

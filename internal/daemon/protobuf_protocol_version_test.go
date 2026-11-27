@@ -49,7 +49,7 @@ func TestAuthPair_GivenCallerAdvertisesTheSameProtocolVersion_WhenPairing_ThenAc
 // 它写死成字面量(推算出来的值会随 Protocol 一起漂),所以每次抬协议版本都要跟着抬 ——
 // 忘了抬就等于本 build 自己的版本,下面那条用例会从「拒绝」退化成同义反复,因此用例里
 // 先断言它确实不等于本 build 的号。
-const newerThanThisBuild = "0.9.0"
+const newerThanThisBuild = "0.10.0"
 
 // Given 一台比 daemon 新一档的桌面端,它出示的 min_supported 还能覆盖 daemon 的版本
 // (这正是从前的区间协商会放行的那一形态),When 它来配对,Then daemon 照样拒绝 ——

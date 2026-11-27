@@ -3,6 +3,7 @@ import { Inbox } from "lucide-react";
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
 import { Button } from "../ui/button";
+import { useTouch } from "../ui/touch";
 
 import type { SessionFilterValue } from "./session-filter-chips";
 
@@ -13,6 +14,8 @@ type SessionIndexEmptyProps = {
   total?: number;
   onShowAll?: () => void;
   onClearSearch?: () => void;
+  /** 触屏档：两枚恢复按钮点按区 44px。不传时跟 TouchProvider，再不然与桌面一致。 */
+  touch?: boolean;
   className?: string;
 };
 
@@ -22,9 +25,12 @@ function SessionIndexEmpty({
   total,
   onShowAll,
   onClearSearch,
+  touch: touchProp,
   className,
 }: SessionIndexEmptyProps) {
   const { t } = useUiTranslation();
+  const touch = useTouch(touchProp);
+  const actionSize = touch ? "min-h-11 px-4 text-sm" : undefined;
   const filtered = filter !== "all";
   const title = filtered
     ? t(
@@ -72,7 +78,7 @@ function SessionIndexEmpty({
           type="button"
           variant="outline"
           size="xs"
-          className="mt-3"
+          className={cn("mt-3", actionSize)}
           onClick={onShowAll}
         >
           {t("sessionIndex.empty.showAll")}
@@ -83,7 +89,7 @@ function SessionIndexEmpty({
           type="button"
           variant="outline"
           size="xs"
-          className="mt-3"
+          className={cn("mt-3", actionSize)}
           onClick={onClearSearch}
         >
           {t("sessionIndex.empty.clearSearch")}

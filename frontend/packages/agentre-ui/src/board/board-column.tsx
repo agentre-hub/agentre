@@ -27,6 +27,10 @@ export interface BoardColumnProps {
   layout?: "columns" | "stage";
   /** 被点名定位的那张卡。 */
   focusCardId?: number | null;
+  hideCardNumber?: boolean;
+  /** 此刻开着触屏菜单的卡号；`null` = 都关着；不传 = 各卡自管。 */
+  openCardMenuId?: number | null;
+  onCardMenuOpenChange?: (cardId: number, open: boolean) => void;
 }
 
 /**
@@ -46,6 +50,9 @@ export function BoardColumn({
   nowMs,
   layout = "columns",
   focusCardId,
+  hideCardNumber,
+  openCardMenuId,
+  onCardMenuOpenChange,
 }: BoardColumnProps) {
   const stageLayout = layout === "stage";
   const { t } = useUiTranslation();
@@ -122,6 +129,17 @@ export function BoardColumn({
             nowMs={nowMs}
             touch={stageLayout}
             focused={focusCardId === card.id}
+            hideCardNumber={hideCardNumber}
+            menuOpen={
+              openCardMenuId === undefined
+                ? undefined
+                : openCardMenuId === card.id
+            }
+            onMenuOpenChange={
+              onCardMenuOpenChange
+                ? (open) => onCardMenuOpenChange(card.id, open)
+                : undefined
+            }
           />
         ))}
         {state.hiddenCount > 0 ? (

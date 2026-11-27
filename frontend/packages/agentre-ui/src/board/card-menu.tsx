@@ -32,6 +32,8 @@ export interface BoardCardMenuProps {
   cardId: number;
   stage: BoardStage;
   ports: BoardPorts;
+  /** 任务标题：触屏弹层标题用它而不是 `#N`（编号对用户没有意义）。不传时回落到 `#N`。 */
+  title?: string;
   className?: string;
   /**
    * 触屏档：⋯ 常显且点击区 ≥44px，菜单换成底部弹层 —— 「移动到」平铺四个阶段，
@@ -48,6 +50,28 @@ const sheetItem = cn(
   "hover:bg-field-fill-hover disabled:cursor-default disabled:hover:bg-transparent focus-visible:focus-outline",
 );
 
+const TITLE_SLOT = "\u0000";
+
+/** 标题单行：任务名过长时只截任务名，「把…移动到」的头尾保留。 */
+function MoveSheetTitle({
+  text,
+  taskTitle,
+  testId,
+}: {
+  text: string;
+  taskTitle: string;
+  testId: string;
+}) {
+  const [head, tail = ""] = text.split(TITLE_SLOT);
+  return (
+    <span data-testid={testId} className="flex min-w-0 items-baseline">
+      <span className="shrink-0 whitespace-pre">{head}</span>
+      <span className="truncate">{taskTitle}</span>
+      <span className="shrink-0 whitespace-pre">{tail}</span>
+    </span>
+  );
+}
+
 /**
  * 卡片右上角那个 hover 才浮出的菜单。
  *
@@ -59,6 +83,7 @@ export function BoardCardMenu({
   cardId,
   stage,
   ports,
+  title,
   className,
   touch = false,
   open,
@@ -94,7 +119,17 @@ export function BoardCardMenu({
         <DialogShell open={sheetOpen} onOpenChange={setSheetOpen} size="sm">
           <div data-testid={`board-card-sheet-${cardId}`} className="contents">
             <DialogShellHeader
-              title={t("board.moveCardTo", { id: cardId })}
+              title={
+                title ? (
+                  <MoveSheetTitle
+                    text={t("board.moveCardToTitled", { title: TITLE_SLOT })}
+                    taskTitle={title}
+                    testId={`board-card-sheet-title-${cardId}`}
+                  />
+                ) : (
+                  t("board.moveCardTo", { id: cardId })
+                )
+              }
               onClose={() => setSheetOpen(false)}
             />
             <DialogShellBody className="flex flex-col gap-3 px-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))]">

@@ -127,7 +127,8 @@ func TestServeSend_WaitFinishesDispatchBeforeResponse(t *testing.T) {
 	assert.True(t, finished, "Finish 必须在 post 返回(响应写出)之前已被调用")
 }
 
-// --isolated 登记 isolated=true;--wait 的失败与断开分别收成失败 / 已取消。
+// --isolated 登记 isolated=true;--wait 的失败与断开分别收成失败 / 已取消
+// (失败的那一轮按等待结果报 status failed,与子代理卡同一结果)。
 func TestServeSend_IsolatedWaitRecordsIsolatedAndFailureOutcome(t *testing.T) {
 	rig, rec := newDispatchSendRig(t)
 	rec.EXPECT().Begin(gomock.Any(), chat_svc.DispatchBegin{
@@ -142,7 +143,8 @@ func TestServeSend_IsolatedWaitRecordsIsolatedAndFailureOutcome(t *testing.T) {
 	rig.turnCh <- chat_svc.TurnResult{SessionID: 100, AssistantMessageID: 200, Err: errors.New("boom")}
 	resp := rig.post(rig.sessionToken(), `{"agent":"reviewer","text":"跑测试","wait":true,"isolated":true}`)
 
-	assert.Equal(t, http.StatusInternalServerError, resp.Code)
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Contains(t, resp.Body.String(), `"status":"failed"`)
 }
 
 func TestServeSend_WaitDisconnectFinishesDispatchCanceled(t *testing.T) {
@@ -174,19 +176,19 @@ func TestServeSend_StartTurnFailureFinishesDispatchFailed(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, resp.Code)
 }
 
-// 续写既有会话(sessionId>0)同样登记:被派发方就是那个会话。
+// 续写既有会话(conversationId)同样登记:被派发方就是那个会话。
 func TestServeSend_ExistingSessionIsRecorded(t *testing.T) {
 	rig, rec := newDispatchSendRig(t)
 	done := make(chan struct{}, 1)
 	rec.EXPECT().Begin(gomock.Any(), chat_svc.DispatchBegin{
-		DispatcherSessionID: 42, DispatchedSessionID: 555,
+		DispatcherSessionID: 42, DispatchedSessionID: 100,
 		Method: chat_svc.DispatchMethodAgrctlSend, Task: "继续",
 	}).Return(dispatchID)
 	rec.EXPECT().Started(gomock.Any(), dispatchID)
 	rec.EXPECT().Finish(gomock.Any(), dispatchID, gomock.Any()).Do(finishSignal(done))
 
-	rig.turnCh <- chat_svc.TurnResult{SessionID: 555, AssistantMessageID: 9}
-	resp := rig.post(rig.sessionToken(), `{"sessionId":555,"text":"继续"}`)
+	rig.turnCh <- chat_svc.TurnResult{SessionID: 100, AssistantMessageID: 9}
+	resp := rig.post(rig.sessionToken(), `{"conversationId":"`+convA+`","text":"继续"}`)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
 	awaitDone(t, done)
@@ -208,4 +210,28 @@ func TestServeSend_WithoutRecorderBehavesAsBefore(t *testing.T) {
 	resp := rig.post(rig.sessionToken(), `{"agent":"reviewer","text":"x"}`)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
+}
+
+// --wait 等到超时(这一轮还在跑)先返回:行停在运行中,等子轮真正收尾再落终态。
+func TestServeSend_WaitTimeoutFinishesDispatchWhenTurnSettles(t *testing.T) {
+	rig, rec := newDispatchSendRig(t)
+	rig.h.conversations = newFakeConversations(conv(100, convA, chat_svc.CtlStatusRunning), conv(42, convB, chat_svc.CtlStatusRunning))
+	done := make(chan struct{}, 1)
+	rec.EXPECT().Begin(gomock.Any(), gomock.Any()).Return(dispatchID)
+	rec.EXPECT().Started(gomock.Any(), dispatchID)
+	rec.EXPECT().Finish(gomock.Any(), dispatchID, chat_svc.DispatchOutcome{
+		Status: chat_svc.CtlSendCompleted, ReplyMessageID: 200,
+	}).Do(finishSignal(done))
+
+	resp := rig.post(rig.sessionToken(), `{"agent":"reviewer","text":"x","wait":true,"timeoutMs":30}`)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Contains(t, resp.Body.String(), `"status":"running"`)
+	select {
+	case <-done:
+		t.Fatal("这一轮还没收尾,行不该落终态")
+	default:
+	}
+	rig.turnCh <- chat_svc.TurnResult{SessionID: 100, AssistantMessageID: 200}
+	awaitDone(t, done)
 }

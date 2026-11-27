@@ -12,6 +12,9 @@ import (
 // The local clear runs even if the remote call fails — a user clicking "disconnect"
 // should always end up disconnected from their machine's perspective.
 func (s *service) Logout(ctx context.Context) error {
+	// 桌面代签的 agrctl 子设备先收回（用它自己的 token），再吊销桌面自己。
+	s.revokeDelegatedAgrctl(ctx)
+
 	// best-effort revoke (server-side)
 	_, _ = s.getClient().do(ctx, http.MethodPost, "/v1/oauth/token/revoke",
 		map[string]int64{}, nil)

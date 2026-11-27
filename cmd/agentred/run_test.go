@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,6 +15,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
 
 type fakeRunDaemon struct{}
@@ -380,6 +384,84 @@ func TestGivenRunWhenStdlibLogIsUsedThenItAlsoLandsInTheLogFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "daemon rpc handler panic: smoke")
 }
+
+// Given 协议引擎（pkg/wire/protorpc）不再绑 cago 的 logger、改由宿主注入,When daemon
+// 存活期间一个 RPC handler panic,Then 那一行照旧落进 agentred 的日志文件 —— 注入点是
+// initLogging,与 cago logger 同一处。
+func TestGivenRunWhenAnRPCHandlerPanicsThenTheProtorpcLineLandsInTheLogFile(t *testing.T) {
+	clearRunEnvironment(t)
+	t.Cleanup(func() { protorpc.SetLogger(nil) })
+	dir := t.TempDir()
+
+	cmd := newRunCmdWithDeps(runDeps{
+		dataDir: func() (string, error) { return dir, nil },
+		newDaemon: func(daemon.Options) (runDaemon, error) {
+			panicOverRPC(t)
+			return fakeRunDaemon{}, nil
+		},
+	})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs(nil)
+	require.NoError(t, cmd.Execute())
+
+	data, err := os.ReadFile(filepath.Join(dir, "logs", "agentred.log")) //nolint:gosec // G304: dir is this test's t.TempDir, not untrusted input.
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "protorpc: rpc handler panic")
+}
+
+// panicOverRPC 在一对内存连接上调一个会 panic 的方法,等对端答回 CodeInternal。
+func panicOverRPC(t *testing.T) {
+	t.Helper()
+	a, b := memFramePair()
+	reg := protorpc.NewRegistry()
+	protorpc.RegisterMethod(reg, uint32(agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING),
+		func() *agentrewire.HealthPingRequest { return &agentrewire.HealthPingRequest{} },
+		func(context.Context, *agentrewire.HealthPingRequest) (*agentrewire.HealthPingResponse, error) {
+			panic("smoke")
+		})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client := protorpc.NewConn(a, protorpc.NewRegistry())
+	go client.Serve(ctx)
+	go protorpc.NewConn(b, reg).Serve(ctx)
+	_, err := protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING),
+		&agentrewire.HealthPingRequest{}, func() *agentrewire.HealthPingResponse { return &agentrewire.HealthPingResponse{} })
+	require.Error(t, err)
+}
+
+// memFrame 是一端内存帧连接:写进对端的收件箱。
+type memFrame struct {
+	in, out chan []byte
+	done    chan struct{}
+	once    *sync.Once
+}
+
+func memFramePair() (*memFrame, *memFrame) {
+	ab, ba, done, once := make(chan []byte, 8), make(chan []byte, 8), make(chan struct{}), &sync.Once{}
+	return &memFrame{in: ba, out: ab, done: done, once: once}, &memFrame{in: ab, out: ba, done: done, once: once}
+}
+
+func (m *memFrame) ReadFrame() ([]byte, error) {
+	select {
+	case f := <-m.in:
+		return f, nil
+	case <-m.done:
+		return nil, io.EOF
+	}
+}
+
+func (m *memFrame) WriteFrame(f []byte) error {
+	select {
+	case m.out <- f:
+		return nil
+	case <-m.done:
+		return io.EOF
+	}
+}
+
+func (m *memFrame) Close() error          { m.once.Do(func() { close(m.done) }); return nil }
+func (m *memFrame) Done() <-chan struct{} { return m.done }
 
 // ── 已登录的 daemon 不许被 run 悄悄指到另一套 server ─────────────────────────
 //

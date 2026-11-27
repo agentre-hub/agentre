@@ -85,6 +85,8 @@
       "subtitleOf": "在 {{name}} 下新建项目",
       "submit": "创建",
       "failed": "项目没建成。",
+      "timeoutNotFound": "还没找到，可以再提交一次",
+      "timeoutRefreshFailed": "刷新没成功，请稍后再试。",
       "pathNote": "不填也能建。在任意一台机器上配好路径之前，这个项目里开不出对话。",
       "pathNoteRemote": "建好后到项目设置里配路径。配好之前，这个项目里开不出对话。",
       "machine": "机器与路径",
@@ -174,6 +176,7 @@
     "edit": "编辑",
     "moveTo": "移动到",
     "moveCardTo": "把 #{{id}} 移动到",
+    "moveCardToTitled": "把「{{title}}」移动到",
     "delete": "删除",
     "stages": {
       "todo": "待办",
@@ -206,7 +209,10 @@
     },
     "search": {
       "placeholder": "搜索任务或 #编号…",
-      "count": "{{count}}"
+      "count": "{{count}}",
+      "countLabel": "{{count}} 个任务",
+      "countLabel_one": "{{count}} 个任务",
+      "countLabel_other": "{{count}} 个任务"
     },
     "filter": {
       "apply": "完成",
@@ -246,6 +252,8 @@
       "remove": "摘掉「{{name}}」"
     },
     "form": {
+      "timeout": "网络超时，可能已经建好了",
+      "timeoutRefresh": "刷新看看",
       "breadcrumb": "任务位置",
       "newTask": "新建任务",
       "title": "标题",

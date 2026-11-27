@@ -5,6 +5,7 @@ import { useUiTranslation as useTranslation } from "../../i18n";
 
 import { SearchInput } from "../../ui/search-input";
 import { cn } from "../../lib/utils";
+import { useTouch } from "../../ui/touch";
 import { LlmProviderLogo } from "../ai-brand-logo";
 
 import {
@@ -27,6 +28,7 @@ export function ProviderNav({
   onSelect: (id: number) => void;
 }) {
   const { t } = useTranslation();
+  const touch = useTouch();
   const [navSearch, setNavSearch] = React.useState("");
 
   const trimmed = navSearch.trim().toLowerCase();
@@ -72,7 +74,15 @@ export function ProviderNav({
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {groups.map((group) => (
           <div key={group.type} className="mb-2">
-            <div className="px-1.5 pb-1 font-mono text-2xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            <div
+              className={cn(
+                "px-1.5 pb-1 font-semibold text-muted-foreground",
+                // 触屏档：组头说人话（「Anthropic」），不是等宽大写的开发者标识。
+                touch
+                  ? "text-xs"
+                  : "font-mono text-2xs uppercase tracking-[0.08em]",
+              )}
+            >
               {isProviderType(group.type)
                 ? t(`llmProviders.providerType.${group.type}.label`)
                 : group.type}

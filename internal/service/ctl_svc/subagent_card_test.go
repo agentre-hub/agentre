@@ -112,10 +112,17 @@ func newSendRig() *sendRig {
 	return &sendRig{
 		h: &ctlHandler{
 			token: testToken, sessions: signer, agents: agents, projects: &fakeProjects{},
-			chat: chat, cards: cards,
+			chat: chat, cards: cards, conversations: cardConversations(),
 		},
 		chat: chat, cards: cards, signer: signer, turnCh: turnCh,
 	}
+}
+
+// cardConversations:新建的子会话是 100(空闲,最后一轮 assistant 消息 200)。
+func cardConversations() *fakeConversations {
+	c := conv(100, convA, chat_svc.CtlStatusIdle)
+	c.LastAssistantMessageID = 200
+	return newFakeConversations(c, conv(42, convB, chat_svc.CtlStatusRunning))
 }
 
 func (r *sendRig) sessionToken() string { return r.signer.MintToken(7, 42) }
@@ -209,13 +216,14 @@ func TestServeSend_SubagentCard(t *testing.T) {
 			}})
 		})
 
-		Convey("Given 子轮以错误收场, Then 卡片收成失败(带原因)且先于响应,响应仍是今天的 500", func() {
+		Convey("Given 子轮以错误收场, Then 卡片收成失败(带原因)且先于响应,响应报 status failed 与原因", func() {
 			rig := newSendRig()
 			rig.turnCh <- chat_svc.TurnResult{SessionID: 100, AssistantMessageID: 200, Err: errors.New("boom")}
 			rec := rig.post(rig.sessionToken(), `{"agent":"reviewer","text":"x","wait":true}`)
 
-			So(rec.Code, ShouldEqual, http.StatusInternalServerError)
-			So(rec.Body.String(), ShouldContainSubstring, "turn error: boom")
+			So(rec.Code, ShouldEqual, http.StatusOK)
+			So(rec.Body.String(), ShouldContainSubstring, `"status":"failed"`)
+			So(rec.Body.String(), ShouldContainSubstring, `"error":"boom"`)
 			w := rig.cards.watch
 			So(w.finishes, ShouldResemble, []chat_svc.CtlSendOutcome{{
 				Status: chat_svc.CtlSendFailed, FinalText: "boom", AssistantMessageID: 200,
@@ -293,7 +301,7 @@ func TestServeSend_SubagentCard(t *testing.T) {
 		Convey("Given 会话 token + --wait 但续写既有会话, Then 不碰端口,记 info 日志 existing_session", func() {
 			rig := newSendRig()
 			rig.turnCh <- chat_svc.TurnResult{SessionID: 100, AssistantMessageID: 200}
-			rec := rig.post(rig.sessionToken(), `{"sessionId":100,"text":"x","wait":true}`)
+			rec := rig.post(rig.sessionToken(), `{"conversationId":"`+convA+`","text":"x","wait":true}`)
 
 			So(rec.Code, ShouldEqual, http.StatusOK)
 			So(rig.cards.watched, ShouldBeEmpty)
@@ -319,6 +327,7 @@ func TestControlHandler_SeesSubagentCardsRegisteredAfterMount(t *testing.T) {
 		rig := newSendRig()
 		svc.RegisterDeps(rig.h.agents, &fakeProjects{}, rig.chat)
 		svc.RegisterSubagentCards(rig.cards)
+		svc.RegisterConversations(rig.h.conversations)
 		rig.turnCh <- chat_svc.TurnResult{SessionID: 100, AssistantMessageID: 200}
 
 		rec := do(t, mounted, http.MethodPost, "/ctl/v1/send", svc.SessionToken(7, 42),

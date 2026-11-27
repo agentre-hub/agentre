@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "../../ui/dropdown-menu";
-import { Switch } from "../../ui/switch";
+import { TouchSwitch } from "./touch-switch";
 import { cn } from "../../lib/utils";
 
 import { LlmModelLogo } from "../ai-brand-logo";
@@ -153,7 +153,7 @@ export function ModelsList({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Switch
+            <TouchSwitch
               checked={model.enabled}
               disabled={isDefault}
               onCheckedChange={() => onToggleModelEnabled(model)}

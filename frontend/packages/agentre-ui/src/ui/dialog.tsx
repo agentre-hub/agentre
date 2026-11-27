@@ -4,6 +4,77 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 import { X } from "lucide-react";
 
 import { cn } from "../lib/utils";
+import { useTouch } from "./touch";
+
+// 浮层关闭后焦点要回到打开它的控件。Radix 只在有 <Trigger> 时才知道回哪儿；这里的
+// 对话框都是受控打开、没有 Trigger，只能退回「打开那一刻的 activeElement」——而 iOS
+// Safari 点按钮不会让它拿焦点，那一刻 activeElement 是 body。所以再记一份最近一次
+// 按下的可聚焦控件，activeElement 落空时用它。
+const FOCUSABLE_TAGS = new Set([
+  "BUTTON",
+  "A",
+  "INPUT",
+  "SELECT",
+  "TEXTAREA",
+  "SUMMARY",
+]);
+const FOCUSABLE_ROLES = new Set(["button", "menuitem"]);
+
+function closestFocusable(start: Element): Element | null {
+  for (let el: Element | null = start; el; el = el.parentElement) {
+    if (
+      FOCUSABLE_TAGS.has(el.tagName) ||
+      FOCUSABLE_ROLES.has(el.getAttribute("role") ?? "")
+    ) {
+      return el;
+    }
+  }
+  return null;
+}
+let lastPressed: Element | null = null;
+if (typeof document !== "undefined") {
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      lastPressed =
+        event.target instanceof Element ? closestFocusable(event.target) : null;
+    },
+    true,
+  );
+}
+
+function currentOpener(): HTMLElement | null {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && active !== document.body) return active;
+  return lastPressed instanceof HTMLElement ? lastPressed : null;
+}
+
+// 只在浮层真正打开时才挂载（Portal 关着不渲染子树），并且在 Radix 的 FocusScope 把焦点
+// 移进浮层之前（布局副作用先于它的 useEffect）记下打开者。
+function OpenerKeeper({
+  openerRef,
+}: {
+  openerRef: React.RefObject<HTMLElement | null>;
+}) {
+  React.useLayoutEffect(() => {
+    openerRef.current = currentOpener();
+  }, [openerRef]);
+  return null;
+}
+
+// 关闭时把焦点还给记下的打开者。宿主 preventDefault 就是接管焦点，不再插手。
+// DialogShell 共用这一份。
+function focusOpenerOnClose(
+  event: Event,
+  openerRef: React.RefObject<HTMLElement | null>,
+) {
+  if (event.defaultPrevented) return;
+  const opener = openerRef.current;
+  if (opener && document.contains(opener)) {
+    event.preventDefault();
+    opener.focus();
+  }
+}
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -30,17 +101,31 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onCloseAutoFocus,
+  touch,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  /**
+   * 触屏档：点按钮不会让它拿焦点时（iOS Safari），关闭后把焦点还给最近按下的控件。
+   * 不传则跟随最近的 TouchProvider；桌面（含 WKWebView）不开，行为与 Radix 默认一致。
+   */
+  touch?: boolean;
 }) {
   const { t } = useTranslation();
+  const isTouch = useTouch(touch);
+  const openerRef = React.useRef<HTMLElement | null>(null);
 
   return (
     <DialogPortal>
+      {isTouch ? <OpenerKeeper openerRef={openerRef} /> : null}
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event);
+          focusOpenerOnClose(event, openerRef);
+        }}
         className={cn(
           "fixed left-[50%] top-[50%] z-50 grid w-[calc(100%-2rem)] max-w-[520px] translate-x-[-50%] translate-y-[-50%] gap-0 rounded-xl bg-card text-card-foreground shadow-overlay outline-none motion-safe:data-[state=open]:animate-in motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0 motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=closed]:zoom-out-95 motion-safe:data-[state=open]:zoom-in-95 motion-safe:data-[state=closed]:slide-out-to-top-[2%] motion-safe:data-[state=open]:slide-in-from-top-[2%]",
           className,
@@ -136,3 +221,6 @@ export {
   DialogTitle,
   DialogDescription,
 };
+
+// 包内共用（DialogShell），不进公共入口。
+export { OpenerKeeper, focusOpenerOnClose };

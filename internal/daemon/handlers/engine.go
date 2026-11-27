@@ -9,6 +9,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/cliprober"
 	"github.com/agentre-hub/agentre/internal/pkg/llmurl"
 	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // EngineProviderPort 交出「这个 providerKey + modelKey 指向哪个上游」。
@@ -37,8 +38,11 @@ type EngineDeps struct {
 // EngineHandlers groups the engine.* RPC methods. It only reads credentials
 // from daemon state; none of its response types contain a provider credential.
 type EngineHandlers struct {
-	state       StatePort
-	providers   EngineProviderPort
+	state     StatePort
+	providers EngineProviderPort
+	// stateBacked: 供应商取自 daemon state(agentred)。桌面注入自己的端口时,
+	// 「不在快照里」没有意义,保持原来的 OK:false 话术。
+	stateBacked bool
 	probes      *llmurl.Client
 	scanAllCLIs func() []cliprober.CLIProbeResult
 }
@@ -50,12 +54,14 @@ func NewEngineHandlers(deps EngineDeps) *EngineHandlers {
 		scan = cliprober.ScanAllCLIs
 	}
 	providers := deps.Providers
+	stateBacked := providers == nil
 	if providers == nil {
 		providers = stateProviders{state: deps.State}
 	}
 	return &EngineHandlers{
 		state:       deps.State,
 		providers:   providers,
+		stateBacked: stateBacked,
 		probes:      llmurl.NewClient(deps.HTTPClient),
 		scanAllCLIs: scan,
 	}
@@ -106,6 +112,9 @@ type EngineScanResult struct {
 func (h *EngineHandlers) Test(ctx context.Context, params EngineTestParams) (EngineTestResult, error) {
 	provider, modelID, ok := h.providers.ProviderAndModel(ctx, params.ProviderKey, params.ModelKey)
 	if !ok {
+		if h.stateBacked && !h.inSnapshot(params.ProviderKey) {
+			return EngineTestResult{}, rpcerror.ErrProviderMissing
+		}
 		return EngineTestResult{OK: false, Message: "provider or model is not configured"}, nil
 	}
 	started := time.Now()
@@ -125,6 +134,9 @@ func (h *EngineHandlers) Test(ctx context.Context, params EngineTestParams) (Eng
 func (h *EngineHandlers) Discover(ctx context.Context, params EngineDiscoverParams) (EngineDiscoverResult, error) {
 	provider, ok := h.provider(params.ProviderKey)
 	if !ok {
+		if !h.inSnapshot(params.ProviderKey) {
+			return EngineDiscoverResult{}, rpcerror.ErrProviderMissing
+		}
 		return EngineDiscoverResult{}, errors.New("provider is not configured")
 	}
 	models, err := h.probes.Discover(ctx, provider)
@@ -147,6 +159,16 @@ func (h *EngineHandlers) Scan(context.Context) (EngineScanResult, error) {
 		items = append(items, EngineScanItem{BackendType: probe.BackendType, Status: wireinbound.EngineScanStatus(probe.Found)})
 	}
 	return EngineScanResult{Items: items}, nil
+}
+
+// inSnapshot 报告 daemon 快照里有没有这个供应商——「还没同步到这台设备」与「配置不完整」
+// 在调用方眼里是两件事,前者稍后重试即可。
+func (h *EngineHandlers) inSnapshot(key string) bool {
+	if h.state == nil {
+		return false
+	}
+	_, ok := h.state.Snapshot().LLMProviders[strings.TrimSpace(key)]
+	return ok
 }
 
 func (h *EngineHandlers) provider(key string) (llmurl.Provider, bool) {

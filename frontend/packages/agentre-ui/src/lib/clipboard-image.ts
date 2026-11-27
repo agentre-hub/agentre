@@ -131,7 +131,6 @@ export async function copyImageWithToast(
     await copyImageToClipboard(image);
     toast.success(i18n.t("imageCopy.copied", { ns: AGENTRE_UI_NAMESPACE }), {
       duration: COPY_TOAST_DURATION_MS,
-      position: "bottom-right",
     });
     return true;
   } catch (err) {
@@ -140,7 +139,6 @@ export async function copyImageWithToast(
     toast.error(i18n.t("imageCopy.failed", { ns: AGENTRE_UI_NAMESPACE }), {
       description: copyFailureDescription(err, "imageCopy.insecureContext"),
       duration: COPY_TOAST_ERROR_DURATION_MS,
-      position: "bottom-right",
     });
     return false;
   }

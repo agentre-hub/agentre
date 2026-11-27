@@ -10,6 +10,7 @@ import type { FlashState } from "../agent-backends-shared";
 
 import { type Model, type Provider, type ReferenceCounts } from ".";
 import { messageFromError } from "../agent-backends-utils";
+import { useTouch } from "../../ui/touch";
 
 export type ProviderCatalogBridge = Pick<
   EngineSettingsBridge,
@@ -41,6 +42,18 @@ export function useProviderCatalog(args: {
   const { t } = useTranslation();
   const [providers, setProviders] = React.useState<Provider[]>([]);
   const [providersLoading, setProvidersLoading] = React.useState(true);
+  // 最近一次读清单是否失败：失败时 providers 为空但并非「没有」，面板据此不画空态。
+  const [providersLoadFailed, setProvidersLoadFailed] = React.useState(false);
+  const providersRef = React.useRef(providers);
+  React.useEffect(() => {
+    providersRef.current = providers;
+  });
+  // 读失败的新呈现（原位说明、条幅不带原文）只在触屏档；桌面保持空态 + 带原文的条幅。
+  const touch = useTouch();
+  const touchRef = React.useRef(touch);
+  React.useEffect(() => {
+    touchRef.current = touch;
+  });
   const controlled = args.controlled;
   const controlledRef = React.useRef(controlled);
   React.useEffect(() => {
@@ -70,6 +83,7 @@ export function useProviderCatalog(args: {
     try {
       const items = (await ListLLMProviders()).items ?? [];
       setProviders(items);
+      setProvidersLoadFailed(false);
       if (reportVanishedSelection(controlledRef.current, items)) return;
       setInnerSelectedId((prev) =>
         prev !== null && items.some((p) => p.id === prev)
@@ -79,12 +93,22 @@ export function useProviderCatalog(args: {
             : null,
       );
     } catch (err) {
-      setFlash({
-        kind: "err",
-        text: t("llmProviders.flash.loadFailed", {
-          message: messageFromError(err, t),
-        }),
-      });
+      setProvidersLoadFailed(true);
+      if (!touchRef.current) {
+        setFlash({
+          kind: "err",
+          text: t("llmProviders.flash.loadFailed", {
+            message: messageFromError(err, t),
+          }),
+        });
+      } else if (providersRef.current.length > 0) {
+        // 清单是空的就只靠面板里的原位说明；还有旧清单时才补一条条幅。两处都只说本地化
+        // 的人话，不把「request timed out after …」之类的原文贴给用户。
+        setFlash({
+          kind: "err",
+          text: t("llmProviders.loadFailed.title"),
+        });
+      }
     }
   }, [ListLLMProviders, setFlash, t]);
 
@@ -108,11 +132,15 @@ export function useProviderCatalog(args: {
         const items = (await ListLLMProviders()).items ?? [];
         if (!mounted) return;
         setProviders(items);
+        setProvidersLoadFailed(false);
         if (!reportVanishedSelection(controlledRef.current, items)) {
           setInnerSelectedId(items.length > 0 ? items[0].id : null);
         }
       } catch (err) {
-        if (mounted) {
+        if (!mounted) return;
+        setProvidersLoadFailed(true);
+        // 触屏档首次读取时清单必为空：只靠面板里的原位说明。桌面照旧贴原文条幅。
+        if (!touchRef.current) {
           setFlash({
             kind: "err",
             text: t("llmProviders.flash.loadFailed", {
@@ -226,6 +254,8 @@ export function useProviderCatalog(args: {
   return {
     providers,
     providersLoading,
+    // 只有触屏档按「读失败」画原位说明；桌面照旧画空态。
+    providersLoadFailed: touch && providersLoadFailed,
     selectedId,
     setSelectedId,
     selectedProvider,

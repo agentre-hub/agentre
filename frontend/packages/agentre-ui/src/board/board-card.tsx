@@ -26,6 +26,15 @@ export interface BoardCardProps {
   touch?: boolean;
   /** 被「定位到这张」点名：滚到可视区并短暂高亮。 */
   focused?: boolean;
+  /** 不显示 `#N`。不传时与桌面一致。 */
+  hideCardNumber?: boolean;
+  /**
+   * 触屏档卡片菜单（底部弹层）的受控开合：宿主的返回键历史层靠它从外面关掉（传
+   * `false`）。只管触屏档；不传时自管，与桌面一致。
+   */
+  menuOpen?: boolean;
+  /** 触屏档菜单每次开、合都会回调（含长按打开）。 */
+  onMenuOpenChange?: (open: boolean) => void;
 }
 
 /** 定位高亮停留多久。 */
@@ -48,6 +57,9 @@ export function BoardCard({
   nowMs,
   touch = false,
   focused = false,
+  hideCardNumber = false,
+  menuOpen: menuOpenProp,
+  onMenuOpenChange,
 }: BoardCardProps) {
   const { t } = useUiTranslation();
   const articleRef = React.useRef<HTMLElement | null>(null);
@@ -64,7 +76,12 @@ export function BoardCard({
     const timer = setTimeout(() => setFlash(false), FOCUS_FLASH_MS);
     return () => clearTimeout(timer);
   }, [focused]);
-  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [innerMenuOpen, setInnerMenuOpen] = React.useState(false);
+  const menuOpen = menuOpenProp ?? innerMenuOpen;
+  const setMenuOpen = (next: boolean) => {
+    setInnerMenuOpen(next);
+    onMenuOpenChange?.(next);
+  };
   const pressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // 长按触发后，随后那一下 click 不该再当成「点开编辑」。
   const longPressed = React.useRef(false);
@@ -142,9 +159,11 @@ export function BoardCard({
         <span
           className={cn("flex items-center gap-1.5", touch ? "pr-11" : "pr-6")}
         >
-          <span className="font-mono text-2xs font-semibold text-primary-text">
-            {`#${card.id}`}
-          </span>
+          {hideCardNumber ? null : (
+            <span className="font-mono text-2xs font-semibold text-primary-text">
+              {`#${card.id}`}
+            </span>
+          )}
           {card.project ? (
             <span className="flex min-w-0 items-center gap-1">
               {card.project.nested ? (
@@ -226,6 +245,7 @@ export function BoardCard({
         cardId={card.id}
         stage={card.stage}
         ports={ports}
+        title={card.title}
         className={
           touch ? "absolute top-0 right-0" : "absolute top-1.5 right-1.5"
         }

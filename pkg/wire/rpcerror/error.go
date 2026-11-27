@@ -24,6 +24,12 @@ const (
 	// retryable, not as "this device will never work" (spec
 	// 2026-09-11-opaque-credentials-auto-direct H3).
 	CodeAccountServerUnreachable int32 = -32007
+	// CodeScopeDenied refuses a call the caller is authenticated for but not
+	// permitted to make: a personal token without the scope the method needs,
+	// or acting on a session it did not start. Distinct from CodeUnauthorized
+	// for the same reason as CodeAccountServerUnreachable: the credential was
+	// accepted, so refreshing it and retrying can never succeed.
+	CodeScopeDenied int32 = -32005
 )
 
 // Error is the stable failure shape shared by binary Protobuf RPC adapters.
@@ -46,3 +52,8 @@ var (
 	ErrPairing                  = &Error{Code: CodePairing, Message: "Pairing code invalid / expired / rate-limited"}
 	ErrAccountServerUnreachable = &Error{Code: CodeAccountServerUnreachable, Message: "Account server unreachable"}
 )
+
+// ErrScopeDenied refuses a call for the scope it needs, naming that scope.
+func ErrScopeDenied(scope string) *Error {
+	return &Error{Code: CodeScopeDenied, Message: "token lacks scope " + scope}
+}

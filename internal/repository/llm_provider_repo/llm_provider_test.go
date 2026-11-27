@@ -906,7 +906,7 @@ func TestLLMProviderRepo_CountProviderReferences(t *testing.T) {
 			mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions` WHERE provider_key = \\? AND status = \\?").
 				WithArgs("uuid-1", consts.ACTIVE).
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(5)))
-			mock.ExpectQuery("SELECT count\\(\\*\\) FROM `agent_backends` WHERE status = \\? AND model_routes LIKE \\?").
+			mock.ExpectQuery("SELECT count\\(\\*\\) FROM `agent_backends` WHERE status = \\? AND json_extract\\(config_json, '\\$\\.modelRoutes'\\) LIKE \\?").
 				WithArgs(consts.ACTIVE, "%uuid-1%").
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(1)))
 
@@ -941,7 +941,7 @@ func TestLLMProviderRepo_CountModelReferences(t *testing.T) {
 			mock.ExpectQuery("SELECT count\\(\\*\\) FROM `chat_sessions` WHERE model_key = \\? AND status = \\?").
 				WithArgs("mk-1", consts.ACTIVE).
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(3)))
-			mock.ExpectQuery("SELECT count\\(\\*\\) FROM `agent_backends` WHERE status = \\? AND model_routes LIKE \\?").
+			mock.ExpectQuery("SELECT count\\(\\*\\) FROM `agent_backends` WHERE status = \\? AND json_extract\\(config_json, '\\$\\.modelRoutes'\\) LIKE \\?").
 				WithArgs(consts.ACTIVE, "%mk-1%").
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
 

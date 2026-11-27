@@ -8,6 +8,8 @@ import type { TranscriptPorts } from "../../ports";
 import { TranscriptPortsProvider } from "../../ports-context";
 import { __resetChatPanelScrollStateForTesting } from "../../chat-panel-scroll-state";
 
+import { CanonicalToolRouter } from "../registry";
+import { DecisionCardEnvProvider } from "../tool-permission/decision-card-env";
 import { UserAskCard } from "./card";
 
 // 卡片不再直接调 Wails,而是从 TranscriptPortsProvider 取动作端口;这里注入
@@ -759,5 +761,273 @@ describe("UserAskCard 自填答案的字号", () => {
     expect(classes).toContain("text-base");
     expect(classes).toContain("md:text-sm");
     expect(classes).not.toContain("text-sm");
+  });
+});
+
+describe("UserAskCard touch / connecting (opt-in props)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetChatPanelScrollStateForTesting();
+  });
+
+  function block(): TranscriptBlock {
+    return {
+      type: "tool_use",
+      toolName: "AskUserQuestion",
+      canonical: {
+        kind: "user.ask",
+        userAsk: {
+          requestId: "req-t",
+          questions: [
+            {
+              question: "Which way?",
+              header: "Way",
+              options: [{ label: "A", description: "" }],
+            },
+          ],
+        },
+      },
+    } as unknown as TranscriptBlock;
+  }
+
+  it("without props keeps the desktop look: user_ask title, keycap, compact buttons", () => {
+    renderCard(<UserAskCard toolBlock={block()} sessionId={1} />);
+    expect(screen.getByText("user_ask")).toBeDefined();
+    expect(screen.queryByText("Agent is asking you")).toBeNull();
+    const submit = screen.getByRole("button", { name: /Submit Reply/ });
+    expect(submit.querySelector("svg")).not.toBeNull();
+    expect(submit.className).not.toContain("min-h-11");
+  });
+
+  it("touch: localized title, 44px targets, no enter keycap", () => {
+    renderCard(<UserAskCard toolBlock={block()} sessionId={1} touch />);
+    expect(screen.getByText("Agent is asking you")).toBeDefined();
+    expect(screen.queryByText("user_ask")).toBeNull();
+    const submit = screen.getByRole("button", { name: /Submit Reply/ });
+    expect(submit.querySelector("svg")).toBeNull();
+    expect(submit.className).toContain("min-h-11");
+    expect(screen.getByRole("button", { name: "Skip" }).className).toContain(
+      "min-h-11",
+    );
+    expect(screen.getByRole("button", { name: /^A$/ }).className).toContain(
+      "min-h-11",
+    );
+    const input = screen.getByPlaceholderText(/Custom answer/);
+    expect(input.className).toContain("h-11");
+  });
+
+  it("connecting: submit and skip are disabled with a connecting line, and tapping does not answer", () => {
+    renderCard(<UserAskCard toolBlock={block()} sessionId={1} connecting />);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: /Submit Reply/,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Skip" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(screen.getByTestId("user-ask-connecting")).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(answerUserQuestion).not.toHaveBeenCalled();
+  });
+
+  it("not connecting: no connecting line", () => {
+    renderCard(<UserAskCard toolBlock={block()} sessionId={1} />);
+    expect(screen.queryByTestId("user-ask-connecting")).toBeNull();
+  });
+});
+
+describe("UserAskCard via CanonicalToolRouter and DecisionCardEnvProvider", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetChatPanelScrollStateForTesting();
+  });
+
+  function block(): TranscriptBlock {
+    return {
+      type: "tool_use",
+      toolName: "AskUserQuestion",
+      canonical: {
+        kind: "user.ask",
+        userAsk: {
+          requestId: "req-env",
+          questions: [
+            {
+              question: "Which way?",
+              header: "Way",
+              options: [{ label: "A", description: "" }],
+            },
+          ],
+        },
+      },
+    } as unknown as TranscriptBlock;
+  }
+
+  it("inside the provider the routed card takes the touch title, 44px controls and no keycap", () => {
+    renderCard(
+      <DecisionCardEnvProvider touch>
+        <CanonicalToolRouter toolBlock={block()} sessionId={1} />
+      </DecisionCardEnvProvider>,
+    );
+    expect(screen.getByText("Agent is asking you")).toBeDefined();
+    const submit = screen.getByRole("button", { name: /Submit Reply/ });
+    expect(submit.className).toContain("min-h-11");
+    expect(submit.querySelector("svg")).toBeNull();
+    expect(screen.getByRole("button", { name: /^A$/ }).className).toContain(
+      "min-h-11",
+    );
+  });
+
+  it("inside the provider connecting disables the routed card's submit", () => {
+    renderCard(
+      <DecisionCardEnvProvider connecting>
+        <CanonicalToolRouter toolBlock={block()} sessionId={1} />
+      </DecisionCardEnvProvider>,
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: /Submit Reply/,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  it("explicit props win over the provider", () => {
+    renderCard(
+      <DecisionCardEnvProvider touch>
+        <UserAskCard toolBlock={block()} sessionId={1} touch={false} />
+      </DecisionCardEnvProvider>,
+    );
+    expect(screen.getByText("user_ask")).toBeDefined();
+  });
+
+  it("without provider or props the routed card keeps the desktop look", () => {
+    renderCard(<CanonicalToolRouter toolBlock={block()} sessionId={1} />);
+    expect(screen.getByText("user_ask")).toBeDefined();
+  });
+});
+
+describe("UserAskCard feedback when the host opts in (F1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetChatPanelScrollStateForTesting();
+  });
+
+  function block(): TranscriptBlock {
+    return {
+      type: "tool_use",
+      toolName: "AskUserQuestion",
+      canonical: {
+        kind: "user.ask",
+        userAsk: {
+          requestId: "req-f1",
+          questions: [
+            {
+              question: "Which way?",
+              header: "Way",
+              options: [{ label: "A", description: "" }],
+            },
+          ],
+        },
+      },
+    } as unknown as TranscriptBlock;
+  }
+
+  const timeout = () => {
+    const err = new Error("request timed out after 30000ms");
+    err.name = "RequestTimeoutError";
+    return err;
+  };
+
+  it("Given the host opted in, When Skip is pending, Then the footer stays and only Skip spins", () => {
+    answerUserQuestion.mockImplementationOnce(() => new Promise(() => {}));
+    renderCard(
+      <DecisionCardEnvProvider touch>
+        <UserAskCard toolBlock={block()} sessionId={1} />
+      </DecisionCardEnvProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    const skip = screen.getByRole("button", { name: /Skip/ });
+    expect(skip.querySelector('[role="status"]')).not.toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: /Submit Reply/ })
+        .querySelector('[role="status"]'),
+    ).toBeNull();
+  });
+
+  it("Given the host opted in, When the answer times out, Then it says no confirmation arrived and it may already have taken effect", async () => {
+    answerUserQuestion.mockRejectedValueOnce(timeout());
+    renderCard(
+      <UserAskCard toolBlock={block()} sessionId={1} connecting={false} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "No confirmation received. It may already have taken effect",
+    );
+    expect(alert.textContent).not.toMatch(/timed out after/);
+  });
+
+  it("Given the host opted in, When a submit fails, Then the reason shows with a Retry that repeats the same action", async () => {
+    answerUserQuestion.mockRejectedValueOnce(new Error("relay closed"));
+    renderCard(
+      <UserAskCard toolBlock={block()} sessionId={1} connecting={false} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't submit");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(answerUserQuestion).toHaveBeenCalledTimes(2));
+    expect(answerUserQuestion).toHaveBeenLastCalledWith(
+      expect.objectContaining({ requestId: "req-f1", skipped: true }),
+    );
+  });
+
+  it("Given a failure, When the connection drops, Then the stale failure and Retry give way to the connecting line", async () => {
+    answerUserQuestion.mockRejectedValueOnce(new Error("relay closed"));
+    const { rerender } = renderCard(
+      <UserAskCard toolBlock={block()} sessionId={1} connecting={false} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await screen.findByRole("alert");
+    rerender(
+      <TranscriptPortsProvider ports={ports}>
+        <UserAskCard toolBlock={block()} sessionId={1} connecting />
+      </TranscriptPortsProvider>,
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getByTestId("user-ask-connecting")).toBeDefined();
+  });
+
+  it("Given the answer timed out, When Retry is told the question no longer waits, Then the card does not claim it expired: the first answer landed", async () => {
+    answerUserQuestion.mockRejectedValueOnce(timeout());
+    answerUserQuestion.mockRejectedValueOnce(
+      "agentruntime: no waiting request for requestID",
+    );
+    renderCard(
+      <UserAskCard toolBlock={block()} sessionId={1} connecting={false} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(answerUserQuestion).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+    expect(screen.queryByText(/superseded/i)).toBeNull();
+    expect(screen.queryByRole("img", { name: "No longer valid" })).toBeNull();
+  });
+
+  it("Given no props and no provider, When the answer times out, Then the desktop copy is unchanged and there is no Retry", async () => {
+    answerUserQuestion.mockRejectedValueOnce(timeout());
+    renderCard(<UserAskCard toolBlock={block()} sessionId={1} />);
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't submit");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 });

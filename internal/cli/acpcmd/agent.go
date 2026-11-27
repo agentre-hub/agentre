@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -72,7 +72,7 @@ type streamToolPermission struct {
 
 // answerPermissionBody 是 POST /ctl/v1/answer-permission 的请求体(acpcmd 侧投影)。
 type answerPermissionBody struct {
-	SessionID          int64  `json:"sessionId"`
+	ConversationID     string `json:"conversationId"`
 	RequestID          string `json:"requestId"`
 	Allow              bool   `json:"allow"`
 	AlwaysAllowSession bool   `json:"alwaysAllowSession,omitempty"`
@@ -80,9 +80,9 @@ type answerPermissionBody struct {
 
 // sendBody 是 POST /ctl/v1/send 的请求体(acpcmd 侧投影)。
 type sendBody struct {
-	SessionID int64       `json:"sessionId"`
-	Text      string      `json:"text"`
-	Images    []sendImage `json:"images,omitempty"`
+	ConversationID string      `json:"conversationId"`
+	Text           string      `json:"text"`
+	Images         []sendImage `json:"images,omitempty"`
 }
 
 type sendImage struct {
@@ -92,14 +92,17 @@ type sendImage struct {
 // agentHandler 实现 acpsdk.Agent。
 type agentHandler struct {
 	endpoint ctlclient.Endpoint
-	agent    string
-	agentID  int64
-	project  int64
+	// account 非 nil 时走账号执行者（个人 token 经 relay），不用 endpoint。
+	account accountDriver
+	agent   string
+	agentID int64
+	project int64
 
 	conn *acpsdk.AgentSideConnection
 
-	mu       sync.Mutex
-	sessions map[acpsdk.SessionId]int64
+	mu sync.Mutex
+	// sessions 是 ACP sessionId → Agentre 会话的 conversation_id。
+	sessions map[acpsdk.SessionId]string
 	seq      atomic.Int64
 }
 
@@ -108,10 +111,11 @@ var _ acpsdk.Agent = (*agentHandler)(nil)
 func newAgent(opts options) *agentHandler {
 	return &agentHandler{
 		endpoint: opts.Endpoint,
+		account:  opts.Account,
 		agent:    opts.Agent,
 		agentID:  opts.AgentID,
 		project:  opts.Project,
-		sessions: map[acpsdk.SessionId]int64{},
+		sessions: map[acpsdk.SessionId]string{},
 	}
 }
 
@@ -132,25 +136,28 @@ func (a *agentHandler) Initialize(context.Context, acpsdk.InitializeRequest) (ac
 	}, nil
 }
 
-// NewSession 在桌面端建一个 Agentre 会话,并记住 ACP sessionId → Agentre sessionId 的映射。
+// NewSession 在桌面端建一个 Agentre 会话,并记住 ACP sessionId → Agentre 会话 conversation_id 的映射。
 func (a *agentHandler) NewSession(ctx context.Context, _ acpsdk.NewSessionRequest) (acpsdk.NewSessionResponse, error) {
+	if a.account != nil {
+		return a.newAccountSession(), nil
+	}
 	body := map[string]any{
 		"agent":     a.agent,
 		"agentId":   a.agentID,
 		"projectId": a.project,
 	}
 	var out struct {
-		SessionID int64 `json:"sessionId"`
+		ConversationID string `json:"conversationId"`
 	}
 	if err := a.endpoint.Post("/ctl/v1/sessions", body, &out); err != nil {
 		return acpsdk.NewSessionResponse{}, fmt.Errorf("acp: create session: %w", err)
 	}
-	if out.SessionID <= 0 {
+	if out.ConversationID == "" {
 		return acpsdk.NewSessionResponse{}, errors.New("acp: control service returned an empty session id")
 	}
-	acpID := acpsdk.SessionId(fmt.Sprintf("agentre-%d-%d", out.SessionID, a.seq.Add(1)))
+	acpID := acpsdk.SessionId(fmt.Sprintf("agentre-%s-%d", out.ConversationID, a.seq.Add(1)))
 	a.mu.Lock()
-	a.sessions[acpID] = out.SessionID
+	a.sessions[acpID] = out.ConversationID
 	a.mu.Unlock()
 	return acpsdk.NewSessionResponse{SessionId: acpID}, nil
 }
@@ -163,12 +170,15 @@ func (a *agentHandler) Cancel(_ context.Context, p acpsdk.CancelNotification) er
 	if !ok {
 		return fmt.Errorf("acp: cannot cancel unknown session %q", p.SessionId)
 	}
+	if a.account != nil {
+		return a.cancelAccount(sessionID)
+	}
 	// 带超时:session/cancel 由 SDK 在通知处理 goroutine 上同步调用,而那条 goroutine
 	// 串行处理全部通知 —— 一个挂死的 stop 请求会把后续通知全部堵住。Prompt 本身已被
 	// SDK 先取消 ctx,不受这里影响。
 	ctx, cancel := context.WithTimeout(context.Background(), cancelStopTimeout)
 	defer cancel()
-	if err := a.endpoint.PostContext(ctx, "/ctl/v1/stop", map[string]any{"sessionId": sessionID}, nil); err != nil {
+	if err := a.endpoint.PostContext(ctx, "/ctl/v1/stop", map[string]any{"conversationId": sessionID}, nil); err != nil {
 		return fmt.Errorf("acp: stop session: %w", err)
 	}
 	return nil
@@ -194,15 +204,24 @@ func (a *agentHandler) Prompt(ctx context.Context, p acpsdk.PromptRequest) (acps
 	// 不靠「远端恰好不再发事件」来收尾。
 	streamCtx, streamCancel := context.WithCancel(ctx)
 	defer streamCancel()
-	stream, err := a.endpoint.OpenStream(streamCtx, "/ctl/v1/stream?sessionId="+strconv.FormatInt(sessionID, 10))
-	if err != nil {
-		return acpsdk.PromptResponse{}, fmt.Errorf("acp: open event stream: %w", err)
-	}
-	defer func() { _ = stream.Close() }()
+	var events <-chan streamEvent
+	var readErr <-chan error
+	if a.account != nil {
+		events, readErr, err = a.accountTurn(streamCtx, p.SessionId, text, images)
+		if err != nil {
+			return acpsdk.PromptResponse{}, fmt.Errorf("acp: dispatch prompt: %w", err)
+		}
+	} else {
+		stream, err := a.endpoint.OpenStream(streamCtx, "/ctl/v1/stream?conversationId="+url.QueryEscape(sessionID))
+		if err != nil {
+			return acpsdk.PromptResponse{}, fmt.Errorf("acp: open event stream: %w", err)
+		}
+		defer func() { _ = stream.Close() }()
 
-	events, readErr := readStream(streamCtx, stream)
-	if err := a.endpoint.Post("/ctl/v1/send", sendBody{SessionID: sessionID, Text: text, Images: images}, nil); err != nil {
-		return acpsdk.PromptResponse{}, fmt.Errorf("acp: dispatch prompt: %w", err)
+		events, readErr = readStream(streamCtx, stream)
+		if err := a.endpoint.Post("/ctl/v1/send", sendBody{ConversationID: sessionID, Text: text, Images: images}, nil); err != nil {
+			return acpsdk.PromptResponse{}, fmt.Errorf("acp: dispatch prompt: %w", err)
+		}
 	}
 
 	for {
@@ -442,11 +461,14 @@ func (a *agentHandler) requestPermission(ctx context.Context, session acpsdk.Ses
 
 // answerPermission 把决策回灌目标 agent。用「去取消但带超时」的 ctx:即便本轮刚被
 // Cancel(prompt ctx 已 done),这次 deny 也必须发出去,否则目标 agent 卡在等审批。
-func (a *agentHandler) answerPermission(ctx context.Context, sessionID int64, requestID string, d permissionDecision) error {
+func (a *agentHandler) answerPermission(ctx context.Context, sessionID string, requestID string, d permissionDecision) error {
 	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), answerPermissionTimeout)
 	defer cancel()
+	if a.account != nil {
+		return a.account.Answer(postCtx, sessionID, requestID, d.Allow)
+	}
 	return a.endpoint.PostContext(postCtx, "/ctl/v1/answer-permission", answerPermissionBody{
-		SessionID:          sessionID,
+		ConversationID:     sessionID,
 		RequestID:          requestID,
 		Allow:              d.Allow,
 		AlwaysAllowSession: d.AlwaysAllowSession,
@@ -516,7 +538,7 @@ func resourceReference(uri, name string) string {
 	return line
 }
 
-func (a *agentHandler) sessionOf(id acpsdk.SessionId) (int64, bool) {
+func (a *agentHandler) sessionOf(id acpsdk.SessionId) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	sessionID, ok := a.sessions[id]

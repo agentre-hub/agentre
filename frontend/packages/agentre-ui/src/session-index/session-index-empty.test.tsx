@@ -97,3 +97,39 @@ describe("SessionIndexEmpty", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 });
+
+describe("SessionIndexEmpty 触屏档（F20/I3）", () => {
+  it("不传 touch：「清除搜索」仍是 24px 的小按钮", () => {
+    render(
+      <SessionIndexEmpty filter="all" searching onClearSearch={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "Clear search" })).toHaveClass(
+      "h-6",
+    );
+  });
+
+  it("touch：「清除搜索」与「查看全部」点按区 44px", () => {
+    render(
+      <SessionIndexEmpty
+        filter="all"
+        searching
+        onClearSearch={vi.fn()}
+        touch
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Clear search" })).toHaveClass(
+      "min-h-11",
+    );
+    render(
+      <SessionIndexEmpty
+        filter="running"
+        total={2}
+        onShowAll={vi.fn()}
+        touch
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "View all sessions" }),
+    ).toHaveClass("min-h-11");
+  });
+});

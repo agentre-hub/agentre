@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "../../../ui/button";
 import { Input } from "../../../ui/input";
+import { Spinner } from "../../../ui/spinner";
 import { StatusMark } from "../../../ui/status-mark";
 import {
   SegmentedControl,
@@ -41,7 +42,15 @@ import type {
   CanonicalDTO,
   UserAskDTO,
 } from "../types";
+import {
+  useDecisionCardEnv,
+  useHasDecisionCardEnv,
+} from "../tool-permission/decision-card-env";
+import { isTimeoutFailure } from "../../../lib/timeout-failure";
 import { useSubmitAnswer } from "./use-submit-answer";
+
+// 触屏命中区 ≥ 44px。
+const TOUCH_TARGET = "min-h-11";
 
 // OTHER_LABEL 与后端 canonical.OtherAnswerLabel 对齐。
 const OTHER_LABEL = "__other__";
@@ -50,7 +59,13 @@ type Selection = { labels: string[]; otherText: string };
 type UserAskDraftState = { activeQIdx: number; selections: Selection[] };
 // 卡内的一条错误。qIdx 有值时它属于那一题(漏答),只在那一题下显示;detail 是
 // 提交失败的机器原话,只进折叠的详情。
-type CardError = { message: string; qIdx?: number; detail?: string };
+type CardError = {
+  message: string;
+  qIdx?: number;
+  detail?: string;
+  /** 提交失败、可以原样再来一次(宿主级反馈下给「重试」)。 */
+  retryable?: boolean;
+};
 
 function readUserAsk(toolBlock: unknown): UserAskDTO | undefined {
   const c = (toolBlock as { canonical?: CanonicalDTO }).canonical;
@@ -70,15 +85,31 @@ function initialSelections(payload: UserAskDTO | undefined): Selection[] {
   });
 }
 
+export type UserAskCardProps = CanonicalCardProps & {
+  /** 触屏档:标题本地化为「Agent 在问你」,选项与按钮 ≥44px,不画回车键帽。不传保持桌面外观。 */
+  touch?: boolean;
+  /** 执行端连接未就绪:提交 / 跳过禁用并写明原因。选项仍可先选。 */
+  connecting?: boolean;
+};
+
 // UserAskCard 渲染 canonical.user.ask —— 结构化问答(claudecode AskUserQuestion /
 // codex request_user_input)。读 toolBlock.canonical.userAsk。
-export const UserAskCard: React.FC<CanonicalCardProps> = ({
+export const UserAskCard: React.FC<UserAskCardProps> = ({
   toolBlock,
   sessionId,
   uiStateKey,
   tabStateKey,
+  touch: touchProp,
+  connecting: connectingProp,
 }) => {
   const { t } = useUiTranslation();
+  const env = useDecisionCardEnv();
+  const touch = touchProp ?? env.touch;
+  const connecting = connectingProp ?? env.connecting;
+  // 宿主级反馈(点下的那颗单独转圈、失败「重试」、超时「没收到确认」):宿主传了
+  // connecting 或包了 DecisionCardEnvProvider 才打开。都没有:保持桌面原样。
+  const hasEnv = useHasDecisionCardEnv();
+  const managed = connectingProp !== undefined || hasEnv;
   const submitAnswer = useSubmitAnswer();
   const payload = readUserAsk(toolBlock);
   const draftKey =
@@ -99,6 +130,12 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
     return saved?.selections ?? initialSelections(payload);
   });
   const [submitting, setSubmitting] = React.useState(false);
+  // 正在提交的是「跳过」还是「提交」;上一次的动作给「重试」重放。
+  const [pendingSkip, setPendingSkip] = React.useState<boolean | null>(null);
+  const lastSkipRef = React.useRef(false);
+  // 上一次提交是超时（回答可能已经生效）：重试时对端若说「已不在等」，那多半就是
+  // 上一次的回答落了地，不能说成「提问已失效」。
+  const timedOutRef = React.useRef(false);
   // 提交时运行时答复「提问已不存在」——只有这种失败锁卡。
   const [expiredOnSubmit, setExpiredOnSubmit] = React.useState(false);
   const [error, setError] = React.useState<CardError | null>(null);
@@ -117,6 +154,10 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
   const isSkipped = !!payload?.skipped;
   const isExpired = !!payload?.expired || expiredOnSubmit;
   const isLocked = isAnswered || isSkipped || isExpired || submitting;
+  // 宿主级反馈下提交中脚部不收起:点下的那颗按钮单独转圈。
+  const showFooter = managed
+    ? !(isAnswered || isSkipped || isExpired)
+    : !isLocked;
 
   React.useEffect(() => {
     if (isAnswered || isSkipped) {
@@ -188,6 +229,8 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
           }
         }
       }
+      lastSkipRef.current = skipped;
+      setPendingSkip(skipped);
       setSubmitting(true);
       try {
         const answers: AskAnswerDTO[] = skipped
@@ -203,21 +246,37 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
           answers: skipped ? undefined : answers,
           skipped,
         });
+        timedOutRef.current = false;
         draftClearedRef.current = true;
         clearTranscriptDraftState(tabStateKey, draftKey);
         setCollapsed(true);
       } catch (err) {
-        if (isAskExpiredError(err)) {
+        if (isAskExpiredError(err) && timedOutRef.current) {
+          timedOutRef.current = false;
+          setError(null);
+          draftClearedRef.current = true;
+          clearTranscriptDraftState(tabStateKey, draftKey);
+          setCollapsed(true);
+        } else if (isAskExpiredError(err)) {
           setExpiredOnSubmit(true);
           setError({ message: t("canonical.userAsk.errors.expired") });
+        } else if (managed && isTimeoutFailure(err)) {
+          // 超时:没收到确认,回答可能已经生效——不说「没成功」。
+          timedOutRef.current = true;
+          setError({
+            message: t("canonical.userAsk.errors.timedOut"),
+            retryable: true,
+          });
         } else {
           // 其余失败可重试:不锁卡,选择原样留着。
           setError({
             message: t("canonical.userAsk.errors.submitFailed"),
             detail: failureDetailText(err),
+            retryable: managed,
           });
         }
       } finally {
+        setPendingSkip(null);
         setSubmitting(false);
       }
     },
@@ -228,6 +287,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
       isLocked,
       submitAnswer,
       t,
+      managed,
       setCollapsed,
       tabStateKey,
       draftKey,
@@ -262,7 +322,7 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
         />
         <MessageSquareQuote className="h-3.5 w-3.5 shrink-0 text-primary" />
         <span className="font-mono text-xs font-semibold text-primary-text">
-          user_ask
+          {touch ? t("canonical.userAsk.askingTitle") : "user_ask"}
         </span>
         {headerLabel && (
           <>
@@ -306,11 +366,14 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                     sel={selections[activeQIdx]}
                     locked={isLocked}
                     answered={isAnswered && !isSkipped}
+                    touch={touch}
                     onToggle={toggleOption}
                     onOther={setOtherText}
                   />
                 )}
                 {error &&
+                  // 连接断了时上一次的提交失败已经过时:只留「正在连接」一条。
+                  !(managed && connecting && error.retryable) &&
                   (error.qIdx === undefined || error.qIdx === activeQIdx) && (
                     <div
                       role="alert"
@@ -318,31 +381,59 @@ export const UserAskCard: React.FC<CanonicalCardProps> = ({
                     >
                       <p>{error.message}</p>
                       <FailureDetail detail={error.detail} />
+                      {managed && error.retryable ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className={cn("self-start", touch && TOUCH_TARGET)}
+                          disabled={submitting}
+                          onClick={() => void handleSubmit(lastSkipRef.current)}
+                        >
+                          {t("common.retry")}
+                        </Button>
+                      ) : null}
                     </div>
                   )}
               </TranscriptCardBody>
 
-              {!isLocked && (
+              {showFooter && connecting && (
+                <p
+                  data-testid="user-ask-connecting"
+                  className="flex items-center gap-2 px-3.5 pt-2.5 text-aux text-muted-foreground"
+                >
+                  <Spinner className="size-3.5" />
+                  {t("canonical.userAsk.connecting")}
+                </p>
+              )}
+              {showFooter && (
                 <div className="flex items-center gap-2 px-3.5 py-2.5">
                   <div className="flex-1" />
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={submitting}
+                    className={touch ? TOUCH_TARGET : undefined}
+                    disabled={submitting || connecting}
                     onClick={() => void handleSubmit(true)}
                   >
+                    {managed && pendingSkip === true ? (
+                      <Spinner className="size-4" />
+                    ) : null}
                     {t("common.skip")}
                   </Button>
                   <Button
                     type="button"
                     size="sm"
-                    disabled={submitting}
+                    disabled={submitting || connecting}
                     onClick={() => void handleSubmit(false)}
-                    className="gap-1.5"
+                    className={cn("gap-1.5", touch && TOUCH_TARGET)}
                   >
+                    {managed && pendingSkip === false ? (
+                      <Spinner className="size-4" />
+                    ) : null}
                     {t("canonical.userAsk.submit")}
-                    <CornerDownLeft className="h-3 w-3" />
+                    {touch ? null : <CornerDownLeft className="h-3 w-3" />}
                   </Button>
                 </div>
               )}
@@ -428,6 +519,7 @@ function QuestionGroup({
   sel,
   locked,
   answered,
+  touch,
   onToggle,
   onOther,
 }: {
@@ -436,6 +528,7 @@ function QuestionGroup({
   sel: Selection | undefined;
   locked: boolean;
   answered: boolean;
+  touch: boolean;
   onToggle: (qIdx: number, label: string, multi: boolean) => void;
   onOther: (qIdx: number, text: string) => void;
 }) {
@@ -470,6 +563,7 @@ function QuestionGroup({
               onClick={() => onToggle(qIdx, opt.label, multi)}
               className={cn(
                 "flex w-full flex-col gap-1.5 rounded-md px-3.5 py-3 text-left transition-colors",
+                touch && TOUCH_TARGET,
                 selected
                   ? "bg-primary-soft"
                   : "bg-button-fill hover:bg-button-fill-hover",
@@ -515,6 +609,7 @@ function QuestionGroup({
           <div
             className={cn(
               "flex items-center gap-2.5 rounded-md px-3.5 py-2.5",
+              touch && TOUCH_TARGET,
               labels.includes(OTHER_LABEL)
                 ? "bg-primary-soft"
                 : "bg-button-fill",
@@ -535,7 +630,7 @@ function QuestionGroup({
               }}
               variant="inline"
               // 移动端 16px（iOS 聚焦小于 16px 的输入会放大视口），md 及以上 14px。
-              className="h-7 p-0 text-base md:text-sm"
+              className={cn("p-0 text-base md:text-sm", touch ? "h-11" : "h-7")}
             />
           </div>
         ) : null}

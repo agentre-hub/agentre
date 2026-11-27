@@ -1,6 +1,6 @@
 ---
 name: agrctl
-description: "Manage and drive the Agentre desktop app running on this machine — list, inspect, create, update and delete its agents, departments, projects, LLM providers, models and agent backends, dispatch a task to another agent, and read and write the agent's memory. Use when asked what exists in Agentre, when Agentre's configuration should change, when work should be handed to another agent, when a task should run in a specific Agentre project, or when something should be remembered for later sessions or looked up in memory."
+description: "Manage and drive the Agentre desktop app running on this machine — list, inspect, create, update and delete its agents, departments, projects, LLM providers, models and agent backends, dispatch a task to another agent, continue, wait for, follow or stop a session, and read and write the agent's memory. Use when asked what exists in Agentre, when Agentre's configuration should change, when work should be handed to another agent, when a task should run in a specific Agentre project, or when something should be remembered for later sessions or looked up in memory."
 ---
 
 # Agentre control CLI (agrctl)
@@ -27,7 +27,16 @@ Always invoke it by that absolute path — it is not on `PATH`.
 {{AGRCTL_PATH}} update <resource> <ref> [flags]
 {{AGRCTL_PATH}} delete <resource> <ref> [flags]
 {{AGRCTL_PATH}} help [<resource> [<backend type>]]
-{{AGRCTL_PATH}} send --agent <name> [--project <id>] [--wait] [--isolated] <task text...>
+{{AGRCTL_PATH}} send --agent <name> [--project <ref>] [--wait] [--isolated] <task text...>
+{{AGRCTL_PATH}} send --session <id> [--steer] [--wait] <text...>
+{{AGRCTL_PATH}} wait <session> [--timeout <duration>] [-o json]
+{{AGRCTL_PATH}} tail <session> [--from <cursor>] [--until-idle]
+{{AGRCTL_PATH}} stop <session>
+{{AGRCTL_PATH}} list sessions [--agent <a>] [--project <p>] [--device <d>] [--status running|idle|waiting|failed] [--limit <n>] [-o json]
+{{AGRCTL_PATH}} get session <session>
+{{AGRCTL_PATH}} messages <session> [--last <n>] [--before <cursor>] [--full] [-o json]
+{{AGRCTL_PATH}} pending [<session>] [-o json]
+{{AGRCTL_PATH}} answer <session> <id> (--option <text|number> | --text <answer> | --allow | --deny [--message <reason>])
 ```
 
 Resources: `agent`, `department` (`dept`), `project` (`proj`), `provider`, `model`, `backend`,
@@ -57,9 +66,9 @@ candidate's id and path, and prints a corrected command to run instead.
   array. Filters: `list agents --department <d>`, `list projects --parent <p>`,
   `list models --provider <p>`, `list backends --type <type>`.
 - `get <resource> <ref>` prints JSON whose field names match the create/update flags. API
-  keys are masked, other secrets only say whether they are set: `set` / `unset`, or
-  `unknown` when the device that keeps them cannot be asked (offline, or managed through
-  the server).
+  keys are never printed — `apiKeySet` only says whether one is set; other secrets only say
+  `set` / `unset`, or `unknown` when the device that keeps them cannot be asked (offline, or
+  managed through the server).
 
 ### Writing
 
@@ -124,23 +133,52 @@ from the user's terminal when written bare. You have no terminal, so a bare secr
 ends with exit code `3` and a `NEEDS TTY:` message. **Never ask the user to paste a secret
 into the conversation** — tell them to run that exact command in their own terminal.
 
-### Dispatch a task
+### Dispatch a task and follow the session
 
 ```
-{{AGRCTL_PATH}} send --agent <name> [--project <id>] [--wait] [--isolated] <task text...>
+{{AGRCTL_PATH}} send --agent <name> [--project <ref>] [--wait] [--isolated] <task text...>
 ```
 
 | Flag | Meaning |
 | --- | --- |
-| `--agent <name>` | target agent by name, as printed by `list agents` |
+| `--agent <name>` | target agent by name (or numeric id), as printed by `list agents` |
 | `--agent-id <id>` | target agent by numeric id; overrides `--agent` |
-| `--project <id>` | project to run in, as printed by `list projects`; omitted or `0` means a free session |
-| `--wait` | block until that agent's turn finishes, then print its final answer |
+| `--project <ref>` | project to run in: name, `parent/child` path or id from `list projects`; omitted means a free session |
+| `--device <device>` | new session: run on the agent's first backend on that device (name or fingerprint; `local` is this desktop) |
+| `--backend <ref>` | new session: run on exactly that backend of the agent (name or id); not with `--device` |
+| `--title <title>` | title of the new session |
+| `--session <id>` | continue that session instead of starting one (no `--agent` / `--device` / `--backend` / `--project` / `--isolated` / `--title`) |
+| `--steer` | the session is running: interject into its current turn (cannot carry `--image`) |
+| `--image <file>` | attach a local png / jpeg / gif / webp image; repeatable |
+| `--model <provider>/<model>`, `--cli-model <model>`, `--effort <level>`, `--permission-mode <mode>` | change this session's setting from the next turn on; a value the backend does not support fails with the choices listed (exit `2`) |
+| `--wait [--timeout <duration>]` | block like `wait` below |
 | `--isolated` | one-shot isolated session, not shown in the desktop sidebar |
+| `-o json` | print one JSON object with `session`, `status` and `text` / `error` / `pending` |
 
-`--agent` or `--agent-id` is required, and so is the task text. Without `--wait` the command
-returns as soon as the task is dispatched and prints the new session id; the target agent
-keeps working inside the desktop.
+Without `--device` / `--backend` a new session runs on the agent's first available backend. A
+device or backend the agent does not have fails with the choices listed (exit `2`); one that is
+offline, or has no path for the project, fails with the reason (exit `1`).
+
+`--agent` (or `--agent-id`) or `--session` is required, and so is the text. Without `--wait`
+the command returns as soon as the task is dispatched and prints the **session id** — a full
+UUID; every other session command takes exactly that id. The target agent keeps working inside
+the desktop.
+
+A running session refuses a plain `send --session` (exit `1`, "session is running"): add
+`--steer` to interject, or `wait` first. Steers not delivered when the turn ends go out, in
+order, at the start of the next one.
+
+- `wait <session>` returns when the session is idle (stdout: the final text of the last turn,
+  exit `0`; a failed turn prints its error, exit `1`), waits for input (stdout: the pending
+  items as JSON, exit `4`), or `--timeout` passes (exit `5`, still running — wait again).
+- `tail <session>` prints the session's events as NDJSON lines, each with an opaque `cursor`;
+  `--from <cursor>` resumes after it, `--until-idle` exits when the session goes idle (`0`) or
+  waits for input (`4`).
+- `stop <session>` stops the running turn and drops the steers not yet delivered, printing how
+  many. You cannot stop a session from inside an Agentre session.
+- `list sessions`, `get session`, `messages` and `pending` read any session on this desktop
+  (`commands.md` has the output shapes). From inside an Agentre session you can read, but
+  `answer` is refused: pending items are answered by a person or by a program outside a session.
 
 ## Running as an ACP agent (`agrctl acp`)
 
@@ -166,6 +204,19 @@ commands, so the desktop must be running.
 backend** — the dispatches recurse until a turn waits on itself. Pick a different target
 agent.
 
+## Which Agentre agrctl reaches
+
+Inside an Agentre session `agrctl` always works for that session, whatever else is set up on
+the machine. Outside one it reaches, in this order: the desktop when `--desktop` is given (it
+fails with `the Agentre desktop is not running` if it is not), the user's account when the
+user has logged `agrctl` into one, and otherwise the desktop on this machine.
+`{{AGRCTL_PATH}} whoami` prints which one the next command reaches.
+
+`login` and `logout` belong to the user, in their own terminal; never run them yourself. When
+a command reports that agrctl's login expired or the device was revoked, tell the user to run
+`agrctl login` again. A program or an agent CLI using the user's login may read but not write
+or drive sessions; that refusal is a guard rail, not a permission to work around.
+
 ## When the desktop is not running
 
 Every command except `help` fails with:
@@ -188,13 +239,16 @@ move on; there is no desktop to start there.
 
 ## Constraints
 
-- **`--wait` blocks for the entire remote turn.** Use it only for a short question whose
-  answer is needed right now. Dispatch long-running work without `--wait` and let the user
-  follow it in the desktop. Foreground shell tools time out (Claude Code's foreground Bash
-  stops after 10 minutes), so for a long turn run the `--wait` call
-  as a background shell command.
-- **Never dispatch a task back to the agent you are running as.** That agent would be
-  waiting on this turn while this turn waits on it, and neither side can finish. Read
-  `list agents` and pick a different target.
+- **`--wait` and `wait` block until the session settles.** Use them only for a short question
+  whose answer is needed right now. Dispatch long-running work without `--wait`. Foreground
+  shell tools time out (Claude Code's foreground Bash stops after 10 minutes), so for a long
+  turn run `wait <session>` (or the `--wait` call) as a background shell command, or give
+  `--timeout` and wait again on exit `5`.
+- **Never dispatch a task back to the agent you are running as**, and never `send --session`
+  to the session you are in (refused, exit `2`). That agent would be waiting on this turn while
+  this turn waits on it, and neither side can finish. Read `list agents` and pick a different
+  target.
+- Exit code `4` means the session waits for a person to answer; you cannot answer it from
+  inside a session. Tell the user, then `wait` again.
 
 Exit codes and exact output shapes: [references/commands.md](references/commands.md).

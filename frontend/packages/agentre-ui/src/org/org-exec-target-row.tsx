@@ -3,6 +3,7 @@ import { Ban, ChevronDown, ChevronRight, GripVertical, X } from "lucide-react";
 
 import { useUiTranslation } from "../i18n";
 import { cn } from "../lib/utils";
+import { useTouch } from "../ui/touch";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
 import type { OrgSortableRowBinding } from "./drag-binding";
 import {
@@ -52,15 +53,16 @@ export type OrgExecTargetRowProps = {
   skillsBlock?: React.ReactNode;
   drag?: OrgSortableRowBinding;
   /**
-   * 手机触屏档：柄与移除键图标 16px、按钮本身撑到 44×44（负外边距把占位收回去——
+   * 手机触屏档：不画排序柄；移除键图标 16px、按钮本身撑到 44×44（负外边距把占位收回去——
    * 列表外框裁溢出，透明 ::before 会被裁掉一截），行名 14px，技能入口视觉 28px、
-   * 点按区 44px。不传 = 桌面形态。
+   * 点按区 44px；后端名与类型名相同时只写一次。不传 = 桌面形态（跟随 TouchProvider）。
    */
   touch?: boolean;
 };
 
 export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
   const { t } = useUiTranslation();
+  const touch = useTouch(props.touch);
   const [replaceOpen, setReplaceOpen] = React.useState(false);
   const single = props.total === 1;
   const drag = props.drag;
@@ -93,8 +95,12 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
     t("org.agent.execTargets.localMachine"),
     t("org.agent.execTargets.reasons.unpaired"),
   );
+  const typeLabel = b ? orgBackendTypeLabel(b.type) : "";
+  // 触屏档：后端名就是类型名（「Claude Code · Claude Code」）时只写一次。
   const sub = b
-    ? `${orgBackendTypeLabel(b.type)} · ${b.name}`
+    ? touch && b.name === typeLabel
+      ? typeLabel
+      : `${typeLabel} · ${b.name}`
     : t("org.agent.execTargets.reasons.unknownBackend");
 
   return (
@@ -103,14 +109,15 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
       style={drag?.style}
       className={cn(
         "flex min-w-0 flex-col rounded-md bg-field-fill",
-        props.touch ? "px-3 py-2.5" : "px-2.5 py-2",
+        touch ? "px-3 py-2.5" : "px-2.5 py-2",
         // 当前生效的一档在视觉上与其余区分：左侧一道色条，不只靠徽标。
         props.isFirstAvailable && "border-l-2 border-l-status-running",
       )}
       data-testid={`exec-target-row-${props.index}`}
     >
       <div className="flex min-w-0 items-start gap-2">
-        {reorderable && (
+        {/* 触屏没有拖拽也没有方向键：不画柄（也不留占位），排序留给桌面。 */}
+        {reorderable && !touch && (
           <button
             type="button"
             ref={handle?.ref}
@@ -124,27 +131,18 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
             onKeyDown={onHandleKeyDown}
             className={cn(
               "shrink-0 touch-none select-none rounded-sm text-muted-foreground hover:text-foreground focus-visible:focus-outline",
-              props.touch ? TOUCH_ICON_BUTTON : "mt-0.5",
+              "mt-0.5",
               drag && "cursor-grab",
             )}
           >
-            <GripVertical
-              className={props.touch ? "size-4" : "size-3.5"}
-              aria-hidden="true"
-            />
+            <GripVertical className="size-3.5" aria-hidden="true" />
           </button>
         )}
-        {!single && !reorderable && (
+        {!single && !reorderable && !touch && (
           // 钉住不动的那一档（宿主两个重排回调都没给）不画柄 —— 没有可做的事就不该
           // 有控件。但要留一枚等宽占位：少画一个柄会让这一行的左缘比邻居往左缩，整列
           // 参差（与 OrgAgentRow 对不可拖动行的处理同一条判据）。
-          <span
-            className={cn(
-              "shrink-0",
-              props.touch ? "size-5" : "mt-0.5 size-3.5",
-            )}
-            aria-hidden="true"
-          />
+          <span className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
         )}
         {!single && (
           <span className="mt-px inline-flex size-5 shrink-0 items-center justify-center rounded-sm bg-secondary font-mono text-2xs text-muted-foreground">
@@ -157,7 +155,7 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
           <span
             className={cn(
               "truncate font-semibold",
-              props.touch ? "text-sm" : "text-xs",
+              touch ? "text-sm" : "text-xs",
             )}
           >
             {local}
@@ -177,10 +175,10 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
             onClick={props.onRemove}
             className={cn(
               "shrink-0 text-muted-foreground hover:text-destructive",
-              props.touch && TOUCH_ICON_BUTTON,
+              touch && TOUCH_ICON_BUTTON,
             )}
           >
-            <X className={props.touch ? "size-4" : "size-3.5"} />
+            <X className={touch ? "size-4" : "size-3.5"} />
           </button>
         )}
         {props.replacePanel && (
@@ -204,7 +202,7 @@ export function OrgExecTargetRow(props: OrgExecTargetRowProps) {
         machine={local}
         supported={props.skillsSupported}
         block={props.skillsBlock}
-        touch={props.touch}
+        touch={touch}
       />
     </div>
   );

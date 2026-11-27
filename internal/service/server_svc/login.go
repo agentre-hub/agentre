@@ -216,6 +216,7 @@ func (s *service) PollLoginToken(ctx context.Context, deviceCode string) (bool, 
 	logger.Ctx(ctx).Info("server_svc.PollLoginToken: login completed",
 		zap.Int64("deviceID", row.DeviceID),
 		zap.Int64("userID", row.ServerUserID))
+	s.provisionAgrctlAsync(ctx, row)
 	s.emit(map[string]any{"kind": "logged_in", "state": row})
 	return true, nil
 }

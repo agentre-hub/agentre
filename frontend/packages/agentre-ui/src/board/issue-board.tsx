@@ -34,6 +34,14 @@ export interface IssueBoardProps {
    * 它所在的阶段，卡片滚入视野并短暂高亮。找不到就什么都不做。
    */
   focusCardId?: number | null;
+  /** 不在卡片上显示 `#N`（宿主的编号对用户没有意义时）。不传时与桌面一致。 */
+  hideCardNumber?: boolean;
+  /**
+   * 触屏卡片菜单的受控开合（返回键历史层用）：`openCardMenuId` 指到哪张卡就开哪张，
+   * `null` = 都关；`onCardMenuOpenChange` 带卡号回调每次开合。都不传时各卡自管。
+   */
+  openCardMenuId?: number | null;
+  onCardMenuOpenChange?: (cardId: number, open: boolean) => void;
 }
 
 /**
@@ -50,6 +58,9 @@ export function IssueBoard({
   className,
   layout = "columns",
   focusCardId,
+  hideCardNumber,
+  openCardMenuId,
+  onCardMenuOpenChange,
 }: IssueBoardProps) {
   const { t } = useUiTranslation();
   const [activeStage, setActiveStage] = React.useState<BoardStage>("todo");
@@ -146,6 +157,9 @@ export function IssueBoard({
             onExpand={expandDone}
             nowMs={resolvedNow}
             focusCardId={focusCardId}
+            hideCardNumber={hideCardNumber}
+            openCardMenuId={openCardMenuId}
+            onCardMenuOpenChange={onCardMenuOpenChange}
           />
         ))
       )}

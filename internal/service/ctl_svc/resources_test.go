@@ -160,28 +160,19 @@ func TestResources_NeverEchoSecrets(t *testing.T) {
 		rec := postResources(t, h, testToken, body)
 		require.Equal(t, http.StatusOK, rec.Code, body)
 		assert.NotContains(t, rec.Body.String(), plaintextKey, body)
+		assert.NotContains(t, rec.Body.String(), "sk-l", "掩码也不给 (%s)", body)
 		assert.NotContains(t, rec.Body.String(), "gateway-secret-token", body)
 	}
 
 	resp := decodeCtlResponse(t, postResources(t, h, testToken, `{"get":{"kind":"CTL_KIND_PROVIDER","id":"1"}}`))
 	p := resp.GetGet().GetResource().GetProvider()
-	assert.Equal(t, "sk-l••••••cdef", p.GetApiKey())
+	assert.Empty(t, p.GetApiKey(), "API key 只写：响应里恒为空，只给 apiKeySet")
 	assert.True(t, p.GetApiKeySet())
 
 	resp = decodeCtlResponse(t, postResources(t, h, testToken, `{"get":{"kind":"CTL_KIND_BACKEND","id":"5"}}`))
 	b := resp.GetGet().GetResource().GetBackend()
 	assert.Empty(t, b.GetToken())
 	assert.Equal(t, agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET, b.GetTokenState())
-}
-
-func TestMaskSecret(t *testing.T) {
-	assert.Equal(t, "", MaskSecret(""))
-	assert.Equal(t, "sk-l••••••cdef", MaskSecret(plaintextKey))
-	assert.Equal(t, "•••••", MaskSecret("short"), "8 位以内不露任何字符")
-	assert.Equal(t, "••••••••", MaskSecret("12345678"))
-	for _, k := range []string{plaintextKey, "short", "12345678", "123456789"} {
-		assert.Equal(t, MaskSecret(k), MaskSecret(MaskSecret(k)), "掩码幂等：服务层已掩码的值再过一遍不变 (%q)", k)
-	}
 }
 
 // ---- 错误路径 ----

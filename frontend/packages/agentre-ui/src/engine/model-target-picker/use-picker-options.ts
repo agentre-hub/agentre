@@ -47,6 +47,8 @@ export interface UsePickerOptionsArgs {
   onSyncProvider: ((provider: PickerProvider) => void) | undefined;
   openOnMount: boolean;
   hideSpecial?: boolean;
+  /** 打开时是否把焦点给搜索框。触屏 sheet 不给：一聚焦键盘就升起、盖住列表。 */
+  focusSearchOnOpen?: boolean;
   t: TranslateFn;
 }
 
@@ -64,6 +66,7 @@ export function usePickerOptions({
   onSyncProvider,
   openOnMount,
   hideSpecial = false,
+  focusSearchOnOpen = true,
   t,
 }: UsePickerOptionsArgs) {
   const [open, setOpen] = React.useState(openOnMount);
@@ -240,10 +243,12 @@ export function usePickerOptions({
           (o) => !o.disabled && sameTarget(o.target, selected),
         );
         setActiveIndex(idx >= 0 ? idx : 0);
-        setTimeout(() => searchRef.current?.focus(), 0);
+        if (focusSearchOnOpen) {
+          setTimeout(() => searchRef.current?.focus(), 0);
+        }
       }
     },
-    [flatOptions, selected],
+    [flatOptions, selected, focusSearchOnOpen],
   );
 
   // 键盘导航：↑↓ 移动、Enter 选中、Esc 清搜索/关闭。

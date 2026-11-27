@@ -40,6 +40,7 @@ import {
 import { ProviderNav } from "./llm-provider-models/provider-nav";
 import { ProviderWorkspace } from "./llm-provider-models/provider-workspace";
 import { useProviderActions } from "./llm-provider-models/use-provider-actions";
+import { LoadFailureNotice } from "./llm-provider-models/load-failure";
 import { useProviderCatalog } from "./llm-provider-models/use-provider-catalog";
 import {
   type Model,
@@ -116,6 +117,7 @@ function LlmProvidersPanelBody({
   const {
     providers,
     providersLoading,
+    providersLoadFailed,
     selectedId,
     setSelectedId,
     selectedProvider,
@@ -282,6 +284,14 @@ function LlmProvidersPanelBody({
             <Loader2 className="size-4 animate-spin" aria-hidden="true" />
             {t("llmProviders.page.loadingProviders")}
           </div>
+        ) : providers.length === 0 && providersLoadFailed ? (
+          // 读失败不是「没有供应商」：画空态会诱导重复新建。
+          <LoadFailureNotice
+            testId="provider-load-failure"
+            title={t("llmProviders.loadFailed.title")}
+            description={t("llmProviders.loadFailed.description")}
+            onRetry={() => void refreshProviders()}
+          />
         ) : providers.length === 0 ? (
           <ProvidersEmptyState
             onCreate={() => setFormMode({ kind: "create" })}

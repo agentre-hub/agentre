@@ -7,7 +7,7 @@ Agentre's code organization, layering conventions, remote execution architecture
 ```text
 main.go                        (wails bootstrap; GUI-only — no CLI subcommands)
 cmd/agentred/                  (headless daemon binary: run, pair/login, status, service management, and local client commands)
-cmd/agrctl/                    (companion CLI binary: `claudecode` hook shim, `acp`, and the top-level control verbs)
+cmd/agrctl/                    (companion CLI binary: `claudecode` hook shim, `acp`, the top-level control verbs and login/logout/whoami)
 internal/
   app/                         (Wails bindings — one file per domain: app.go / agent.go / chat.go / project.go / …,
                                 methods only do parse → svc.Xxx().Method(ctx, …) → return)
@@ -85,6 +85,19 @@ UI
 - Automatic direct connections are handed out by that same handshake. When the verified credential is a `desktop` device token and the LAN server has direct addresses another machine can reach (`LANServer.DirectURLs()` minus loopback, link-local, unspecified and `localhost` hosts, whether the listen host is wildcard or explicit; filtered in `Daemon.directEndpoint`), the `auth.account` response also carries those `wss://` addresses, the certificate they present (`CertificatePEM()`) and a local direct credential issued for that desktop; relay tickets, server-issued credentials, other device kinds and a daemon with no direct address get none of the three. Credentials live in `state.json` under `directCredentials`, keyed by the desktop fingerprint the server named and recording the issuing account. A repeat handshake reuses the credential on file and sends the current addresses and certificate (`internal/daemon/auth/auth.go`). The desktop later pins that certificate and presents the credential on `auth.direct`, which the daemon checks locally (constant-time, no account-server call). It accepts only a credential issued under the account it is logged into now, and sets the connection's identity exactly as `auth.account` does, so session fan-out and account-level operations treat both handshakes alike. Anything else rejects with `-32001`. `State.Logout` keeps only machine-local fields, so logging out drops every issued credential, and since `agentred login` refuses while logged in, switching accounts drops them too.
 - `agentred` holds the device-local credentials of the Hermes and OpenClaw backends bound to it: `state.json`'s `backendCredentials` (OpenClaw Gateway tokens keyed by `sync_id`, Hermes refresh tokens keyed by normalized serve URL, the locally generated OpenClaw identity seed) plus the non-secret `hermesIdentities`. Any authenticated connection — the same gate as starting a conversation, so account-authenticated peers and paired desktops — can query credential status, save or clear an OpenClaw token, list Hermes auth providers, log in or out of Hermes, and test a connection (`wireinbound.RegisterPeripheralMethods` → `handlers.BackendCredentialHandlers`); unauthenticated connections get `-32001`. Tokens and passwords only travel in requests, one-time ones (the password, a draft token) are never stored, and responses and logs carry no credential. They belong to the account's backends, so `State.Logout` drops them. The Hermes and OpenClaw runtimes are still not registered on `agentred`.
 - A logged-in `agentred` is a narrow engine-snapshot consumer, not a `sync_objects` client. Login success, every successful relay connection/reconnection, and account-channel `sync_version` signals pull `GET /v1/engine/snapshot` with the daemon's device credential. Each successful pull atomically replaces `state.json`'s complete `llmProviders` map (so absent keys are deleted) while the account-level backend configs (`backends: [{backend_sync_id, config}]`, the whole `syncwire.AgentBackendConfig`) and per-device CLI overlays stay in daemon memory; absolute paths and arbitrary argv never enter `state.json`. A failed pull retains the previous map and is isolated from running rounds. When a browser/cloud dispatch asks the daemon to run a backend by `sync_id`, `RuntimeHandlers.Run` resolves the full config from that snapshot and applies it as one unit before runtime selection — the browser API never receives or sends `acp_args` (or any other backend config body). A direct paired-desktop request that already carries backend config is left untouched when the snapshot has no entry for its sync ID; before the first successful account snapshot, paired-desktop `llm.upsert` and its supplied execution path keep their existing behavior. Per-device CLI overlays resolve through the separate `ResolveCLIPath` path and only change the executable path.
+
+## agrctl as an account peer
+
+`agrctl` is a slim client, not a host: it imports no service, repository, bootstrap, `internal/app`, Wails or cago package (guarded by `internal/guard/production_dependencies_test.go`). Each command picks one executor (`internal/cli/ctlcmd/executor.go`, shown by `agrctl whoami`):
+
+1. the Agentre session, when the session-injected `AGENTRE_CTL_ENDPOINT` / `AGENTRE_CTL_TOKEN` are present;
+2. the local desktop, when `--desktop` is given — through the handshake file only (`ctlclient.ResolveDesktop`), failing with "desktop is not running" (exit 1) instead of falling back;
+3. the account server, when `AGENTRE_TOKEN` holds a personal token (server `AGENTRE_SERVER_URL`, else the login's server, else the default) or agrctl is logged in;
+4. otherwise the local desktop, as before.
+
+`agrctl login` runs the RFC 8628 Device Flow against the server (`ctlclient.AuthorizeDevice` / `PollDeviceToken`) as device kind `cli` with a fingerprint of its own (`devicefp.FromSeed`, a fresh seed per login), learns its account from `GET /v1/auth/me` and stores the login in `internal/pkg/agrctlcred`. The account executor (`ctlclient.Account`) sends resource requests to `POST /v1/ctl/resources` (the same protojson `Ctl*` contract as the desktop's `/ctl/v1/resources`). A personal token is used as-is; the login's access token is refreshed through `POST /v1/oauth/token/refresh` when it is about to expire or a request gets `401`. Refresh tokens are single-use and a replay revokes the whole chain, so every refresh runs under a cross-process lock file and re-reads the stored pair before spending it; the rotated pair is saved before it is used. A refusal from the server (`invalid_grant` / `invalid_client`, `401` / `403`) keeps the file but clears both tokens, so the account stays the executor and every command says to run `agrctl login` again; an unreachable server leaves the login intact. `agrctl logout` revokes its own device (`POST /v1/oauth/token/revoke` with its `device_id`) and deletes the file even when the server cannot be reached.
+
+With the login (not a personal token), a caller that is not a person at a terminal (agrctl's existing TTY + agent-CLI-marker rule) may read but is refused writes and sending / stopping / answering, with a hint to issue a personal token. This is a client-side guard rail only; the security boundary is the personal token's scope, which the server and agentred check. Memory is not offered by the account executor. This supersedes the 2026-09-22 resource-management design's "out-of-session calls only on the desktop host" and "no `agrctl login` / personal tokens / server as backend"; its terminal rule still decides approval on the desktop.
 
 ## Layering conventions (cago framework style)
 
@@ -169,6 +182,7 @@ The channel is a build-time identity, not a run mode. `internal/pkg/paths` reads
   logs/
     agentre.log       ← full log (info+, dropped to debug+ when Debug Logging is enabled)
     error.log         ← error+ only
+  agrctl-credentials.json ← agrctl's account login (mode 0600, atomic writes; internal/pkg/agrctlcred)
 ```
 
 - **Business data** → SQLite, via `internal/repository/*_repo`.
@@ -180,6 +194,7 @@ The channel is a build-time identity, not a run mode. `internal/pkg/paths` reads
 Environment variables:
 
 - `AGENTRE_ENV` — `dev` / `test` / `pre` / `prod`, defaults to `dev`.
+- `AGENTRE_TOKEN` / `AGENTRE_SERVER_URL` — read by `agrctl` only: a personal token that selects the account executor, and the account server it (and `agrctl login` without `--server`) uses.
 
 Debug logging no longer goes through an environment variable: it is controlled by the "Settings → Version & Updates → Debug Logging" toggle, persisted as `logger.debug_enabled` in the `app_settings` table; toggling it hot-reloads the logger (takes effect immediately, no restart needed), and on startup it is restored from the persisted value.
 

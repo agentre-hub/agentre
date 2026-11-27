@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import * as React from "react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +8,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "./dialog";
+import { TouchProvider } from "./touch";
 
 /**
  * 合并后的唯一一份 Dialog。
@@ -68,5 +70,89 @@ describe("Dialog", () => {
     openDialog();
 
     expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+  });
+});
+
+describe("Dialog · 关闭后焦点回到触发它的控件", () => {
+  function Host({
+    onCloseAutoFocus,
+    touch,
+  }: {
+    onCloseAutoFocus?: (e: Event) => void;
+    touch?: boolean;
+  }) {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          打开
+        </button>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent touch={touch} onCloseAutoFocus={onCloseAutoFocus}>
+            <DialogTitle>标题</DialogTitle>
+            <DialogDescription>说明</DialogDescription>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  // iOS Safari 点按钮不会让它拿到焦点：activeElement 仍是 body，
+  // Radix 没有 Trigger 可回，关闭后焦点就落在 body 上。
+  function openLikeIosTap() {
+    const opener = screen.getByRole("button", { name: "打开" });
+    fireEvent.pointerDown(opener);
+    fireEvent.click(opener);
+    return opener;
+  }
+
+  it("点按不带焦点的触发钮打开，关闭后焦点回到它（触屏档）", async () => {
+    render(<Host touch />);
+    const opener = openLikeIosTap();
+    expect(opener).not.toHaveFocus();
+    await screen.findByRole("dialog");
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    expect(opener).toHaveFocus();
+  });
+
+  it("宿主在 onCloseAutoFocus 里 preventDefault 就不回焦点", async () => {
+    render(<Host touch onCloseAutoFocus={(e) => e.preventDefault()} />);
+    const opener = openLikeIosTap();
+    await screen.findByRole("dialog");
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    expect(opener).not.toHaveFocus();
+  });
+
+  // WKWebView（桌面端）点按钮同样不聚焦；不传 touch 时这条兜底不能动，桌面行为不变。
+  it("不传 touch：不做兜底，焦点不被拉回最近按下的控件", async () => {
+    render(<Host />);
+    const opener = openLikeIosTap();
+    await screen.findByRole("dialog");
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    expect(opener).not.toHaveFocus();
+  });
+
+  it("包在 TouchProvider 里等同 touch", async () => {
+    render(
+      <TouchProvider>
+        <Host />
+      </TouchProvider>,
+    );
+    const opener = openLikeIosTap();
+    await screen.findByRole("dialog");
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    expect(opener).toHaveFocus();
   });
 });

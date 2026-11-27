@@ -25,6 +25,7 @@ var (
 		"methods":            "handlers registered before the clone must still dispatch on it",
 		"nextNotificationID": "IDs must keep increasing, or an unsubscribe removes the wrong subscriber",
 		"notifications":      "subscribers registered before the clone must still be delivered to",
+		"guard":              "a connection's registry must stay behind its host's method guard (method_guard_test.go)",
 	}
 	cloneSkippedFields = map[string]string{
 		"methodMu":       "each Registry owns its own mutex; copying one would alias the lock",

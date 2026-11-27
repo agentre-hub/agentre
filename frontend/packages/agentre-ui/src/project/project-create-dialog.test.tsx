@@ -563,6 +563,45 @@ describe("宿主能力：在别的机器上配路径", () => {
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith("new-1"));
   });
 
+  it("建项目超时、「刷新看看」认出它：挑过的路径照样写到那个项目上", async () => {
+    const m = machinesPort();
+    const onCreated = vi.fn();
+    const timeout = new Error("request timed out after 15000ms");
+    timeout.name = "ApiTimeoutError";
+    render(
+      <ProjectCreateDialog
+        open
+        onOpenChange={() => {}}
+        parentOptions={[]}
+        ports={{
+          create: vi.fn(async () => {
+            throw timeout;
+          }),
+          machines: m,
+        }}
+        onCreated={onCreated}
+        onTimeoutRecheck={vi.fn(async () => "found-9")}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("project-create-name"), {
+      target: { value: "Atlas" },
+    });
+    await pick();
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    );
+
+    await waitFor(() =>
+      expect(m.setPath).toHaveBeenCalledWith(
+        "found-9",
+        expect.objectContaining({ id: "fp-1" }),
+        "/srv",
+      ),
+    );
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("found-9"));
+  });
+
   it("路径进不了建项目那次请求 —— draft 里没有它", async () => {
     const { ports: p } = open({ ports: { machines: machinesPort() } });
     fireEvent.change(screen.getByTestId("project-create-name"), {
@@ -710,5 +749,141 @@ describe("草稿保护（宿主显式开启）", () => {
     });
     await clickOverlay();
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});
+
+describe("F5 创建超时：刷新看看", () => {
+  const timeoutErr = () => {
+    const e = new Error("request timed out after 15000ms");
+    e.name = "ApiTimeoutError";
+    return e;
+  };
+
+  function openTimeout(
+    onTimeoutRecheck?: (...a: never[]) => unknown,
+    create: ProjectCreatePorts["create"] = vi.fn(async () => {
+      throw timeoutErr();
+    }),
+  ) {
+    const onCreated = vi.fn();
+    const onOpenChange = vi.fn();
+    render(
+      <ProjectCreateDialog
+        open
+        onOpenChange={onOpenChange}
+        parentOptions={[]}
+        ports={{ create }}
+        onCreated={onCreated}
+        onTimeoutRecheck={onTimeoutRecheck as never}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("project-create-name"), {
+      target: { value: "Ledger" },
+    });
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    return { onCreated, onOpenChange, create };
+  }
+
+  it("超时：一行中文 + 刷新看看，英文原文不出现", async () => {
+    openTimeout(vi.fn());
+    expect(
+      await screen.findByText(
+        "The network timed out. It may already have been created.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Refresh to check" }),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/timed out after|15000/);
+  });
+
+  it("也认 outcome.failure.message 里的超时", async () => {
+    openTimeout(
+      vi.fn(),
+      vi.fn(async () => ({
+        ok: false as const,
+        failure: {
+          kind: "unknown" as const,
+          message: "context deadline timed out",
+        },
+      })),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    ).toBeInTheDocument();
+  });
+
+  it("点刷新看看：宿主找到了 -> onCreated(id) 并关窗", async () => {
+    const recheck = vi.fn(async () => "found-9");
+    const { onCreated, onOpenChange } = openTimeout(recheck);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    );
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("found-9"));
+    expect(recheck).toHaveBeenCalledWith({ name: "Ledger" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("没找到：说一句，允许再次提交，窗不关", async () => {
+    const recheck = vi.fn(async () => null);
+    const { onCreated, create } = openTimeout(recheck);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    );
+    expect(
+      await screen.findByText("Not found yet. You can submit again."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Refresh to check" }),
+    ).toBeNull();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.getByTestId("project-create-submit")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+  });
+
+  it("刷新本身失败：仍不知道建没建——超时那一行与「刷新看看」留着、说一句没刷新成，不放开再提交", async () => {
+    const recheck = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    const { onCreated, create } = openTimeout(recheck);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Refresh to check" }),
+    );
+    expect(
+      await screen.findByText("Couldn't refresh. Try again in a moment."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Not found yet. You can submit again."),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Refresh to check" }),
+    ).toBeEnabled();
+    // 直接再点「创建」也只是再核实一次，不发第二个新建。
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+    await waitFor(() => expect(recheck).toHaveBeenCalledTimes(2));
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("超时后没刷新就直接再点「创建」：先核实，找到了当作建成，不发第二个新建", async () => {
+    const recheck = vi.fn(async () => "found-9");
+    const { onCreated, create } = openTimeout(recheck);
+    await screen.findByRole("button", { name: "Refresh to check" });
+
+    fireEvent.click(screen.getByTestId("project-create-submit"));
+
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("found-9"));
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("不传 onTimeoutRecheck：超时和从前一样显示原文", async () => {
+    openTimeout(undefined);
+    expect(
+      await screen.findByText(/timed out after 15000ms/),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Refresh to check" }),
+    ).toBeNull();
   });
 });

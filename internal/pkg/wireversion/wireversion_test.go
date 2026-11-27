@@ -100,3 +100,50 @@ func TestMinSupported_GivenThisBuildAcceptsOnlyItsOwnRelease_WhenTheFloorIsRead_
 		"本 build 的地板应当就是它自己的协议号;如果你刚抬了 wire.proto 的 protocol_version,"+
 			"请同步 wireversion.MinSupported(它是握手里出示的那格 min_supported_protocol_version)")
 }
+
+// Given 握手被对端拒了，拒绝只以那句 Reject 话到达
+// When  对端拒绝原文被读回
+// Then  读得出两个版本号：peer 是我们出示的号，self 是对端自己那个 build 的号 —— 账号对端
+//
+//	（agrctl）据此判断该升级哪一端，而不是把对端视角的句子原样回显；认不出的句子不猜。
+func TestParseRejection_GivenTheSentenceRejectRenders_ThenBothVersionsAreReadBack(t *testing.T) {
+	t.Parallel()
+
+	peer, self, ok := wireversion.ParseRejection(wireversion.Rejection("0.9.0", "0.8.0"))
+	require.True(t, ok)
+	require.Equal(t, "0.9.0", peer)
+	require.Equal(t, "0.8.0", self)
+
+	peer, self, ok = wireversion.ParseRejection(wireversion.Reject(olderVersion))
+	require.True(t, ok)
+	require.Equal(t, olderVersion, peer)
+	require.Equal(t, wireversion.Protocol, self, "Reject is Rejection spoken by this build")
+
+	_, _, ok = wireversion.ParseRejection("handshake refused")
+	require.False(t, ok, "an unrecognized sentence is not guessed at")
+}
+
+// Given 两个协议版本号
+// When  比较先后
+// Then  按数字段逐段比（0.10.0 新于 0.9.0）；不是纯数字段的号说不出先后。
+func TestCompare_GivenTwoProtocolVersions_ThenTheyOrderNumerically(t *testing.T) {
+	t.Parallel()
+
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{
+		{"0.8.0", "0.9.0", -1},
+		{"0.10.0", "0.9.0", 1},
+		{"0.9.0", "0.9.0", 0},
+		{"1.0", "0.9.9", 1},
+	} {
+		got, ok := wireversion.Compare(c.a, c.b)
+		require.True(t, ok, "%s vs %s", c.a, c.b)
+		require.Equal(t, c.want, got, "%s vs %s", c.a, c.b)
+	}
+	for _, bad := range [][2]string{{"", "0.9.0"}, {"0.9.0-other", "0.9.0"}, {"v0.9.0", "0.9.0"}} {
+		_, ok := wireversion.Compare(bad[0], bad[1])
+		require.False(t, ok, "%q vs %q", bad[0], bad[1])
+	}
+}

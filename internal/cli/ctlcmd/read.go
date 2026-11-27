@@ -16,6 +16,9 @@ func runList(args []string, s *sys) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return usageErrorf("list needs a resource: %s", kindNames())
 	}
+	if isSessionResource(args[0]) {
+		return runListSessions(args[1:], s)
+	}
 	spec := lookupKind(args[0])
 	if spec == nil {
 		return usageErrorf("unknown resource %q (one of: %s)", args[0], kindNames())
@@ -33,6 +36,9 @@ func runList(args []string, s *sys) error {
 	}
 	cat, err := connect(s, append([]string{"list"}, args...))
 	if err != nil {
+		return err
+	}
+	if err := cat.supports(spec); err != nil {
 		return err
 	}
 	items, err := cat.list(spec.kind)
@@ -112,6 +118,9 @@ func runGet(args []string, s *sys) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
 		return usageErrorf("get needs a resource: %s", kindNames())
 	}
+	if isSessionResource(args[0]) {
+		return runGetSession(args[1:], s)
+	}
 	spec := lookupKind(args[0])
 	if spec == nil {
 		return usageErrorf("unknown resource %q (one of: %s)", args[0], kindNames())
@@ -128,6 +137,9 @@ func runGet(args []string, s *sys) error {
 	}
 	cat, err := connect(s, append([]string{"get"}, args...))
 	if err != nil {
+		return err
+	}
+	if err := cat.supports(spec); err != nil {
 		return err
 	}
 	it, err := cat.from(p.positionalAt[0]).locate(spec, p.positional[0])
@@ -365,7 +377,7 @@ type providerView struct {
 	Type         string              `json:"type"`
 	BaseURL      string              `json:"baseUrl"`
 	Enabled      bool                `json:"enabled"`
-	APIKey       string              `json:"apiKey"`
+	APIKeySet    bool                `json:"apiKeySet"`
 	DefaultModel string              `json:"defaultModel"`
 	Models       []providerModelView `json:"models"`
 	References   references          `json:"references"`
@@ -431,7 +443,7 @@ func (c *catalog) view(r *agentrewire.CtlResource, detail bool) any {
 	case *agentrewire.CtlResource_Provider:
 		x := d.Provider
 		v := providerView{ID: x.GetId(), Name: x.GetName(), Type: x.GetType(), BaseURL: x.GetBaseUrl(), Enabled: x.GetEnabled(),
-			APIKey: x.GetApiKey(), DefaultModel: c.defaultModelID(x), Models: []providerModelView{},
+			APIKeySet: x.GetApiKeySet(), DefaultModel: c.defaultModelID(x), Models: []providerModelView{},
 			References: references{AgentBackends: x.GetBackendRefs()}}
 		for _, m := range c.modelsOf(x.GetId()) {
 			v.Models = append(v.Models, providerModelView{ModelID: m.GetModelId(), ContextWindow: m.GetContextWindow(), Enabled: m.GetEnabled()})

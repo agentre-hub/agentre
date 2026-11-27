@@ -1,6 +1,6 @@
 // 手机触屏档（touch）：执行目标行、工具清单与组头收放三角的点按区。
 // 视觉尽量不变，命中区 ≥44px；不传 touch 时与桌面一致。
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { OrgExecTargetRow } from "./org-exec-target-row";
@@ -35,13 +35,44 @@ const svgClass = (el: HTMLElement) =>
   el.querySelector("svg")?.getAttribute("class") ?? "";
 
 describe("OrgExecTargetRow touch", () => {
-  it("柄与移除键：图标 16px，按钮本身 44×44（负外边距收回占位，不靠会被裁掉的 ::before）", () => {
+  it("移除键：图标 16px，按钮本身 44×44（负外边距收回占位，不靠会被裁掉的 ::before）", () => {
     renderRow(true);
-    for (const name of [/Reorder target/, /^Remove$/]) {
-      const btn = screen.getByRole("button", { name });
-      expect(btn).toHaveClass("size-11", "-m-3");
-      expect(svgClass(btn)).toContain("size-4");
-    }
+    const btn = screen.getByRole("button", { name: /^Remove$/ });
+    expect(btn).toHaveClass("size-11", "-m-3");
+    expect(svgClass(btn)).toContain("size-4");
+  });
+
+  it("触屏不显示排序柄（也不留占位），桌面仍有", () => {
+    renderRow(true);
+    expect(screen.queryByRole("button", { name: /Reorder target/ })).toBeNull();
+    cleanup();
+    renderRow();
+    expect(
+      screen.getByRole("button", { name: /Reorder target/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("类型名与后端名相同：触屏只写一次，桌面不变；不同名两处都在", () => {
+    renderRow(true);
+    expect(
+      screen.getByText("Claude Code", { selector: "span.font-mono" }),
+    ).toBeInTheDocument();
+    cleanup();
+    renderRow();
+    expect(screen.getByText("Claude Code · Claude Code")).toBeInTheDocument();
+    cleanup();
+    render(
+      <OrgExecTargetRow
+        index={0}
+        total={2}
+        backend={{ id: 2, name: "工作号", type: "claudecode" } as never}
+        status={{ available: true, reason: "" }}
+        isFirstAvailable
+        skillsSupported
+        touch
+      />,
+    );
+    expect(screen.getByText("Claude Code · 工作号")).toBeInTheDocument();
   });
 
   it("行名 14px；技能入口视觉 28px、点按区 44px", () => {

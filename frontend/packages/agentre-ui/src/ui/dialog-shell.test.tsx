@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -8,6 +9,7 @@ import {
   DialogShellHeader,
   DialogShellSubmit,
 } from "./dialog-shell";
+import { TouchProvider } from "./touch";
 
 /**
  * 弹窗外壳，两端共用那一份。
@@ -326,5 +328,53 @@ describe("DialogShellHeader 的保存态", () => {
     // 头部不替调用方决定「这个窗能不能就这么关掉」。
     renderShell();
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+});
+
+describe("DialogShell · 关闭后焦点回到触发控件（触屏档，D5）", () => {
+  function Host() {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          打开
+        </button>
+        <DialogShell open={open} onOpenChange={setOpen} size="sm">
+          <DialogShellHeader title="标题" />
+          <DialogShellBody>正文</DialogShellBody>
+        </DialogShell>
+      </>
+    );
+  }
+
+  // iOS Safari 点按钮不会让它拿到焦点：activeElement 仍是 body。
+  function openLikeIosTap() {
+    const opener = screen.getByRole("button", { name: "打开" });
+    fireEvent.pointerDown(opener);
+    fireEvent.click(opener);
+    return opener;
+  }
+
+  it("包在 TouchProvider 里：关闭后焦点回到点按的触发钮", async () => {
+    render(
+      <TouchProvider>
+        <Host />
+      </TouchProvider>,
+    );
+    const opener = openLikeIosTap();
+    expect(opener).not.toHaveFocus();
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(opener).toHaveFocus();
+  });
+
+  it("不在触屏档：不做兜底，桌面行为不变", async () => {
+    render(<Host />);
+    const opener = openLikeIosTap();
+    await screen.findByRole("dialog");
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(opener).not.toHaveFocus();
   });
 });

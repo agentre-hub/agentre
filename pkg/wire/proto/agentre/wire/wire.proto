@@ -42,7 +42,7 @@ extend google.protobuf.FileOptions {
   string protocol_version = 60002;
 }
 
-option (agentre.wire.protocol_version) = "0.8.0";
+option (agentre.wire.protocol_version) = "0.9.0";
 
 enum RpcMethod {
   RPC_METHOD_UNSPECIFIED = 0;
@@ -696,6 +696,25 @@ message SessionPendingWaitersRequest {
 message SessionPendingWaitersResponse {
   repeated PendingToolPermission tool_permissions = 1;
   repeated PendingAskUserQuestion ask_user_questions = 2;
+  // approvals are the ctl / org approval cards an in-session agent raised by
+  // calling agrctl writes; they live in agentred memory and in the transcript,
+  // not in the backend's waiter table.
+  repeated PendingApproval approvals = 3;
+}
+
+// PendingApproval is one open approval card. It is answered with
+// toolApproval.answer (conversation_id + request_id).
+message PendingApproval {
+  string request_id = 1;
+  // kind is "ctl" (resource write) or "org" (organization operation).
+  string kind = 2;
+  // title is the card's tool name, e.g. ctl_update_provider.
+  string title = 3;
+  // summary is the JSON of the change list the card shows: the redacted
+  // command and its changes. It never carries a secret value.
+  bytes summary = 4;
+  // createtime is when the card was raised, unix seconds.
+  int64 createtime = 5;
 }
 
 message PendingToolPermission {
@@ -896,6 +915,12 @@ message MCPServer {
   map<string, string> headers = 3;
   repeated string tools = 4;
 }
+// runtime.run starts a new turn. A conversation that is already running a turn
+// is refused for every caller with CodeRuntimeSessionRunning (-32016): add to
+// the running turn with runtime.steer instead. Steers the turn did not deliver
+// before it ended are replayed by the executing daemon itself, in order, as the
+// next turn (announced with autonomousTurn.started, trigger "steer"); callers
+// no longer drain and resend them.
 message RuntimeRunRequest {
   AgentBackend backend = 1;
   int64 agent_id = 2;
@@ -1358,6 +1383,10 @@ message RunResultDoneNotification {
 message AutonomousTurnStartedNotification {
   string conversation_id = 1;
   int64 seq = 2;
+  // Why the turn started without a runtime.run: "background_task" (the CLI woke
+  // up after a background task finished), "external" (woken up by something
+  // outside agentre), or "steer" (the daemon replaying steers the previous turn
+  // left undelivered; the turn's transcript opens with them as a user message).
   string trigger = 3;
   uint64 turn_token = 4;
 }
@@ -1828,7 +1857,7 @@ message BackendConnectionTestResponse {
 // 消息原样展示给用户。
 //
 // 密钥：CtlProvider.api_key 与 CtlBackend.token 在写请求里是明文，在任何响应里都不得是
-// 明文——api_key 只回掩码，token 只回 token_set。
+// 明文，也不给掩码——api_key 在响应里恒为空（只写），只回 api_key_set；token 只回 token_set。
 
 // CtlKind 是 agrctl 能管理的资源类型。
 enum CtlKind {
@@ -1882,6 +1911,8 @@ message CtlAgent {
   string avatar_icon = 8;
   // 只读：非空表示系统 Agent。
   string system_badge = 9;
+  // 只读：Agent 的账号级同步标识；账号执行者据它向 server 取派发计划、在执行端开会话。
+  string sync_id = 10;
 }
 
 // CtlDepartment 是一个部门；名字只在同一父部门下唯一。
@@ -1919,6 +1950,8 @@ message CtlProject {
   repeated int64 member_agent_ids = 8;
   // 只读：各设备上的路径。
   repeated CtlProjectLocation locations = 9;
+  // 只读：项目的账号级同步标识；账号执行者据它向 server 取派发计划（含该设备上的路径）。
+  string sync_id = 10;
 }
 
 // CtlProvider 是一个 LLM 提供方。
@@ -1928,7 +1961,7 @@ message CtlProvider {
   string type = 3;
   string base_url = 4;
   bool enabled = 5;
-  // 写入时是明文；响应里只能是掩码（前 4 位、圆点、后 4 位），未设置时为空。
+  // 只写：写入时是明文；响应里恒为空（连掩码也不给），是否已设置看 api_key_set。
   string api_key = 6;
   // 只读：是否已设置 API key。
   bool api_key_set = 7;
@@ -1936,6 +1969,8 @@ message CtlProvider {
   string default_model_key = 8;
   // 只读：引用它的后端数。
   int32 backend_refs = 9;
+  // 只读：提供方的账号级同步标识（即 provider key）；账号执行者据它钉会话的模型目标。
+  string sync_id = 10;
 }
 
 // CtlModel 是提供方下的一个模型，用 `提供方/模型key` 定位。

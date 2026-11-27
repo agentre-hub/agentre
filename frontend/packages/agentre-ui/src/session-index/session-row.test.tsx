@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionGroup } from "./session-group";
+import { TouchProvider } from "../ui/touch";
 import { SessionRow } from "./session-row";
 import type { SessionRowModel } from "./types";
 
@@ -658,5 +659,222 @@ describe("SessionRow phone variant", () => {
     render(<SessionRow status="idle" title="t" />);
     const row = screen.getByRole("button", { name: /t/ });
     expect(row).not.toHaveClass("min-h-16");
+  });
+});
+
+describe("SessionRow touch long-press menu", () => {
+  const box = (top: number, height: number) =>
+    ({
+      x: 0,
+      y: top,
+      left: 0,
+      top,
+      width: 390,
+      height,
+      right: 390,
+      bottom: top + height,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+  let original = HTMLElement.prototype.getBoundingClientRect;
+  afterEach(() => {
+    HTMLElement.prototype.getBoundingClientRect = original;
+  });
+
+  /** jsdom 没有布局：只给行与菜单一个矩形，菜单高 176。 */
+  function mockRects(rowTop: number) {
+    original = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.getAttribute("data-testid") === "the-row") {
+        return box(rowTop, 64);
+      }
+      if (this.getAttribute("data-slot") === "context-menu-content") {
+        return box(0, 176);
+      }
+      return original.call(this);
+    };
+    Object.defineProperty(window, "innerHeight", {
+      value: 844,
+      configurable: true,
+    });
+  }
+
+  async function openMenu(
+    ui: React.ReactElement,
+    link: "button" | "link" = "button",
+  ) {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(ui);
+    await user.pointer({
+      keys: "[MouseRight]",
+      target:
+        link === "button"
+          ? screen.getByRole("button", { name: /session-1/ })
+          : screen.getByRole("link", { name: /session-1/ }),
+    });
+    await screen.findByRole("menuitem", { name: "Delete" });
+    return document.querySelector(
+      '[data-slot="context-menu-content"]',
+    ) as HTMLElement;
+  }
+
+  const rowProps = {
+    status: "idle" as const,
+    title: "session-1",
+    onDeleteSession: () => {},
+    "data-testid": "the-row",
+  };
+
+  it("touch 入参：菜单锚在本行下方，行与菜单行 44px / 15px", async () => {
+    mockRects(100);
+    const content = await openMenu(<SessionRow {...rowProps} touch />);
+    expect(content).toHaveAttribute("data-anchor-side", "below");
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toHaveClass(
+      "min-h-11",
+      "text-prose",
+    );
+  });
+
+  it("touch：行贴近视口底时翻到本行上方", async () => {
+    mockRects(760);
+    const content = await openMenu(<SessionRow {...rowProps} touch />);
+    expect(content).toHaveAttribute("data-anchor-side", "above");
+  });
+
+  it("没有 touch 入参但在 TouchProvider 内：同样锚定本行", async () => {
+    mockRects(100);
+    const content = await openMenu(
+      <TouchProvider>
+        <SessionRow {...rowProps} />
+      </TouchProvider>,
+    );
+    expect(content).toHaveAttribute("data-anchor-side", "below");
+  });
+
+  it("touch 入参优先于 TouchProvider：touch={false} 不锚定", async () => {
+    mockRects(100);
+    const content = await openMenu(
+      <TouchProvider>
+        <SessionRow {...rowProps} touch={false} />
+      </TouchProvider>,
+    );
+    expect(content).not.toHaveAttribute("data-anchor-side");
+  });
+
+  it("宿主 renderLink 渲染的行也锚定到那个行元素", async () => {
+    mockRects(100);
+    const content = await openMenu(
+      <SessionRow
+        {...rowProps}
+        touch
+        href="/s/1"
+        renderLink={({ href, className, children, onClick }) => (
+          <a
+            data-testid="the-row"
+            href={href}
+            className={className}
+            onClick={onClick}
+          >
+            {children}
+          </a>
+        )}
+      />,
+      "link",
+    );
+    expect(content).toHaveAttribute("data-anchor-side", "below");
+  });
+
+  it("不传 touch 也没有 TouchProvider：不锚定、菜单行不加触屏类", async () => {
+    mockRects(100);
+    const content = await openMenu(<SessionRow {...rowProps} />);
+    expect(content).not.toHaveAttribute("data-anchor-side");
+    expect(screen.getByRole("menuitem", { name: "Delete" })).not.toHaveClass(
+      "min-h-11",
+    );
+  });
+});
+
+describe("SessionRow menu open state (host back-dismiss seam)", () => {
+  const rowProps = {
+    status: "idle" as const,
+    title: "session-1",
+    onDeleteSession: () => {},
+  };
+
+  async function openMenu() {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    await user.pointer({
+      keys: "[MouseRight]",
+      target: screen.getByRole("button", { name: /session-1/ }),
+    });
+    await screen.findByRole("menuitem", { name: "Delete" });
+    return user;
+  }
+
+  it("onMenuOpenChange：菜单打开回 true，Esc 关闭回 false", async () => {
+    const onMenuOpenChange = vi.fn();
+    render(<SessionRow {...rowProps} onMenuOpenChange={onMenuOpenChange} />);
+    const user = await openMenu();
+    expect(onMenuOpenChange.mock.calls).toEqual([[true]]);
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull(),
+    );
+    expect(onMenuOpenChange.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it("选中菜单项关闭菜单时同样回 false", async () => {
+    const onMenuOpenChange = vi.fn();
+    render(<SessionRow {...rowProps} onMenuOpenChange={onMenuOpenChange} />);
+    const user = await openMenu();
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    expect(onMenuOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("menuOpen 由 true 变 false：宿主关掉已打开的菜单，并回调 false", async () => {
+    const onMenuOpenChange = vi.fn();
+    const { rerender } = render(
+      <SessionRow
+        {...rowProps}
+        menuOpen={false}
+        onMenuOpenChange={onMenuOpenChange}
+      />,
+    );
+    await openMenu();
+    rerender(
+      <SessionRow {...rowProps} menuOpen onMenuOpenChange={onMenuOpenChange} />,
+    );
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+    rerender(
+      <SessionRow
+        {...rowProps}
+        menuOpen={false}
+        onMenuOpenChange={onMenuOpenChange}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull(),
+    );
+    expect(onMenuOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("menuOpen={false} 不阻止用户自己打开菜单（受控只管关闭）", async () => {
+    render(<SessionRow {...rowProps} menuOpen={false} />);
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+  });
+
+  it("两个入参都不传：DOM 与传了 menuOpen / onMenuOpenChange 时逐字节一致，右键菜单照常", async () => {
+    const plain = render(<SessionRow {...rowProps} />);
+    const bare = plain.container.innerHTML;
+    plain.unmount();
+    const wired = render(
+      <SessionRow {...rowProps} menuOpen={false} onMenuOpenChange={() => {}} />,
+    );
+    expect(wired.container.innerHTML).toBe(bare);
+    wired.unmount();
+    render(<SessionRow {...rowProps} />);
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
   });
 });

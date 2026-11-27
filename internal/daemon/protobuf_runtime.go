@@ -5,6 +5,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/agentre-hub/agentre/internal/daemon/auth"
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/portforward"
@@ -246,7 +247,12 @@ func (d *Daemon) connSessionPorts(conn *protorpc.Conn, rh *handlers.RuntimeHandl
 			if err != nil {
 				return nil, err
 			}
-			rh.AdoptForPeer(peer, response.GetConversationId(), agent_backend_entity.BackendType(response.GetBackendType()))
+			// 个人 token 跟随别人发起的会话只是读:推送照常改到这条连接,但这条连接的
+			// RuntimeHandlers 不认下它 —— 认下了,之后省略发起方的 steer / abort / 提交
+			// 就会解析成这条会话,绕过 auth.RequireOwnSession。
+			if auth.MayActOnSession(ctx, string(peer)) {
+				rh.AdoptForPeer(peer, response.GetConversationId(), agent_backend_entity.BackendType(response.GetBackendType()))
+			}
 			d.conns.claimFor(conn, peer, response.GetConversationId())
 			return response, nil
 		},

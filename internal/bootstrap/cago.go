@@ -57,6 +57,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/subagent_svc"
 	"github.com/agentre-hub/agentre/internal/service/workspace_fs_svc"
 	"github.com/agentre-hub/agentre/migrations"
+	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 
 	"github.com/cago-frame/cago"
 	"github.com/cago-frame/cago/configs"
@@ -108,6 +109,9 @@ func Init(ctx context.Context) (*Runtime, error) {
 	}
 	// 注册 SQLite 数据库组件。cago 启动 db 失败时会 panic，由调用方 recover/log。
 	cago.New(ctx, cfg).Registry(db.Database())
+	// 协议引擎 pkg/wire/protorpc 不绑 cago：把它的日志接到 cago 的 context logger 上，
+	// 去向、级别与 ctx 关联字段与桌面端其余日志相同。
+	protorpc.SetLogger(logger.Ctx)
 
 	// journal_mode 是持久化的数据库属性，一次转换成功即永久生效，不必（也不能）挂进
 	// sqliteDSN 的 _pragma 让每个连接重复执行——失败只记警告、不阻断启动，详见

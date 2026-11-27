@@ -270,6 +270,7 @@ func (s *service) RefreshWithBackoff(ctx context.Context) {
 		rerr := s.refreshClearingDeadLogin(ctx, s.refreshTicket())
 		if rerr == nil {
 			s.markOnline()
+			s.provisionAgrctlOnStartup(ctx, row)
 			return
 		}
 		if IsCredentialRejected(rerr) {
@@ -360,6 +361,7 @@ func is401(err error) bool {
 // clearLogin tears down the persisted login: keychain entry, server_state user/device
 // fields, and notifies the UI via emitState. Best-effort: each step is independent.
 func (s *service) clearLogin(ctx context.Context) error {
+	s.revokeDelegatedAgrctl(ctx)
 	_ = keychain.Default().Delete(keychainAccountName)
 	if err := server_state_repo.ServerState().ClearLoginFields(ctx); err != nil {
 		logger.Ctx(ctx).Warn("server_svc.clearLogin: ClearLoginFields failed",

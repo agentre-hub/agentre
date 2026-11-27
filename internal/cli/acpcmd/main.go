@@ -19,6 +19,7 @@ import (
 
 	acpsdk "github.com/coder/acp-go-sdk"
 
+	"github.com/agentre-hub/agentre/internal/cli/ctlcmd"
 	"github.com/agentre-hub/agentre/internal/pkg/ctlclient"
 )
 
@@ -40,7 +41,17 @@ Target (one of --agent / --agent-id is required):
 Connection:
   --endpoint <url>   control endpoint URL   (env AGENTRE_CTL_ENDPOINT)
   --token <token>    control token          (env AGENTRE_CTL_TOKEN)
-By default the endpoint + token are read from the desktop's handshake file.`
+  --desktop          this machine's desktop, even when agrctl is logged in
+By default the endpoint + token are read from the desktop's handshake file.
+
+Account mode: when this machine is logged in (agrctl login) or AGENTRE_TOKEN is set,
+the prompts go to your account instead, straight to the machine that runs the agent.
+That needs a personal token with the chat and approve scopes. Create it at your own
+terminal and put it in the editor's agent server configuration:
+  agrctl create token --name editor --scope chat,approve
+  {"command": "agrctl", "args": ["acp", "--agent", "<name>"], "env": {"AGENTRE_TOKEN": "<the token>"}}
+(AGENTRE_SERVER_URL selects another server.) Without the token, agrctl acp fails
+with this hint. --desktop or --endpoint keeps using the desktop.`
 
 // Main is the process entry point; runs the ACP agent and exits. Never returns.
 func Main(args []string) {
@@ -50,9 +61,11 @@ func Main(args []string) {
 // options 是 acp 子命令解析后的配置。
 type options struct {
 	Endpoint ctlclient.Endpoint
-	Agent    string
-	AgentID  int64
-	Project  int64
+	// Account 非 nil 表示账号模式（个人 token）；Endpoint 此时为空。
+	Account accountDriver
+	Agent   string
+	AgentID int64
+	Project int64
 }
 
 // run is the testable core; returns the exit code. It blocks serving the ACP
@@ -62,6 +75,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, lookupEnv fun
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "acp:", err)
 		return 2
+	}
+	if opts.Account != nil {
+		defer opts.Account.Close()
 	}
 	ag := newAgent(opts)
 	conn := acpsdk.NewAgentSideConnection(ag, stdout, stdin)
@@ -80,20 +96,25 @@ func parseOptions(args []string, stderr io.Writer, lookupEnv func(string) (strin
 	project := fs.Int64("project", 0, "project id (0 = free session)")
 	endpoint := fs.String("endpoint", "", "control endpoint URL (env AGENTRE_CTL_ENDPOINT)")
 	token := fs.String("token", "", "control token (env AGENTRE_CTL_TOKEN)")
+	desktop := fs.Bool("desktop", false, "use this machine's desktop even when agrctl is logged in")
 	if err := fs.Parse(args); err != nil {
 		return options{}, err
 	}
 	if strings.TrimSpace(*agent) == "" && *agentID <= 0 {
 		return options{}, errors.New("--agent or --agent-id is required")
 	}
-	ep, err := ctlclient.Resolve(*endpoint, *token, lookupEnv)
+	ep, drv, err := ctlcmd.ResolveACPExecutor(*endpoint, *token, *desktop, lookupEnv, stderr)
 	if err != nil {
 		return options{}, err
 	}
-	return options{
+	opts := options{
 		Endpoint: ep,
 		Agent:    strings.TrimSpace(*agent),
 		AgentID:  *agentID,
 		Project:  *project,
-	}, nil
+	}
+	if drv != nil { // 不能直接写进字面量：nil *AccountDriver 装进接口不是 nil
+		opts.Account = drv
+	}
+	return opts, nil
 }
