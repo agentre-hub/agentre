@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"sync"
 
 	"google.golang.org/protobuf/proto"
@@ -148,7 +149,9 @@ func New(opts Options) *Peer {
 		Endpoint:            ClientPath,
 		ServerURL:           opts.ServerURL,
 		AccessTokenProvider: p.currentToken,
-		Logf:                func(string, ...any) {},
+		// agrctl 的文案是英文；relay 回的 server 文案按这个语言回（与账号接口的 HTTP 请求一致）。
+		Header: http.Header{"Accept-Language": {"en"}},
+		Logf:   func(string, ...any) {},
 	})
 	p.mux = relaytransport.NewMultiplexer(p.link)
 	go p.drainAccepted()

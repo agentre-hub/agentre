@@ -91,6 +91,10 @@ type HubLinkOptions struct {
 	// without the link itself knowing how tokens are renewed (R4/R14): a token
 	// that expires mid-connection is replaced by the fresh one on the next dial.
 	AccessTokenProvider func() string
+	// Header carries extra handshake headers sent on every dial (agrctl names the
+	// language the relay answers channel failures in). Authorization is always
+	// the bearer token above and cannot be overridden here.
+	Header http.Header
 
 	HeartbeatInterval time.Duration
 	RetryInitial      time.Duration
@@ -466,7 +470,10 @@ func (l *HubLink) dial(ctx context.Context) (*websocket.Conn, error) {
 	if l.opts.AccessTokenProvider != nil {
 		token = l.opts.AccessTokenProvider()
 	}
-	headers := make(http.Header)
+	headers := l.opts.Header.Clone()
+	if headers == nil {
+		headers = make(http.Header)
+	}
 	headers.Set("Authorization", "Bearer "+token)
 	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, endpoint, headers)
 	// The handshake response body is a no-op reader on both outcomes (gorilla

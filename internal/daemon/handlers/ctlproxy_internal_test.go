@@ -881,3 +881,21 @@ func TestCtlSessions_GivenGoneRequest_WhenAnswered_ThenNotFoundError(t *testing.
 	})
 	assert.Equal(t, wireinbound.NoPendingToolApprovalError("gone"), err)
 }
+
+// 控制台拥有的会话里 agrctl 的 ctl 请求经这一跳到 server，server 的错误正文原样透回 agrctl；
+// agrctl 的文案是英文，所以这一跳同样点名 en（与 agrctl 账号模式的请求一致）。
+func TestCtlServerClient_GivenAnyRequest_ThenItAsksTheServerForEnglish(t *testing.T) {
+	var langs []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		langs = append(langs, r.Header.Get("Accept-Language"))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	client := &CtlServerClient{ServerURL: func() string { return srv.URL }, AccessToken: func() string { return "tok" }}
+
+	_, _, err := client.Post(context.Background(), "/v1/ctl/resources", []byte(`{}`))
+	require.NoError(t, err)
+	_, _, err = client.Get(context.Background(), "/v1/devices")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"en", "en"}, langs)
+}

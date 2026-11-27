@@ -156,3 +156,30 @@ func TestPeer_GivenNoServer_ThenOpenFailsAsUnreachable(t *testing.T) {
 	_, err := p.Open(context.Background(), MachineTarget(box))
 	assert.True(t, errors.Is(err, ErrRelayUnavailable), "err = %v", err)
 }
+
+// agrctl 的文案是英文：relay 在通道失败时回的 server 文案（例如内部错误）按握手请求点名的
+// 语言回，所以拨 relay 时同样点名 en，与账号接口的 HTTP 请求一致。
+func TestPeer_GivenTheRelayIsDialed_ThenTheHandshakeAsksTheServerForEnglish(t *testing.T) {
+	relay := relaypeertest.New(func(bearer string) bool { return bearer == "tok-1" })
+	relay.AddMachine(&relaypeertest.Machine{Fingerprint: box, Registry: protorpc.NewRegistry()})
+	var mu sync.Mutex
+	var langs []string
+	mux := http.NewServeMux()
+	mux.Handle(relay.Path, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		langs = append(langs, r.Header.Get("Accept-Language"))
+		mu.Unlock()
+		relay.ServeHTTP(w, r)
+	}))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	p := New(Options{ServerURL: srv.URL, Token: staticToken("tok-1")})
+	t.Cleanup(p.Close)
+
+	conn, err := p.Open(context.Background(), MachineTarget(box))
+	require.NoError(t, err)
+	_ = conn.Close()
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"en"}, langs)
+}
