@@ -71,6 +71,8 @@ type session struct {
 	conn    *relaypeer.Conn
 	summary *agentrewire.SessionSummary
 	device  string
+	// deviceFP 是承载它的设备指纹（不知道时为空）。
+	deviceFP string
 }
 
 func (h *session) origin() string { return h.summary.GetPeerFingerprint() }
@@ -610,7 +612,7 @@ func (a *Client) openSession(ctx context.Context, id string) (*session, error) {
 			continue
 		}
 		if sum, err := summaryOf(ctx, conn, id); err == nil && sum != nil {
-			return &session{conn: conn, summary: sum, device: d.label()}, nil
+			return &session{conn: conn, summary: sum, device: d.label(), deviceFP: d.Fingerprint}, nil
 		}
 		_ = conn.Close()
 	}

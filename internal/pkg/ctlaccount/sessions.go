@@ -1,6 +1,7 @@
 package ctlaccount
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -462,14 +463,19 @@ func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, err
 		if err != nil {
 			return nil, a.ReachErr(err, h.device, id)
 		}
-		device := h.device
-		if device == "" {
-			device = a.deviceOf(ctx, id)
+		device, deviceFP := h.device, h.deviceFP
+		if device == "" || deviceFP == "" {
+			label, fp := a.savedDevice(ctx, id)
+			device, deviceFP = cmp.Or(device, label), cmp.Or(deviceFP, fp)
+		}
+		model := a.modelID(s.GetModelKey())
+		if s.GetProviderKey() == "" && s.GetModelKey() == "" && s.GetCliModelMode() == "" {
+			model = a.followedModelID(s.GetAgentSyncId(), s.GetBackendType(), deviceFP)
 		}
 		n := len(p.GetToolPermissions()) + len(p.GetAskUserQuestions()) + len(p.GetApprovals())
 		who, whoKind := a.initiatorFields(ctx, h.origin())
 		return &SessionDetail{Initiator: who, InitiatorKind: whoKind, ID: id, Title: s.GetTitle(), Agent: nm.agent(s.GetAgentSyncId()), Project: nm.project(s.GetProjectSyncId()),
-			Device: device, Backend: s.GetBackendType(), Model: a.modelID(s.GetModelKey()), LastActivityAt: rfc3339Ms(s.GetLastMessageAt()),
+			Device: device, Backend: s.GetBackendType(), Model: model, LastActivityAt: rfc3339Ms(s.GetLastMessageAt()),
 			Status: sessionStatus(s.GetLifecycleState(), s.GetWaitingForInput() || n > 0), Pending: &n}, nil
 	case errors.Is(err, relaypeer.ErrTargetOffline):
 		row, rerr := a.savedRow(ctx, id)
@@ -485,8 +491,12 @@ func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, err
 		}
 		label, _ := deviceByFP(devices, row.DeviceFingerprint)
 		who, whoKind := a.initiatorOf(ctx, row.PeerFingerprint, devices)
+		model := a.modelID(row.ModelKey)
+		if row.ModelKey == "" {
+			model = a.followedModelID(row.AgentSyncID, row.BackendType, row.DeviceFingerprint)
+		}
 		return &SessionDetail{Initiator: who, InitiatorKind: whoKind, ID: id, Title: row.Title, Agent: nm.agent(row.AgentSyncID), Project: nm.project(row.ProjectSyncID),
-			Device: label, DeviceOffline: true, Backend: row.BackendType, Model: a.modelID(row.ModelKey), LastActivityAt: rfc3339Ms(row.LastMessageAt),
+			Device: label, DeviceOffline: true, Backend: row.BackendType, Model: model, LastActivityAt: rfc3339Ms(row.LastMessageAt),
 			Status: sessionStatus(row.LifecycleState, row.WaitingForInput)}, nil
 	default:
 		return nil, a.ReachErr(err, "", id)
@@ -495,16 +505,56 @@ func (a *Client) GetSession(ctx context.Context, id string) (*SessionDetail, err
 
 // deviceOf 是承载一条保存过的会话的设备名（不知道时为空）。
 func (a *Client) deviceOf(ctx context.Context, id string) string {
+	label, _ := a.savedDevice(ctx, id)
+	return label
+}
+
+// savedDevice 是承载一条保存过的会话的设备名与指纹（不知道时为空）。
+func (a *Client) savedDevice(ctx context.Context, id string) (label, fingerprint string) {
 	row, err := a.savedRow(ctx, id)
 	if err != nil || row == nil {
-		return ""
+		return "", ""
 	}
 	devices, err := a.devices(ctx)
 	if err != nil {
+		return "", row.DeviceFingerprint
+	}
+	label, _ = deviceByFP(devices, row.DeviceFingerprint)
+	return label, row.DeviceFingerprint
+}
+
+// followedModelID 是一条没钉模型（跟随后端配置）的会话实际跑的固定模型 id：它那位 agent 的
+// 后端里，类型相同、跑在这台设备上的那一个（设备不知道时只认唯一同类型的那个）的固定模型。
+// 后端跟随供应商默认模型、找不到或认不出唯一一个时交回空串 —— 不猜。
+func (a *Client) followedModelID(agentSyncID, backendType, deviceFP string) string {
+	if agentSyncID == "" {
 		return ""
 	}
-	label, _ := deviceByFP(devices, row.DeviceFingerprint)
-	return label
+	agents, err := a.cat.List(agentrewire.CtlKind_CTL_KIND_AGENT)
+	if err != nil {
+		return ""
+	}
+	var agent *agentrewire.CtlAgent
+	for _, it := range agents {
+		if it.GetAgent().GetSyncId() == agentSyncID {
+			agent = it.GetAgent()
+		}
+	}
+	var match *agentrewire.CtlBackend
+	for _, id := range agent.GetBackendIds() {
+		b := a.cat.ByID(agentrewire.CtlKind_CTL_KIND_BACKEND, id).GetBackend()
+		if b == nil || b.GetType() != backendType || (deviceFP != "" && b.GetDeviceFingerprint() != deviceFP) {
+			continue
+		}
+		if match != nil {
+			return ""
+		}
+		match = b
+	}
+	if match.GetModelId() == 0 {
+		return ""
+	}
+	return a.cat.ByID(agentrewire.CtlKind_CTL_KIND_MODEL, match.GetModelId()).GetModel().GetModelId()
 }
 
 // ─── pending / answer ───

@@ -190,6 +190,44 @@ func TestAccountGetSession_GivenAPinnedModelThenModelIsTheModelIDNotItsKey(t *te
 	}
 }
 
+// Given 会话没钉模型（跟随后端配置），它那位 agent 在 build-box 上的 codex 后端固定在
+// openai/gpt-5.1、在笔记本上的 codex 后端固定在 openai/gpt-5.1-mini When get session Then
+// model 写的是这条会话所在机器上那个后端的固定模型 id —— 在线读机器、离线读保存的那一行；
+// 会话钉了 CLI 模型时不冒充后端的模型。
+func TestAccountGetSession_GivenTheSessionFollowsItsBackendThenModelIsTheBackendsFixedModel(t *testing.T) {
+	w := listWorld(t)
+	e := w.srv.exec
+	e.mu.Lock()
+	for _, it := range e.items[agentrewire.CtlKind_CTL_KIND_BACKEND] {
+		if b := it.GetBackend(); b.GetId() == 9 {
+			b.DeviceFingerprint = boxFP
+		}
+	}
+	e.items[agentrewire.CtlKind_CTL_KIND_BACKEND] = append(e.items[agentrewire.CtlKind_CTL_KIND_BACKEND],
+		backendDoc(&agentrewire.CtlBackend{Id: 11, Name: "codex-laptop", Type: "codex", Device: "laptop", DeviceFingerprint: laptopFP,
+			ProviderId: 4, ModelId: 22, SyncId: "BE-11"}))
+	for _, it := range e.items[agentrewire.CtlKind_CTL_KIND_AGENT] {
+		if a := it.GetAgent(); a.GetName() == "reviewer" {
+			a.BackendIds = []int64{5, 9, 11}
+		}
+	}
+	e.mu.Unlock()
+
+	model := func(id string) any {
+		r := runWith([]string{"get", "session", id}, envMap(), term{})
+		require.Equal(t, exitOK, r.code, r.stderr)
+		var out map[string]any
+		require.NoError(t, json.Unmarshal([]byte(r.stdout), &out), r.stdout)
+		return out["model"]
+	}
+	assert.Equal(t, "openai/gpt-5.1", model(sessA), "live, on build-box")
+	assert.Equal(t, "openai/gpt-5.1-mini", model(sessC), "offline, on the laptop")
+
+	live := w.box.session(sessA).summary
+	live.CliModelMode, live.CliModel = "fixed", "gpt-5.1-codex"
+	assert.Nil(t, model(sessA), "a pinned CLI model is not the backend's model")
+}
+
 func TestAccountMessages_GivenALiveSessionThenTurnsPageBackwardWithACursor(t *testing.T) {
 	w := listWorld(t)
 	w.box.addTurn(sessA, "one?", "uno", false)
