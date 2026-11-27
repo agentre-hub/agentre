@@ -293,8 +293,10 @@ func authAccount(ctx context.Context, channel relaytransport.PayloadChannel, cre
 				return nil, channelError(body.Error)
 			}
 			if body.Error.GetCode() == rpcerror.CodeProtocolVersion {
-				return nil, fmt.Errorf("%w: %s (this build speaks wire protocol version %s)",
-					ErrPeerVersionMismatch, body.Error.GetMessage(), wireversion.Protocol)
+				// The daemon's message is written from its own side ("peer" = us), so it is
+				// not echoed; the device's version is unknown on this path.
+				return nil, fmt.Errorf("%w: the device refused this build (wire protocol version %s); both ends must run the same release",
+					ErrPeerVersionMismatch, wireversion.Protocol)
 			}
 			return nil, &rpcerror.Error{Code: body.Error.GetCode(), Message: body.Error.GetMessage()}
 		case *agentrewire.RpcFrame_Response:
@@ -308,8 +310,9 @@ func authAccount(ctx context.Context, channel relaytransport.PayloadChannel, cre
 			if !resp.GetOk() {
 				return nil, errors.New("the target machine refused the account credential")
 			}
-			if reason := wireversion.Reject(resp.GetProtocolVersion()); reason != "" {
-				return nil, fmt.Errorf("%w: %s", ErrPeerVersionMismatch, reason)
+			if wireversion.Reject(resp.GetProtocolVersion()) != "" {
+				return nil, fmt.Errorf("%w: the device speaks wire protocol version %q, this build speaks %q; both ends must run the same release",
+					ErrPeerVersionMismatch, resp.GetProtocolVersion(), wireversion.Protocol)
 			}
 			return &resp, nil
 		}

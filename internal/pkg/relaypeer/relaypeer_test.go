@@ -92,6 +92,11 @@ func TestPeer_GivenAMachineOnAnotherRelease_ThenOpenSaysItNeedsAnUpgrade(t *test
 			_, err := p.Open(context.Background(), MachineTarget("sha256:old"))
 			assert.True(t, errors.Is(err, ErrPeerVersionMismatch), "err = %v", err)
 			assert.Contains(t, err.Error(), wireversion.Protocol, "the message names this build's version")
+			assert.NotContains(t, err.Error(), "peer speaks", "no text written from the other side's perspective")
+			assert.NotContains(t, err.Error(), "this build speaks wire protocol version \"0.", "no echo of a self-perspective sentence")
+			if m.Protocol != "" {
+				assert.Contains(t, err.Error(), m.Protocol, "the device's own version is named when it is known")
+			}
 		})
 	}
 }
