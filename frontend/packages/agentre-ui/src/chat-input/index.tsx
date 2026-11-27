@@ -85,6 +85,11 @@ export type {
 export interface AIChatInputProps {
   onSubmit: (content: string) => void;
   onEmptyChange?: (empty: boolean) => void;
+  /**
+   * 编辑器每次内容变化后回调，带当次的序列化文本（与提交同一份 `extractPlainText`，
+   * 含提及的 XML，**不** trim）。组合输入（IME）进行中的文档变化同样回调。
+   */
+  onTextChange?: (text: string) => void;
   /** 编辑器内容以 ! 开头时进入命令模式,回调通知父组件切换 UI(横幅/按钮)。 */
   onCommandModeChange?: (active: boolean) => void;
   /** 命令模式下按 Enter/Run 时触发；返回实际执行作用域后才写入 Shell 历史。 */
@@ -145,6 +150,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     {
       onSubmit,
       onEmptyChange,
+      onTextChange,
       onCommandModeChange,
       onCommandSubmit,
       sendOnEnter = true,
@@ -176,6 +182,7 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     const sendOnEnterRef = useRef(sendOnEnter);
     const keyboardSubmitRef = useRef(keyboardSubmit);
     const onEmptyChangeRef = useRef(onEmptyChange);
+    const onTextChangeRef = useRef(onTextChange);
     const onAppendEditedRef = useRef(onAppendEdited);
     /** 最近一次追加：追加前的文档与追加后的快照，供 removeLastAppend 还原、比对。 */
     const lastAppendRef = useRef<{ before: JSONContent; after: string } | null>(
@@ -233,6 +240,10 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
     useEffect(() => {
       onEmptyChangeRef.current = onEmptyChange;
     }, [onEmptyChange]);
+
+    useEffect(() => {
+      onTextChangeRef.current = onTextChange;
+    }, [onTextChange]);
 
     useEffect(() => {
       onAppendEditedRef.current = onAppendEdited;
@@ -388,6 +399,9 @@ const AIChatInputComponent = forwardRef<AIChatInputHandle, AIChatInputProps>(
             onCommandModeChangeRef,
           },
           ed,
+        );
+        onTextChangeRef.current?.(
+          extractPlainText(ed.state.doc as unknown as ProseMirrorLikeNode),
         );
         const last = lastAppendRef.current;
         if (last && JSON.stringify(ed.getJSON()) !== last.after) {

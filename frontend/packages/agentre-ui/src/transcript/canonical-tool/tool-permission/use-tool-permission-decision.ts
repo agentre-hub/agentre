@@ -1,10 +1,11 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import type { TranscriptBlockToolPermission } from "../../dto";
 import { useUiTranslation } from "../../../i18n";
 import { failureDetailText } from "../../failure-detail";
 import { useMarkToolPermissionResolved } from "../../live-state";
 import { useTranscriptPorts } from "../../ports-context";
+import { isTimeoutFailure } from "../../../lib/timeout-failure";
 
 import type { CanonicalDTO, ToolPermissionDTO } from "../types";
 
@@ -21,6 +22,8 @@ export function isPendingToolPermission(toolBlock: unknown): boolean {
   const payload = readToolPermission(toolBlock);
   return !!payload?.requestId && !payload.resolved;
 }
+
+type Decision = { allow: boolean; alwaysAllowSession: boolean };
 
 export type ToolPermissionDecisionTarget = {
   toolBlock: unknown;
@@ -46,13 +49,22 @@ export function useToolPermissionDecision({
   // error 是本地化事实句;errorDetail 是机器原话,调用方只把它放进 title。
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | undefined>();
+  // 超时与其他失败分开:宿主据此写「没收到确认,可能已经生效」。
+  const [timedOut, setTimedOut] = useState(false);
+  // 点下的那一档与上一次的决定,给「点下的那颗单独转圈」与「重试」用。
+  const [pending, setPending] = useState<Decision | null>(null);
+  const lastRef = useRef<Decision | null>(null);
 
   const submit = useCallback(
     async (allow: boolean, alwaysAllowSession: boolean) => {
       if (!payload || !payload.requestId || !sessionId) return;
       if (isResolved || submitting) return;
+      const decision = { allow, alwaysAllowSession };
+      lastRef.current = decision;
+      setPending(decision);
       setError(null);
       setErrorDetail(undefined);
+      setTimedOut(false);
       setSubmitting(true);
       const optimistic: TranscriptBlockToolPermission = {
         requestId: payload.requestId,
@@ -90,7 +102,9 @@ export function useToolPermissionDecision({
         });
         setError(t("canonical.toolPermission.submitFailed"));
         setErrorDetail(failureDetailText(err) || undefined);
+        setTimedOut(isTimeoutFailure(err));
       } finally {
+        setPending(null);
         setSubmitting(false);
       }
     },
@@ -106,5 +120,21 @@ export function useToolPermissionDecision({
     ],
   );
 
-  return { payload, isResolved, submitting, error, errorDetail, submit };
+  // retry 重放上一次的决定;没有失败过就什么都不做。
+  const retry = useCallback(() => {
+    const last = lastRef.current;
+    if (last) void submit(last.allow, last.alwaysAllowSession);
+  }, [submit]);
+
+  return {
+    payload,
+    isResolved,
+    submitting,
+    pending,
+    error,
+    errorDetail,
+    timedOut,
+    submit,
+    retry,
+  };
 }

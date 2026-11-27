@@ -193,17 +193,22 @@
       "allowSession": "Always Allow This Session",
       "submitFailed": "Approval submission failed",
       "dock": {
+        "connecting": "Connecting. You can approve once it's connected",
         "eyebrow": "Decision needed",
+        "timedOut": "No confirmation received. It may already have taken effect",
         "titleCommand": "Run this command?",
         "titleTool": "Allow {{tool}}?"
       }
     },
     "userAsk": {
+      "askingTitle": "Agent is asking you",
+      "connecting": "Connecting. You can answer once it's connected",
       "errors": {
         "optionRequired": "Select an option before submitting",
         "otherRequired": "Fill in the custom answer you selected",
         "expired": "This prompt has expired: the session ended or it was superseded by a newer message",
-        "submitFailed": "Couldn't submit"
+        "submitFailed": "Couldn't submit",
+        "timedOut": "No confirmation received. It may already have taken effect"
       },
       "multi": "Multiple",
       "otherPlaceholder": "Custom answer - enter your own response...",

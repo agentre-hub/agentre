@@ -633,6 +633,27 @@ describe("卡片菜单触屏档", () => {
     expect(p.onMove).toHaveBeenCalledWith(6, "review");
   });
 
+  it("Given a stage-layout card, When it is pressed and held, Then the sheet title names the task, not its #N, and truncates on one line", () => {
+    vi.useFakeTimers();
+    render(
+      <IssueBoard
+        viewModel={viewModel()}
+        ports={ports()}
+        nowMs={NOW}
+        layout="stage"
+      />,
+    );
+    const body = screen.getByTestId("board-card-body-1");
+    fireEvent.pointerDown(body, { pointerType: "touch" });
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
+    const title = screen.getByTestId("board-card-sheet-title-1");
+    expect(title.textContent).toMatch(/^Move “.+” to$/);
+    expect(title.textContent).not.toContain("#");
+    expect(title.querySelector(".truncate")).not.toBeNull();
+  });
+
   it("Given the touch sheet, When Edit / Delete are chosen, Then the ports fire", async () => {
     const user = userEvent.setup();
     const p = ports();

@@ -10,6 +10,7 @@ import {
   DialogShellHeader,
 } from "../ui/dialog-shell";
 import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover";
+import { useTouch } from "../ui/touch";
 
 import { BoardFilterChips } from "./filter-chips";
 import { BoardFilterPanel } from "./filter-panel";
@@ -38,6 +39,15 @@ export interface BoardFilterBarProps {
    * `matchedCount`（此刻选择下会看到几条）。不传时与桌面一致。
    */
   sheet?: boolean;
+  /** 搜索框占位（宿主的真实编号不对用户有意义时改成「搜索任务…」）。 */
+  searchPlaceholder?: string;
+  /**
+   * 筛选面板的受控开合：宿主的返回键历史层靠它把已开的面板从外面关掉（传 `false`）。
+   * 不传时自管，与桌面一致。
+   */
+  open?: boolean;
+  /** 面板每次开、合都会回调（含内部点「应用」「✕」触发的合）。 */
+  onOpenChange?: (open: boolean) => void;
   className?: string;
 }
 
@@ -55,11 +65,20 @@ export function BoardFilterBar({
   searching,
   ports,
   onManageLabels,
-  sheet = false,
+  sheet: sheetProp,
+  searchPlaceholder,
+  open: openProp,
+  onOpenChange,
   className,
 }: BoardFilterBarProps) {
   const { t } = useUiTranslation();
-  const [open, setOpen] = React.useState(false);
+  const sheet = useTouch(sheetProp);
+  const [innerOpen, setInnerOpen] = React.useState(false);
+  const open = openProp ?? innerOpen;
+  const setOpen = (next: boolean) => {
+    setInnerOpen(next);
+    onOpenChange?.(next);
+  };
   const state = useBoardQuery(query, ports.onQueryChange);
 
   const trigger = (
@@ -106,6 +125,8 @@ export function BoardFilterBar({
         onChange={state.setKeywordDraft}
         busy={state.pending || searching}
         matchedCount={matchedCount}
+        placeholder={searchPlaceholder}
+        touch={sheet}
       />
       {sheet ? (
         <>

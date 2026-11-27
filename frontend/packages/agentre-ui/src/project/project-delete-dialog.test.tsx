@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TouchProvider } from "../ui/touch";
 import { ProjectDeleteDialog } from "./project-delete-dialog";
 import type { ProjectDeletePorts, ProjectWriteOutcome } from "./ports";
 
@@ -181,5 +182,79 @@ describe("形态与失败", () => {
     const footer = await screen.findByTestId("delete-project-footer");
     expect(footer.textContent).toContain("还有活跃会话，先结束它们");
     expect(onDeleted).not.toHaveBeenCalled();
+  });
+});
+
+describe("F3 触屏档：底部弹层式的纵向按钮", () => {
+  function openTouch() {
+    return render(
+      <TouchProvider>
+        <ProjectDeleteDialog
+          open
+          onOpenChange={() => {}}
+          project={{ id: "p1", name: "Atlas" }}
+          childCount={0}
+          offlineMachines={[]}
+          ports={ports()}
+          onDeleted={() => {}}
+        />
+      </TouchProvider>,
+    );
+  }
+
+  it("删除键在上、取消在下，各占满一行且 44px", () => {
+    openTouch();
+    const footer = screen.getByTestId("delete-project-footer");
+    const buttons = Array.from(footer.querySelectorAll("button"));
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      "Delete project",
+      "Cancel",
+    ]);
+    for (const b of buttons) {
+      expect(b.className).toContain("min-h-11");
+      expect(b.className).toContain("w-full");
+    }
+    expect(buttons[0]).toHaveAttribute("data-testid", "delete-project-submit");
+    expect(
+      footer.querySelector("[data-slot=dialog-shell-footer]")?.className,
+    ).toContain("flex-col");
+  });
+
+  it("失败文案仍显示在按钮上方", async () => {
+    const p = ports({
+      deleteProject: vi.fn(async () => ({
+        ok: false as const,
+        failure: { kind: "unknown" as const, message: "boom" },
+      })),
+    });
+    render(
+      <TouchProvider>
+        <ProjectDeleteDialog
+          open
+          onOpenChange={() => {}}
+          project={{ id: "p1", name: "Atlas" }}
+          childCount={0}
+          offlineMachines={[]}
+          ports={p}
+          onDeleted={() => {}}
+        />
+      </TouchProvider>,
+    );
+    fireEvent.change(screen.getByTestId("delete-project-confirm"), {
+      target: { value: "Atlas" },
+    });
+    fireEvent.click(screen.getByTestId("delete-project-submit"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("boom");
+  });
+
+  it("不开触屏：按钮仍是同一行的小按钮（桌面不变）", () => {
+    open();
+    const footer = screen.getByTestId("delete-project-footer");
+    expect(
+      footer.querySelector("[data-slot=dialog-shell-footer]")?.className,
+    ).not.toContain("flex-col");
+    for (const b of Array.from(footer.querySelectorAll("button"))) {
+      expect(b.className).not.toContain("min-h-11");
+    }
   });
 });

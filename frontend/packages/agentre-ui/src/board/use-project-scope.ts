@@ -28,8 +28,18 @@ export function useProjectScope(
   projects: ScopeProjectNode[],
   scope: ProjectScope,
   onScopeChange: (next: ProjectScope) => void,
+  overlay?: { open?: boolean; onOpenChange?: (open: boolean) => void },
 ): UseProjectScopeResult {
-  const [open, setOpen] = React.useState(false);
+  const [innerOpen, setInnerOpen] = React.useState(false);
+  const open = overlay?.open ?? innerOpen;
+  const onOpenChange = overlay?.onOpenChange;
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      setInnerOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
   const [needle, setNeedle] = React.useState("");
   const [cursor, setCursor] = React.useState(-1);
 
@@ -71,7 +81,7 @@ export function useProjectScope(
         setOpen(false);
       }
     },
-    [cursor, onScopeChange, rows],
+    [cursor, onScopeChange, rows, setOpen],
   );
 
   return {

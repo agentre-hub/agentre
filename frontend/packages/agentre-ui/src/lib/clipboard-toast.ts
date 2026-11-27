@@ -154,14 +154,12 @@ export async function copyTextWithToast(
     toast.success(successTitle, {
       description: successDescription,
       duration: COPY_TOAST_DURATION_MS,
-      position: "bottom-right",
     });
     return true;
   } catch (err) {
     toast.error(errorTitle, {
       description: copyFailureDescription(err),
       duration: COPY_TOAST_ERROR_DURATION_MS,
-      position: "bottom-right",
     });
     return false;
   }

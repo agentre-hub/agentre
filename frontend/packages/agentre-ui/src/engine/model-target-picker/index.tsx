@@ -20,6 +20,9 @@ import * as React from "react";
 import { useUiTranslation as useTranslation } from "../../i18n";
 import { Loader2 } from "lucide-react";
 
+import { Dialog as DialogPrimitive } from "radix-ui";
+
+import { cn } from "../../lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "../../ui/popover";
 
 import {
@@ -100,6 +103,11 @@ export type ModelTargetPickerProps = {
   // compact：表单内嵌（claude tier 路由）用小号触发按钮。
   compact?: boolean;
   align?: "start" | "end";
+  /**
+   * 呈现形态。省略 = 桌面浮层（打开即聚焦搜索框）。`"sheet"` = 触屏的底部 sheet：
+   * 贴底满宽、上圆角、拖动条，打开时**不**聚焦搜索框（键盘不自动弹起），点遮罩 / Esc 关闭。
+   */
+  presentation?: "sheet";
   className?: string;
   title?: string;
   // triggerLabel：覆盖触发按钮主行。chat 场景「未选但 agent 已绑 provider」时显示
@@ -140,6 +148,7 @@ export function ModelTargetPicker({
   footer,
   compact = false,
   align = "start",
+  presentation,
   className,
   title,
   triggerLabel,
@@ -167,29 +176,264 @@ export function ModelTargetPicker({
     specialSublabel,
     onSyncProvider,
     openOnMount,
+    focusSearchOnOpen: presentation !== "sheet",
     t,
   });
   const { compatible, flatOptions, remoteByKey, remoteGated } = picker;
 
   const triggerText = triggerLabel ?? picker.selectedLabel;
 
+  const onEscapeKeyDown = (event: KeyboardEvent) => {
+    if (cliState && picker.search) {
+      event.preventDefault();
+      picker.setSearch("");
+    }
+  };
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (!cliState) return picker.handleKeyDown(event);
+    // CLI 与供应商行共用方向键序列；实际焦点负责 Enter，不借用供应商索引。
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const rows = Array.from(
+        event.currentTarget.querySelectorAll<HTMLButtonElement>(
+          '[role="option"]:not(:disabled):not([aria-disabled="true"])',
+        ),
+      );
+      const index = rows.indexOf(event.target as HTMLButtonElement);
+      const next =
+        index < 0
+          ? event.key === "ArrowDown"
+            ? 0
+            : rows.length - 1
+          : Math.max(
+              0,
+              Math.min(
+                rows.length - 1,
+                index + (event.key === "ArrowDown" ? 1 : -1),
+              ),
+            );
+      rows[next]?.focus();
+      rows[next]?.scrollIntoView({ block: "nearest" });
+    } else if (
+      event.key === "Enter" &&
+      event.target === picker.searchRef.current
+    ) {
+      event.preventDefault();
+      event.currentTarget
+        .querySelector<HTMLButtonElement>(
+          '[role="option"]:not(:disabled):not([aria-disabled="true"])',
+        )
+        ?.click();
+    }
+  };
+
+  const trigger = (
+    <PickerTrigger
+      open={picker.open}
+      disabled={disabled}
+      invalid={invalid}
+      compact={compact}
+      className={className}
+      title={title}
+      testId={testId}
+      ariaLabel={ariaLabel}
+      selectedLabel={picker.selectedLabel}
+      triggerText={triggerText}
+      triggerSub={triggerSub}
+    />
+  );
+  const content = (
+    <>
+      {invalid ? (
+        <InvalidTargetBanner
+          targetLabel={selected ? resolveTargetLabel(selected, catalog) : ""}
+        />
+      ) : null}
+
+      {deviceLabel ? <RemoteDeviceHeader deviceLabel={deviceLabel} /> : null}
+
+      <PickerSearchBox
+        value={picker.search}
+        onChange={(value) => {
+          picker.setSearch(value);
+          picker.setActiveIndex(0);
+        }}
+        onClear={() => picker.setSearch("")}
+        inputRef={picker.searchRef}
+      />
+
+      {/* 330px / 5px = mockup .pop .plistw。 */}
+      <div
+        className="max-h-[330px] overflow-y-auto p-[5px]"
+        role={cliState && scenario === "chat" ? "listbox" : undefined}
+        aria-label={cliState && scenario === "chat" ? ariaLabel : undefined}
+      >
+        {/* 最近使用是最常回头选的，放在最上面，不被特殊项 / CLI 模型列表压下去。 */}
+        {picker.showChips ? (
+          <RecentChipsRow
+            chips={picker.recents}
+            onPick={picker.handlePick}
+            onRemove={picker.handleRemoveRecent}
+          />
+        ) : null}
+        {cliState && scenario === "chat" ? (
+          <CliModelRow
+            icon={specialIcon}
+            label={t("modelTargetPicker.special.chat")}
+            sublabel={specialSublabel}
+            selected={!cliState.choice && isNativeTarget(selected)}
+            onSelect={() => {
+              onChange({ providerKey: "", modelKey: "" });
+              picker.handleOpenChange(false);
+            }}
+          />
+        ) : null}
+        {cliState ? (
+          <CliModelSection
+            withinListbox={scenario === "chat"}
+            backendType={backendType}
+            state={cliState}
+            search={picker.search}
+            onSelect={async (choice) => {
+              const accepted = await cliState.onChange(choice);
+              if (accepted !== false) picker.handleOpenChange(false);
+            }}
+          />
+        ) : null}
+        {loading ? (
+          <div className="flex items-center gap-2 px-2.5 py-3 text-xs text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+            {t("modelTargetPicker.loading")}
+          </div>
+        ) : error ? (
+          <div className="px-2.5 py-3 text-xs text-destructive-text">
+            {errorText ?? t("modelTargetPicker.error")}
+          </div>
+        ) : !cliState && catalog.length === 0 && isNativeTarget(selected) ? (
+          <div className="px-2.5 py-3 text-xs text-muted-foreground">
+            {t("modelTargetPicker.empty")}
+          </div>
+        ) : (cliState || catalog.length > 0) && compatible.length === 0 ? (
+          <div className="px-2.5 py-3 text-xs text-muted-foreground">
+            {t("modelTargetPicker.noCompatibleProviders")}
+            {emptyProviderAction}
+          </div>
+        ) : null}
+
+        {!loading && !error && flatOptions.length > 0 ? (
+          <PickerOptionList
+            withinListbox={Boolean(cliState) && scenario === "chat"}
+            listRef={picker.listRef}
+            ariaLabel={ariaLabel}
+            options={flatOptions}
+            activeIndex={picker.activeIndex}
+            selected={selected}
+            scenario={scenario}
+            SpecialIcon={picker.SpecialIcon}
+            syncAnchorByProvider={picker.syncAnchorByProvider}
+            compatible={compatible}
+            // `remoteGated` 为真即蕴含 remoteByKey 非空；写成可选链只是因为
+            // 别名收窄跨不进这个闭包。
+            isProviderOnDevice={(providerKey) =>
+              remoteGated && !!remoteByKey?.has(providerKey)
+            }
+            onSyncProvider={onSyncProvider}
+            onActivate={picker.setActiveIndex}
+            onSelect={picker.handlePick}
+          />
+        ) : null}
+      </div>
+
+      {switchError ? (
+        <div
+          role="alert"
+          className="px-2.5 py-[7px] text-2xs text-destructive-text"
+        >
+          {switchError}
+        </div>
+      ) : null}
+
+      {/* 灰色项的原因每一行自己已经写了，底部不再总述一遍；这里只承诺同步的后果
+          （mockup 远端弹层的 foot 也只有这一句）。 */}
+      {remoteGated &&
+      onSyncProvider &&
+      picker.catalogOptions.some((o) => o.disabledHint) ? (
+        <PickerNote>{t("modelTargetPicker.syncFootnote")}</PickerNote>
+      ) : null}
+      {remoteMissing ? (
+        <PickerNote>{t("modelTargetPicker.remoteMissing")}</PickerNote>
+      ) : null}
+      {scenario === "chat" && cliState?.switchError ? (
+        <PickerNote>
+          {t("modelTargetPicker.cli.switchFailed", {
+            error: cliState.switchError,
+          })}
+        </PickerNote>
+      ) : null}
+      {scenario === "chat" && cliState?.pending ? (
+        <PickerNote>
+          {t("modelTargetPicker.cli.pendingNote", {
+            current:
+              cliState.pending.currentLabel ||
+              t("modelTargetPicker.cli.decides"),
+            next:
+              cliState.pending.nextLabel ||
+              t(
+                cliState.pending.nextMode === "follow-agent"
+                  ? "modelTargetPicker.special.chat"
+                  : "modelTargetPicker.cli.followDefault",
+              ),
+          })}
+        </PickerNote>
+      ) : null}
+      {footer ? <PickerNote>{footer}</PickerNote> : null}
+    </>
+  );
+
+  if (presentation === "sheet") {
+    return (
+      <DialogPrimitive.Root
+        open={picker.open}
+        onOpenChange={picker.handleOpenChange}
+      >
+        <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay
+            data-slot="model-target-sheet-overlay"
+            className="fixed inset-0 z-50 bg-scrim motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:fade-in-0 motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:fade-out-0"
+          />
+          <DialogPrimitive.Content
+            data-testid="model-target-sheet"
+            aria-describedby={undefined}
+            // 不聚焦搜索框（也不聚焦任何输入）：键盘一升起就盖住列表。
+            onOpenAutoFocus={(event) => event.preventDefault()}
+            onEscapeKeyDown={onEscapeKeyDown}
+            onKeyDown={onKeyDown}
+            className={cn(
+              // 贴底 sheet：满宽、上圆角、最高 85dvh，只有列表滚。
+              "fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col overflow-hidden rounded-t-2xl bg-popover pb-[env(safe-area-inset-bottom)] text-popover-foreground shadow-overlay outline-none",
+              "motion-safe:data-[state=open]:animate-in motion-safe:data-[state=open]:slide-in-from-bottom motion-safe:data-[state=closed]:animate-out motion-safe:data-[state=closed]:slide-out-to-bottom",
+            )}
+          >
+            <div
+              aria-hidden="true"
+              className="flex shrink-0 justify-center pt-2"
+            >
+              <span className="h-1 w-9 rounded-full bg-border-strong" />
+            </div>
+            <DialogPrimitive.Title className="shrink-0 px-4 pt-2 pb-1 text-sm font-semibold text-foreground">
+              {t("modelTargetPicker.sheet.title")}
+            </DialogPrimitive.Title>
+            {content}
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
+    );
+  }
+
   return (
     <Popover open={picker.open} onOpenChange={picker.handleOpenChange}>
-      <PopoverTrigger asChild>
-        <PickerTrigger
-          open={picker.open}
-          disabled={disabled}
-          invalid={invalid}
-          compact={compact}
-          className={className}
-          title={title}
-          testId={testId}
-          ariaLabel={ariaLabel}
-          selectedLabel={picker.selectedLabel}
-          triggerText={triggerText}
-          triggerSub={triggerSub}
-        />
-      </PopoverTrigger>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align={align}
         side="bottom"
@@ -199,193 +443,10 @@ export function ModelTargetPicker({
         // 让搜索区与 foot 的分隔线贴着圆角收口。min(...) 在极窄视口兜底收缩，
         // 不会把弹层推出屏幕（860×640 最小窗口下恒等于 348px）。
         className="w-[min(348px,calc(100vw-2rem))] overflow-hidden rounded-[10px] p-0"
-        onEscapeKeyDown={(event) => {
-          if (cliState && picker.search) {
-            event.preventDefault();
-            picker.setSearch("");
-          }
-        }}
-        onKeyDown={(event) => {
-          if (!cliState) return picker.handleKeyDown(event);
-          // CLI 与供应商行共用方向键序列；实际焦点负责 Enter，不借用供应商索引。
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-            event.preventDefault();
-            const rows = Array.from(
-              event.currentTarget.querySelectorAll<HTMLButtonElement>(
-                '[role="option"]:not(:disabled):not([aria-disabled="true"])',
-              ),
-            );
-            const index = rows.indexOf(event.target as HTMLButtonElement);
-            const next =
-              index < 0
-                ? event.key === "ArrowDown"
-                  ? 0
-                  : rows.length - 1
-                : Math.max(
-                    0,
-                    Math.min(
-                      rows.length - 1,
-                      index + (event.key === "ArrowDown" ? 1 : -1),
-                    ),
-                  );
-            rows[next]?.focus();
-            rows[next]?.scrollIntoView({ block: "nearest" });
-          } else if (
-            event.key === "Enter" &&
-            event.target === picker.searchRef.current
-          ) {
-            event.preventDefault();
-            event.currentTarget
-              .querySelector<HTMLButtonElement>(
-                '[role="option"]:not(:disabled):not([aria-disabled="true"])',
-              )
-              ?.click();
-          }
-        }}
+        onEscapeKeyDown={onEscapeKeyDown}
+        onKeyDown={onKeyDown}
       >
-        {invalid ? (
-          <InvalidTargetBanner
-            targetLabel={selected ? resolveTargetLabel(selected, catalog) : ""}
-          />
-        ) : null}
-
-        {deviceLabel ? <RemoteDeviceHeader deviceLabel={deviceLabel} /> : null}
-
-        <PickerSearchBox
-          value={picker.search}
-          onChange={(value) => {
-            picker.setSearch(value);
-            picker.setActiveIndex(0);
-          }}
-          onClear={() => picker.setSearch("")}
-          inputRef={picker.searchRef}
-        />
-
-        {/* 330px / 5px = mockup .pop .plistw。 */}
-        <div
-          className="max-h-[330px] overflow-y-auto p-[5px]"
-          role={cliState && scenario === "chat" ? "listbox" : undefined}
-          aria-label={cliState && scenario === "chat" ? ariaLabel : undefined}
-        >
-          {/* 最近使用是最常回头选的，放在最上面，不被特殊项 / CLI 模型列表压下去。 */}
-          {picker.showChips ? (
-            <RecentChipsRow
-              chips={picker.recents}
-              onPick={picker.handlePick}
-              onRemove={picker.handleRemoveRecent}
-            />
-          ) : null}
-          {cliState && scenario === "chat" ? (
-            <CliModelRow
-              icon={specialIcon}
-              label={t("modelTargetPicker.special.chat")}
-              sublabel={specialSublabel}
-              selected={!cliState.choice && isNativeTarget(selected)}
-              onSelect={() => {
-                onChange({ providerKey: "", modelKey: "" });
-                picker.handleOpenChange(false);
-              }}
-            />
-          ) : null}
-          {cliState ? (
-            <CliModelSection
-              withinListbox={scenario === "chat"}
-              backendType={backendType}
-              state={cliState}
-              search={picker.search}
-              onSelect={async (choice) => {
-                const accepted = await cliState.onChange(choice);
-                if (accepted !== false) picker.handleOpenChange(false);
-              }}
-            />
-          ) : null}
-          {loading ? (
-            <div className="flex items-center gap-2 px-2.5 py-3 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-              {t("modelTargetPicker.loading")}
-            </div>
-          ) : error ? (
-            <div className="px-2.5 py-3 text-xs text-destructive-text">
-              {errorText ?? t("modelTargetPicker.error")}
-            </div>
-          ) : !cliState && catalog.length === 0 && isNativeTarget(selected) ? (
-            <div className="px-2.5 py-3 text-xs text-muted-foreground">
-              {t("modelTargetPicker.empty")}
-            </div>
-          ) : (cliState || catalog.length > 0) && compatible.length === 0 ? (
-            <div className="px-2.5 py-3 text-xs text-muted-foreground">
-              {t("modelTargetPicker.noCompatibleProviders")}
-              {emptyProviderAction}
-            </div>
-          ) : null}
-
-          {!loading && !error && flatOptions.length > 0 ? (
-            <PickerOptionList
-              withinListbox={Boolean(cliState) && scenario === "chat"}
-              listRef={picker.listRef}
-              ariaLabel={ariaLabel}
-              options={flatOptions}
-              activeIndex={picker.activeIndex}
-              selected={selected}
-              scenario={scenario}
-              SpecialIcon={picker.SpecialIcon}
-              syncAnchorByProvider={picker.syncAnchorByProvider}
-              compatible={compatible}
-              // `remoteGated` 为真即蕴含 remoteByKey 非空；写成可选链只是因为
-              // 别名收窄跨不进这个闭包。
-              isProviderOnDevice={(providerKey) =>
-                remoteGated && !!remoteByKey?.has(providerKey)
-              }
-              onSyncProvider={onSyncProvider}
-              onActivate={picker.setActiveIndex}
-              onSelect={picker.handlePick}
-            />
-          ) : null}
-        </div>
-
-        {switchError ? (
-          <div
-            role="alert"
-            className="px-2.5 py-[7px] text-2xs text-destructive-text"
-          >
-            {switchError}
-          </div>
-        ) : null}
-
-        {/* 灰色项的原因每一行自己已经写了，底部不再总述一遍；这里只承诺同步的后果
-            （mockup 远端弹层的 foot 也只有这一句）。 */}
-        {remoteGated &&
-        onSyncProvider &&
-        picker.catalogOptions.some((o) => o.disabledHint) ? (
-          <PickerNote>{t("modelTargetPicker.syncFootnote")}</PickerNote>
-        ) : null}
-        {remoteMissing ? (
-          <PickerNote>{t("modelTargetPicker.remoteMissing")}</PickerNote>
-        ) : null}
-        {scenario === "chat" && cliState?.switchError ? (
-          <PickerNote>
-            {t("modelTargetPicker.cli.switchFailed", {
-              error: cliState.switchError,
-            })}
-          </PickerNote>
-        ) : null}
-        {scenario === "chat" && cliState?.pending ? (
-          <PickerNote>
-            {t("modelTargetPicker.cli.pendingNote", {
-              current:
-                cliState.pending.currentLabel ||
-                t("modelTargetPicker.cli.decides"),
-              next:
-                cliState.pending.nextLabel ||
-                t(
-                  cliState.pending.nextMode === "follow-agent"
-                    ? "modelTargetPicker.special.chat"
-                    : "modelTargetPicker.cli.followDefault",
-                ),
-            })}
-          </PickerNote>
-        ) : null}
-        {footer ? <PickerNote>{footer}</PickerNote> : null}
+        {content}
       </PopoverContent>
     </Popover>
   );

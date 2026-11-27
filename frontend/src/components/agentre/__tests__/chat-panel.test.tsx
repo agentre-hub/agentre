@@ -4708,7 +4708,6 @@ describe("ChatPanel · launch command copy feedback", () => {
       expect.objectContaining({
         description: expect.stringContaining("Includes a token"),
         duration: 5000,
-        position: "bottom-right",
       }),
     );
     expect(

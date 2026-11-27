@@ -50,6 +50,7 @@ import {
   type CliModelCatalog,
   type CliModelPickerState,
 } from "./model-target-picker/cli-models";
+import { useTouch } from "../ui/touch";
 import { ModelTargetPicker, type PickerProvider } from "./model-target-picker";
 import type { HermesAuthProviderView } from "./ports";
 
@@ -1021,6 +1022,7 @@ export function ReasoningEffortField({
   onChange: (v: ReasoningEffortValue) => void;
 }) {
   const { t } = useTranslation();
+  const touch = useTouch();
   const options = REASONING_EFFORTS_FULL;
   return (
     <div className="flex flex-col gap-1.5 text-xs">
@@ -1028,9 +1030,11 @@ export function ReasoningEffortField({
         <span className="font-medium">
           {t("agentBackends.reasoning.label")}
         </span>
-        <span className="font-mono text-2xs text-muted-foreground">
-          reasoning_effort
-        </span>
+        {touch ? null : (
+          <span className="font-mono text-2xs text-muted-foreground">
+            reasoning_effort
+          </span>
+        )}
       </div>
       <Select
         value={value === "" ? "default" : value}
@@ -1104,6 +1108,7 @@ export function DefaultPermissionModeField({
   addIsSandboxError?: string;
 }) {
   const { t } = useTranslation();
+  const touch = useTouch(stacked || undefined);
   const isBypass = value === "bypassPermissions";
   const showRootHint = isBypass && isRemote;
   return (
@@ -1131,9 +1136,15 @@ export function DefaultPermissionModeField({
             ) : null}
             {t("agentBackends.permission.label")}
           </span>
-          <span className="font-mono text-2xs text-muted-foreground">
-            {t("agentBackends.permission.hint")}
-          </span>
+          {touch ? (
+            <span className="text-2xs text-muted-foreground">
+              {t("agentBackends.permission.hintHuman")}
+            </span>
+          ) : (
+            <span className="font-mono text-2xs text-muted-foreground">
+              {t("agentBackends.permission.hint")}
+            </span>
+          )}
         </div>
         <Select
           value={value === "" ? "__inherit__" : value}

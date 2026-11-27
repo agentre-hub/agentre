@@ -193,17 +193,22 @@
       "allowSession": "本会话始终允许",
       "submitFailed": "审批提交失败",
       "dock": {
+        "connecting": "正在连接，连上后才能审批",
         "eyebrow": "需要你决定",
+        "timedOut": "没收到确认，可能已经生效",
         "titleCommand": "运行这条命令？",
         "titleTool": "允许使用 {{tool}}？"
       }
     },
     "userAsk": {
+      "askingTitle": "Agent 在问你",
+      "connecting": "正在连接，连上后才能回答",
       "errors": {
         "optionRequired": "请先选择一个选项再提交",
         "otherRequired": "已选「自定义答案」请填写内容",
         "expired": "提问已失效：会话已结束或已被新消息跳过",
-        "submitFailed": "没提交成功"
+        "submitFailed": "没提交成功",
+        "timedOut": "没收到确认，可能已经生效"
       },
       "multi": "多选",
       "otherPlaceholder": "自定义答案 — 输入你自己的方案…",

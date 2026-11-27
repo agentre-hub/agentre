@@ -3,6 +3,7 @@ import type * as React from "react";
 import { useUiTranslation } from "../i18n";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
+import { useTouch } from "../ui/touch";
 import {
   IdentityMarkPicker,
   type IdentityMarkPickerProps,
@@ -23,6 +24,8 @@ export interface IdentityFieldsProps {
   nameError?: string | null;
   autoFocusName?: boolean;
   testIdPrefix: string;
+  /** 触屏档：描述输入 16px（iOS 聚焦 < 16px 会放大整页）。不传时跟 TouchProvider，再不然保持桌面的 12px。 */
+  touch?: boolean;
 }
 
 /** 只上报变更；失焦提交、自动保存或创建时提交由宿主决定。 */
@@ -39,8 +42,10 @@ export function IdentityFields({
   nameError,
   autoFocusName,
   testIdPrefix,
+  touch: touchProp,
 }: IdentityFieldsProps) {
   const { t } = useUiTranslation();
+  const touch = useTouch(touchProp);
   const errorId = `${testIdPrefix}-name-error`;
 
   return (
@@ -80,7 +85,7 @@ export function IdentityFields({
           onBlur={onDescriptionBlur}
           // 描述保持 12px（2026-11-20 定稿）：主屏幕 App 已整体禁止缩放兜住聚焦放大，
           // 放大到 16px 只会让描述显得突兀；Safari 标签页里点它仍会放大一下，可接受。
-          className="min-h-[52px] text-xs"
+          className={touch ? "min-h-[52px] text-base" : "min-h-[52px] text-xs"}
         />
       </div>
     </div>

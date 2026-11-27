@@ -34,6 +34,12 @@ export type ChatImageAttachment = {
   name: string;
 };
 
+/** 输入框此刻的草稿：文字与 `onSubmit` 同一份序列化（未 trim），附件与提交时同一份。 */
+export type ChatComposerDraft = {
+  text: string;
+  images: ChatImageAttachment[];
+};
+
 export type ChatComposerSubmit = {
   images?: ChatImageAttachment[];
   text: string;
@@ -80,6 +86,12 @@ export type ChatComposerProps = Omit<
   | "keyboardSubmit"
 > & {
   onSubmit: (message: ChatComposerSubmit) => void;
+  /**
+   * 文字或附件每次变化后回调当前草稿，供宿主持久化；`restoreDraft(text, images)` 用
+   * 最近一次的值可原样还原。提交时先 `onSubmit`，随后才回调清空后的草稿（不会把刚发出
+   * 的内容再报一遍）；编辑既有消息期间不回调，退出编辑时补报一次。
+   */
+  onDraftChange?: (draft: ChatComposerDraft) => void;
   supportsImageInput?: boolean;
   inputHandleRef?: React.RefObject<AIChatInputHandle | null>;
   sendButtonTestId?: string;
@@ -127,6 +139,11 @@ export type ChatComposerProps = Omit<
    * Esc 停止照旧。省略时与桌面端一致。
    */
   inputMode?: "touch";
+  /**
+   * 输入区的最大高度（px）。省略 = 沿用编辑器默认的 25vh。软键盘升起时可视区只剩一小块，
+   * 宿主按可视视口算出约 1/3 传进来，长草稿就不会把转录挤没。
+   */
+  maxHeight?: number;
 };
 
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp";
@@ -239,6 +256,7 @@ export const ChatComposer = React.forwardRef<
     topSlot,
     shortcutsHint,
     onSubmit,
+    onDraftChange,
     supportsImageInput = true,
     sendButtonTestId,
     inputHandleRef,
@@ -255,6 +273,7 @@ export const ChatComposer = React.forwardRef<
     dropZone,
     onPasteCapture,
     inputMode,
+    maxHeight,
     ...inputProps
   },
   ref,
@@ -266,6 +285,19 @@ export const ChatComposer = React.forwardRef<
   const formRef = React.useRef<HTMLFormElement>(null);
   const [empty, setEmpty] = React.useState(true);
   const [images, setImages] = React.useState<ChatImageAttachment[]>([]);
+  // 草稿上报：文字来自编辑器、附件来自 state，两份各存一个 ref，任何一边变了都按
+  // 两者此刻的值上报一次；与上次上报相同的不重复报。命令式入口（clear / restore /
+  // submit）要在触发编辑器更新**之前**先把附件 ref 改好，否则会报出文字新、附件旧的中间态。
+  const draftTextRef = React.useRef("");
+  const draftImagesRef = React.useRef<ChatImageAttachment[]>([]);
+  const reportedDraftRef = React.useRef<ChatComposerDraft>({
+    text: "",
+    images: [],
+  });
+  const onDraftChangeRef = React.useRef(onDraftChange);
+  React.useEffect(() => {
+    onDraftChangeRef.current = onDraftChange;
+  }, [onDraftChange]);
   // 从哪张附件点开的查看器（null = 没开）。按附件本身记而不是按下标：遮罩挡住了输入框，
   // 但宿主仍可能换掉附件（clearDraft / restoreDraft / 换成不收图的 agent），那张附件
   // 不在了查看器就跟着关，之后再加进来的附件也不会让它自己弹开。
@@ -292,15 +324,45 @@ export const ChatComposer = React.forwardRef<
   }, [editing]);
   const deferredAppendsRef = React.useRef<string[]>([]);
 
+  const reportDraft = React.useCallback(() => {
+    const report = onDraftChangeRef.current;
+    if (!report || editingRef.current) return;
+    const text = draftTextRef.current;
+    const current = draftImagesRef.current;
+    const prev = reportedDraftRef.current;
+    if (
+      prev.text === text &&
+      prev.images.length === current.length &&
+      prev.images.every((image, i) => image === current[i])
+    ) {
+      return;
+    }
+    reportedDraftRef.current = { text, images: current };
+    report({ text, images: current });
+  }, []);
+  const handleTextChange = React.useCallback(
+    (text: string) => {
+      draftTextRef.current = text;
+      reportDraft();
+    },
+    [reportDraft],
+  );
+  React.useEffect(() => {
+    draftImagesRef.current = images;
+    reportDraft();
+  }, [images, reportDraft]);
+
   React.useImperativeHandle(
     ref,
     () => ({
       clearDraft: () => {
+        draftImagesRef.current = [];
         inputRef.current?.clear();
         setImages([]);
         setImageError("");
       },
       restoreDraft: (text: string, restoreImages: ChatImageAttachment[]) => {
+        draftImagesRef.current = restoreImages;
         inputRef.current?.loadDraft(text);
         setImages(restoreImages);
         setImageError("");
@@ -334,9 +396,10 @@ export const ChatComposer = React.forwardRef<
       deferredAppendsRef.current = [];
       for (const text of deferred) inputRef.current?.appendDraft(text);
       editingRef.current = false;
+      reportDraft();
     }
     wasEditingRef.current = editing;
-  }, [editing, editDraft, inputRef]);
+  }, [editing, editDraft, inputRef, reportDraft]);
 
   const wasAutoFocusRef = React.useRef(autoFocusOnMount);
   React.useEffect(() => {
@@ -446,6 +509,7 @@ export const ChatComposer = React.forwardRef<
       const body = text.trim();
       if (!body && images.length === 0) return;
       onSubmit(images.length ? { images, text: body } : { text: body });
+      draftImagesRef.current = [];
       setImages([]);
       setImageError("");
     },
@@ -575,7 +639,19 @@ export const ChatComposer = React.forwardRef<
   const input = (
     <AIChatInput
       {...inputProps}
+      // 触屏占位是短句：一行宽度有限，长的能力提示（@ / ! 教学）会被截断。宿主显式传的照旧。
+      placeholder={
+        inputProps.placeholder ??
+        (touch ? t("chatComposer.touch.placeholder") : undefined)
+      }
       ref={inputRef}
+      // 上限走 CSS 变量（Tailwind 看不到运行时拼出来的数值类）；类名放在编辑器本体上，
+      // 与它默认的 max-h-[25vh] 冲突时后者让位。
+      className={
+        maxHeight !== undefined
+          ? "max-h-[var(--chat-composer-max-h)]"
+          : undefined
+      }
       // 挂载即聚焦走 TipTap 自己的 autofocus:它会等 view 附加到 DOM 之后再
       // focus,绕开 mount 时 view 还没挂上的时序问题。下面那个 effect 只管
       // 「挂载之后才被打开」这一档(宿主从 false 翻成 true),两条路都要有。
@@ -583,6 +659,7 @@ export const ChatComposer = React.forwardRef<
       disabled={disabled}
       keyboardSubmit={!touch}
       onEmptyChange={setEmpty}
+      onTextChange={handleTextChange}
       onEscape={handleEditorEscape}
       onCommandModeChange={handleCommandModeChange}
       onSubmit={submit}
@@ -605,6 +682,13 @@ export const ChatComposer = React.forwardRef<
         className,
       )}
       data-shape={touch ? (pill ? "pill" : "card") : undefined}
+      style={
+        maxHeight !== undefined
+          ? ({
+              "--chat-composer-max-h": `${maxHeight}px`,
+            } as React.CSSProperties)
+          : undefined
+      }
       onSubmit={handleFormSubmit}
       onKeyDown={handleFormKeyDown}
       onPasteCapture={handlePasteCapture}
