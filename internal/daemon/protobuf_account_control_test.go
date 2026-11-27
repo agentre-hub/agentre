@@ -178,7 +178,13 @@ func cliIntrospection() map[string]any {
 }
 
 func accountClient(d *Daemon, credential string) *ctlaccount.Client {
-	return ctlaccount.New(ctlaccount.Options{Peer: selfPeer{d: d, credential: credential}, Catalog: emptyCatalog{}})
+	return accountClientOn(d, credential, nil, emptyCatalog{})
+}
+
+// accountClientOn is agrctl's account client onto the real agentred under
+// credential, with the account server srv and the account's resources cat.
+func accountClientOn(d *Daemon, credential string, srv ctlaccount.Server, cat ctlaccount.Catalog) *ctlaccount.Client {
+	return ctlaccount.New(ctlaccount.Options{Server: srv, Peer: selfPeer{d: d, credential: credential}, Catalog: cat})
 }
 
 // openAs opens one account connection to the real agentred under credential.

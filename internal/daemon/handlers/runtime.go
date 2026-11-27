@@ -190,8 +190,9 @@ type runtimeSession struct {
 //
 // 它有自己的锁、不归 h.mu:RuntimeHandlers 是 per-connection 的,停止常常落在**另一条**
 // 连接上(agrctl 每条命令一条新连接、控制台的中继通道、承载 send 的连接断开后停子会话),
-// 那条连接的 handler 手里只有 attach 放进来的占位行,经 liveTurnStops 找到的是这一轮自己
-// 的记号,而这一轮的 fanout 跑在发起它的那条连接的 handler 上。
+// 那条连接的 handler 手里只有 attach 放进来的占位行,而这一轮的 fanout 跑在发起它的那条
+// 连接的 handler 上。abort 因此一律经 liveTurnStops 找记号 —— 同一条连接手里的属主也可能
+// 是刚收场、正把会话交给续跑那一轮的上一轮。
 type turnStop struct {
 	mu        sync.Mutex
 	inFlight  int
@@ -242,6 +243,21 @@ func (t *turnStopTable) open(sid int64) *turnStop {
 	return s
 }
 
+// succeed 在 sid 上正常收场的那一轮(prev)之后为 agentred 续跑的下一轮登记记号:prev 已经
+// 被要求停止时交回 false —— 停止就是「别再往下跑」,不续。判定与登记在同一把锁里,与
+// begin 互斥:此后到达的 abort 记到下一轮身上,此前到达的让 prev 带着停止记号、不再续跑,
+// 中间没有一次 abort 落在谁都不看的记号上。
+func (t *turnStopTable) succeed(sid int64, prev *turnStop) (*turnStop, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if prev.requested() {
+		return nil, false
+	}
+	next := &turnStop{}
+	t.live[sid] = next
+	return next, true
+}
+
 // close 撤下 sid 上这一轮的记号;已经被下一轮顶掉的不动。
 func (t *turnStopTable) close(sid int64, s *turnStop) {
 	if s == nil {
@@ -254,16 +270,23 @@ func (t *turnStopTable) close(sid int64, s *turnStop) {
 	t.mu.Unlock()
 }
 
-func (t *turnStopTable) lookup(sid int64) *turnStop {
+// begin 把一次 abort 记到 sid 上正在跑的那一轮身上(在下发中断之前),交回它的记号;
+// 没有在跑的一轮时交回一枚谁都不看的记号 —— 交给 backend 去判。
+func (t *turnStopTable) begin(sid int64) *turnStop {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.live[sid]
+	s := t.live[sid]
+	if s == nil {
+		s = &turnStop{}
+	}
+	s.begin()
+	return s
 }
 
-// newTurnOwner 是 sid 上真开起来的一轮(非 Pi)的属主:streaming 在登记那一刻就置上(见
-// Run),停止记号随它登记进 liveTurnStops。
-func newTurnOwner(sid int64, bt agent_backend_entity.BackendType) *runtimeSession {
-	return &runtimeSession{backendType: bt, streaming: true, stop: liveTurnStops.open(sid)}
+// newTurnOwner 是真开起来的一轮(非 Pi)的属主:streaming 在登记那一刻就置上(见 Run),
+// stop 是已经登记进 liveTurnStops 的这一轮的停止记号。
+func newTurnOwner(bt agent_backend_entity.BackendType, stop *turnStop) *runtimeSession {
+	return &runtimeSession{backendType: bt, streaming: true, stop: stop}
 }
 
 const (
@@ -676,7 +699,7 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 	}
 	// streaming 在**登记那一刻**就置上,不等下面那句 go h.fanout:登记与起 fanout
 	// 之间落进来的一次 attach 同样顶得掉它,而那一轮的事件已经在路上了。
-	owner := newTurnOwner(em.rid, bt)
+	owner := newTurnOwner(bt, liveTurnStops.open(em.rid))
 	h.register(em.rid, owner)
 	ack := &agentrewire.RuntimeRunResponse{ConversationId: request.GetConversationId()}
 	if providerFallbackKey != "" {
@@ -1065,7 +1088,6 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 	}
 	frame := runResultToFrame(cid, result)
 	h.markAbortedStop(owner, &frame)
-	liveTurnStops.close(rid, owner.stop)
 	meter.stamp(&frame)
 	if owner.backendType != agent_backend_entity.TypePiAgent || owner.ctx == nil {
 		// 生命周期落回 idle 必须在终态帧**之前**:终态帧是客户端得知这一轮结束的那一刻,
@@ -1079,8 +1101,8 @@ func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <
 		// 残留插话要在落行**之前**取:取到了,下一轮就已经占住这条会话,行不落回 idle ——
 		// 否则「落回 idle」与「下一轮开起来」之间进来的 runtime.run 会被放行,同一条会话
 		// 上又塞进一轮。
-		leftover := h.takeLeftoverSteers(em, origin, frame)
-		next := h.openSteerReplay(em, origin, result, leftover)
+		leftover, next := h.replayLeftoverSteers(em, origin, owner, result, frame)
+		liveTurnStops.close(rid, owner.stop)
 		if next == nil {
 			h.settleSession(em, frame)
 		}
@@ -1172,15 +1194,32 @@ type steerReplay struct {
 	source transcript.UserSource
 }
 
-// takeLeftoverSteers 在一轮正常收尾时取走 backend 里还没送进去的插话,按原顺序交回,
-// 每条盖上提交方来源(R17,与实时消费那一路同一张映射表)。
+// replayLeftoverSteers 在一轮收尾时取走残留插话并把它们续成下一轮(见 openSteerReplay),
+// 交回取走的插话与开起来的下一轮(没开起来为 nil)。
 //
-// 只在这一轮**正常**收尾时取:故障或用户停止之后替用户续跑,等于无视那次停止(与桌面端
-// 「abort 路径跳过自动接续」同一条)。插话留在 backend 里,下一轮照常带上。
-func (h *RuntimeHandlers) takeLeftoverSteers(em *sessionEmitter, origin *turnOrigin, frame wire.RunResultDoneFrame) []agentruntime.ConsumedSteer {
+// 只在这一轮**正常**收尾、且没有被要求停止时续:故障或用户停止之后替用户续跑,等于无视
+// 那次停止(与桌面端「abort 路径跳过自动接续」同一条)—— 软中断未必以错误收场,停止请求
+// 本身就算数。插话留在 backend 里,下一轮照常带上。下一轮的停止记号在取插话之前就登记好
+// (succeed),续跑那一轮开起来的途中到达的 abort 记在它身上。
+func (h *RuntimeHandlers) replayLeftoverSteers(em *sessionEmitter, origin *turnOrigin, owner *runtimeSession, result *agentruntime.RunResult, frame wire.RunResultDoneFrame) ([]agentruntime.ConsumedSteer, *steerReplay) {
 	if origin == nil || frame.StopErrMsg != "" {
-		return nil
+		return nil, nil
 	}
+	stop, ok := liveTurnStops.succeed(em.rid, owner.stop)
+	if !ok {
+		return nil, nil
+	}
+	leftover := h.takeLeftoverSteers(em, origin)
+	next := h.openSteerReplay(em, origin, result, leftover, stop)
+	if next == nil {
+		liveTurnStops.close(em.rid, stop)
+	}
+	return leftover, next
+}
+
+// takeLeftoverSteers 取走 backend 里还没送进去的插话,按原顺序交回,每条盖上提交方来源
+// (R17,与实时消费那一路同一张映射表)。
+func (h *RuntimeHandlers) takeLeftoverSteers(em *sessionEmitter, origin *turnOrigin) []agentruntime.ConsumedSteer {
 	drainer, ok := origin.rt.(agentruntime.SteerDrainer)
 	if !ok {
 		return nil
@@ -1203,7 +1242,7 @@ func (h *RuntimeHandlers) takeLeftoverSteers(em *sessionEmitter, origin *turnOri
 //
 // 下一轮从这一轮的请求派生:同一个 backend、供应商、工作目录与会话级 token,续用这一轮
 // backend 确认的会话身份;附件、历史、压缩、分叉锚点都只属于开这一轮的那条消息。
-func (h *RuntimeHandlers) openSteerReplay(em *sessionEmitter, origin *turnOrigin, result *agentruntime.RunResult, steers []agentruntime.ConsumedSteer) *steerReplay {
+func (h *RuntimeHandlers) openSteerReplay(em *sessionEmitter, origin *turnOrigin, result *agentruntime.RunResult, steers []agentruntime.ConsumedSteer, stop *turnStop) *steerReplay {
 	if len(steers) == 0 {
 		return nil
 	}
@@ -1229,7 +1268,7 @@ func (h *RuntimeHandlers) openSteerReplay(em *sessionEmitter, origin *turnOrigin
 		zap.Int("steerCount", len(steers)))
 	replay := &steerReplay{
 		origin: &turnOrigin{rt: origin.rt, req: req, replay: true},
-		owner:  newTurnOwner(em.rid, agent_backend_entity.BackendType(req.Backend.Type)),
+		owner:  newTurnOwner(agent_backend_entity.BackendType(req.Backend.Type), stop),
 		events: events,
 		result: nextResult,
 	}
@@ -1751,17 +1790,10 @@ func (h *RuntimeHandlers) Abort(ctx context.Context, req *agentrewire.RuntimeAbo
 	// 「这一轮被要求停止」在下发中断**之前**记下(与桌面端 takeActiveTurn 先记 aborted 同序):
 	// backend 的收尾帧与中断回执没有先后保证,等回执回来再补就会把抢先到的收尾记成故障。
 	//
-	// 这条连接手里若只是 attach 放进来的占位行,这一轮跑在别的连接的 handler 上:记号记到
-	// 那一轮自己身上(liveTurnStops),否则那边的 fanout 看不见这次停止,把软中断记成故障。
-	stop := owner.stop
+	// 记号记到正在跑的那一轮自己身上(liveTurnStops,见 turnStop):这条连接手里可能只是
+	// attach 放进来的占位行,也可能是刚收场、正交棒给续跑那一轮的上一轮。
 	h.mu.Unlock()
-	if stop == nil {
-		stop = liveTurnStops.lookup(rid)
-	}
-	if stop == nil {
-		stop = &turnStop{} // 没有在跑的一轮可记:交给 backend 去判
-	}
-	stop.begin()
+	stop := liveTurnStops.begin(rid)
 	outcome, err := h.abortNonPi(ctx, req)
 	// 中断没下发下去,或 backend 说没有可停的一轮(过期的轮 token):这一次只撤回它自己,
 	// 这一轮之后的真故障照旧是故障 —— 除非另一次 abort 已经把中断下发到了这一轮。

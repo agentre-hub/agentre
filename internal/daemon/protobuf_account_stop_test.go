@@ -103,12 +103,7 @@ func newStopRig(t *testing.T) *stopRig {
 	rt := newInterruptRT()
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, rt))
 	rig := newScopeRig(t, cliIntrospection())
-	return &stopRig{scopeRig: rig, rt: rt, client: stopClient(rig.daemon, "cli-credential")}
-}
-
-// stopClient is agrctl's account client onto the real agentred, under credential.
-func stopClient(d *Daemon, credential string) *ctlaccount.Client {
-	return ctlaccount.New(ctlaccount.Options{Server: stopServer{}, Peer: selfPeer{d: d, credential: credential}, Catalog: emptyCatalog{}})
+	return &stopRig{scopeRig: rig, rt: rt, client: accountClientOn(rig.daemon, "cli-credential", stopServer{}, emptyCatalog{})}
 }
 
 // sendAndHangUp is `agrctl send` without --wait onto the interrupting backend.

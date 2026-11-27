@@ -235,9 +235,7 @@ func newModelRig(t *testing.T) *modelRig {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	require.NoError(t, d.engineSnapshot.Pull(ctx))
-	client := ctlaccount.New(ctlaccount.Options{
-		Server: &accountServer{}, Peer: selfPeer{d: d, credential: "cli-credential"}, Catalog: modelCatalog{},
-	})
+	client := accountClientOn(d, "cli-credential", &accountServer{}, modelCatalog{})
 	return &modelRig{daemon: d, rt: rt, ctx: ctx, client: client}
 }
 
