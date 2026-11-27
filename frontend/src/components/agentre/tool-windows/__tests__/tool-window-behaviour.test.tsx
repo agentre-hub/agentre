@@ -657,4 +657,106 @@ describe("工具窗行为", () => {
       expect(region("Directory")).toBeInTheDocument();
     });
   });
+
+  describe("焦点描边", () => {
+    const ring = (name: string) =>
+      region(name).querySelector<HTMLElement>("[data-tool-window-focus-ring]");
+
+    it("Given 大纲里有焦点, When 渲染, Then 描边层是工具窗的最后一个子元素（盖在内容之上）、不接指针、继承圆角", async () => {
+      const user = userEvent.setup();
+      renderLayout();
+
+      await user.click(screen.getByRole("button", { name: "outline item" }));
+
+      const layer = ring("Outline");
+      expect(layer).not.toBeNull();
+      expect(region("Outline").lastElementChild).toBe(layer);
+      expect(layer).toHaveClass("pointer-events-none", "absolute", "inset-0");
+      expect(layer).toHaveClass("rounded-[inherit]");
+      expect(layer).toHaveAttribute("aria-hidden", "true");
+    });
+
+    it("Given 大纲有描边, When 焦点回到输入框, Then 描边消失", async () => {
+      const user = userEvent.setup();
+      renderLayout();
+
+      await user.click(screen.getByRole("button", { name: "outline item" }));
+      expect(ring("Outline")).not.toBeNull();
+
+      act(() => screen.getByRole("textbox", { name: "Message" }).focus());
+      expect(ring("Outline")).toBeNull();
+    });
+
+    it("Given 大纲与变更同时显示, When 焦点从大纲移到变更, Then 同一时刻只有一个工具窗带描边", async () => {
+      const user = userEvent.setup();
+      act(() =>
+        useToolWindowLayout.setState({
+          shown: { ...layout().shown, rightBottom: "changes" },
+        }),
+      );
+      renderLayout();
+
+      await user.click(screen.getByRole("button", { name: "outline item" }));
+      expect(
+        document.querySelectorAll("[data-tool-window-focus-ring]"),
+      ).toHaveLength(1);
+      expect(ring("Outline")).not.toBeNull();
+
+      act(() => region("Changes").focus());
+      expect(
+        document.querySelectorAll("[data-tool-window-focus-ring]"),
+      ).toHaveLength(1);
+      expect(ring("Changes")).not.toBeNull();
+      expect(ring("Outline")).toBeNull();
+    });
+
+    it("Given 工具窗内部的焦点在子元素间移动, Then 描边不闪灭", async () => {
+      const user = userEvent.setup();
+      act(() =>
+        useToolWindowLayout.setState({
+          shown: { ...layout().shown, rightBottom: "changes" },
+        }),
+      );
+      renderLayout();
+
+      await user.click(screen.getByRole("button", { name: "outline item" }));
+      act(() => region("Outline").focus());
+      expect(ring("Outline")).not.toBeNull();
+    });
+
+    it("Given 停靠的大纲, Then 用对话卡的圆角与 --sheet-shadow、不带浮层阴影", () => {
+      renderLayout();
+      const el = region("Outline");
+      expect(el).toHaveClass("rounded-xl", "shadow-[var(--sheet-shadow)]");
+      expect(el).not.toHaveClass("shadow-overlay");
+    });
+
+    it("Given 大纲是浮动窗, Then 保持浮层阴影、不用 --sheet-shadow", () => {
+      act(() => layout().setMode("outline", "float"));
+      renderLayout();
+      const el = region("Outline");
+      expect(el).toHaveClass("shadow-overlay");
+      expect(el).not.toHaveClass("shadow-[var(--sheet-shadow)]");
+    });
+
+    it("Given 窄窗口里盖在对话上的大纲, Then 保持浮层阴影、不用 --sheet-shadow", async () => {
+      const user = userEvent.setup();
+      stubWidth(1000);
+      renderLayout();
+      await user.click(stripButton("Outline"));
+      const el = region("Outline");
+      expect(el).toHaveAttribute("data-auto-hide", "true");
+      expect(el).toHaveClass("shadow-overlay");
+      expect(el).not.toHaveClass("shadow-[var(--sheet-shadow)]");
+    });
+
+    it("Given 大纲最大化, Then 保持浮层阴影、不用 --sheet-shadow", () => {
+      act(() => layout().toggleMaximize("outline"));
+      renderLayout();
+      const el = region("Outline");
+      expect(el).toHaveAttribute("data-maximized", "true");
+      expect(el).toHaveClass("shadow-overlay");
+      expect(el).not.toHaveClass("shadow-[var(--sheet-shadow)]");
+    });
+  });
 });
