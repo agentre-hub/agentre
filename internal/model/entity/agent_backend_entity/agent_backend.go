@@ -46,6 +46,10 @@ const (
 	// Protocol v1）。Agentre 作为 ACP Client，把 ACP 会话流翻译成 sealed 事件；
 	// ACP Agent 自带 provider/model/凭证，不受 Agentre LLMProvider 绑定。
 	TypeACP BackendType = "acp"
+	// TypeAntigravity 包装本机 agy（Antigravity CLI）的 ACP 模式（`agy acp`）。
+	// 必须绑定一个 gemini 供应商，LLM 流量经网关；env 里的 GEMINI_API_KEY /
+	// GOOGLE_GEMINI_BASE_URL 由 Agentre 写入，故只对该类型保留。
+	TypeAntigravity BackendType = "antigravity"
 )
 
 const (
@@ -178,6 +182,10 @@ func (b *AgentBackend) IsHermes() bool {
 
 func (b *AgentBackend) IsACP() bool {
 	return b != nil && BackendType(b.Type) == TypeACP
+}
+
+func (b *AgentBackend) IsAntigravity() bool {
+	return b != nil && BackendType(b.Type) == TypeAntigravity
 }
 
 // IsLocal DeviceFingerprint 为空时为本地模式；nil receiver 返回 false。

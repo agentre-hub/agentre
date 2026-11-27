@@ -640,8 +640,11 @@ func blockReasonForBackend(
 			// 后端绑的供应商存在但未激活/缺 Key。
 			return false, BlockReasonProviderInactive, i18n.T(ctx, code.ChatBackendHintActivateProvider)
 		}
-	case agent_backend_entity.TypeClaudeCode, agent_backend_entity.TypeCodex, agent_backend_entity.TypePiAgent:
-		if be.LLMProviderKey == "" {
+	case agent_backend_entity.TypeClaudeCode, agent_backend_entity.TypeCodex, agent_backend_entity.TypePiAgent,
+		agent_backend_entity.TypeAntigravity:
+		// antigravity 与 claudecode/codex 同档（LLM 流量经网关），但没有 CLI 自身登录态
+		// 可退：不绑供应商就落到下面的 prov == nil。
+		if be.LLMProviderKey == "" && !be.IsAntigravity() {
 			// 走 CLI 自身 login；这里不做可达性探测，启动失败由 chat turn 兜底报错。
 			return true, "", ""
 		}

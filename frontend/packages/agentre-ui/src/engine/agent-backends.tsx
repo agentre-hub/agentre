@@ -63,10 +63,11 @@ import {
   SandboxField,
 } from "./agent-backends-fields";
 import {
-  RESERVED_ENV_KEYS,
   consumesAgentreProvider,
   isCLIPathBackend,
   isCliBackend,
+  reservedEnvKeysFor,
+  supportsReasoningEffort,
   type ApprovalValue,
   type Backend,
   type BackendType,
@@ -1004,13 +1005,12 @@ function BackendEditor({
     listRemoteProviders: RemoteDeviceListProviders,
   });
 
-  const reservedOffenders = React.useMemo(
-    () =>
-      envEntries
-        .map((e) => e.key.trim())
-        .filter((k) => k && RESERVED_ENV_KEYS.has(k)),
-    [envEntries],
-  );
+  const reservedOffenders = React.useMemo(() => {
+    const reserved = reservedEnvKeysFor(type);
+    return envEntries
+      .map((e) => e.key.trim())
+      .filter((k) => k && reserved.has(k));
+  }, [envEntries, type]);
 
   const open = state.kind !== "closed";
 
@@ -1747,12 +1747,13 @@ function BackendEditor({
     />
   );
 
-  const reasoningField = consumesAgentreProvider(type) ? (
-    <ReasoningEffortField
-      value={reasoningEffort}
-      onChange={setReasoningEffort}
-    />
-  ) : null;
+  const reasoningField =
+    consumesAgentreProvider(type) && supportsReasoningEffort(type) ? (
+      <ReasoningEffortField
+        value={reasoningEffort}
+        onChange={setReasoningEffort}
+      />
+    ) : null;
 
   const envField =
     cliBased && canEditEnvJSON ? (

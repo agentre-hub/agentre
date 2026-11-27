@@ -14,6 +14,7 @@ import { AGENTRE_UI_NAMESPACE } from "@agentre-hub/agentre-ui/i18n";
 import { resolveExecutionDevice } from "@agentre-hub/agentre-ui";
 
 import {
+  providerCompatibleForBackend,
   recordRecentTarget,
   type ModelTarget,
   type PickerProvider,
@@ -56,14 +57,15 @@ type ProviderSummary = {
 };
 
 /**
- * 供应商选择器可渲染的后端集合（规格决策 4/5）：openclaw 不消费 agentre provider，
- * 不渲染供应商选择器；其余四类后端均可选。
+ * 供应商选择器可渲染的后端集合（规格决策 4/5）：openclaw / hermes 不消费 agentre
+ * provider，不渲染供应商选择器；其余后端均可选。
  */
 const PROVIDER_SELECTABLE_BACKENDS = new Set([
   "builtin",
   "claudecode",
   "codex",
   "piagent",
+  "antigravity",
 ]);
 
 /** 后端是否渲染供应商选择器（openclaw / 未知后端 → false）。 */
@@ -73,30 +75,18 @@ export function isProviderSelectableBackend(backendType: string): boolean {
 
 /**
  * 供应商类型与后端是否兼容 —— 与后端 agent_backend_entity.ProviderTypeMatch
- * 对齐（builtin→全部；claudecode→anthropic；codex→openai-response；
- * piagent→anthropic/openai-chat/openai-response；其余后端→false）。
- * 列不兼容项必然在后端 Send 校验失败，前端只列兼容供应商。
+ * 对齐，判据只在共享包的 providerCompatibleForBackend 写一份；不渲染供应商选择器
+ * 的后端（openclaw / hermes / 未知）一律不兼容。列不兼容项必然在后端 Send 校验
+ * 失败，前端只列兼容供应商。
  */
 export function isProviderCompatible(
   backendType: string,
   providerType: string,
 ): boolean {
-  switch (backendType) {
-    case "builtin":
-      return true;
-    case "claudecode":
-      return providerType === "anthropic";
-    case "codex":
-      return providerType === "openai-response";
-    case "piagent":
-      return (
-        providerType === "anthropic" ||
-        providerType === "openai-chat" ||
-        providerType === "openai-response"
-      );
-    default:
-      return false;
-  }
+  return (
+    isProviderSelectableBackend(backendType) &&
+    providerCompatibleForBackend(backendType, providerType)
+  );
 }
 
 export interface UseProviderPillOptions {

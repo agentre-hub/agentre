@@ -22,6 +22,10 @@ import { Loader2 } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "../../ui/popover";
 
+import {
+  requiresAgentreProvider,
+  type BackendType,
+} from "../agent-backends-shared";
 import { resolveTargetLabel } from "./options";
 import type { CliModelPickerState } from "./cli-models";
 import { CliModelRow } from "./option-row";
@@ -146,7 +150,11 @@ export function ModelTargetPicker({
   const { t } = useTranslation();
   const cliState = scenario !== "route" ? cliModels : undefined;
   const picker = usePickerOptions({
-    hideSpecial: Boolean(cliState),
+    // antigravity 这类必须绑供应商的后端没有 CLI 登录这条退路，不提供特殊项。
+    hideSpecial:
+      Boolean(cliState) ||
+      (scenario === "backend" &&
+        requiresAgentreProvider(backendType as BackendType)),
     scenario,
     backendType,
     executionLocation,

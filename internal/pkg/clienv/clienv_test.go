@@ -108,3 +108,38 @@ func TestBuildEnv_GivenCaseInsensitiveEnv_ThenCallerPathIsTheOnlyPathEntry(t *te
 		assert.True(t, strings.HasPrefix(v, "/agr:/sys"), v)
 	})
 }
+
+// 契约：BuildEnvWithout 的 unset 只删**继承来**的变量 —— 调用方 extra 里同名的键照样写进去
+// （antigravity 先清掉继承的 GEMINI_API_KEY，再写入会话网关 token）。
+func TestBuildEnvWithout_GivenInheritedKeys_WhenUnset_ThenOnlyInheritedCopiesAreRemoved(t *testing.T) {
+	t.Setenv("AGENTRE_CLIENV_DROP", "inherited")
+	t.Setenv("AGENTRE_CLIENV_REWRITE", "inherited")
+	t.Setenv("AGENTRE_CLIENV_KEEP", "inherited")
+
+	env := BuildEnvWithout(
+		map[string]string{"AGENTRE_CLIENV_REWRITE": "from-extra"},
+		[]string{"AGENTRE_CLIENV_DROP", "AGENTRE_CLIENV_REWRITE"},
+		"",
+	)
+
+	_, ok := Lookup(env, "AGENTRE_CLIENV_DROP")
+	assert.False(t, ok, "an unset key must not survive from the parent environment")
+	got, ok := Lookup(env, "AGENTRE_CLIENV_REWRITE")
+	require.True(t, ok)
+	assert.Equal(t, "from-extra", got, "extra still applies after the inherited copy is cleared")
+	got, ok = Lookup(env, "AGENTRE_CLIENV_KEEP")
+	require.True(t, ok)
+	assert.Equal(t, "inherited", got, "keys outside unset are inherited unchanged")
+	_, ok = Lookup(env, "PATH")
+	assert.True(t, ok, "PATH augmentation still runs")
+}
+
+// Windows 的变量名不区分大小写：继承来的 google_api_key 子进程照样读得到，unset 必须按
+// 不区分大小写匹配；大小写敏感的平台上它只是另一个变量。
+func TestWithoutKeys_GivenCaseInsensitiveEnv_ThenAnySpellingIsRemoved(t *testing.T) {
+	environ := []string{"google_api_key=a", "GOOGLE_API_KEY=b", "OTHER=c"}
+
+	assert.Equal(t, []string{"OTHER=c"}, withoutKeys(environ, []string{"GOOGLE_API_KEY"}, true))
+	assert.Equal(t, []string{"google_api_key=a", "OTHER=c"}, withoutKeys(environ, []string{"GOOGLE_API_KEY"}, false))
+	assert.Equal(t, environ, withoutKeys(environ, nil, true), "no keys = environment untouched")
+}

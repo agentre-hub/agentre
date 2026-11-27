@@ -217,6 +217,8 @@ func writeBackendTypeHelp(w io.Writer, t *backendType) {
 		b.WriteString("  agrctl create backend --type builtin --name my-builtin --provider anthropic\n")
 	case "piagent":
 		b.WriteString("  agrctl create backend --type piagent --name my-piagent --provider openrouter --model openai/gpt-5.1\n")
+	case "antigravity":
+		b.WriteString("  agrctl create backend --type antigravity --name my-agy --provider huu\n")
 	case "codex":
 		b.WriteString(`  agrctl create backend --type codex --name codex-remote --device build-box --config '{"sandbox":"workspace-write","approval":"on-request"}'` + "\n")
 	default:

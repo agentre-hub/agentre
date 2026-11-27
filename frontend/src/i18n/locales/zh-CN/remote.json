@@ -129,7 +129,7 @@
     "onboarding": {
       "complete": {
         "action": "配置 Agent 后端",
-        "description": "选择这台设备上的 Claude Code、Codex 或 Pi。",
+        "description": "选择这台设备上的 Claude Code、Codex、Pi 或 Antigravity。",
         "title": "远端已连接"
       },
       "stepLabel": "步骤 {{current}} / {{total}}",

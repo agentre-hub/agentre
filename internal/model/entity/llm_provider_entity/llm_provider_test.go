@@ -40,6 +40,12 @@ func TestCheck(t *testing.T) {
 		assert.NoError(t, p.Check(ctx))
 	})
 
+	t.Run("valid gemini", func(t *testing.T) {
+		p := &LLMProvider{Type: string(TypeGemini), Name: "prod"}
+		assert.NoError(t, p.Check(ctx))
+		assert.Equal(t, "gemini", string(TypeGemini))
+	})
+
 	t.Run("legacy openai value rejected", func(t *testing.T) {
 		// "openai" 不是合法类型（合法的是 openai-chat / openai-response）。
 		p := &LLMProvider{Type: "openai", Name: "x"}

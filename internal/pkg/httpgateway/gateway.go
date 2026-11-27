@@ -79,6 +79,7 @@ func (g *Gateway) buildMux() *http.ServeMux {
 	mux.HandleFunc(RouteAnthropic, g.forwarder.AnthropicHandler())
 	mux.HandleFunc(RouteOpenAIResponses, g.forwarder.OpenAIResponsesHandler())
 	mux.HandleFunc(RouteOpenAIChat, g.forwarder.OpenAIChatHandler())
+	mux.HandleFunc(RouteGemini, g.forwarder.GeminiHandler())
 	mux.HandleFunc(RouteHookInbox, g.serveHookInbox)
 	mux.HandleFunc(RouteMCPPrefix, g.serveMCP)
 	mux.HandleFunc(RouteCtlPrefix, g.serveCtl)

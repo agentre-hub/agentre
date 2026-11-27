@@ -1,7 +1,10 @@
 // 编辑器草稿：表单状态 → 提交给后端的 BackendDraft，以及它周边的纯函数
 // （env/route 的序列化、供应商筛选与标签、OpenClaw 错误码到文案）。
 // 这一层不碰 React，只做数据整形，方便单独推理与测试。
-import { recordRecentTarget } from "../model-target-picker";
+import {
+  providerCompatibleForBackend,
+  recordRecentTarget,
+} from "../model-target-picker";
 import { OPENCLAW_SESSION_MODE } from "../openclaw-validation";
 import { OPENCLAW_ERROR_KEY_BY_CODE } from "../openclaw-validation";
 import type { EngineSettingsBridge } from "../port-bridge";
@@ -11,6 +14,7 @@ import {
   CLAUDE_TIERS,
   isCLIPathBackend,
   isCliBackend,
+  supportsReasoningEffort,
   type ApprovalValue,
   type Backend,
   type BackendType,
@@ -57,13 +61,9 @@ export type PendingProviderSync = {
   saveAfterSync: boolean;
 };
 
+// 编辑器可绑的供应商与 Picker 的兼容目录是同一条判据，只在 providerCompatibleForBackend 判。
 export function matchingProviders(t: BackendType, providers: Provider[]) {
-  if (t === "claudecode")
-    return providers.filter((p) => p.type === "anthropic");
-  if (t === "codex")
-    return providers.filter((p) => p.type === "openai-response");
-  // piagent 三类全收（anthropic / openai-chat / openai-response）：直接全列。
-  return providers;
+  return providers.filter((p) => providerCompatibleForBackend(t, p.type));
 }
 
 // parseRoutes 把后端 DTO 的类型化 modelRoutes 解析成三档 Record。
@@ -272,8 +272,9 @@ export function buildBackendDraft(f: BackendDraftFields): BackendDraft {
   // 六档词表全后端统一（spec 2026-09-01「三后端下发档位的收敛」）：codex 不再在保存时
   // 把 max 二次兜底降档——此前这里与 REASONING_EFFORTS_CODEX 配对制造「保存了 max
   // 实际存的是 high」的迷惑，前提已不成立。
-  const effort: ReasoningEffortValue =
-    f.type === "openclaw" ? "" : f.reasoningEffort;
+  const effort: ReasoningEffortValue = supportsReasoningEffort(f.type)
+    ? f.reasoningEffort
+    : "";
   return {
     type: f.type,
     name: f.name,

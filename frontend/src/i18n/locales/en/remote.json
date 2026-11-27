@@ -129,7 +129,7 @@
     "onboarding": {
       "complete": {
         "action": "Configure Agent Backends",
-        "description": "Choose Claude Code, Codex, or Pi on this device.",
+        "description": "Choose Claude Code, Codex, Pi, or Antigravity on this device.",
         "title": "Remote connected"
       },
       "stepLabel": "Step {{current}} of {{total}}",

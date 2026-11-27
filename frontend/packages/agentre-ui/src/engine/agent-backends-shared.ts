@@ -17,7 +17,8 @@ export type BackendType =
   | "codex"
   | "piagent"
   | "openclaw"
-  | "hermes";
+  | "hermes"
+  | "antigravity";
 export type Translate = ReturnType<typeof useTranslation>["t"];
 
 // probing → 请求在飞；installed/missing → 目标机 $PATH 的结论；
@@ -58,7 +59,7 @@ export type EnvEntry = { key: string; value: string };
 export const CLAUDE_TIERS = ["OPUS", "SONNET", "HAIKU"] as const;
 export type ClaudeTier = (typeof CLAUDE_TIERS)[number];
 
-export const RESERVED_ENV_KEYS = new Set([
+const RESERVED_ENV_KEYS = new Set([
   "ANTHROPIC_BASE_URL",
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_AUTH_TOKEN",
@@ -74,9 +75,30 @@ export const RESERVED_ENV_KEYS = new Set([
   "PI_CODING_AGENT_SESSION_DIR",
 ]);
 
+// antigravity 一轮由 Agentre 写入这两个键（会话网关 token 与本机网关根地址），
+// 所以只对它保留；通用 ACP 后端照旧可以在 env_json 里填 GEMINI_API_KEY 认证。
+// 与 kinds.go 的 antigravityReservedEnvKeys 对齐。
+const ANTIGRAVITY_RESERVED_ENV_KEYS = new Set([
+  ...RESERVED_ENV_KEYS,
+  "GEMINI_API_KEY",
+  "GOOGLE_GEMINI_BASE_URL",
+]);
+
+// reservedEnvKeysFor 回答「这个后端的 env_json 里哪些键不许填」：公共保留键对
+// 所有类型生效，antigravity 另加它自己的两个。
+export function reservedEnvKeysFor(t: BackendType): ReadonlySet<string> {
+  return t === "antigravity"
+    ? ANTIGRAVITY_RESERVED_ENV_KEYS
+    : RESERVED_ENV_KEYS;
+}
+
 export function isCliBackend(t: BackendType): boolean {
   return (
-    t === "claudecode" || t === "codex" || t === "piagent" || t === "hermes"
+    t === "claudecode" ||
+    t === "codex" ||
+    t === "piagent" ||
+    t === "hermes" ||
+    t === "antigravity"
   );
 }
 
@@ -84,20 +106,40 @@ export function isCliBackend(t: BackendType): boolean {
 // 可执行文件路径」。hermes 属于 isCliBackend（走设备前缀、仍可编辑 env_json），
 // 但它连的是一个已在运行的 `hermes serve`，没有 CLI 路径可探。
 export function isCLIPathBackend(t: BackendType): boolean {
-  return t === "claudecode" || t === "codex" || t === "piagent";
+  return (
+    t === "claudecode" ||
+    t === "codex" ||
+    t === "piagent" ||
+    t === "antigravity"
+  );
 }
 
 // consumesAgentreProvider 回答「这个后端会不会读 Agentre 的 LLMProvider」。
 // openclaw 走 Gateway 自身认证，hermes 自带 provider/model/凭证配置，两者不参与
-// 供应商绑定；其余四个后端至少可以关联一个 Agentre provider。
+// 供应商绑定；其余后端至少可以关联一个 Agentre provider。
 export function consumesAgentreProvider(t: BackendType): boolean {
   return t !== "openclaw" && t !== "hermes";
+}
+
+// requiresAgentreProvider 回答「不绑 Agentre provider 能不能保存」。builtin 没有
+// 别的模型来源；antigravity 的 LLM 流量只走网关，没有 CLI 自身登录这条退路。
+// 其余 CLI 后端可走 CLI 登录态，OpenClaw / Hermes 自带认证。
+export function requiresAgentreProvider(t: BackendType): boolean {
+  return t === "builtin" || t === "antigravity";
+}
+
+// supportsReasoningEffort 回答「思考力度档位有没有下发通道」：OpenClaw 不吃，
+// antigravity 走 ACP 也没有这条通道（agy 自己的思考档位不在 Agentre 里显示）。
+// 草稿据此清空，编辑器据此（再叠加 consumesAgentreProvider）决定是否渲染字段。
+export function supportsReasoningEffort(t: BackendType): boolean {
+  return t !== "openclaw" && t !== "antigravity";
 }
 
 export function cliBinaryName(t: BackendType): string {
   if (t === "claudecode") return "claude";
   if (t === "piagent") return "pi";
   if (t === "hermes") return "hermes";
+  if (t === "antigravity") return "agy";
   return "codex";
 }
 

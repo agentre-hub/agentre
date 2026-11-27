@@ -286,7 +286,8 @@ describe("engine settings CLI probing", () => {
     await openCreateDialog(user);
 
     await waitFor(() =>
-      expect(document.querySelectorAll("[data-probe-state]").length).toBe(3),
+      // claudecode / codex / piagent / antigravity 四个要探可执行文件的类型。
+      expect(document.querySelectorAll("[data-probe-state]").length).toBe(4),
     );
     for (const badge of document.querySelectorAll("[data-probe-state]")) {
       expect(badge.getAttribute("data-probe-state")).toBe("failed");

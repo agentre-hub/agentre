@@ -3246,14 +3246,14 @@ describe("Agent backend type picker", () => {
     return screen.findByRole("dialog");
   }
 
-  it("Given the create dialog, When it opens, Then the six types render as a single-choice radiogroup with the current type checked", async () => {
+  it("Given the create dialog, When it opens, Then the seven types render as a single-choice radiogroup with the current type checked", async () => {
     const user = userEvent.setup();
     installAppMock();
 
     const dialog = await openCreateDialog(user);
     const group = within(dialog).getByRole("radiogroup", { name: "Type" });
 
-    expect(within(group).getAllByRole("radio")).toHaveLength(6);
+    expect(within(group).getAllByRole("radio")).toHaveLength(7);
     expect(
       within(group).getByRole("radio", { name: /Built-in Agent/ }),
     ).toBeChecked();

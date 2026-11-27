@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -27,9 +28,14 @@ type launchSpec struct {
 	command string
 	args    []string
 	cwd     string
-	// env 是 BuildACPEnv 产出的 "K=V" 列表(只含 env_json 用户变量 —— ACP agent
-	// 自带凭证,不注入网关变量,也不注入每轮变化的一次性 token)。
-	env []string
+	// env 是 backendProfile.env 产出的 "K=V" 列表(通用 acp 只含 env_json 用户变量;
+	// antigravity 另有会话级网关凭证)。unsetEnv 是先从继承环境里删掉的键。
+	env      []string
+	unsetEnv []string
+	// authMethod 非空 = 握手后、开会话前 authenticate 这个方法(见 authenticate)。
+	authMethod string
+	// binaryNotFound 造「找不到可执行文件」的错误(由 backendProfile 选);nil = errAgentBinaryNotFound。
+	binaryNotFound func(command string) error
 }
 
 // agentTransport 是一条到 ACP agent 的字节通道(读 agent stdout / 写 agent stdin)
@@ -50,12 +56,17 @@ type agentTransport interface {
 // 内存 fake agent。包级 var 而非 New() 参数,照 claudecode.SetSessionFactoryForTest
 // 的注入口径 —— defaultRuntime 不在构造期钉死资源。
 var dialAgentTransport = func(ctx context.Context, spec launchSpec) (agentTransport, error) {
+	notFound := errAgentBinaryNotFound
+	if spec.binaryNotFound != nil {
+		notFound = spec.binaryNotFound(spec.command)
+	}
 	proc, err := cliprocess.Start(ctx, cliprocess.Options{
-		Binary: spec.command,
-		Args:   spec.args,
-		Cwd:    spec.cwd,
-		Env:    spec.env,
-	}, errAgentBinaryNotFound)
+		Binary:   spec.command,
+		Args:     spec.args,
+		Cwd:      spec.cwd,
+		Env:      spec.env,
+		UnsetEnv: spec.unsetEnv,
+	}, notFound)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +202,23 @@ func handshake(ctx context.Context, conn *acpsdk.ClientSideConnection) (negotiat
 	return n, nil
 }
 
+// authenticate 在 initialize 之后、开会话之前用 method 认证。对方没通告这个方法时
+// 不发请求直接失败(把它通告的方法列出来),authenticate 回错时带上对方的报错原文 ——
+// 这两种情况都不能继续 session/new:那只会换来一句不知所云的 "Authentication required"。
+func authenticate(ctx context.Context, conn *acpsdk.ClientSideConnection, caps negotiated, method string) error {
+	if !slices.Contains(caps.authMethods, method) {
+		offered := "none"
+		if len(caps.authMethods) > 0 {
+			offered = strings.Join(caps.authMethods, ", ")
+		}
+		return fmt.Errorf("acp: agent %q does not offer the %q auth method (offered: %s)", caps.agentName, method, offered)
+	}
+	if _, err := conn.Authenticate(ctx, acpsdk.AuthenticateRequest{MethodId: method}); err != nil {
+		return fmt.Errorf("acp: authenticate %q failed: %w", method, requestErrorMessage(err))
+	}
+	return nil
+}
+
 // authMethodID 抽出一种认证方式的 id(三种变体各带一个 Id 字段)。
 func authMethodID(m acpsdk.AuthMethod) string {
 	switch {
@@ -263,9 +291,9 @@ func (c *acpClient) WaitForTerminalExit(context.Context, acpsdk.WaitForTerminalE
 	return acpsdk.WaitForTerminalExitResponse{}, acpsdk.NewMethodNotFound(string(acpsdk.ClientMethodTerminalWaitForExit))
 }
 
-// newAgentSession 起 transport、包 ClientSideConnection、跑握手,交回一个
-// 完成协商的会话。调用方负责失败路径上的 Close。
-func newAgentSession(ctx context.Context, tr agentTransport) (*agentSession, error) {
+// newAgentSession 起 transport、包 ClientSideConnection、跑握手(authMethod 非空时
+// 紧接着认证),交回一个完成协商的会话。调用方负责失败路径上的 Close。
+func newAgentSession(ctx context.Context, tr agentTransport, authMethod string) (*agentSession, error) {
 	s := &agentSession{
 		tr:      tr,
 		updates: make(chan acpsdk.SessionNotification, updateChannelCap),
@@ -276,6 +304,14 @@ func newAgentSession(ctx context.Context, tr agentTransport) (*agentSession, err
 		return nil, err
 	}
 	s.caps = caps
+	if authMethod != "" {
+		if err := authenticate(ctx, s.conn, caps, authMethod); err != nil {
+			if tail := stderrTailLimited(tr.StderrTail()); tail != "" {
+				err = fmt.Errorf("%w\n%s", err, tail)
+			}
+			return nil, err
+		}
+	}
 	return s, nil
 }
 
@@ -290,7 +326,7 @@ func spawnAgent(ctx context.Context, spec launchSpec) (*agentSession, error) {
 	if err != nil {
 		return nil, err
 	}
-	s, err := newAgentSession(ctx, tr)
+	s, err := newAgentSession(ctx, tr, spec.authMethod)
 	if err != nil {
 		_ = tr.Close(context.Background())
 		return nil, err

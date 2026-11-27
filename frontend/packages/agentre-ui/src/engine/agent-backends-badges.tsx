@@ -26,12 +26,13 @@ import {
 import { AgentBackendLogo } from "./ai-brand-logo";
 import type { PickerProvider } from "./model-target-picker";
 
-// 选择器里的展示顺序：三个 CLI 引擎在前（最常用且需要装命令行），Hermes 同属
-// CLI 子进程后端紧随其后，内置与网关收尾。
+// 选择器里的展示顺序：要装命令行的 CLI 引擎在前（最常用的三个打头，Antigravity
+// 跟上），Hermes 同属 CLI 子进程后端紧随其后，内置与网关收尾。
 const BACKEND_TYPE_ORDER: BackendType[] = [
   "claudecode",
   "codex",
   "piagent",
+  "antigravity",
   "hermes",
   "builtin",
   "openclaw",
@@ -56,6 +57,9 @@ const backendTypeMeta: Record<
     disabled: false,
   },
   hermes: {
+    disabled: false,
+  },
+  antigravity: {
     disabled: false,
   },
   openclaw: {

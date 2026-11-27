@@ -176,6 +176,59 @@ func TestBuildACPEnv(t *testing.T) {
 	})
 }
 
+// TestBuildAntigravityEnv 钉死 agy 子进程 env 装配：会话网关 token 进 GEMINI_API_KEY、
+// 网关根地址（不带 /v1，agy 自己拼 /v1beta/...）进 GOOGLE_GEMINI_BASE_URL、关掉自更新；
+// env_json 排在其后（两个网关键已被 entity.Check 拒入，自更新开关用户可改）。
+func TestBuildAntigravityEnv(t *testing.T) {
+	deps := CLIDeps{Token: "sess-gw-tok", GatewayURL: "http://127.0.0.1:60080/"} //nolint:gosec // G101: 用例造的替身网关 token,不是真凭据
+	t.Run("写入网关 token、网关根地址与关闭自更新", func(t *testing.T) {
+		env, err := BuildAntigravityEnv(&agent_backend_entity.AgentBackend{}, deps)
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{
+			"GEMINI_API_KEY":              "sess-gw-tok",
+			"GOOGLE_GEMINI_BASE_URL":      "http://127.0.0.1:60080",
+			"AGY_CLI_DISABLE_AUTO_UPDATE": "1",
+		}, env)
+	})
+	t.Run("env_json 在网关变量之后写入", func(t *testing.T) {
+		b := &agent_backend_entity.AgentBackend{EnvJSON: `{"AGY_CLI_DISABLE_AUTO_UPDATE":"0","MY_FLAG":"x"}`}
+		env, err := BuildAntigravityEnv(b, deps)
+		require.NoError(t, err)
+		assert.Equal(t, "0", env["AGY_CLI_DISABLE_AUTO_UPDATE"])
+		assert.Equal(t, "x", env["MY_FLAG"])
+		assert.Equal(t, "sess-gw-tok", env["GEMINI_API_KEY"])
+	})
+	t.Run("没有网关 token 时报错，不起一个打不到所选供应商的 agy", func(t *testing.T) {
+		for _, d := range []CLIDeps{{}, {GatewayURL: "http://127.0.0.1:60080"}, {Token: "tok"}} {
+			_, err := BuildAntigravityEnv(&agent_backend_entity.AgentBackend{}, d)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "gateway")
+		}
+	})
+	t.Run("坏 env_json 报错", func(t *testing.T) {
+		_, err := BuildAntigravityEnv(&agent_backend_entity.AgentBackend{EnvJSON: `{"broken"`}, deps)
+		assert.Error(t, err)
+	})
+}
+
+// TestAntigravityClearedEnv 钉死要从继承环境里清掉的 Google 凭证类变量：它们任何一个
+// 留在父进程环境里都可能盖过网关 token（ADC / Vertex / 另一把 key）。
+func TestAntigravityClearedEnv(t *testing.T) {
+	assert.ElementsMatch(t, []string{
+		"GEMINI_API_KEY",
+		"GOOGLE_API_KEY",
+		"GOOGLE_APPLICATION_CREDENTIALS",
+		"GOOGLE_CLOUD_PROJECT",
+		"GOOGLE_CLOUD_LOCATION",
+		"GOOGLE_CLOUD_QUOTA_PROJECT",
+		"GOOGLE_GENAI_USE_VERTEXAI",
+		"AGY_ADC_AUTH",
+	}, AntigravityClearedEnv())
+	got := AntigravityClearedEnv()
+	got[0] = "MUTATED"
+	assert.NotContains(t, AntigravityClearedEnv(), "MUTATED", "callers get a copy")
+}
+
 // TestCLIEnv_InjectsSessionCtlCredentials 钉死 spec「会话级 token」：四类 CLI 子进程 env
 // 都带上 AGENTRE_CTL_ENDPOINT + 会话级 AGENTRE_CTL_TOKEN，与是否绑 provider 无关；没有
 // 会话凭证（探测类调用点）时一个都不写；用户 env_json 盖不掉会话身份。
@@ -186,6 +239,10 @@ func TestCLIEnv_InjectsSessionCtlCredentials(t *testing.T) {
 		"codex":      BuildCodexEnv,
 		"piagent":    BuildPiAgentEnv,
 		"acp":        BuildACPEnv,
+		"antigravity": func(b *agent_backend_entity.AgentBackend, d CLIDeps) (map[string]string, error) {
+			d.Token, d.GatewayURL = "gw-tok", "http://127.0.0.1:60080"
+			return BuildAntigravityEnv(b, d)
+		},
 	}
 	for name, build := range builders {
 		t.Run(name+"：有会话凭证 → 注入两个变量", func(t *testing.T) {
@@ -249,6 +306,10 @@ func TestCLIEnv_InjectsSessionMarker(t *testing.T) {
 		"codex":      BuildCodexEnv,
 		"piagent":    BuildPiAgentEnv,
 		"acp":        BuildACPEnv,
+		"antigravity": func(b *agent_backend_entity.AgentBackend, d CLIDeps) (map[string]string, error) {
+			d.Token, d.GatewayURL = "gw-tok", "http://127.0.0.1:60080"
+			return BuildAntigravityEnv(b, d)
+		},
 	}
 	for name, build := range builders {
 		t.Run(name+"：有会话身份 → 注入", func(t *testing.T) {

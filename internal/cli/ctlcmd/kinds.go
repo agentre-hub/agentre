@@ -221,7 +221,7 @@ func initProviderFlags() {
 			}
 			return err
 		}}
-	typeFlag := strField("type", "<type>", "type", "anthropic | openai-chat | openai-response (create only)", func(w *writeCtx, v string) { p(w).Type = v })
+	typeFlag := strField("type", "<type>", "type", "anthropic | openai-chat | openai-response | gemini (create only)", func(w *writeCtx, v string) { p(w).Type = v })
 	kindProvider.createFlags = append([]*flagDef{typeFlag}, common...)
 	kindProvider.updateFlags = append(append([]*flagDef{}, common...), defaultModel)
 	kindProvider.required = []string{"name", "type"}

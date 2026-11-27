@@ -5,7 +5,11 @@ export type Model = llm_provider_svc.ModelItem;
 export type ModelInfo = llm_provider_svc.ModelInfo;
 export type ReferenceCounts = llm_provider_svc.ReferenceCounts;
 
-export type ProviderType = "anthropic" | "openai-chat" | "openai-response";
+export type ProviderType =
+  | "anthropic"
+  | "openai-chat"
+  | "openai-response"
+  | "gemini";
 
 export type ProviderTypeMeta = {
   badge: string;
@@ -26,12 +30,18 @@ export const providerTypeMeta: Record<ProviderType, ProviderTypeMeta> = {
     badge: "OR",
     defaultBaseUrl: "https://api.openai.com/v1",
   },
+  // base URL 填根地址，网关自己拼 /v1beta/...；只有 antigravity 后端能绑定它。
+  gemini: {
+    badge: "G",
+    defaultBaseUrl: "https://generativelanguage.googleapis.com",
+  },
 };
 
 export const providerTypeOrder: ProviderType[] = [
   "anthropic",
   "openai-response",
   "openai-chat",
+  "gemini",
 ];
 
 export function isProviderType(value: string): value is ProviderType {

@@ -19,6 +19,9 @@ var cliBinaryForType = map[string]string{
 	"claudecode": "claude",
 	"codex":      "codex",
 	"piagent":    "pi",
+	// antigravity 只供 ResolveCLIPath / Probe 使用，不在 ScanAllCLIs 里：
+	// antigravity 后端必须绑 gemini 供应商，自动建会失败。
+	"antigravity": "agy",
 }
 
 // CLIProbeResult 描述一次按类型在 $PATH 中查找 CLI binary 的结果。
@@ -51,7 +54,7 @@ func ScanAllCLIs() []CLIProbeResult {
 // ResolveCLIPath 在本机 $PATH 中查找 type 对应 binary 的绝对路径。
 //
 // 行为:
-//   - type 不在 claudecode / codex / piagent 范围 → ErrInvalidType
+//   - type 不在 claudecode / codex / piagent / antigravity 范围 → ErrInvalidType
 //     （hermes 不在此列：它连一个已在运行的 `hermes serve`，没有 CLI 路径可探）
 //   - 找到 → (path, true, nil)
 //   - 找不到 → ("", false, nil)(非错误 —— 让调用方决定是否提示用户)

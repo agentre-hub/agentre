@@ -1,8 +1,10 @@
 package agentruntime
 
 import (
+	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -168,6 +170,53 @@ func BuildACPEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[string
 	for k, v := range user {
 		env[k] = v
 	}
+	applyCtlEnv(env, deps.Ctl)
+	applySessionEnv(env, deps.Session)
+	return env, nil
+}
+
+// antigravityClearedEnv 是 agy 子进程启动前从**继承环境**里删掉的 Google 凭证类变量：
+// 任何一个留在父进程环境里都可能盖过网关 token（另一把 key / ADC / Vertex 模式）。
+var antigravityClearedEnv = []string{
+	"GEMINI_API_KEY",
+	"GOOGLE_API_KEY",
+	"GOOGLE_APPLICATION_CREDENTIALS",
+	"GOOGLE_CLOUD_PROJECT",
+	"GOOGLE_CLOUD_LOCATION",
+	"GOOGLE_CLOUD_QUOTA_PROJECT",
+	"GOOGLE_GENAI_USE_VERTEXAI",
+	"AGY_ADC_AUTH",
+}
+
+// AntigravityClearedEnv 交回 antigravityClearedEnv 的副本（cliprocess.Options.UnsetEnv 用）。
+func AntigravityClearedEnv() []string { return slices.Clone(antigravityClearedEnv) }
+
+// BuildAntigravityEnv 装配 agy（`agy acp`）子进程的环境变量：
+//   - GEMINI_API_KEY = 会话网关 token（agy 经 X-Goog-Api-Key 头带给网关，网关按 token
+//     的目标改写路径里的模型）；
+//   - GOOGLE_GEMINI_BASE_URL = 网关根地址，不带 /v1（agy 自己拼 /v1beta/models/...）；
+//   - AGY_CLI_DISABLE_AUTO_UPDATE=1；
+//   - 用户自定义 env_json 追加（两个网关键已被 entity.Check 拒入）；
+//   - 会话级 agrctl 凭证（deps.Ctl）与会话标记最后写入。
+//
+// 继承来的 Google 凭证变量不在这里处理（map 只能加不能删），由调用方把
+// AntigravityClearedEnv() 交给 cliprocess.Options.UnsetEnv。
+// 没有网关 token 时报错：agy 只认这一条路，退回它自己的登录态就打不到用户选的供应商。
+func BuildAntigravityEnv(b *agent_backend_entity.AgentBackend, deps CLIDeps) (map[string]string, error) {
+	baseURL := strings.TrimRight(strings.TrimSpace(deps.GatewayURL), "/")
+	if baseURL == "" || strings.TrimSpace(deps.Token) == "" {
+		return nil, errors.New("antigravity needs the Agentre gateway: bind a gemini provider and make sure the local gateway is running")
+	}
+	env := map[string]string{
+		"GEMINI_API_KEY":              deps.Token,
+		"GOOGLE_GEMINI_BASE_URL":      baseURL,
+		"AGY_CLI_DISABLE_AUTO_UPDATE": "1",
+	}
+	user, err := agent_backend_entity.ParseEnvJSON(b.EnvJSON)
+	if err != nil {
+		return nil, fmt.Errorf("parse env_json: %w", err)
+	}
+	maps.Copy(env, user)
 	applyCtlEnv(env, deps.Ctl)
 	applySessionEnv(env, deps.Session)
 	return env, nil
