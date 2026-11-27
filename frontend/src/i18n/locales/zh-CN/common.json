@@ -4,6 +4,22 @@
       "open": "打开命令面板",
       "placeholder": "搜索会话 · 跳转 · 执行命令"
     },
+    "layoutToggles": {
+      "sessionList": {
+        "collapse": "收起会话列表",
+        "expand": "展开会话列表"
+      },
+      "bottom": {
+        "hide": "隐藏底部工具窗",
+        "show": "显示底部工具窗",
+        "empty": "底部区域没有工具窗"
+      },
+      "right": {
+        "hide": "隐藏右侧工具窗",
+        "show": "显示右侧工具窗",
+        "empty": "右侧区域没有工具窗"
+      }
+    },
     "navigationLabel": "主导航",
     "window": {
       "close": "关闭窗口",

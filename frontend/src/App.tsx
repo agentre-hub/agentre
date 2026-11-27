@@ -55,6 +55,7 @@ import { useOptionalShortcutsContext } from "@/components/agentre/shortcuts/shor
 import { ThemeProvider, useTheme } from "@agentre-hub/agentre-ui";
 import { lazyView } from "@/components/agentre/lazy-boundary";
 import { TabStrip } from "@/components/agentre/chat-tabs/tab-strip";
+import { LayoutToggles } from "@/components/agentre/tool-windows/layout-toggles";
 import { desktopLocalCommandHistoryAccess } from "@/components/agentre/local-command-history-access-desktop";
 import { desktopLocalCommandsAccess } from "@/components/agentre/local-commands-access-desktop";
 import { desktopTranscriptLiveState } from "@/components/agentre/transcript-live-state-desktop";
@@ -303,6 +304,7 @@ function AppLayout() {
                   <AppTopBar
                     appName="Agentre"
                     breadcrumb={breadcrumb}
+                    layoutToggles={hasChat ? <LayoutToggles /> : undefined}
                     platform={platform}
                   />
 

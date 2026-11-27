@@ -4,6 +4,22 @@
       "open": "Open command palette",
       "placeholder": "Search sessions · Jump · Run command"
     },
+    "layoutToggles": {
+      "sessionList": {
+        "collapse": "Collapse session list",
+        "expand": "Expand session list"
+      },
+      "bottom": {
+        "hide": "Hide bottom tool windows",
+        "show": "Show bottom tool windows",
+        "empty": "The bottom area has no tool windows"
+      },
+      "right": {
+        "hide": "Hide right tool windows",
+        "show": "Show right tool windows",
+        "empty": "The right area has no tool windows"
+      }
+    },
     "navigationLabel": "Primary navigation",
     "window": {
       "close": "Close window",

@@ -680,6 +680,31 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  it("Given the chat page, When the title bar renders, Then the three layout toggles sit in it, and on another page they are absent", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const banner = screen.getByRole("banner");
+    expect(
+      within(banner).getByTestId("layout-toggle-sessionList"),
+    ).toBeInTheDocument();
+    expect(
+      within(banner).getByTestId("layout-toggle-bottom"),
+    ).toBeInTheDocument();
+    expect(
+      within(banner).getByTestId("layout-toggle-right"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Board" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("layout-toggle-right"),
+      ).not.toBeInTheDocument();
+    });
+  });
+
   it("restores the last opened page from localStorage on startup", async () => {
     localStorage.setItem(lastPathStorageKey, "/issues");
 
