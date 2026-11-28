@@ -8217,6 +8217,170 @@ func (x *AgentBackend) GetAcpArgs() []string {
 	return nil
 }
 
+// EngineProfile is the engine profile a turn runs with: the "what to use and
+// how to work" half of a former backend, without the device it runs on or the
+// CLI path on that device (those belong to the dispatch result and the device's
+// settings). The fields carry the turn's effective values, so a session-level
+// override already applied by the originator travels with them. sync_id is the
+// profile's account-wide identity (it keys the device-local credential slots and
+// the account snapshot's profile entry). OpenClaw and builtin never run on
+// agentred and so have no fields here.
+type EngineProfile struct {
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	Id                    int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	SyncId                string                 `protobuf:"bytes,2,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
+	Type                  string                 `protobuf:"bytes,3,opt,name=type,proto3" json:"type,omitempty"`
+	Name                  string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`
+	LlmProviderKey        string                 `protobuf:"bytes,5,opt,name=llm_provider_key,json=llmProviderKey,proto3" json:"llm_provider_key,omitempty"`
+	LlmModelKey           string                 `protobuf:"bytes,6,opt,name=llm_model_key,json=llmModelKey,proto3" json:"llm_model_key,omitempty"`
+	ModelRoutes           string                 `protobuf:"bytes,7,opt,name=model_routes,json=modelRoutes,proto3" json:"model_routes,omitempty"`
+	Sandbox               string                 `protobuf:"bytes,8,opt,name=sandbox,proto3" json:"sandbox,omitempty"`
+	Approval              string                 `protobuf:"bytes,9,opt,name=approval,proto3" json:"approval,omitempty"`
+	EnvJson               string                 `protobuf:"bytes,10,opt,name=env_json,json=envJson,proto3" json:"env_json,omitempty"`
+	ReasoningEffort       string                 `protobuf:"bytes,11,opt,name=reasoning_effort,json=reasoningEffort,proto3" json:"reasoning_effort,omitempty"`
+	DefaultPermissionMode string                 `protobuf:"bytes,12,opt,name=default_permission_mode,json=defaultPermissionMode,proto3" json:"default_permission_mode,omitempty"`
+	DefaultModel          string                 `protobuf:"bytes,13,opt,name=default_model,json=defaultModel,proto3" json:"default_model,omitempty"`
+	AcpCommand            string                 `protobuf:"bytes,14,opt,name=acp_command,json=acpCommand,proto3" json:"acp_command,omitempty"`
+	AcpArgs               []string               `protobuf:"bytes,15,rep,name=acp_args,json=acpArgs,proto3" json:"acp_args,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *EngineProfile) Reset() {
+	*x = EngineProfile{}
+	mi := &file_agentre_wire_wire_proto_msgTypes[113]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EngineProfile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EngineProfile) ProtoMessage() {}
+
+func (x *EngineProfile) ProtoReflect() protoreflect.Message {
+	mi := &file_agentre_wire_wire_proto_msgTypes[113]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EngineProfile.ProtoReflect.Descriptor instead.
+func (*EngineProfile) Descriptor() ([]byte, []int) {
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{113}
+}
+
+func (x *EngineProfile) GetId() int64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *EngineProfile) GetSyncId() string {
+	if x != nil {
+		return x.SyncId
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetLlmProviderKey() string {
+	if x != nil {
+		return x.LlmProviderKey
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetLlmModelKey() string {
+	if x != nil {
+		return x.LlmModelKey
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetModelRoutes() string {
+	if x != nil {
+		return x.ModelRoutes
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetSandbox() string {
+	if x != nil {
+		return x.Sandbox
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetApproval() string {
+	if x != nil {
+		return x.Approval
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetEnvJson() string {
+	if x != nil {
+		return x.EnvJson
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetReasoningEffort() string {
+	if x != nil {
+		return x.ReasoningEffort
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetDefaultPermissionMode() string {
+	if x != nil {
+		return x.DefaultPermissionMode
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetDefaultModel() string {
+	if x != nil {
+		return x.DefaultModel
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetAcpCommand() string {
+	if x != nil {
+		return x.AcpCommand
+	}
+	return ""
+}
+
+func (x *EngineProfile) GetAcpArgs() []string {
+	if x != nil {
+		return x.AcpArgs
+	}
+	return nil
+}
+
 type StoredBlock struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Type          string                 `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
@@ -8227,7 +8391,7 @@ type StoredBlock struct {
 
 func (x *StoredBlock) Reset() {
 	*x = StoredBlock{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[113]
+	mi := &file_agentre_wire_wire_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8239,7 +8403,7 @@ func (x *StoredBlock) String() string {
 func (*StoredBlock) ProtoMessage() {}
 
 func (x *StoredBlock) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[113]
+	mi := &file_agentre_wire_wire_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8252,7 +8416,7 @@ func (x *StoredBlock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StoredBlock.ProtoReflect.Descriptor instead.
 func (*StoredBlock) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{113}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{114}
 }
 
 func (x *StoredBlock) GetType() string {
@@ -8279,7 +8443,7 @@ type HistoryMessage struct {
 
 func (x *HistoryMessage) Reset() {
 	*x = HistoryMessage{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[114]
+	mi := &file_agentre_wire_wire_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8291,7 +8455,7 @@ func (x *HistoryMessage) String() string {
 func (*HistoryMessage) ProtoMessage() {}
 
 func (x *HistoryMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[114]
+	mi := &file_agentre_wire_wire_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8304,7 +8468,7 @@ func (x *HistoryMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HistoryMessage.ProtoReflect.Descriptor instead.
 func (*HistoryMessage) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{114}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{115}
 }
 
 func (x *HistoryMessage) GetRole() string {
@@ -8333,7 +8497,7 @@ type MCPServer struct {
 
 func (x *MCPServer) Reset() {
 	*x = MCPServer{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[115]
+	mi := &file_agentre_wire_wire_proto_msgTypes[116]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8345,7 +8509,7 @@ func (x *MCPServer) String() string {
 func (*MCPServer) ProtoMessage() {}
 
 func (x *MCPServer) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[115]
+	mi := &file_agentre_wire_wire_proto_msgTypes[116]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8358,7 +8522,7 @@ func (x *MCPServer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MCPServer.ProtoReflect.Descriptor instead.
 func (*MCPServer) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{115}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{116}
 }
 
 func (x *MCPServer) GetName() string {
@@ -8452,15 +8616,27 @@ type RuntimeRunRequest struct {
 	DesktopSessionId int64 `protobuf:"varint,27,opt,name=desktop_session_id,json=desktopSessionId,proto3" json:"desktop_session_id,omitempty"`
 	// 本轮会话选择原样透传：空 = 跟随 backend.default_model，cli-default = 不下发，
 	// fixed = 下发 cli_model。与会话摘要同名，不能传成已解析模型而丢掉选择语义。
-	CliModelMode  string `protobuf:"bytes,28,opt,name=cli_model_mode,json=cliModelMode,proto3" json:"cli_model_mode,omitempty"`
-	CliModel      string `protobuf:"bytes,29,opt,name=cli_model,json=cliModel,proto3" json:"cli_model,omitempty"`
+	CliModelMode string `protobuf:"bytes,28,opt,name=cli_model_mode,json=cliModelMode,proto3" json:"cli_model_mode,omitempty"`
+	CliModel     string `protobuf:"bytes,29,opt,name=cli_model,json=cliModel,proto3" json:"cli_model,omitempty"`
+	// engine_profile is the engine profile this turn runs with. When present the
+	// executor builds the turn from it (plus cli_path) instead of from backend;
+	// backend stays populated alongside it until the protocol cut, so a caller or
+	// executor that only knows backend keeps working. Absent = the caller only
+	// sent backend (a browser dispatch, or a session still pinned to a legacy
+	// backend row).
+	EngineProfile *EngineProfile `protobuf:"bytes,30,opt,name=engine_profile,json=engineProfile,proto3" json:"engine_profile,omitempty"`
+	// cli_path is the CLI path override on the executing device for the engine
+	// profile's runtime type (per runtime type and device, not per backend).
+	// Empty = resolve the CLI from PATH. Read together with engine_profile; an
+	// executor with an authoritative account snapshot still replaces it.
+	CliPath       string `protobuf:"bytes,31,opt,name=cli_path,json=cliPath,proto3" json:"cli_path,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RuntimeRunRequest) Reset() {
 	*x = RuntimeRunRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[116]
+	mi := &file_agentre_wire_wire_proto_msgTypes[117]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8472,7 +8648,7 @@ func (x *RuntimeRunRequest) String() string {
 func (*RuntimeRunRequest) ProtoMessage() {}
 
 func (x *RuntimeRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[116]
+	mi := &file_agentre_wire_wire_proto_msgTypes[117]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8485,7 +8661,7 @@ func (x *RuntimeRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeRunRequest.ProtoReflect.Descriptor instead.
 func (*RuntimeRunRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{116}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{117}
 }
 
 func (x *RuntimeRunRequest) GetBackend() *AgentBackend {
@@ -8691,6 +8867,20 @@ func (x *RuntimeRunRequest) GetCliModel() string {
 	return ""
 }
 
+func (x *RuntimeRunRequest) GetEngineProfile() *EngineProfile {
+	if x != nil {
+		return x.EngineProfile
+	}
+	return nil
+}
+
+func (x *RuntimeRunRequest) GetCliPath() string {
+	if x != nil {
+		return x.CliPath
+	}
+	return ""
+}
+
 type RuntimeRunResponse struct {
 	state                protoimpl.MessageState `protogen:"open.v1"`
 	ConversationId       string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
@@ -8717,7 +8907,7 @@ type RuntimeRunResponse struct {
 
 func (x *RuntimeRunResponse) Reset() {
 	*x = RuntimeRunResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[117]
+	mi := &file_agentre_wire_wire_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8729,7 +8919,7 @@ func (x *RuntimeRunResponse) String() string {
 func (*RuntimeRunResponse) ProtoMessage() {}
 
 func (x *RuntimeRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[117]
+	mi := &file_agentre_wire_wire_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8742,7 +8932,7 @@ func (x *RuntimeRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeRunResponse.ProtoReflect.Descriptor instead.
 func (*RuntimeRunResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{117}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *RuntimeRunResponse) GetConversationId() string {
@@ -8812,7 +9002,7 @@ type RuntimeGoalRequest struct {
 
 func (x *RuntimeGoalRequest) Reset() {
 	*x = RuntimeGoalRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[118]
+	mi := &file_agentre_wire_wire_proto_msgTypes[119]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8824,7 +9014,7 @@ func (x *RuntimeGoalRequest) String() string {
 func (*RuntimeGoalRequest) ProtoMessage() {}
 
 func (x *RuntimeGoalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[118]
+	mi := &file_agentre_wire_wire_proto_msgTypes[119]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8837,7 +9027,7 @@ func (x *RuntimeGoalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeGoalRequest.ProtoReflect.Descriptor instead.
 func (*RuntimeGoalRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{118}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{119}
 }
 
 func (x *RuntimeGoalRequest) GetConversationId() string {
@@ -8940,7 +9130,7 @@ type Goal struct {
 
 func (x *Goal) Reset() {
 	*x = Goal{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[119]
+	mi := &file_agentre_wire_wire_proto_msgTypes[120]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8952,7 +9142,7 @@ func (x *Goal) String() string {
 func (*Goal) ProtoMessage() {}
 
 func (x *Goal) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[119]
+	mi := &file_agentre_wire_wire_proto_msgTypes[120]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8965,7 +9155,7 @@ func (x *Goal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Goal.ProtoReflect.Descriptor instead.
 func (*Goal) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{119}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{120}
 }
 
 func (x *Goal) GetThreadId() string {
@@ -9033,7 +9223,7 @@ type RuntimeGoalResponse struct {
 
 func (x *RuntimeGoalResponse) Reset() {
 	*x = RuntimeGoalResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[120]
+	mi := &file_agentre_wire_wire_proto_msgTypes[121]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9045,7 +9235,7 @@ func (x *RuntimeGoalResponse) String() string {
 func (*RuntimeGoalResponse) ProtoMessage() {}
 
 func (x *RuntimeGoalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[120]
+	mi := &file_agentre_wire_wire_proto_msgTypes[121]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9058,7 +9248,7 @@ func (x *RuntimeGoalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeGoalResponse.ProtoReflect.Descriptor instead.
 func (*RuntimeGoalResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{120}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{121}
 }
 
 func (x *RuntimeGoalResponse) GetGoal() *Goal {
@@ -9077,7 +9267,7 @@ type RuntimeGoalClearResponse struct {
 
 func (x *RuntimeGoalClearResponse) Reset() {
 	*x = RuntimeGoalClearResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[121]
+	mi := &file_agentre_wire_wire_proto_msgTypes[122]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9089,7 +9279,7 @@ func (x *RuntimeGoalClearResponse) String() string {
 func (*RuntimeGoalClearResponse) ProtoMessage() {}
 
 func (x *RuntimeGoalClearResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[121]
+	mi := &file_agentre_wire_wire_proto_msgTypes[122]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9102,7 +9292,7 @@ func (x *RuntimeGoalClearResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeGoalClearResponse.ProtoReflect.Descriptor instead.
 func (*RuntimeGoalClearResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{121}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{122}
 }
 
 func (x *RuntimeGoalClearResponse) GetCleared() bool {
@@ -9128,7 +9318,7 @@ type TerminalOpenRequest struct {
 
 func (x *TerminalOpenRequest) Reset() {
 	*x = TerminalOpenRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[122]
+	mi := &file_agentre_wire_wire_proto_msgTypes[123]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9140,7 +9330,7 @@ func (x *TerminalOpenRequest) String() string {
 func (*TerminalOpenRequest) ProtoMessage() {}
 
 func (x *TerminalOpenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[122]
+	mi := &file_agentre_wire_wire_proto_msgTypes[123]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9153,7 +9343,7 @@ func (x *TerminalOpenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalOpenRequest.ProtoReflect.Descriptor instead.
 func (*TerminalOpenRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{122}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{123}
 }
 
 func (x *TerminalOpenRequest) GetTerminalId() string {
@@ -9221,7 +9411,7 @@ type TerminalOpenResponse struct {
 
 func (x *TerminalOpenResponse) Reset() {
 	*x = TerminalOpenResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[123]
+	mi := &file_agentre_wire_wire_proto_msgTypes[124]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9233,7 +9423,7 @@ func (x *TerminalOpenResponse) String() string {
 func (*TerminalOpenResponse) ProtoMessage() {}
 
 func (x *TerminalOpenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[123]
+	mi := &file_agentre_wire_wire_proto_msgTypes[124]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9246,7 +9436,7 @@ func (x *TerminalOpenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalOpenResponse.ProtoReflect.Descriptor instead.
 func (*TerminalOpenResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{123}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{124}
 }
 
 func (x *TerminalOpenResponse) GetTerminalId() string {
@@ -9266,7 +9456,7 @@ type TerminalWriteRequest struct {
 
 func (x *TerminalWriteRequest) Reset() {
 	*x = TerminalWriteRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[124]
+	mi := &file_agentre_wire_wire_proto_msgTypes[125]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9278,7 +9468,7 @@ func (x *TerminalWriteRequest) String() string {
 func (*TerminalWriteRequest) ProtoMessage() {}
 
 func (x *TerminalWriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[124]
+	mi := &file_agentre_wire_wire_proto_msgTypes[125]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9291,7 +9481,7 @@ func (x *TerminalWriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalWriteRequest.ProtoReflect.Descriptor instead.
 func (*TerminalWriteRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{124}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{125}
 }
 
 func (x *TerminalWriteRequest) GetTerminalId() string {
@@ -9319,7 +9509,7 @@ type TerminalResizeRequest struct {
 
 func (x *TerminalResizeRequest) Reset() {
 	*x = TerminalResizeRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[125]
+	mi := &file_agentre_wire_wire_proto_msgTypes[126]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9331,7 +9521,7 @@ func (x *TerminalResizeRequest) String() string {
 func (*TerminalResizeRequest) ProtoMessage() {}
 
 func (x *TerminalResizeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[125]
+	mi := &file_agentre_wire_wire_proto_msgTypes[126]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9344,7 +9534,7 @@ func (x *TerminalResizeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalResizeRequest.ProtoReflect.Descriptor instead.
 func (*TerminalResizeRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{125}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{126}
 }
 
 func (x *TerminalResizeRequest) GetTerminalId() string {
@@ -9378,7 +9568,7 @@ type TerminalCloseRequest struct {
 
 func (x *TerminalCloseRequest) Reset() {
 	*x = TerminalCloseRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[126]
+	mi := &file_agentre_wire_wire_proto_msgTypes[127]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9390,7 +9580,7 @@ func (x *TerminalCloseRequest) String() string {
 func (*TerminalCloseRequest) ProtoMessage() {}
 
 func (x *TerminalCloseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[126]
+	mi := &file_agentre_wire_wire_proto_msgTypes[127]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9403,7 +9593,7 @@ func (x *TerminalCloseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalCloseRequest.ProtoReflect.Descriptor instead.
 func (*TerminalCloseRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{126}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{127}
 }
 
 func (x *TerminalCloseRequest) GetTerminalId() string {
@@ -9430,7 +9620,7 @@ type TerminalDataNotification struct {
 
 func (x *TerminalDataNotification) Reset() {
 	*x = TerminalDataNotification{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[127]
+	mi := &file_agentre_wire_wire_proto_msgTypes[128]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9442,7 +9632,7 @@ func (x *TerminalDataNotification) String() string {
 func (*TerminalDataNotification) ProtoMessage() {}
 
 func (x *TerminalDataNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[127]
+	mi := &file_agentre_wire_wire_proto_msgTypes[128]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9455,7 +9645,7 @@ func (x *TerminalDataNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalDataNotification.ProtoReflect.Descriptor instead.
 func (*TerminalDataNotification) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{127}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{128}
 }
 
 func (x *TerminalDataNotification) GetTerminalId() string {
@@ -9484,7 +9674,7 @@ type TerminalExitNotification struct {
 
 func (x *TerminalExitNotification) Reset() {
 	*x = TerminalExitNotification{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[128]
+	mi := &file_agentre_wire_wire_proto_msgTypes[129]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9496,7 +9686,7 @@ func (x *TerminalExitNotification) String() string {
 func (*TerminalExitNotification) ProtoMessage() {}
 
 func (x *TerminalExitNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[128]
+	mi := &file_agentre_wire_wire_proto_msgTypes[129]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9509,7 +9699,7 @@ func (x *TerminalExitNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalExitNotification.ProtoReflect.Descriptor instead.
 func (*TerminalExitNotification) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{128}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{129}
 }
 
 func (x *TerminalExitNotification) GetTerminalId() string {
@@ -9549,7 +9739,7 @@ type HeaderValues struct {
 
 func (x *HeaderValues) Reset() {
 	*x = HeaderValues{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[129]
+	mi := &file_agentre_wire_wire_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9561,7 +9751,7 @@ func (x *HeaderValues) String() string {
 func (*HeaderValues) ProtoMessage() {}
 
 func (x *HeaderValues) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[129]
+	mi := &file_agentre_wire_wire_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9574,7 +9764,7 @@ func (x *HeaderValues) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeaderValues.ProtoReflect.Descriptor instead.
 func (*HeaderValues) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{129}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{130}
 }
 
 func (x *HeaderValues) GetValues() []string {
@@ -9596,7 +9786,7 @@ type MCPProxyRequest struct {
 
 func (x *MCPProxyRequest) Reset() {
 	*x = MCPProxyRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[130]
+	mi := &file_agentre_wire_wire_proto_msgTypes[131]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9608,7 +9798,7 @@ func (x *MCPProxyRequest) String() string {
 func (*MCPProxyRequest) ProtoMessage() {}
 
 func (x *MCPProxyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[130]
+	mi := &file_agentre_wire_wire_proto_msgTypes[131]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9621,7 +9811,7 @@ func (x *MCPProxyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MCPProxyRequest.ProtoReflect.Descriptor instead.
 func (*MCPProxyRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{130}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *MCPProxyRequest) GetPath() string {
@@ -9663,7 +9853,7 @@ type MCPProxyResponse struct {
 
 func (x *MCPProxyResponse) Reset() {
 	*x = MCPProxyResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[131]
+	mi := &file_agentre_wire_wire_proto_msgTypes[132]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9675,7 +9865,7 @@ func (x *MCPProxyResponse) String() string {
 func (*MCPProxyResponse) ProtoMessage() {}
 
 func (x *MCPProxyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[131]
+	mi := &file_agentre_wire_wire_proto_msgTypes[132]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9688,7 +9878,7 @@ func (x *MCPProxyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MCPProxyResponse.ProtoReflect.Descriptor instead.
 func (*MCPProxyResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{131}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{132}
 }
 
 func (x *MCPProxyResponse) GetStatus() int32 {
@@ -9722,7 +9912,7 @@ type ProjectSetLocalPathRequest struct {
 
 func (x *ProjectSetLocalPathRequest) Reset() {
 	*x = ProjectSetLocalPathRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[132]
+	mi := &file_agentre_wire_wire_proto_msgTypes[133]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9734,7 +9924,7 @@ func (x *ProjectSetLocalPathRequest) String() string {
 func (*ProjectSetLocalPathRequest) ProtoMessage() {}
 
 func (x *ProjectSetLocalPathRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[132]
+	mi := &file_agentre_wire_wire_proto_msgTypes[133]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9747,7 +9937,7 @@ func (x *ProjectSetLocalPathRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectSetLocalPathRequest.ProtoReflect.Descriptor instead.
 func (*ProjectSetLocalPathRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{132}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{133}
 }
 
 func (x *ProjectSetLocalPathRequest) GetProjectSyncId() string {
@@ -9773,7 +9963,7 @@ type ProjectClearLocalPathRequest struct {
 
 func (x *ProjectClearLocalPathRequest) Reset() {
 	*x = ProjectClearLocalPathRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[133]
+	mi := &file_agentre_wire_wire_proto_msgTypes[134]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9785,7 +9975,7 @@ func (x *ProjectClearLocalPathRequest) String() string {
 func (*ProjectClearLocalPathRequest) ProtoMessage() {}
 
 func (x *ProjectClearLocalPathRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[133]
+	mi := &file_agentre_wire_wire_proto_msgTypes[134]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9798,7 +9988,7 @@ func (x *ProjectClearLocalPathRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectClearLocalPathRequest.ProtoReflect.Descriptor instead.
 func (*ProjectClearLocalPathRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{133}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{134}
 }
 
 func (x *ProjectClearLocalPathRequest) GetProjectSyncId() string {
@@ -9818,7 +10008,7 @@ type ProjectLocalPathResponse struct {
 
 func (x *ProjectLocalPathResponse) Reset() {
 	*x = ProjectLocalPathResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[134]
+	mi := &file_agentre_wire_wire_proto_msgTypes[135]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9830,7 +10020,7 @@ func (x *ProjectLocalPathResponse) String() string {
 func (*ProjectLocalPathResponse) ProtoMessage() {}
 
 func (x *ProjectLocalPathResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[134]
+	mi := &file_agentre_wire_wire_proto_msgTypes[135]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9843,7 +10033,7 @@ func (x *ProjectLocalPathResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectLocalPathResponse.ProtoReflect.Descriptor instead.
 func (*ProjectLocalPathResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{134}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *ProjectLocalPathResponse) GetPath() string {
@@ -9870,7 +10060,7 @@ type SkillAuthorization struct {
 
 func (x *SkillAuthorization) Reset() {
 	*x = SkillAuthorization{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[135]
+	mi := &file_agentre_wire_wire_proto_msgTypes[136]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9882,7 +10072,7 @@ func (x *SkillAuthorization) String() string {
 func (*SkillAuthorization) ProtoMessage() {}
 
 func (x *SkillAuthorization) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[135]
+	mi := &file_agentre_wire_wire_proto_msgTypes[136]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9895,7 +10085,7 @@ func (x *SkillAuthorization) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillAuthorization.ProtoReflect.Descriptor instead.
 func (*SkillAuthorization) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{135}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{136}
 }
 
 func (x *SkillAuthorization) GetId() string {
@@ -9923,7 +10113,7 @@ type SkillCatalogRequest struct {
 
 func (x *SkillCatalogRequest) Reset() {
 	*x = SkillCatalogRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[136]
+	mi := &file_agentre_wire_wire_proto_msgTypes[137]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9935,7 +10125,7 @@ func (x *SkillCatalogRequest) String() string {
 func (*SkillCatalogRequest) ProtoMessage() {}
 
 func (x *SkillCatalogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[136]
+	mi := &file_agentre_wire_wire_proto_msgTypes[137]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9948,7 +10138,7 @@ func (x *SkillCatalogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillCatalogRequest.ProtoReflect.Descriptor instead.
 func (*SkillCatalogRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{136}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{137}
 }
 
 func (x *SkillCatalogRequest) GetBackendType() string {
@@ -9987,7 +10177,7 @@ type SkillPackSummary struct {
 
 func (x *SkillPackSummary) Reset() {
 	*x = SkillPackSummary{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[137]
+	mi := &file_agentre_wire_wire_proto_msgTypes[138]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9999,7 +10189,7 @@ func (x *SkillPackSummary) String() string {
 func (*SkillPackSummary) ProtoMessage() {}
 
 func (x *SkillPackSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[137]
+	mi := &file_agentre_wire_wire_proto_msgTypes[138]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10012,7 +10202,7 @@ func (x *SkillPackSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillPackSummary.ProtoReflect.Descriptor instead.
 func (*SkillPackSummary) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{137}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{138}
 }
 
 func (x *SkillPackSummary) GetId() string {
@@ -10074,7 +10264,7 @@ type SkillCatalogResponse struct {
 
 func (x *SkillCatalogResponse) Reset() {
 	*x = SkillCatalogResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[138]
+	mi := &file_agentre_wire_wire_proto_msgTypes[139]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10086,7 +10276,7 @@ func (x *SkillCatalogResponse) String() string {
 func (*SkillCatalogResponse) ProtoMessage() {}
 
 func (x *SkillCatalogResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[138]
+	mi := &file_agentre_wire_wire_proto_msgTypes[139]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10099,7 +10289,7 @@ func (x *SkillCatalogResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillCatalogResponse.ProtoReflect.Descriptor instead.
 func (*SkillCatalogResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{138}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{139}
 }
 
 func (x *SkillCatalogResponse) GetPacks() []*SkillPackSummary {
@@ -10134,7 +10324,7 @@ type SkillCommandsRequest struct {
 
 func (x *SkillCommandsRequest) Reset() {
 	*x = SkillCommandsRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[139]
+	mi := &file_agentre_wire_wire_proto_msgTypes[140]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10146,7 +10336,7 @@ func (x *SkillCommandsRequest) String() string {
 func (*SkillCommandsRequest) ProtoMessage() {}
 
 func (x *SkillCommandsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[139]
+	mi := &file_agentre_wire_wire_proto_msgTypes[140]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10159,7 +10349,7 @@ func (x *SkillCommandsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillCommandsRequest.ProtoReflect.Descriptor instead.
 func (*SkillCommandsRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{139}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{140}
 }
 
 func (x *SkillCommandsRequest) GetBackendType() string {
@@ -10202,7 +10392,7 @@ type SkillCommand struct {
 
 func (x *SkillCommand) Reset() {
 	*x = SkillCommand{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[140]
+	mi := &file_agentre_wire_wire_proto_msgTypes[141]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10214,7 +10404,7 @@ func (x *SkillCommand) String() string {
 func (*SkillCommand) ProtoMessage() {}
 
 func (x *SkillCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[140]
+	mi := &file_agentre_wire_wire_proto_msgTypes[141]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10227,7 +10417,7 @@ func (x *SkillCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillCommand.ProtoReflect.Descriptor instead.
 func (*SkillCommand) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{140}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{141}
 }
 
 func (x *SkillCommand) GetName() string {
@@ -10257,7 +10447,7 @@ type SkillCommandsResponse struct {
 
 func (x *SkillCommandsResponse) Reset() {
 	*x = SkillCommandsResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[141]
+	mi := &file_agentre_wire_wire_proto_msgTypes[142]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10269,7 +10459,7 @@ func (x *SkillCommandsResponse) String() string {
 func (*SkillCommandsResponse) ProtoMessage() {}
 
 func (x *SkillCommandsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[141]
+	mi := &file_agentre_wire_wire_proto_msgTypes[142]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10282,7 +10472,7 @@ func (x *SkillCommandsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkillCommandsResponse.ProtoReflect.Descriptor instead.
 func (*SkillCommandsResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{141}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{142}
 }
 
 func (x *SkillCommandsResponse) GetCommands() []*SkillCommand {
@@ -10308,7 +10498,7 @@ type RemoteFsListDirRequest struct {
 
 func (x *RemoteFsListDirRequest) Reset() {
 	*x = RemoteFsListDirRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[142]
+	mi := &file_agentre_wire_wire_proto_msgTypes[143]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10320,7 +10510,7 @@ func (x *RemoteFsListDirRequest) String() string {
 func (*RemoteFsListDirRequest) ProtoMessage() {}
 
 func (x *RemoteFsListDirRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[142]
+	mi := &file_agentre_wire_wire_proto_msgTypes[143]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10333,7 +10523,7 @@ func (x *RemoteFsListDirRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteFsListDirRequest.ProtoReflect.Descriptor instead.
 func (*RemoteFsListDirRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{142}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{143}
 }
 
 func (x *RemoteFsListDirRequest) GetPath() string {
@@ -10356,7 +10546,7 @@ type RemoteFsEntry struct {
 
 func (x *RemoteFsEntry) Reset() {
 	*x = RemoteFsEntry{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[143]
+	mi := &file_agentre_wire_wire_proto_msgTypes[144]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10368,7 +10558,7 @@ func (x *RemoteFsEntry) String() string {
 func (*RemoteFsEntry) ProtoMessage() {}
 
 func (x *RemoteFsEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[143]
+	mi := &file_agentre_wire_wire_proto_msgTypes[144]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10381,7 +10571,7 @@ func (x *RemoteFsEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteFsEntry.ProtoReflect.Descriptor instead.
 func (*RemoteFsEntry) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{143}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{144}
 }
 
 func (x *RemoteFsEntry) GetName() string {
@@ -10430,7 +10620,7 @@ type RemoteFsListDirResponse struct {
 
 func (x *RemoteFsListDirResponse) Reset() {
 	*x = RemoteFsListDirResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[144]
+	mi := &file_agentre_wire_wire_proto_msgTypes[145]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10442,7 +10632,7 @@ func (x *RemoteFsListDirResponse) String() string {
 func (*RemoteFsListDirResponse) ProtoMessage() {}
 
 func (x *RemoteFsListDirResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[144]
+	mi := &file_agentre_wire_wire_proto_msgTypes[145]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10455,7 +10645,7 @@ func (x *RemoteFsListDirResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteFsListDirResponse.ProtoReflect.Descriptor instead.
 func (*RemoteFsListDirResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{144}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{145}
 }
 
 func (x *RemoteFsListDirResponse) GetPath() string {
@@ -10489,7 +10679,7 @@ type RemoteFsMkdirRequest struct {
 
 func (x *RemoteFsMkdirRequest) Reset() {
 	*x = RemoteFsMkdirRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[145]
+	mi := &file_agentre_wire_wire_proto_msgTypes[146]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10501,7 +10691,7 @@ func (x *RemoteFsMkdirRequest) String() string {
 func (*RemoteFsMkdirRequest) ProtoMessage() {}
 
 func (x *RemoteFsMkdirRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[145]
+	mi := &file_agentre_wire_wire_proto_msgTypes[146]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10514,7 +10704,7 @@ func (x *RemoteFsMkdirRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteFsMkdirRequest.ProtoReflect.Descriptor instead.
 func (*RemoteFsMkdirRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{145}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{146}
 }
 
 func (x *RemoteFsMkdirRequest) GetParent() string {
@@ -10540,7 +10730,7 @@ type RemoteFsMkdirResponse struct {
 
 func (x *RemoteFsMkdirResponse) Reset() {
 	*x = RemoteFsMkdirResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[146]
+	mi := &file_agentre_wire_wire_proto_msgTypes[147]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10552,7 +10742,7 @@ func (x *RemoteFsMkdirResponse) String() string {
 func (*RemoteFsMkdirResponse) ProtoMessage() {}
 
 func (x *RemoteFsMkdirResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[146]
+	mi := &file_agentre_wire_wire_proto_msgTypes[147]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10565,7 +10755,7 @@ func (x *RemoteFsMkdirResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteFsMkdirResponse.ProtoReflect.Descriptor instead.
 func (*RemoteFsMkdirResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{146}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{147}
 }
 
 func (x *RemoteFsMkdirResponse) GetPath() string {
@@ -10586,7 +10776,7 @@ type WorkspaceFsListDirRequest struct {
 
 func (x *WorkspaceFsListDirRequest) Reset() {
 	*x = WorkspaceFsListDirRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[147]
+	mi := &file_agentre_wire_wire_proto_msgTypes[148]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10598,7 +10788,7 @@ func (x *WorkspaceFsListDirRequest) String() string {
 func (*WorkspaceFsListDirRequest) ProtoMessage() {}
 
 func (x *WorkspaceFsListDirRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[147]
+	mi := &file_agentre_wire_wire_proto_msgTypes[148]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10611,7 +10801,7 @@ func (x *WorkspaceFsListDirRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsListDirRequest.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsListDirRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{147}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{148}
 }
 
 func (x *WorkspaceFsListDirRequest) GetRoot() string {
@@ -10649,7 +10839,7 @@ type WorkspaceFsEntry struct {
 
 func (x *WorkspaceFsEntry) Reset() {
 	*x = WorkspaceFsEntry{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[148]
+	mi := &file_agentre_wire_wire_proto_msgTypes[149]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10661,7 +10851,7 @@ func (x *WorkspaceFsEntry) String() string {
 func (*WorkspaceFsEntry) ProtoMessage() {}
 
 func (x *WorkspaceFsEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[148]
+	mi := &file_agentre_wire_wire_proto_msgTypes[149]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10674,7 +10864,7 @@ func (x *WorkspaceFsEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsEntry.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsEntry) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{148}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{149}
 }
 
 func (x *WorkspaceFsEntry) GetName() string {
@@ -10730,7 +10920,7 @@ type WorkspaceFsListDirResponse struct {
 
 func (x *WorkspaceFsListDirResponse) Reset() {
 	*x = WorkspaceFsListDirResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[149]
+	mi := &file_agentre_wire_wire_proto_msgTypes[150]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10742,7 +10932,7 @@ func (x *WorkspaceFsListDirResponse) String() string {
 func (*WorkspaceFsListDirResponse) ProtoMessage() {}
 
 func (x *WorkspaceFsListDirResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[149]
+	mi := &file_agentre_wire_wire_proto_msgTypes[150]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10755,7 +10945,7 @@ func (x *WorkspaceFsListDirResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsListDirResponse.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsListDirResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{149}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{150}
 }
 
 func (x *WorkspaceFsListDirResponse) GetPath() string {
@@ -10790,7 +10980,7 @@ type WorkspaceFsGitChangesRequest struct {
 
 func (x *WorkspaceFsGitChangesRequest) Reset() {
 	*x = WorkspaceFsGitChangesRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[150]
+	mi := &file_agentre_wire_wire_proto_msgTypes[151]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10802,7 +10992,7 @@ func (x *WorkspaceFsGitChangesRequest) String() string {
 func (*WorkspaceFsGitChangesRequest) ProtoMessage() {}
 
 func (x *WorkspaceFsGitChangesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[150]
+	mi := &file_agentre_wire_wire_proto_msgTypes[151]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10815,7 +11005,7 @@ func (x *WorkspaceFsGitChangesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsGitChangesRequest.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsGitChangesRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{150}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{151}
 }
 
 func (x *WorkspaceFsGitChangesRequest) GetRoot() string {
@@ -10853,7 +11043,7 @@ type WorkspaceFsChange struct {
 
 func (x *WorkspaceFsChange) Reset() {
 	*x = WorkspaceFsChange{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[151]
+	mi := &file_agentre_wire_wire_proto_msgTypes[152]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10865,7 +11055,7 @@ func (x *WorkspaceFsChange) String() string {
 func (*WorkspaceFsChange) ProtoMessage() {}
 
 func (x *WorkspaceFsChange) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[151]
+	mi := &file_agentre_wire_wire_proto_msgTypes[152]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10878,7 +11068,7 @@ func (x *WorkspaceFsChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsChange.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsChange) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{151}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{152}
 }
 
 func (x *WorkspaceFsChange) GetPath() string {
@@ -10934,7 +11124,7 @@ type WorkspaceFsGitChangesResponse struct {
 
 func (x *WorkspaceFsGitChangesResponse) Reset() {
 	*x = WorkspaceFsGitChangesResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[152]
+	mi := &file_agentre_wire_wire_proto_msgTypes[153]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10946,7 +11136,7 @@ func (x *WorkspaceFsGitChangesResponse) String() string {
 func (*WorkspaceFsGitChangesResponse) ProtoMessage() {}
 
 func (x *WorkspaceFsGitChangesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[152]
+	mi := &file_agentre_wire_wire_proto_msgTypes[153]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10959,7 +11149,7 @@ func (x *WorkspaceFsGitChangesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsGitChangesResponse.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsGitChangesResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{152}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{153}
 }
 
 func (x *WorkspaceFsGitChangesResponse) GetNotARepo() bool {
@@ -10992,7 +11182,7 @@ type WorkspaceFsGitBranchesRequest struct {
 
 func (x *WorkspaceFsGitBranchesRequest) Reset() {
 	*x = WorkspaceFsGitBranchesRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[153]
+	mi := &file_agentre_wire_wire_proto_msgTypes[154]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11004,7 +11194,7 @@ func (x *WorkspaceFsGitBranchesRequest) String() string {
 func (*WorkspaceFsGitBranchesRequest) ProtoMessage() {}
 
 func (x *WorkspaceFsGitBranchesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[153]
+	mi := &file_agentre_wire_wire_proto_msgTypes[154]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11017,7 +11207,7 @@ func (x *WorkspaceFsGitBranchesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsGitBranchesRequest.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsGitBranchesRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{153}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{154}
 }
 
 func (x *WorkspaceFsGitBranchesRequest) GetRoot() string {
@@ -11037,7 +11227,7 @@ type WorkspaceFsBranch struct {
 
 func (x *WorkspaceFsBranch) Reset() {
 	*x = WorkspaceFsBranch{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[154]
+	mi := &file_agentre_wire_wire_proto_msgTypes[155]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11049,7 +11239,7 @@ func (x *WorkspaceFsBranch) String() string {
 func (*WorkspaceFsBranch) ProtoMessage() {}
 
 func (x *WorkspaceFsBranch) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[154]
+	mi := &file_agentre_wire_wire_proto_msgTypes[155]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11062,7 +11252,7 @@ func (x *WorkspaceFsBranch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsBranch.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsBranch) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{154}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{155}
 }
 
 func (x *WorkspaceFsBranch) GetName() string {
@@ -11091,7 +11281,7 @@ type WorkspaceFsGitBranchesResponse struct {
 
 func (x *WorkspaceFsGitBranchesResponse) Reset() {
 	*x = WorkspaceFsGitBranchesResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[155]
+	mi := &file_agentre_wire_wire_proto_msgTypes[156]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11103,7 +11293,7 @@ func (x *WorkspaceFsGitBranchesResponse) String() string {
 func (*WorkspaceFsGitBranchesResponse) ProtoMessage() {}
 
 func (x *WorkspaceFsGitBranchesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[155]
+	mi := &file_agentre_wire_wire_proto_msgTypes[156]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11116,7 +11306,7 @@ func (x *WorkspaceFsGitBranchesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsGitBranchesResponse.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsGitBranchesResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{155}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{156}
 }
 
 func (x *WorkspaceFsGitBranchesResponse) GetNotARepo() bool {
@@ -11157,7 +11347,7 @@ type WorkspaceFsReadFileRequest struct {
 
 func (x *WorkspaceFsReadFileRequest) Reset() {
 	*x = WorkspaceFsReadFileRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[156]
+	mi := &file_agentre_wire_wire_proto_msgTypes[157]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11169,7 +11359,7 @@ func (x *WorkspaceFsReadFileRequest) String() string {
 func (*WorkspaceFsReadFileRequest) ProtoMessage() {}
 
 func (x *WorkspaceFsReadFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[156]
+	mi := &file_agentre_wire_wire_proto_msgTypes[157]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11182,7 +11372,7 @@ func (x *WorkspaceFsReadFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsReadFileRequest.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsReadFileRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{156}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{157}
 }
 
 func (x *WorkspaceFsReadFileRequest) GetRoot() string {
@@ -11211,7 +11401,7 @@ type WorkspaceFsReadFileResponse struct {
 
 func (x *WorkspaceFsReadFileResponse) Reset() {
 	*x = WorkspaceFsReadFileResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[157]
+	mi := &file_agentre_wire_wire_proto_msgTypes[158]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11223,7 +11413,7 @@ func (x *WorkspaceFsReadFileResponse) String() string {
 func (*WorkspaceFsReadFileResponse) ProtoMessage() {}
 
 func (x *WorkspaceFsReadFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[157]
+	mi := &file_agentre_wire_wire_proto_msgTypes[158]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11236,7 +11426,7 @@ func (x *WorkspaceFsReadFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsReadFileResponse.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsReadFileResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{157}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{158}
 }
 
 func (x *WorkspaceFsReadFileResponse) GetContent() []byte {
@@ -11277,7 +11467,7 @@ type WorkspaceFsGitFileContentRequest struct {
 
 func (x *WorkspaceFsGitFileContentRequest) Reset() {
 	*x = WorkspaceFsGitFileContentRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[158]
+	mi := &file_agentre_wire_wire_proto_msgTypes[159]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11289,7 +11479,7 @@ func (x *WorkspaceFsGitFileContentRequest) String() string {
 func (*WorkspaceFsGitFileContentRequest) ProtoMessage() {}
 
 func (x *WorkspaceFsGitFileContentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[158]
+	mi := &file_agentre_wire_wire_proto_msgTypes[159]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11302,7 +11492,7 @@ func (x *WorkspaceFsGitFileContentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsGitFileContentRequest.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsGitFileContentRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{158}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{159}
 }
 
 func (x *WorkspaceFsGitFileContentRequest) GetRoot() string {
@@ -11330,7 +11520,7 @@ type WorkspaceFsGitFileContentResponse struct {
 
 func (x *WorkspaceFsGitFileContentResponse) Reset() {
 	*x = WorkspaceFsGitFileContentResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[159]
+	mi := &file_agentre_wire_wire_proto_msgTypes[160]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11342,7 +11532,7 @@ func (x *WorkspaceFsGitFileContentResponse) String() string {
 func (*WorkspaceFsGitFileContentResponse) ProtoMessage() {}
 
 func (x *WorkspaceFsGitFileContentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[159]
+	mi := &file_agentre_wire_wire_proto_msgTypes[160]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11355,7 +11545,7 @@ func (x *WorkspaceFsGitFileContentResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use WorkspaceFsGitFileContentResponse.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsGitFileContentResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{159}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{160}
 }
 
 func (x *WorkspaceFsGitFileContentResponse) GetContent() []byte {
@@ -11390,7 +11580,7 @@ type WorkspaceFsSearchFilesRequest struct {
 
 func (x *WorkspaceFsSearchFilesRequest) Reset() {
 	*x = WorkspaceFsSearchFilesRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[160]
+	mi := &file_agentre_wire_wire_proto_msgTypes[161]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11402,7 +11592,7 @@ func (x *WorkspaceFsSearchFilesRequest) String() string {
 func (*WorkspaceFsSearchFilesRequest) ProtoMessage() {}
 
 func (x *WorkspaceFsSearchFilesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[160]
+	mi := &file_agentre_wire_wire_proto_msgTypes[161]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11415,7 +11605,7 @@ func (x *WorkspaceFsSearchFilesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsSearchFilesRequest.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsSearchFilesRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{160}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{161}
 }
 
 func (x *WorkspaceFsSearchFilesRequest) GetRoot() string {
@@ -11449,7 +11639,7 @@ type WorkspaceFsSearchHit struct {
 
 func (x *WorkspaceFsSearchHit) Reset() {
 	*x = WorkspaceFsSearchHit{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[161]
+	mi := &file_agentre_wire_wire_proto_msgTypes[162]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11461,7 +11651,7 @@ func (x *WorkspaceFsSearchHit) String() string {
 func (*WorkspaceFsSearchHit) ProtoMessage() {}
 
 func (x *WorkspaceFsSearchHit) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[161]
+	mi := &file_agentre_wire_wire_proto_msgTypes[162]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11474,7 +11664,7 @@ func (x *WorkspaceFsSearchHit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsSearchHit.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsSearchHit) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{161}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{162}
 }
 
 func (x *WorkspaceFsSearchHit) GetPath() string {
@@ -11501,7 +11691,7 @@ type WorkspaceFsSearchFilesResponse struct {
 
 func (x *WorkspaceFsSearchFilesResponse) Reset() {
 	*x = WorkspaceFsSearchFilesResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[162]
+	mi := &file_agentre_wire_wire_proto_msgTypes[163]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11513,7 +11703,7 @@ func (x *WorkspaceFsSearchFilesResponse) String() string {
 func (*WorkspaceFsSearchFilesResponse) ProtoMessage() {}
 
 func (x *WorkspaceFsSearchFilesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[162]
+	mi := &file_agentre_wire_wire_proto_msgTypes[163]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11526,7 +11716,7 @@ func (x *WorkspaceFsSearchFilesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsSearchFilesResponse.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsSearchFilesResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{162}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{163}
 }
 
 func (x *WorkspaceFsSearchFilesResponse) GetHits() []*WorkspaceFsSearchHit {
@@ -11552,7 +11742,7 @@ type WorkspaceFsGitStateRequest struct {
 
 func (x *WorkspaceFsGitStateRequest) Reset() {
 	*x = WorkspaceFsGitStateRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[163]
+	mi := &file_agentre_wire_wire_proto_msgTypes[164]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11564,7 +11754,7 @@ func (x *WorkspaceFsGitStateRequest) String() string {
 func (*WorkspaceFsGitStateRequest) ProtoMessage() {}
 
 func (x *WorkspaceFsGitStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[163]
+	mi := &file_agentre_wire_wire_proto_msgTypes[164]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11577,7 +11767,7 @@ func (x *WorkspaceFsGitStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsGitStateRequest.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsGitStateRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{163}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{164}
 }
 
 func (x *WorkspaceFsGitStateRequest) GetRoot() string {
@@ -11603,7 +11793,7 @@ type WorkspaceFsGitStateResponse struct {
 
 func (x *WorkspaceFsGitStateResponse) Reset() {
 	*x = WorkspaceFsGitStateResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[164]
+	mi := &file_agentre_wire_wire_proto_msgTypes[165]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11615,7 +11805,7 @@ func (x *WorkspaceFsGitStateResponse) String() string {
 func (*WorkspaceFsGitStateResponse) ProtoMessage() {}
 
 func (x *WorkspaceFsGitStateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[164]
+	mi := &file_agentre_wire_wire_proto_msgTypes[165]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11628,7 +11818,7 @@ func (x *WorkspaceFsGitStateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WorkspaceFsGitStateResponse.ProtoReflect.Descriptor instead.
 func (*WorkspaceFsGitStateResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{164}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{165}
 }
 
 func (x *WorkspaceFsGitStateResponse) GetNotARepo() bool {
@@ -11706,7 +11896,7 @@ type TranscriptImportFilter struct {
 
 func (x *TranscriptImportFilter) Reset() {
 	*x = TranscriptImportFilter{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[165]
+	mi := &file_agentre_wire_wire_proto_msgTypes[166]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11718,7 +11908,7 @@ func (x *TranscriptImportFilter) String() string {
 func (*TranscriptImportFilter) ProtoMessage() {}
 
 func (x *TranscriptImportFilter) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[165]
+	mi := &file_agentre_wire_wire_proto_msgTypes[166]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11731,7 +11921,7 @@ func (x *TranscriptImportFilter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportFilter.ProtoReflect.Descriptor instead.
 func (*TranscriptImportFilter) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{165}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{166}
 }
 
 func (x *TranscriptImportFilter) GetCwdPrefix() string {
@@ -11773,7 +11963,7 @@ type TranscriptImportScanRequest struct {
 
 func (x *TranscriptImportScanRequest) Reset() {
 	*x = TranscriptImportScanRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[166]
+	mi := &file_agentre_wire_wire_proto_msgTypes[167]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11785,7 +11975,7 @@ func (x *TranscriptImportScanRequest) String() string {
 func (*TranscriptImportScanRequest) ProtoMessage() {}
 
 func (x *TranscriptImportScanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[166]
+	mi := &file_agentre_wire_wire_proto_msgTypes[167]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11798,7 +11988,7 @@ func (x *TranscriptImportScanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportScanRequest.ProtoReflect.Descriptor instead.
 func (*TranscriptImportScanRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{166}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{167}
 }
 
 func (x *TranscriptImportScanRequest) GetBackends() []string {
@@ -11832,7 +12022,7 @@ type TranscriptImportCandidate struct {
 
 func (x *TranscriptImportCandidate) Reset() {
 	*x = TranscriptImportCandidate{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[167]
+	mi := &file_agentre_wire_wire_proto_msgTypes[168]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11844,7 +12034,7 @@ func (x *TranscriptImportCandidate) String() string {
 func (*TranscriptImportCandidate) ProtoMessage() {}
 
 func (x *TranscriptImportCandidate) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[167]
+	mi := &file_agentre_wire_wire_proto_msgTypes[168]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11857,7 +12047,7 @@ func (x *TranscriptImportCandidate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportCandidate.ProtoReflect.Descriptor instead.
 func (*TranscriptImportCandidate) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{167}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{168}
 }
 
 func (x *TranscriptImportCandidate) GetBackend() string {
@@ -11940,7 +12130,7 @@ type TranscriptImportBackendResult struct {
 
 func (x *TranscriptImportBackendResult) Reset() {
 	*x = TranscriptImportBackendResult{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[168]
+	mi := &file_agentre_wire_wire_proto_msgTypes[169]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -11952,7 +12142,7 @@ func (x *TranscriptImportBackendResult) String() string {
 func (*TranscriptImportBackendResult) ProtoMessage() {}
 
 func (x *TranscriptImportBackendResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[168]
+	mi := &file_agentre_wire_wire_proto_msgTypes[169]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -11965,7 +12155,7 @@ func (x *TranscriptImportBackendResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportBackendResult.ProtoReflect.Descriptor instead.
 func (*TranscriptImportBackendResult) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{168}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{169}
 }
 
 func (x *TranscriptImportBackendResult) GetBackend() string {
@@ -12005,7 +12195,7 @@ type TranscriptImportScanResponse struct {
 
 func (x *TranscriptImportScanResponse) Reset() {
 	*x = TranscriptImportScanResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[169]
+	mi := &file_agentre_wire_wire_proto_msgTypes[170]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12017,7 +12207,7 @@ func (x *TranscriptImportScanResponse) String() string {
 func (*TranscriptImportScanResponse) ProtoMessage() {}
 
 func (x *TranscriptImportScanResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[169]
+	mi := &file_agentre_wire_wire_proto_msgTypes[170]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12030,7 +12220,7 @@ func (x *TranscriptImportScanResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportScanResponse.ProtoReflect.Descriptor instead.
 func (*TranscriptImportScanResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{169}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{170}
 }
 
 func (x *TranscriptImportScanResponse) GetBackends() []*TranscriptImportBackendResult {
@@ -12051,7 +12241,7 @@ type TranscriptImportGap struct {
 
 func (x *TranscriptImportGap) Reset() {
 	*x = TranscriptImportGap{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[170]
+	mi := &file_agentre_wire_wire_proto_msgTypes[171]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12063,7 +12253,7 @@ func (x *TranscriptImportGap) String() string {
 func (*TranscriptImportGap) ProtoMessage() {}
 
 func (x *TranscriptImportGap) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[170]
+	mi := &file_agentre_wire_wire_proto_msgTypes[171]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12076,7 +12266,7 @@ func (x *TranscriptImportGap) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportGap.ProtoReflect.Descriptor instead.
 func (*TranscriptImportGap) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{170}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{171}
 }
 
 func (x *TranscriptImportGap) GetKind() string {
@@ -12120,7 +12310,7 @@ type TranscriptImportMeta struct {
 
 func (x *TranscriptImportMeta) Reset() {
 	*x = TranscriptImportMeta{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[171]
+	mi := &file_agentre_wire_wire_proto_msgTypes[172]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12132,7 +12322,7 @@ func (x *TranscriptImportMeta) String() string {
 func (*TranscriptImportMeta) ProtoMessage() {}
 
 func (x *TranscriptImportMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[171]
+	mi := &file_agentre_wire_wire_proto_msgTypes[172]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12145,7 +12335,7 @@ func (x *TranscriptImportMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportMeta.ProtoReflect.Descriptor instead.
 func (*TranscriptImportMeta) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{171}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{172}
 }
 
 func (x *TranscriptImportMeta) GetBackend() string {
@@ -12242,7 +12432,7 @@ type TranscriptImportOpenRequest struct {
 
 func (x *TranscriptImportOpenRequest) Reset() {
 	*x = TranscriptImportOpenRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[172]
+	mi := &file_agentre_wire_wire_proto_msgTypes[173]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12254,7 +12444,7 @@ func (x *TranscriptImportOpenRequest) String() string {
 func (*TranscriptImportOpenRequest) ProtoMessage() {}
 
 func (x *TranscriptImportOpenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[172]
+	mi := &file_agentre_wire_wire_proto_msgTypes[173]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12267,7 +12457,7 @@ func (x *TranscriptImportOpenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportOpenRequest.ProtoReflect.Descriptor instead.
 func (*TranscriptImportOpenRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{172}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{173}
 }
 
 func (x *TranscriptImportOpenRequest) GetBackend() string {
@@ -12293,7 +12483,7 @@ type TranscriptImportOpenResponse struct {
 
 func (x *TranscriptImportOpenResponse) Reset() {
 	*x = TranscriptImportOpenResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[173]
+	mi := &file_agentre_wire_wire_proto_msgTypes[174]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12305,7 +12495,7 @@ func (x *TranscriptImportOpenResponse) String() string {
 func (*TranscriptImportOpenResponse) ProtoMessage() {}
 
 func (x *TranscriptImportOpenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[173]
+	mi := &file_agentre_wire_wire_proto_msgTypes[174]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12318,7 +12508,7 @@ func (x *TranscriptImportOpenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportOpenResponse.ProtoReflect.Descriptor instead.
 func (*TranscriptImportOpenResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{173}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{174}
 }
 
 func (x *TranscriptImportOpenResponse) GetMeta() *TranscriptImportMeta {
@@ -12343,7 +12533,7 @@ type TranscriptImportTurnsRequest struct {
 
 func (x *TranscriptImportTurnsRequest) Reset() {
 	*x = TranscriptImportTurnsRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[174]
+	mi := &file_agentre_wire_wire_proto_msgTypes[175]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12355,7 +12545,7 @@ func (x *TranscriptImportTurnsRequest) String() string {
 func (*TranscriptImportTurnsRequest) ProtoMessage() {}
 
 func (x *TranscriptImportTurnsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[174]
+	mi := &file_agentre_wire_wire_proto_msgTypes[175]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12368,7 +12558,7 @@ func (x *TranscriptImportTurnsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportTurnsRequest.ProtoReflect.Descriptor instead.
 func (*TranscriptImportTurnsRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{174}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{175}
 }
 
 func (x *TranscriptImportTurnsRequest) GetBackend() string {
@@ -12410,7 +12600,7 @@ type TranscriptImportImage struct {
 
 func (x *TranscriptImportImage) Reset() {
 	*x = TranscriptImportImage{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[175]
+	mi := &file_agentre_wire_wire_proto_msgTypes[176]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12422,7 +12612,7 @@ func (x *TranscriptImportImage) String() string {
 func (*TranscriptImportImage) ProtoMessage() {}
 
 func (x *TranscriptImportImage) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[175]
+	mi := &file_agentre_wire_wire_proto_msgTypes[176]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12435,7 +12625,7 @@ func (x *TranscriptImportImage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportImage.ProtoReflect.Descriptor instead.
 func (*TranscriptImportImage) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{175}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{176}
 }
 
 func (x *TranscriptImportImage) GetMediaType() string {
@@ -12480,7 +12670,7 @@ type TranscriptImportTurn struct {
 
 func (x *TranscriptImportTurn) Reset() {
 	*x = TranscriptImportTurn{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[176]
+	mi := &file_agentre_wire_wire_proto_msgTypes[177]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12492,7 +12682,7 @@ func (x *TranscriptImportTurn) String() string {
 func (*TranscriptImportTurn) ProtoMessage() {}
 
 func (x *TranscriptImportTurn) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[176]
+	mi := &file_agentre_wire_wire_proto_msgTypes[177]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12505,7 +12695,7 @@ func (x *TranscriptImportTurn) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportTurn.ProtoReflect.Descriptor instead.
 func (*TranscriptImportTurn) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{176}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{177}
 }
 
 func (x *TranscriptImportTurn) GetIndex() int32 {
@@ -12591,7 +12781,7 @@ type TranscriptImportTurnsResponse struct {
 
 func (x *TranscriptImportTurnsResponse) Reset() {
 	*x = TranscriptImportTurnsResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[177]
+	mi := &file_agentre_wire_wire_proto_msgTypes[178]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12603,7 +12793,7 @@ func (x *TranscriptImportTurnsResponse) String() string {
 func (*TranscriptImportTurnsResponse) ProtoMessage() {}
 
 func (x *TranscriptImportTurnsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[177]
+	mi := &file_agentre_wire_wire_proto_msgTypes[178]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12616,7 +12806,7 @@ func (x *TranscriptImportTurnsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportTurnsResponse.ProtoReflect.Descriptor instead.
 func (*TranscriptImportTurnsResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{177}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{178}
 }
 
 func (x *TranscriptImportTurnsResponse) GetTurns() []*TranscriptImportTurn {
@@ -12664,7 +12854,7 @@ type TranscriptImportExecuteRequest struct {
 
 func (x *TranscriptImportExecuteRequest) Reset() {
 	*x = TranscriptImportExecuteRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[178]
+	mi := &file_agentre_wire_wire_proto_msgTypes[179]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12676,7 +12866,7 @@ func (x *TranscriptImportExecuteRequest) String() string {
 func (*TranscriptImportExecuteRequest) ProtoMessage() {}
 
 func (x *TranscriptImportExecuteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[178]
+	mi := &file_agentre_wire_wire_proto_msgTypes[179]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12689,7 +12879,7 @@ func (x *TranscriptImportExecuteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportExecuteRequest.ProtoReflect.Descriptor instead.
 func (*TranscriptImportExecuteRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{178}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{179}
 }
 
 func (x *TranscriptImportExecuteRequest) GetBackend() string {
@@ -12752,7 +12942,7 @@ type TranscriptImportExecuteResponse struct {
 
 func (x *TranscriptImportExecuteResponse) Reset() {
 	*x = TranscriptImportExecuteResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[179]
+	mi := &file_agentre_wire_wire_proto_msgTypes[180]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12764,7 +12954,7 @@ func (x *TranscriptImportExecuteResponse) String() string {
 func (*TranscriptImportExecuteResponse) ProtoMessage() {}
 
 func (x *TranscriptImportExecuteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[179]
+	mi := &file_agentre_wire_wire_proto_msgTypes[180]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12777,7 +12967,7 @@ func (x *TranscriptImportExecuteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TranscriptImportExecuteResponse.ProtoReflect.Descriptor instead.
 func (*TranscriptImportExecuteResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{179}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{180}
 }
 
 func (x *TranscriptImportExecuteResponse) GetConversationId() string {
@@ -12884,7 +13074,7 @@ type RuntimeEventNotification struct {
 
 func (x *RuntimeEventNotification) Reset() {
 	*x = RuntimeEventNotification{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[180]
+	mi := &file_agentre_wire_wire_proto_msgTypes[181]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -12896,7 +13086,7 @@ func (x *RuntimeEventNotification) String() string {
 func (*RuntimeEventNotification) ProtoMessage() {}
 
 func (x *RuntimeEventNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[180]
+	mi := &file_agentre_wire_wire_proto_msgTypes[181]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -12909,7 +13099,7 @@ func (x *RuntimeEventNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeEventNotification.ProtoReflect.Descriptor instead.
 func (*RuntimeEventNotification) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{180}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{181}
 }
 
 func (x *RuntimeEventNotification) GetConversationId() string {
@@ -13418,7 +13608,7 @@ type TextDelta struct {
 
 func (x *TextDelta) Reset() {
 	*x = TextDelta{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[181]
+	mi := &file_agentre_wire_wire_proto_msgTypes[182]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13430,7 +13620,7 @@ func (x *TextDelta) String() string {
 func (*TextDelta) ProtoMessage() {}
 
 func (x *TextDelta) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[181]
+	mi := &file_agentre_wire_wire_proto_msgTypes[182]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13443,7 +13633,7 @@ func (x *TextDelta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TextDelta.ProtoReflect.Descriptor instead.
 func (*TextDelta) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{181}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{182}
 }
 
 func (x *TextDelta) GetText() string {
@@ -13462,7 +13652,7 @@ type ThinkingDelta struct {
 
 func (x *ThinkingDelta) Reset() {
 	*x = ThinkingDelta{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[182]
+	mi := &file_agentre_wire_wire_proto_msgTypes[183]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13474,7 +13664,7 @@ func (x *ThinkingDelta) String() string {
 func (*ThinkingDelta) ProtoMessage() {}
 
 func (x *ThinkingDelta) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[182]
+	mi := &file_agentre_wire_wire_proto_msgTypes[183]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13487,7 +13677,7 @@ func (x *ThinkingDelta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ThinkingDelta.ProtoReflect.Descriptor instead.
 func (*ThinkingDelta) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{182}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{183}
 }
 
 func (x *ThinkingDelta) GetText() string {
@@ -13505,7 +13695,7 @@ type OutputActivity struct {
 
 func (x *OutputActivity) Reset() {
 	*x = OutputActivity{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[183]
+	mi := &file_agentre_wire_wire_proto_msgTypes[184]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13517,7 +13707,7 @@ func (x *OutputActivity) String() string {
 func (*OutputActivity) ProtoMessage() {}
 
 func (x *OutputActivity) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[183]
+	mi := &file_agentre_wire_wire_proto_msgTypes[184]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13530,7 +13720,7 @@ func (x *OutputActivity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputActivity.ProtoReflect.Descriptor instead.
 func (*OutputActivity) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{183}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{184}
 }
 
 type PermissionModeChanged struct {
@@ -13542,7 +13732,7 @@ type PermissionModeChanged struct {
 
 func (x *PermissionModeChanged) Reset() {
 	*x = PermissionModeChanged{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[184]
+	mi := &file_agentre_wire_wire_proto_msgTypes[185]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13554,7 +13744,7 @@ func (x *PermissionModeChanged) String() string {
 func (*PermissionModeChanged) ProtoMessage() {}
 
 func (x *PermissionModeChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[184]
+	mi := &file_agentre_wire_wire_proto_msgTypes[185]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13567,7 +13757,7 @@ func (x *PermissionModeChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PermissionModeChanged.ProtoReflect.Descriptor instead.
 func (*PermissionModeChanged) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{184}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{185}
 }
 
 func (x *PermissionModeChanged) GetMode() string {
@@ -13589,7 +13779,7 @@ type Retry struct {
 
 func (x *Retry) Reset() {
 	*x = Retry{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[185]
+	mi := &file_agentre_wire_wire_proto_msgTypes[186]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13601,7 +13791,7 @@ func (x *Retry) String() string {
 func (*Retry) ProtoMessage() {}
 
 func (x *Retry) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[185]
+	mi := &file_agentre_wire_wire_proto_msgTypes[186]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13614,7 +13804,7 @@ func (x *Retry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Retry.ProtoReflect.Descriptor instead.
 func (*Retry) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{185}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{186}
 }
 
 func (x *Retry) GetMessage() string {
@@ -13654,7 +13844,7 @@ type ContextWindowUpdated struct {
 
 func (x *ContextWindowUpdated) Reset() {
 	*x = ContextWindowUpdated{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[186]
+	mi := &file_agentre_wire_wire_proto_msgTypes[187]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13666,7 +13856,7 @@ func (x *ContextWindowUpdated) String() string {
 func (*ContextWindowUpdated) ProtoMessage() {}
 
 func (x *ContextWindowUpdated) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[186]
+	mi := &file_agentre_wire_wire_proto_msgTypes[187]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13679,7 +13869,7 @@ func (x *ContextWindowUpdated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContextWindowUpdated.ProtoReflect.Descriptor instead.
 func (*ContextWindowUpdated) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{186}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{187}
 }
 
 func (x *ContextWindowUpdated) GetTokens() int32 {
@@ -13701,7 +13891,7 @@ type CompactBoundary struct {
 
 func (x *CompactBoundary) Reset() {
 	*x = CompactBoundary{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[187]
+	mi := &file_agentre_wire_wire_proto_msgTypes[188]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13713,7 +13903,7 @@ func (x *CompactBoundary) String() string {
 func (*CompactBoundary) ProtoMessage() {}
 
 func (x *CompactBoundary) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[187]
+	mi := &file_agentre_wire_wire_proto_msgTypes[188]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13726,7 +13916,7 @@ func (x *CompactBoundary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompactBoundary.ProtoReflect.Descriptor instead.
 func (*CompactBoundary) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{187}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{188}
 }
 
 func (x *CompactBoundary) GetPreTokens() int32 {
@@ -13766,7 +13956,7 @@ type RuntimeStatus struct {
 
 func (x *RuntimeStatus) Reset() {
 	*x = RuntimeStatus{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[188]
+	mi := &file_agentre_wire_wire_proto_msgTypes[189]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13778,7 +13968,7 @@ func (x *RuntimeStatus) String() string {
 func (*RuntimeStatus) ProtoMessage() {}
 
 func (x *RuntimeStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[188]
+	mi := &file_agentre_wire_wire_proto_msgTypes[189]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13791,7 +13981,7 @@ func (x *RuntimeStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeStatus.ProtoReflect.Descriptor instead.
 func (*RuntimeStatus) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{188}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{189}
 }
 
 func (x *RuntimeStatus) GetStatus() string {
@@ -13814,7 +14004,7 @@ type UnsupportedRequestNotice struct {
 
 func (x *UnsupportedRequestNotice) Reset() {
 	*x = UnsupportedRequestNotice{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[189]
+	mi := &file_agentre_wire_wire_proto_msgTypes[190]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13826,7 +14016,7 @@ func (x *UnsupportedRequestNotice) String() string {
 func (*UnsupportedRequestNotice) ProtoMessage() {}
 
 func (x *UnsupportedRequestNotice) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[189]
+	mi := &file_agentre_wire_wire_proto_msgTypes[190]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13839,7 +14029,7 @@ func (x *UnsupportedRequestNotice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnsupportedRequestNotice.ProtoReflect.Descriptor instead.
 func (*UnsupportedRequestNotice) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{189}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{190}
 }
 
 func (x *UnsupportedRequestNotice) GetPurpose() string {
@@ -13870,7 +14060,7 @@ type Done struct {
 
 func (x *Done) Reset() {
 	*x = Done{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[190]
+	mi := &file_agentre_wire_wire_proto_msgTypes[191]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13882,7 +14072,7 @@ func (x *Done) String() string {
 func (*Done) ProtoMessage() {}
 
 func (x *Done) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[190]
+	mi := &file_agentre_wire_wire_proto_msgTypes[191]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13895,7 +14085,7 @@ func (x *Done) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Done.ProtoReflect.Descriptor instead.
 func (*Done) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{190}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{191}
 }
 
 func (x *Done) GetModel() string {
@@ -13935,7 +14125,7 @@ type ErrorEvent struct {
 
 func (x *ErrorEvent) Reset() {
 	*x = ErrorEvent{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[191]
+	mi := &file_agentre_wire_wire_proto_msgTypes[192]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13947,7 +14137,7 @@ func (x *ErrorEvent) String() string {
 func (*ErrorEvent) ProtoMessage() {}
 
 func (x *ErrorEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[191]
+	mi := &file_agentre_wire_wire_proto_msgTypes[192]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -13960,7 +14150,7 @@ func (x *ErrorEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorEvent.ProtoReflect.Descriptor instead.
 func (*ErrorEvent) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{191}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{192}
 }
 
 func (x *ErrorEvent) GetMessage() string {
@@ -13981,7 +14171,7 @@ type UserMessage struct {
 
 func (x *UserMessage) Reset() {
 	*x = UserMessage{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[192]
+	mi := &file_agentre_wire_wire_proto_msgTypes[193]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -13993,7 +14183,7 @@ func (x *UserMessage) String() string {
 func (*UserMessage) ProtoMessage() {}
 
 func (x *UserMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[192]
+	mi := &file_agentre_wire_wire_proto_msgTypes[193]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14006,7 +14196,7 @@ func (x *UserMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserMessage.ProtoReflect.Descriptor instead.
 func (*UserMessage) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{192}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{193}
 }
 
 func (x *UserMessage) GetText() string {
@@ -14044,7 +14234,7 @@ type Usage struct {
 
 func (x *Usage) Reset() {
 	*x = Usage{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[193]
+	mi := &file_agentre_wire_wire_proto_msgTypes[194]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14056,7 +14246,7 @@ func (x *Usage) String() string {
 func (*Usage) ProtoMessage() {}
 
 func (x *Usage) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[193]
+	mi := &file_agentre_wire_wire_proto_msgTypes[194]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14069,7 +14259,7 @@ func (x *Usage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Usage.ProtoReflect.Descriptor instead.
 func (*Usage) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{193}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{194}
 }
 
 func (x *Usage) GetPromptTokens() int32 {
@@ -14142,7 +14332,7 @@ type RunResultDoneNotification struct {
 
 func (x *RunResultDoneNotification) Reset() {
 	*x = RunResultDoneNotification{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[194]
+	mi := &file_agentre_wire_wire_proto_msgTypes[195]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14154,7 +14344,7 @@ func (x *RunResultDoneNotification) String() string {
 func (*RunResultDoneNotification) ProtoMessage() {}
 
 func (x *RunResultDoneNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[194]
+	mi := &file_agentre_wire_wire_proto_msgTypes[195]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14167,7 +14357,7 @@ func (x *RunResultDoneNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunResultDoneNotification.ProtoReflect.Descriptor instead.
 func (*RunResultDoneNotification) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{194}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{195}
 }
 
 func (x *RunResultDoneNotification) GetConversationId() string {
@@ -14277,7 +14467,7 @@ type AutonomousTurnStartedNotification struct {
 
 func (x *AutonomousTurnStartedNotification) Reset() {
 	*x = AutonomousTurnStartedNotification{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[195]
+	mi := &file_agentre_wire_wire_proto_msgTypes[196]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14289,7 +14479,7 @@ func (x *AutonomousTurnStartedNotification) String() string {
 func (*AutonomousTurnStartedNotification) ProtoMessage() {}
 
 func (x *AutonomousTurnStartedNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[195]
+	mi := &file_agentre_wire_wire_proto_msgTypes[196]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14302,7 +14492,7 @@ func (x *AutonomousTurnStartedNotification) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use AutonomousTurnStartedNotification.ProtoReflect.Descriptor instead.
 func (*AutonomousTurnStartedNotification) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{195}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{196}
 }
 
 func (x *AutonomousTurnStartedNotification) GetConversationId() string {
@@ -14354,7 +14544,7 @@ type TurnStartedNotification struct {
 
 func (x *TurnStartedNotification) Reset() {
 	*x = TurnStartedNotification{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[196]
+	mi := &file_agentre_wire_wire_proto_msgTypes[197]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14366,7 +14556,7 @@ func (x *TurnStartedNotification) String() string {
 func (*TurnStartedNotification) ProtoMessage() {}
 
 func (x *TurnStartedNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[196]
+	mi := &file_agentre_wire_wire_proto_msgTypes[197]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14379,7 +14569,7 @@ func (x *TurnStartedNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TurnStartedNotification.ProtoReflect.Descriptor instead.
 func (*TurnStartedNotification) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{196}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{197}
 }
 
 func (x *TurnStartedNotification) GetConversationId() string {
@@ -14415,7 +14605,7 @@ type ToolCall struct {
 
 func (x *ToolCall) Reset() {
 	*x = ToolCall{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[197]
+	mi := &file_agentre_wire_wire_proto_msgTypes[198]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14427,7 +14617,7 @@ func (x *ToolCall) String() string {
 func (*ToolCall) ProtoMessage() {}
 
 func (x *ToolCall) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[197]
+	mi := &file_agentre_wire_wire_proto_msgTypes[198]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14440,7 +14630,7 @@ func (x *ToolCall) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCall.ProtoReflect.Descriptor instead.
 func (*ToolCall) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{197}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{198}
 }
 
 func (x *ToolCall) GetId() string {
@@ -14508,7 +14698,7 @@ type ToolResult struct {
 
 func (x *ToolResult) Reset() {
 	*x = ToolResult{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[198]
+	mi := &file_agentre_wire_wire_proto_msgTypes[199]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14520,7 +14710,7 @@ func (x *ToolResult) String() string {
 func (*ToolResult) ProtoMessage() {}
 
 func (x *ToolResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[198]
+	mi := &file_agentre_wire_wire_proto_msgTypes[199]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14533,7 +14723,7 @@ func (x *ToolResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolResult.ProtoReflect.Descriptor instead.
 func (*ToolResult) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{198}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{199}
 }
 
 func (x *ToolResult) GetToolCallId() string {
@@ -14597,7 +14787,7 @@ type ConsumedSteer struct {
 
 func (x *ConsumedSteer) Reset() {
 	*x = ConsumedSteer{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[199]
+	mi := &file_agentre_wire_wire_proto_msgTypes[200]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14609,7 +14799,7 @@ func (x *ConsumedSteer) String() string {
 func (*ConsumedSteer) ProtoMessage() {}
 
 func (x *ConsumedSteer) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[199]
+	mi := &file_agentre_wire_wire_proto_msgTypes[200]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14622,7 +14812,7 @@ func (x *ConsumedSteer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsumedSteer.ProtoReflect.Descriptor instead.
 func (*ConsumedSteer) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{199}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{200}
 }
 
 func (x *ConsumedSteer) GetQueuedId() string {
@@ -14662,7 +14852,7 @@ type SteerConsumed struct {
 
 func (x *SteerConsumed) Reset() {
 	*x = SteerConsumed{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[200]
+	mi := &file_agentre_wire_wire_proto_msgTypes[201]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14674,7 +14864,7 @@ func (x *SteerConsumed) String() string {
 func (*SteerConsumed) ProtoMessage() {}
 
 func (x *SteerConsumed) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[200]
+	mi := &file_agentre_wire_wire_proto_msgTypes[201]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14687,7 +14877,7 @@ func (x *SteerConsumed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SteerConsumed.ProtoReflect.Descriptor instead.
 func (*SteerConsumed) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{200}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{201}
 }
 
 func (x *SteerConsumed) GetSteers() []*ConsumedSteer {
@@ -14708,7 +14898,7 @@ type AskOption struct {
 
 func (x *AskOption) Reset() {
 	*x = AskOption{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[201]
+	mi := &file_agentre_wire_wire_proto_msgTypes[202]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14720,7 +14910,7 @@ func (x *AskOption) String() string {
 func (*AskOption) ProtoMessage() {}
 
 func (x *AskOption) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[201]
+	mi := &file_agentre_wire_wire_proto_msgTypes[202]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14733,7 +14923,7 @@ func (x *AskOption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AskOption.ProtoReflect.Descriptor instead.
 func (*AskOption) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{201}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{202}
 }
 
 func (x *AskOption) GetLabel() string {
@@ -14775,7 +14965,7 @@ type AskQuestion struct {
 
 func (x *AskQuestion) Reset() {
 	*x = AskQuestion{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[202]
+	mi := &file_agentre_wire_wire_proto_msgTypes[203]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14787,7 +14977,7 @@ func (x *AskQuestion) String() string {
 func (*AskQuestion) ProtoMessage() {}
 
 func (x *AskQuestion) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[202]
+	mi := &file_agentre_wire_wire_proto_msgTypes[203]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14800,7 +14990,7 @@ func (x *AskQuestion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AskQuestion.ProtoReflect.Descriptor instead.
 func (*AskQuestion) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{202}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{203}
 }
 
 func (x *AskQuestion) GetId() string {
@@ -14870,7 +15060,7 @@ type AskAnswer struct {
 
 func (x *AskAnswer) Reset() {
 	*x = AskAnswer{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[203]
+	mi := &file_agentre_wire_wire_proto_msgTypes[204]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14882,7 +15072,7 @@ func (x *AskAnswer) String() string {
 func (*AskAnswer) ProtoMessage() {}
 
 func (x *AskAnswer) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[203]
+	mi := &file_agentre_wire_wire_proto_msgTypes[204]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14895,7 +15085,7 @@ func (x *AskAnswer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AskAnswer.ProtoReflect.Descriptor instead.
 func (*AskAnswer) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{203}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{204}
 }
 
 func (x *AskAnswer) GetQuestionIndex() int32 {
@@ -14931,7 +15121,7 @@ type UserAskRequest struct {
 
 func (x *UserAskRequest) Reset() {
 	*x = UserAskRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[204]
+	mi := &file_agentre_wire_wire_proto_msgTypes[205]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -14943,7 +15133,7 @@ func (x *UserAskRequest) String() string {
 func (*UserAskRequest) ProtoMessage() {}
 
 func (x *UserAskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[204]
+	mi := &file_agentre_wire_wire_proto_msgTypes[205]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -14956,7 +15146,7 @@ func (x *UserAskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserAskRequest.ProtoReflect.Descriptor instead.
 func (*UserAskRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{204}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{205}
 }
 
 func (x *UserAskRequest) GetRequestId() string {
@@ -14999,7 +15189,7 @@ type UserAskResolved struct {
 
 func (x *UserAskResolved) Reset() {
 	*x = UserAskResolved{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[205]
+	mi := &file_agentre_wire_wire_proto_msgTypes[206]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15011,7 +15201,7 @@ func (x *UserAskResolved) String() string {
 func (*UserAskResolved) ProtoMessage() {}
 
 func (x *UserAskResolved) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[205]
+	mi := &file_agentre_wire_wire_proto_msgTypes[206]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15024,7 +15214,7 @@ func (x *UserAskResolved) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserAskResolved.ProtoReflect.Descriptor instead.
 func (*UserAskResolved) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{205}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{206}
 }
 
 func (x *UserAskResolved) GetRequestId() string {
@@ -15067,7 +15257,7 @@ type ToolPermissionRequest struct {
 
 func (x *ToolPermissionRequest) Reset() {
 	*x = ToolPermissionRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[206]
+	mi := &file_agentre_wire_wire_proto_msgTypes[207]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15079,7 +15269,7 @@ func (x *ToolPermissionRequest) String() string {
 func (*ToolPermissionRequest) ProtoMessage() {}
 
 func (x *ToolPermissionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[206]
+	mi := &file_agentre_wire_wire_proto_msgTypes[207]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15092,7 +15282,7 @@ func (x *ToolPermissionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolPermissionRequest.ProtoReflect.Descriptor instead.
 func (*ToolPermissionRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{206}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{207}
 }
 
 func (x *ToolPermissionRequest) GetRequestId() string {
@@ -15135,7 +15325,7 @@ type ToolPermissionResolved struct {
 
 func (x *ToolPermissionResolved) Reset() {
 	*x = ToolPermissionResolved{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[207]
+	mi := &file_agentre_wire_wire_proto_msgTypes[208]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15147,7 +15337,7 @@ func (x *ToolPermissionResolved) String() string {
 func (*ToolPermissionResolved) ProtoMessage() {}
 
 func (x *ToolPermissionResolved) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[207]
+	mi := &file_agentre_wire_wire_proto_msgTypes[208]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15160,7 +15350,7 @@ func (x *ToolPermissionResolved) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolPermissionResolved.ProtoReflect.Descriptor instead.
 func (*ToolPermissionResolved) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{207}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{208}
 }
 
 func (x *ToolPermissionResolved) GetRequestId() string {
@@ -15225,7 +15415,7 @@ type ExecApprovalRequested struct {
 
 func (x *ExecApprovalRequested) Reset() {
 	*x = ExecApprovalRequested{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[208]
+	mi := &file_agentre_wire_wire_proto_msgTypes[209]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15237,7 +15427,7 @@ func (x *ExecApprovalRequested) String() string {
 func (*ExecApprovalRequested) ProtoMessage() {}
 
 func (x *ExecApprovalRequested) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[208]
+	mi := &file_agentre_wire_wire_proto_msgTypes[209]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15250,7 +15440,7 @@ func (x *ExecApprovalRequested) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecApprovalRequested.ProtoReflect.Descriptor instead.
 func (*ExecApprovalRequested) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{208}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{209}
 }
 
 func (x *ExecApprovalRequested) GetId() string {
@@ -15427,7 +15617,7 @@ type ExecApprovalResolved struct {
 
 func (x *ExecApprovalResolved) Reset() {
 	*x = ExecApprovalResolved{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[209]
+	mi := &file_agentre_wire_wire_proto_msgTypes[210]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15439,7 +15629,7 @@ func (x *ExecApprovalResolved) String() string {
 func (*ExecApprovalResolved) ProtoMessage() {}
 
 func (x *ExecApprovalResolved) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[209]
+	mi := &file_agentre_wire_wire_proto_msgTypes[210]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15452,7 +15642,7 @@ func (x *ExecApprovalResolved) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecApprovalResolved.ProtoReflect.Descriptor instead.
 func (*ExecApprovalResolved) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{209}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{210}
 }
 
 func (x *ExecApprovalResolved) GetId() string {
@@ -15506,7 +15696,7 @@ type ToolApprovalRequested struct {
 
 func (x *ToolApprovalRequested) Reset() {
 	*x = ToolApprovalRequested{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[210]
+	mi := &file_agentre_wire_wire_proto_msgTypes[211]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15518,7 +15708,7 @@ func (x *ToolApprovalRequested) String() string {
 func (*ToolApprovalRequested) ProtoMessage() {}
 
 func (x *ToolApprovalRequested) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[210]
+	mi := &file_agentre_wire_wire_proto_msgTypes[211]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15531,7 +15721,7 @@ func (x *ToolApprovalRequested) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolApprovalRequested.ProtoReflect.Descriptor instead.
 func (*ToolApprovalRequested) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{210}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{211}
 }
 
 func (x *ToolApprovalRequested) GetToolKey() string {
@@ -15573,7 +15763,7 @@ type ToolApprovalResolved struct {
 
 func (x *ToolApprovalResolved) Reset() {
 	*x = ToolApprovalResolved{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[211]
+	mi := &file_agentre_wire_wire_proto_msgTypes[212]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15585,7 +15775,7 @@ func (x *ToolApprovalResolved) String() string {
 func (*ToolApprovalResolved) ProtoMessage() {}
 
 func (x *ToolApprovalResolved) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[211]
+	mi := &file_agentre_wire_wire_proto_msgTypes[212]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15598,7 +15788,7 @@ func (x *ToolApprovalResolved) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolApprovalResolved.ProtoReflect.Descriptor instead.
 func (*ToolApprovalResolved) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{211}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{212}
 }
 
 func (x *ToolApprovalResolved) GetRequestId() string {
@@ -15643,7 +15833,7 @@ type SubagentRun struct {
 
 func (x *SubagentRun) Reset() {
 	*x = SubagentRun{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[212]
+	mi := &file_agentre_wire_wire_proto_msgTypes[213]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15655,7 +15845,7 @@ func (x *SubagentRun) String() string {
 func (*SubagentRun) ProtoMessage() {}
 
 func (x *SubagentRun) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[212]
+	mi := &file_agentre_wire_wire_proto_msgTypes[213]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15668,7 +15858,7 @@ func (x *SubagentRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubagentRun.ProtoReflect.Descriptor instead.
 func (*SubagentRun) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{212}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{213}
 }
 
 func (x *SubagentRun) GetId() string {
@@ -15797,7 +15987,7 @@ type SubagentInfo struct {
 
 func (x *SubagentInfo) Reset() {
 	*x = SubagentInfo{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[213]
+	mi := &file_agentre_wire_wire_proto_msgTypes[214]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15809,7 +15999,7 @@ func (x *SubagentInfo) String() string {
 func (*SubagentInfo) ProtoMessage() {}
 
 func (x *SubagentInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[213]
+	mi := &file_agentre_wire_wire_proto_msgTypes[214]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15822,7 +16012,7 @@ func (x *SubagentInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubagentInfo.ProtoReflect.Descriptor instead.
 func (*SubagentInfo) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{213}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{214}
 }
 
 func (x *SubagentInfo) GetTaskId() string {
@@ -15954,7 +16144,7 @@ type SubagentEvent struct {
 
 func (x *SubagentEvent) Reset() {
 	*x = SubagentEvent{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[214]
+	mi := &file_agentre_wire_wire_proto_msgTypes[215]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -15966,7 +16156,7 @@ func (x *SubagentEvent) String() string {
 func (*SubagentEvent) ProtoMessage() {}
 
 func (x *SubagentEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[214]
+	mi := &file_agentre_wire_wire_proto_msgTypes[215]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -15979,7 +16169,7 @@ func (x *SubagentEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubagentEvent.ProtoReflect.Descriptor instead.
 func (*SubagentEvent) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{214}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{215}
 }
 
 func (x *SubagentEvent) GetToolCallId() string {
@@ -16006,7 +16196,7 @@ type SubagentModel struct {
 
 func (x *SubagentModel) Reset() {
 	*x = SubagentModel{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[215]
+	mi := &file_agentre_wire_wire_proto_msgTypes[216]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16018,7 +16208,7 @@ func (x *SubagentModel) String() string {
 func (*SubagentModel) ProtoMessage() {}
 
 func (x *SubagentModel) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[215]
+	mi := &file_agentre_wire_wire_proto_msgTypes[216]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16031,7 +16221,7 @@ func (x *SubagentModel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubagentModel.ProtoReflect.Descriptor instead.
 func (*SubagentModel) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{215}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{216}
 }
 
 func (x *SubagentModel) GetToolCallId() string {
@@ -16059,7 +16249,7 @@ type UsageUpdate struct {
 
 func (x *UsageUpdate) Reset() {
 	*x = UsageUpdate{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[216]
+	mi := &file_agentre_wire_wire_proto_msgTypes[217]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16071,7 +16261,7 @@ func (x *UsageUpdate) String() string {
 func (*UsageUpdate) ProtoMessage() {}
 
 func (x *UsageUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[216]
+	mi := &file_agentre_wire_wire_proto_msgTypes[217]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16084,7 +16274,7 @@ func (x *UsageUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UsageUpdate.ProtoReflect.Descriptor instead.
 func (*UsageUpdate) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{216}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{217}
 }
 
 func (x *UsageUpdate) GetUsage() *Usage {
@@ -16119,7 +16309,7 @@ type PlanStep struct {
 
 func (x *PlanStep) Reset() {
 	*x = PlanStep{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[217]
+	mi := &file_agentre_wire_wire_proto_msgTypes[218]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16131,7 +16321,7 @@ func (x *PlanStep) String() string {
 func (*PlanStep) ProtoMessage() {}
 
 func (x *PlanStep) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[217]
+	mi := &file_agentre_wire_wire_proto_msgTypes[218]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16144,7 +16334,7 @@ func (x *PlanStep) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanStep.ProtoReflect.Descriptor instead.
 func (*PlanStep) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{217}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{218}
 }
 
 func (x *PlanStep) GetId() string {
@@ -16179,7 +16369,7 @@ type PlanAction struct {
 
 func (x *PlanAction) Reset() {
 	*x = PlanAction{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[218]
+	mi := &file_agentre_wire_wire_proto_msgTypes[219]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16191,7 +16381,7 @@ func (x *PlanAction) String() string {
 func (*PlanAction) ProtoMessage() {}
 
 func (x *PlanAction) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[218]
+	mi := &file_agentre_wire_wire_proto_msgTypes[219]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16204,7 +16394,7 @@ func (x *PlanAction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanAction.ProtoReflect.Descriptor instead.
 func (*PlanAction) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{218}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{219}
 }
 
 func (x *PlanAction) GetId() string {
@@ -16239,7 +16429,7 @@ type PlanUpdated struct {
 
 func (x *PlanUpdated) Reset() {
 	*x = PlanUpdated{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[219]
+	mi := &file_agentre_wire_wire_proto_msgTypes[220]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16251,7 +16441,7 @@ func (x *PlanUpdated) String() string {
 func (*PlanUpdated) ProtoMessage() {}
 
 func (x *PlanUpdated) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[219]
+	mi := &file_agentre_wire_wire_proto_msgTypes[220]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16264,7 +16454,7 @@ func (x *PlanUpdated) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlanUpdated.ProtoReflect.Descriptor instead.
 func (*PlanUpdated) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{219}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{220}
 }
 
 func (x *PlanUpdated) GetSteps() []*PlanStep {
@@ -16306,7 +16496,7 @@ type UnrecognizedBlock struct {
 
 func (x *UnrecognizedBlock) Reset() {
 	*x = UnrecognizedBlock{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[220]
+	mi := &file_agentre_wire_wire_proto_msgTypes[221]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16318,7 +16508,7 @@ func (x *UnrecognizedBlock) String() string {
 func (*UnrecognizedBlock) ProtoMessage() {}
 
 func (x *UnrecognizedBlock) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[220]
+	mi := &file_agentre_wire_wire_proto_msgTypes[221]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16331,7 +16521,7 @@ func (x *UnrecognizedBlock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnrecognizedBlock.ProtoReflect.Descriptor instead.
 func (*UnrecognizedBlock) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{220}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{221}
 }
 
 func (x *UnrecognizedBlock) GetBlockType() string {
@@ -16360,7 +16550,7 @@ type BlobSource struct {
 
 func (x *BlobSource) Reset() {
 	*x = BlobSource{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[221]
+	mi := &file_agentre_wire_wire_proto_msgTypes[222]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16372,7 +16562,7 @@ func (x *BlobSource) String() string {
 func (*BlobSource) ProtoMessage() {}
 
 func (x *BlobSource) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[221]
+	mi := &file_agentre_wire_wire_proto_msgTypes[222]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16385,7 +16575,7 @@ func (x *BlobSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlobSource.ProtoReflect.Descriptor instead.
 func (*BlobSource) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{221}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{222}
 }
 
 func (x *BlobSource) GetInline() []byte {
@@ -16424,7 +16614,7 @@ type ImageBlock struct {
 
 func (x *ImageBlock) Reset() {
 	*x = ImageBlock{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[222]
+	mi := &file_agentre_wire_wire_proto_msgTypes[223]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16436,7 +16626,7 @@ func (x *ImageBlock) String() string {
 func (*ImageBlock) ProtoMessage() {}
 
 func (x *ImageBlock) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[222]
+	mi := &file_agentre_wire_wire_proto_msgTypes[223]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16449,7 +16639,7 @@ func (x *ImageBlock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImageBlock.ProtoReflect.Descriptor instead.
 func (*ImageBlock) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{222}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{223}
 }
 
 func (x *ImageBlock) GetMediaType() string {
@@ -16494,7 +16684,7 @@ type PortForwardMapping struct {
 
 func (x *PortForwardMapping) Reset() {
 	*x = PortForwardMapping{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[223]
+	mi := &file_agentre_wire_wire_proto_msgTypes[224]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16506,7 +16696,7 @@ func (x *PortForwardMapping) String() string {
 func (*PortForwardMapping) ProtoMessage() {}
 
 func (x *PortForwardMapping) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[223]
+	mi := &file_agentre_wire_wire_proto_msgTypes[224]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16519,7 +16709,7 @@ func (x *PortForwardMapping) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardMapping.ProtoReflect.Descriptor instead.
 func (*PortForwardMapping) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{223}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{224}
 }
 
 func (x *PortForwardMapping) GetId() int64 {
@@ -16586,7 +16776,7 @@ type PortForwardListRequest struct {
 
 func (x *PortForwardListRequest) Reset() {
 	*x = PortForwardListRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[224]
+	mi := &file_agentre_wire_wire_proto_msgTypes[225]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16598,7 +16788,7 @@ func (x *PortForwardListRequest) String() string {
 func (*PortForwardListRequest) ProtoMessage() {}
 
 func (x *PortForwardListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[224]
+	mi := &file_agentre_wire_wire_proto_msgTypes[225]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16611,7 +16801,7 @@ func (x *PortForwardListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardListRequest.ProtoReflect.Descriptor instead.
 func (*PortForwardListRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{224}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{225}
 }
 
 type PortForwardListResponse struct {
@@ -16623,7 +16813,7 @@ type PortForwardListResponse struct {
 
 func (x *PortForwardListResponse) Reset() {
 	*x = PortForwardListResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[225]
+	mi := &file_agentre_wire_wire_proto_msgTypes[226]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16635,7 +16825,7 @@ func (x *PortForwardListResponse) String() string {
 func (*PortForwardListResponse) ProtoMessage() {}
 
 func (x *PortForwardListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[225]
+	mi := &file_agentre_wire_wire_proto_msgTypes[226]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16648,7 +16838,7 @@ func (x *PortForwardListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardListResponse.ProtoReflect.Descriptor instead.
 func (*PortForwardListResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{225}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{226}
 }
 
 func (x *PortForwardListResponse) GetMappings() []*PortForwardMapping {
@@ -16673,7 +16863,7 @@ type PortForwardCreateRequest struct {
 
 func (x *PortForwardCreateRequest) Reset() {
 	*x = PortForwardCreateRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[226]
+	mi := &file_agentre_wire_wire_proto_msgTypes[227]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16685,7 +16875,7 @@ func (x *PortForwardCreateRequest) String() string {
 func (*PortForwardCreateRequest) ProtoMessage() {}
 
 func (x *PortForwardCreateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[226]
+	mi := &file_agentre_wire_wire_proto_msgTypes[227]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16698,7 +16888,7 @@ func (x *PortForwardCreateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardCreateRequest.ProtoReflect.Descriptor instead.
 func (*PortForwardCreateRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{226}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{227}
 }
 
 func (x *PortForwardCreateRequest) GetPort() uint32 {
@@ -16739,7 +16929,7 @@ type PortForwardCreateResponse struct {
 
 func (x *PortForwardCreateResponse) Reset() {
 	*x = PortForwardCreateResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[227]
+	mi := &file_agentre_wire_wire_proto_msgTypes[228]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16751,7 +16941,7 @@ func (x *PortForwardCreateResponse) String() string {
 func (*PortForwardCreateResponse) ProtoMessage() {}
 
 func (x *PortForwardCreateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[227]
+	mi := &file_agentre_wire_wire_proto_msgTypes[228]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16764,7 +16954,7 @@ func (x *PortForwardCreateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardCreateResponse.ProtoReflect.Descriptor instead.
 func (*PortForwardCreateResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{227}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{228}
 }
 
 func (x *PortForwardCreateResponse) GetMapping() *PortForwardMapping {
@@ -16784,7 +16974,7 @@ type PortForwardSetEnabledRequest struct {
 
 func (x *PortForwardSetEnabledRequest) Reset() {
 	*x = PortForwardSetEnabledRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[228]
+	mi := &file_agentre_wire_wire_proto_msgTypes[229]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16796,7 +16986,7 @@ func (x *PortForwardSetEnabledRequest) String() string {
 func (*PortForwardSetEnabledRequest) ProtoMessage() {}
 
 func (x *PortForwardSetEnabledRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[228]
+	mi := &file_agentre_wire_wire_proto_msgTypes[229]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16809,7 +16999,7 @@ func (x *PortForwardSetEnabledRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardSetEnabledRequest.ProtoReflect.Descriptor instead.
 func (*PortForwardSetEnabledRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{228}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{229}
 }
 
 func (x *PortForwardSetEnabledRequest) GetId() int64 {
@@ -16835,7 +17025,7 @@ type PortForwardSetEnabledResponse struct {
 
 func (x *PortForwardSetEnabledResponse) Reset() {
 	*x = PortForwardSetEnabledResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[229]
+	mi := &file_agentre_wire_wire_proto_msgTypes[230]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16847,7 +17037,7 @@ func (x *PortForwardSetEnabledResponse) String() string {
 func (*PortForwardSetEnabledResponse) ProtoMessage() {}
 
 func (x *PortForwardSetEnabledResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[229]
+	mi := &file_agentre_wire_wire_proto_msgTypes[230]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16860,7 +17050,7 @@ func (x *PortForwardSetEnabledResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardSetEnabledResponse.ProtoReflect.Descriptor instead.
 func (*PortForwardSetEnabledResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{229}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{230}
 }
 
 func (x *PortForwardSetEnabledResponse) GetMapping() *PortForwardMapping {
@@ -16879,7 +17069,7 @@ type PortForwardDeleteRequest struct {
 
 func (x *PortForwardDeleteRequest) Reset() {
 	*x = PortForwardDeleteRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[230]
+	mi := &file_agentre_wire_wire_proto_msgTypes[231]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16891,7 +17081,7 @@ func (x *PortForwardDeleteRequest) String() string {
 func (*PortForwardDeleteRequest) ProtoMessage() {}
 
 func (x *PortForwardDeleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[230]
+	mi := &file_agentre_wire_wire_proto_msgTypes[231]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16904,7 +17094,7 @@ func (x *PortForwardDeleteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardDeleteRequest.ProtoReflect.Descriptor instead.
 func (*PortForwardDeleteRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{230}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{231}
 }
 
 func (x *PortForwardDeleteRequest) GetId() int64 {
@@ -16923,7 +17113,7 @@ type PortForwardDeleteResponse struct {
 
 func (x *PortForwardDeleteResponse) Reset() {
 	*x = PortForwardDeleteResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[231]
+	mi := &file_agentre_wire_wire_proto_msgTypes[232]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -16935,7 +17125,7 @@ func (x *PortForwardDeleteResponse) String() string {
 func (*PortForwardDeleteResponse) ProtoMessage() {}
 
 func (x *PortForwardDeleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[231]
+	mi := &file_agentre_wire_wire_proto_msgTypes[232]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -16948,7 +17138,7 @@ func (x *PortForwardDeleteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardDeleteResponse.ProtoReflect.Descriptor instead.
 func (*PortForwardDeleteResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{231}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{232}
 }
 
 func (x *PortForwardDeleteResponse) GetDeleted() bool {
@@ -16995,7 +17185,7 @@ type PortForwardOpenRequest struct {
 
 func (x *PortForwardOpenRequest) Reset() {
 	*x = PortForwardOpenRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[232]
+	mi := &file_agentre_wire_wire_proto_msgTypes[233]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17007,7 +17197,7 @@ func (x *PortForwardOpenRequest) String() string {
 func (*PortForwardOpenRequest) ProtoMessage() {}
 
 func (x *PortForwardOpenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[232]
+	mi := &file_agentre_wire_wire_proto_msgTypes[233]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17020,7 +17210,7 @@ func (x *PortForwardOpenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardOpenRequest.ProtoReflect.Descriptor instead.
 func (*PortForwardOpenRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{232}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{233}
 }
 
 func (x *PortForwardOpenRequest) GetStreamId() string {
@@ -17088,7 +17278,7 @@ type PortForwardOpenResponse struct {
 
 func (x *PortForwardOpenResponse) Reset() {
 	*x = PortForwardOpenResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[233]
+	mi := &file_agentre_wire_wire_proto_msgTypes[234]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17100,7 +17290,7 @@ func (x *PortForwardOpenResponse) String() string {
 func (*PortForwardOpenResponse) ProtoMessage() {}
 
 func (x *PortForwardOpenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[233]
+	mi := &file_agentre_wire_wire_proto_msgTypes[234]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17113,7 +17303,7 @@ func (x *PortForwardOpenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardOpenResponse.ProtoReflect.Descriptor instead.
 func (*PortForwardOpenResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{233}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{234}
 }
 
 func (x *PortForwardOpenResponse) GetStreamId() string {
@@ -17140,7 +17330,7 @@ type PortForwardWriteRequest struct {
 
 func (x *PortForwardWriteRequest) Reset() {
 	*x = PortForwardWriteRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[234]
+	mi := &file_agentre_wire_wire_proto_msgTypes[235]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17152,7 +17342,7 @@ func (x *PortForwardWriteRequest) String() string {
 func (*PortForwardWriteRequest) ProtoMessage() {}
 
 func (x *PortForwardWriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[234]
+	mi := &file_agentre_wire_wire_proto_msgTypes[235]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17165,7 +17355,7 @@ func (x *PortForwardWriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardWriteRequest.ProtoReflect.Descriptor instead.
 func (*PortForwardWriteRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{234}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{235}
 }
 
 func (x *PortForwardWriteRequest) GetStreamId() string {
@@ -17198,7 +17388,7 @@ type PortForwardCloseRequest struct {
 
 func (x *PortForwardCloseRequest) Reset() {
 	*x = PortForwardCloseRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[235]
+	mi := &file_agentre_wire_wire_proto_msgTypes[236]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17210,7 +17400,7 @@ func (x *PortForwardCloseRequest) String() string {
 func (*PortForwardCloseRequest) ProtoMessage() {}
 
 func (x *PortForwardCloseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[235]
+	mi := &file_agentre_wire_wire_proto_msgTypes[236]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17223,7 +17413,7 @@ func (x *PortForwardCloseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardCloseRequest.ProtoReflect.Descriptor instead.
 func (*PortForwardCloseRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{235}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{236}
 }
 
 func (x *PortForwardCloseRequest) GetStreamId() string {
@@ -17260,7 +17450,7 @@ type PortForwardAckRequest struct {
 
 func (x *PortForwardAckRequest) Reset() {
 	*x = PortForwardAckRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[236]
+	mi := &file_agentre_wire_wire_proto_msgTypes[237]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17272,7 +17462,7 @@ func (x *PortForwardAckRequest) String() string {
 func (*PortForwardAckRequest) ProtoMessage() {}
 
 func (x *PortForwardAckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[236]
+	mi := &file_agentre_wire_wire_proto_msgTypes[237]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17285,7 +17475,7 @@ func (x *PortForwardAckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardAckRequest.ProtoReflect.Descriptor instead.
 func (*PortForwardAckRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{236}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{237}
 }
 
 func (x *PortForwardAckRequest) GetStreamId() string {
@@ -17322,7 +17512,7 @@ type PortForwardResponseNotification struct {
 
 func (x *PortForwardResponseNotification) Reset() {
 	*x = PortForwardResponseNotification{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[237]
+	mi := &file_agentre_wire_wire_proto_msgTypes[238]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17334,7 +17524,7 @@ func (x *PortForwardResponseNotification) String() string {
 func (*PortForwardResponseNotification) ProtoMessage() {}
 
 func (x *PortForwardResponseNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[237]
+	mi := &file_agentre_wire_wire_proto_msgTypes[238]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17347,7 +17537,7 @@ func (x *PortForwardResponseNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardResponseNotification.ProtoReflect.Descriptor instead.
 func (*PortForwardResponseNotification) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{237}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{238}
 }
 
 func (x *PortForwardResponseNotification) GetStreamId() string {
@@ -17391,7 +17581,7 @@ type PortForwardDataNotification struct {
 
 func (x *PortForwardDataNotification) Reset() {
 	*x = PortForwardDataNotification{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[238]
+	mi := &file_agentre_wire_wire_proto_msgTypes[239]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17403,7 +17593,7 @@ func (x *PortForwardDataNotification) String() string {
 func (*PortForwardDataNotification) ProtoMessage() {}
 
 func (x *PortForwardDataNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[238]
+	mi := &file_agentre_wire_wire_proto_msgTypes[239]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17416,7 +17606,7 @@ func (x *PortForwardDataNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardDataNotification.ProtoReflect.Descriptor instead.
 func (*PortForwardDataNotification) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{238}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{239}
 }
 
 func (x *PortForwardDataNotification) GetStreamId() string {
@@ -17449,7 +17639,7 @@ type PortForwardClosedNotification struct {
 
 func (x *PortForwardClosedNotification) Reset() {
 	*x = PortForwardClosedNotification{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[239]
+	mi := &file_agentre_wire_wire_proto_msgTypes[240]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17461,7 +17651,7 @@ func (x *PortForwardClosedNotification) String() string {
 func (*PortForwardClosedNotification) ProtoMessage() {}
 
 func (x *PortForwardClosedNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[239]
+	mi := &file_agentre_wire_wire_proto_msgTypes[240]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17474,7 +17664,7 @@ func (x *PortForwardClosedNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardClosedNotification.ProtoReflect.Descriptor instead.
 func (*PortForwardClosedNotification) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{239}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{240}
 }
 
 func (x *PortForwardClosedNotification) GetStreamId() string {
@@ -17532,7 +17722,7 @@ type PortForwardRevokedNotification struct {
 
 func (x *PortForwardRevokedNotification) Reset() {
 	*x = PortForwardRevokedNotification{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[240]
+	mi := &file_agentre_wire_wire_proto_msgTypes[241]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17544,7 +17734,7 @@ func (x *PortForwardRevokedNotification) String() string {
 func (*PortForwardRevokedNotification) ProtoMessage() {}
 
 func (x *PortForwardRevokedNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[240]
+	mi := &file_agentre_wire_wire_proto_msgTypes[241]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17557,7 +17747,7 @@ func (x *PortForwardRevokedNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortForwardRevokedNotification.ProtoReflect.Descriptor instead.
 func (*PortForwardRevokedNotification) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{240}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{241}
 }
 
 func (x *PortForwardRevokedNotification) GetPort() uint32 {
@@ -17594,7 +17784,7 @@ type BackendCredentialStatusRequest struct {
 
 func (x *BackendCredentialStatusRequest) Reset() {
 	*x = BackendCredentialStatusRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[241]
+	mi := &file_agentre_wire_wire_proto_msgTypes[242]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17606,7 +17796,7 @@ func (x *BackendCredentialStatusRequest) String() string {
 func (*BackendCredentialStatusRequest) ProtoMessage() {}
 
 func (x *BackendCredentialStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[241]
+	mi := &file_agentre_wire_wire_proto_msgTypes[242]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17619,7 +17809,7 @@ func (x *BackendCredentialStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackendCredentialStatusRequest.ProtoReflect.Descriptor instead.
 func (*BackendCredentialStatusRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{241}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{242}
 }
 
 func (x *BackendCredentialStatusRequest) GetBackendType() string {
@@ -17656,7 +17846,7 @@ type BackendCredentialStatusResponse struct {
 
 func (x *BackendCredentialStatusResponse) Reset() {
 	*x = BackendCredentialStatusResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[242]
+	mi := &file_agentre_wire_wire_proto_msgTypes[243]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17668,7 +17858,7 @@ func (x *BackendCredentialStatusResponse) String() string {
 func (*BackendCredentialStatusResponse) ProtoMessage() {}
 
 func (x *BackendCredentialStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[242]
+	mi := &file_agentre_wire_wire_proto_msgTypes[243]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17681,7 +17871,7 @@ func (x *BackendCredentialStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackendCredentialStatusResponse.ProtoReflect.Descriptor instead.
 func (*BackendCredentialStatusResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{242}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{243}
 }
 
 func (x *BackendCredentialStatusResponse) GetOpenclawTokenSaved() bool {
@@ -17725,7 +17915,7 @@ type OpenClawTokenSetRequest struct {
 
 func (x *OpenClawTokenSetRequest) Reset() {
 	*x = OpenClawTokenSetRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[243]
+	mi := &file_agentre_wire_wire_proto_msgTypes[244]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17737,7 +17927,7 @@ func (x *OpenClawTokenSetRequest) String() string {
 func (*OpenClawTokenSetRequest) ProtoMessage() {}
 
 func (x *OpenClawTokenSetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[243]
+	mi := &file_agentre_wire_wire_proto_msgTypes[244]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17750,7 +17940,7 @@ func (x *OpenClawTokenSetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenClawTokenSetRequest.ProtoReflect.Descriptor instead.
 func (*OpenClawTokenSetRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{243}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{244}
 }
 
 func (x *OpenClawTokenSetRequest) GetSyncId() string {
@@ -17783,7 +17973,7 @@ type OpenClawTokenSetResponse struct {
 
 func (x *OpenClawTokenSetResponse) Reset() {
 	*x = OpenClawTokenSetResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[244]
+	mi := &file_agentre_wire_wire_proto_msgTypes[245]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17795,7 +17985,7 @@ func (x *OpenClawTokenSetResponse) String() string {
 func (*OpenClawTokenSetResponse) ProtoMessage() {}
 
 func (x *OpenClawTokenSetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[244]
+	mi := &file_agentre_wire_wire_proto_msgTypes[245]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17808,7 +17998,7 @@ func (x *OpenClawTokenSetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenClawTokenSetResponse.ProtoReflect.Descriptor instead.
 func (*OpenClawTokenSetResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{244}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{245}
 }
 
 func (x *OpenClawTokenSetResponse) GetTokenSaved() bool {
@@ -17827,7 +18017,7 @@ type HermesAuthProvidersRequest struct {
 
 func (x *HermesAuthProvidersRequest) Reset() {
 	*x = HermesAuthProvidersRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[245]
+	mi := &file_agentre_wire_wire_proto_msgTypes[246]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17839,7 +18029,7 @@ func (x *HermesAuthProvidersRequest) String() string {
 func (*HermesAuthProvidersRequest) ProtoMessage() {}
 
 func (x *HermesAuthProvidersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[245]
+	mi := &file_agentre_wire_wire_proto_msgTypes[246]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17852,7 +18042,7 @@ func (x *HermesAuthProvidersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HermesAuthProvidersRequest.ProtoReflect.Descriptor instead.
 func (*HermesAuthProvidersRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{245}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{246}
 }
 
 func (x *HermesAuthProvidersRequest) GetHermesUrl() string {
@@ -17873,7 +18063,7 @@ type HermesAuthProvider struct {
 
 func (x *HermesAuthProvider) Reset() {
 	*x = HermesAuthProvider{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[246]
+	mi := &file_agentre_wire_wire_proto_msgTypes[247]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17885,7 +18075,7 @@ func (x *HermesAuthProvider) String() string {
 func (*HermesAuthProvider) ProtoMessage() {}
 
 func (x *HermesAuthProvider) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[246]
+	mi := &file_agentre_wire_wire_proto_msgTypes[247]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17898,7 +18088,7 @@ func (x *HermesAuthProvider) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HermesAuthProvider.ProtoReflect.Descriptor instead.
 func (*HermesAuthProvider) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{246}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{247}
 }
 
 func (x *HermesAuthProvider) GetName() string {
@@ -17933,7 +18123,7 @@ type HermesAuthProvidersResponse struct {
 
 func (x *HermesAuthProvidersResponse) Reset() {
 	*x = HermesAuthProvidersResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[247]
+	mi := &file_agentre_wire_wire_proto_msgTypes[248]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -17945,7 +18135,7 @@ func (x *HermesAuthProvidersResponse) String() string {
 func (*HermesAuthProvidersResponse) ProtoMessage() {}
 
 func (x *HermesAuthProvidersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[247]
+	mi := &file_agentre_wire_wire_proto_msgTypes[248]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -17958,7 +18148,7 @@ func (x *HermesAuthProvidersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HermesAuthProvidersResponse.ProtoReflect.Descriptor instead.
 func (*HermesAuthProvidersResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{247}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{248}
 }
 
 func (x *HermesAuthProvidersResponse) GetProviders() []*HermesAuthProvider {
@@ -17989,7 +18179,7 @@ type HermesLoginRequest struct {
 
 func (x *HermesLoginRequest) Reset() {
 	*x = HermesLoginRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[248]
+	mi := &file_agentre_wire_wire_proto_msgTypes[249]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18001,7 +18191,7 @@ func (x *HermesLoginRequest) String() string {
 func (*HermesLoginRequest) ProtoMessage() {}
 
 func (x *HermesLoginRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[248]
+	mi := &file_agentre_wire_wire_proto_msgTypes[249]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18014,7 +18204,7 @@ func (x *HermesLoginRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HermesLoginRequest.ProtoReflect.Descriptor instead.
 func (*HermesLoginRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{248}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{249}
 }
 
 func (x *HermesLoginRequest) GetHermesUrl() string {
@@ -18059,7 +18249,7 @@ type HermesLoginResponse struct {
 
 func (x *HermesLoginResponse) Reset() {
 	*x = HermesLoginResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[249]
+	mi := &file_agentre_wire_wire_proto_msgTypes[250]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18071,7 +18261,7 @@ func (x *HermesLoginResponse) String() string {
 func (*HermesLoginResponse) ProtoMessage() {}
 
 func (x *HermesLoginResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[249]
+	mi := &file_agentre_wire_wire_proto_msgTypes[250]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18084,7 +18274,7 @@ func (x *HermesLoginResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HermesLoginResponse.ProtoReflect.Descriptor instead.
 func (*HermesLoginResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{249}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{250}
 }
 
 func (x *HermesLoginResponse) GetProvider() string {
@@ -18117,7 +18307,7 @@ type HermesLogoutRequest struct {
 
 func (x *HermesLogoutRequest) Reset() {
 	*x = HermesLogoutRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[250]
+	mi := &file_agentre_wire_wire_proto_msgTypes[251]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18129,7 +18319,7 @@ func (x *HermesLogoutRequest) String() string {
 func (*HermesLogoutRequest) ProtoMessage() {}
 
 func (x *HermesLogoutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[250]
+	mi := &file_agentre_wire_wire_proto_msgTypes[251]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18142,7 +18332,7 @@ func (x *HermesLogoutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HermesLogoutRequest.ProtoReflect.Descriptor instead.
 func (*HermesLogoutRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{250}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{251}
 }
 
 func (x *HermesLogoutRequest) GetHermesUrl() string {
@@ -18160,7 +18350,7 @@ type HermesLogoutResponse struct {
 
 func (x *HermesLogoutResponse) Reset() {
 	*x = HermesLogoutResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[251]
+	mi := &file_agentre_wire_wire_proto_msgTypes[252]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18172,7 +18362,7 @@ func (x *HermesLogoutResponse) String() string {
 func (*HermesLogoutResponse) ProtoMessage() {}
 
 func (x *HermesLogoutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[251]
+	mi := &file_agentre_wire_wire_proto_msgTypes[252]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18185,7 +18375,7 @@ func (x *HermesLogoutResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HermesLogoutResponse.ProtoReflect.Descriptor instead.
 func (*HermesLogoutResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{251}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{252}
 }
 
 // BackendConnectionTestRequest 让设备按本机凭据实际连一次后端。
@@ -18207,7 +18397,7 @@ type BackendConnectionTestRequest struct {
 
 func (x *BackendConnectionTestRequest) Reset() {
 	*x = BackendConnectionTestRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[252]
+	mi := &file_agentre_wire_wire_proto_msgTypes[253]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18219,7 +18409,7 @@ func (x *BackendConnectionTestRequest) String() string {
 func (*BackendConnectionTestRequest) ProtoMessage() {}
 
 func (x *BackendConnectionTestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[252]
+	mi := &file_agentre_wire_wire_proto_msgTypes[253]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18232,7 +18422,7 @@ func (x *BackendConnectionTestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackendConnectionTestRequest.ProtoReflect.Descriptor instead.
 func (*BackendConnectionTestRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{252}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{253}
 }
 
 func (x *BackendConnectionTestRequest) GetBackendType() string {
@@ -18304,7 +18494,7 @@ type OpenClawAgentOption struct {
 
 func (x *OpenClawAgentOption) Reset() {
 	*x = OpenClawAgentOption{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[253]
+	mi := &file_agentre_wire_wire_proto_msgTypes[254]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18316,7 +18506,7 @@ func (x *OpenClawAgentOption) String() string {
 func (*OpenClawAgentOption) ProtoMessage() {}
 
 func (x *OpenClawAgentOption) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[253]
+	mi := &file_agentre_wire_wire_proto_msgTypes[254]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18329,7 +18519,7 @@ func (x *OpenClawAgentOption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenClawAgentOption.ProtoReflect.Descriptor instead.
 func (*OpenClawAgentOption) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{253}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{254}
 }
 
 func (x *OpenClawAgentOption) GetId() string {
@@ -18379,7 +18569,7 @@ type OpenClawModelOption struct {
 
 func (x *OpenClawModelOption) Reset() {
 	*x = OpenClawModelOption{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[254]
+	mi := &file_agentre_wire_wire_proto_msgTypes[255]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18391,7 +18581,7 @@ func (x *OpenClawModelOption) String() string {
 func (*OpenClawModelOption) ProtoMessage() {}
 
 func (x *OpenClawModelOption) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[254]
+	mi := &file_agentre_wire_wire_proto_msgTypes[255]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18404,7 +18594,7 @@ func (x *OpenClawModelOption) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenClawModelOption.ProtoReflect.Descriptor instead.
 func (*OpenClawModelOption) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{254}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{255}
 }
 
 func (x *OpenClawModelOption) GetId() string {
@@ -18457,7 +18647,7 @@ type BackendConnectionTestResponse struct {
 
 func (x *BackendConnectionTestResponse) Reset() {
 	*x = BackendConnectionTestResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[255]
+	mi := &file_agentre_wire_wire_proto_msgTypes[256]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18469,7 +18659,7 @@ func (x *BackendConnectionTestResponse) String() string {
 func (*BackendConnectionTestResponse) ProtoMessage() {}
 
 func (x *BackendConnectionTestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[255]
+	mi := &file_agentre_wire_wire_proto_msgTypes[256]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18482,7 +18672,7 @@ func (x *BackendConnectionTestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BackendConnectionTestResponse.ProtoReflect.Descriptor instead.
 func (*BackendConnectionTestResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{255}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{256}
 }
 
 func (x *BackendConnectionTestResponse) GetOk() bool {
@@ -18585,7 +18775,7 @@ type CtlAgent struct {
 
 func (x *CtlAgent) Reset() {
 	*x = CtlAgent{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[256]
+	mi := &file_agentre_wire_wire_proto_msgTypes[257]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18597,7 +18787,7 @@ func (x *CtlAgent) String() string {
 func (*CtlAgent) ProtoMessage() {}
 
 func (x *CtlAgent) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[256]
+	mi := &file_agentre_wire_wire_proto_msgTypes[257]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18610,7 +18800,7 @@ func (x *CtlAgent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlAgent.ProtoReflect.Descriptor instead.
 func (*CtlAgent) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{256}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{257}
 }
 
 func (x *CtlAgent) GetId() int64 {
@@ -18701,7 +18891,7 @@ type CtlDepartment struct {
 
 func (x *CtlDepartment) Reset() {
 	*x = CtlDepartment{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[257]
+	mi := &file_agentre_wire_wire_proto_msgTypes[258]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18713,7 +18903,7 @@ func (x *CtlDepartment) String() string {
 func (*CtlDepartment) ProtoMessage() {}
 
 func (x *CtlDepartment) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[257]
+	mi := &file_agentre_wire_wire_proto_msgTypes[258]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18726,7 +18916,7 @@ func (x *CtlDepartment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlDepartment.ProtoReflect.Descriptor instead.
 func (*CtlDepartment) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{257}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{258}
 }
 
 func (x *CtlDepartment) GetId() int64 {
@@ -18790,7 +18980,7 @@ type CtlProjectLocation struct {
 
 func (x *CtlProjectLocation) Reset() {
 	*x = CtlProjectLocation{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[258]
+	mi := &file_agentre_wire_wire_proto_msgTypes[259]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18802,7 +18992,7 @@ func (x *CtlProjectLocation) String() string {
 func (*CtlProjectLocation) ProtoMessage() {}
 
 func (x *CtlProjectLocation) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[258]
+	mi := &file_agentre_wire_wire_proto_msgTypes[259]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18815,7 +19005,7 @@ func (x *CtlProjectLocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlProjectLocation.ProtoReflect.Descriptor instead.
 func (*CtlProjectLocation) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{258}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{259}
 }
 
 func (x *CtlProjectLocation) GetDeviceId() string {
@@ -18863,7 +19053,7 @@ type CtlProject struct {
 
 func (x *CtlProject) Reset() {
 	*x = CtlProject{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[259]
+	mi := &file_agentre_wire_wire_proto_msgTypes[260]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18875,7 +19065,7 @@ func (x *CtlProject) String() string {
 func (*CtlProject) ProtoMessage() {}
 
 func (x *CtlProject) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[259]
+	mi := &file_agentre_wire_wire_proto_msgTypes[260]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -18888,7 +19078,7 @@ func (x *CtlProject) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlProject.ProtoReflect.Descriptor instead.
 func (*CtlProject) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{259}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{260}
 }
 
 func (x *CtlProject) GetId() int64 {
@@ -18985,7 +19175,7 @@ type CtlProvider struct {
 
 func (x *CtlProvider) Reset() {
 	*x = CtlProvider{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[260]
+	mi := &file_agentre_wire_wire_proto_msgTypes[261]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -18997,7 +19187,7 @@ func (x *CtlProvider) String() string {
 func (*CtlProvider) ProtoMessage() {}
 
 func (x *CtlProvider) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[260]
+	mi := &file_agentre_wire_wire_proto_msgTypes[261]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19010,7 +19200,7 @@ func (x *CtlProvider) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlProvider.ProtoReflect.Descriptor instead.
 func (*CtlProvider) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{260}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{261}
 }
 
 func (x *CtlProvider) GetId() int64 {
@@ -19104,7 +19294,7 @@ type CtlModel struct {
 
 func (x *CtlModel) Reset() {
 	*x = CtlModel{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[261]
+	mi := &file_agentre_wire_wire_proto_msgTypes[262]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19116,7 +19306,7 @@ func (x *CtlModel) String() string {
 func (*CtlModel) ProtoMessage() {}
 
 func (x *CtlModel) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[261]
+	mi := &file_agentre_wire_wire_proto_msgTypes[262]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19129,7 +19319,7 @@ func (x *CtlModel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlModel.ProtoReflect.Descriptor instead.
 func (*CtlModel) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{261}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{262}
 }
 
 func (x *CtlModel) GetId() int64 {
@@ -19237,7 +19427,7 @@ type CtlBackend struct {
 
 func (x *CtlBackend) Reset() {
 	*x = CtlBackend{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[262]
+	mi := &file_agentre_wire_wire_proto_msgTypes[263]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19249,7 +19439,7 @@ func (x *CtlBackend) String() string {
 func (*CtlBackend) ProtoMessage() {}
 
 func (x *CtlBackend) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[262]
+	mi := &file_agentre_wire_wire_proto_msgTypes[263]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19262,7 +19452,7 @@ func (x *CtlBackend) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlBackend.ProtoReflect.Descriptor instead.
 func (*CtlBackend) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{262}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{263}
 }
 
 func (x *CtlBackend) GetId() int64 {
@@ -19389,7 +19579,7 @@ type CtlMemory struct {
 
 func (x *CtlMemory) Reset() {
 	*x = CtlMemory{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[263]
+	mi := &file_agentre_wire_wire_proto_msgTypes[264]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19401,7 +19591,7 @@ func (x *CtlMemory) String() string {
 func (*CtlMemory) ProtoMessage() {}
 
 func (x *CtlMemory) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[263]
+	mi := &file_agentre_wire_wire_proto_msgTypes[264]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19414,7 +19604,7 @@ func (x *CtlMemory) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlMemory.ProtoReflect.Descriptor instead.
 func (*CtlMemory) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{263}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{264}
 }
 
 func (x *CtlMemory) GetId() int64 {
@@ -19492,7 +19682,7 @@ type CtlResource struct {
 
 func (x *CtlResource) Reset() {
 	*x = CtlResource{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[264]
+	mi := &file_agentre_wire_wire_proto_msgTypes[265]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19504,7 +19694,7 @@ func (x *CtlResource) String() string {
 func (*CtlResource) ProtoMessage() {}
 
 func (x *CtlResource) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[264]
+	mi := &file_agentre_wire_wire_proto_msgTypes[265]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19517,7 +19707,7 @@ func (x *CtlResource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlResource.ProtoReflect.Descriptor instead.
 func (*CtlResource) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{264}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{265}
 }
 
 func (x *CtlResource) GetDoc() isCtlResource_Doc {
@@ -19646,7 +19836,7 @@ type CtlListRequest struct {
 
 func (x *CtlListRequest) Reset() {
 	*x = CtlListRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[265]
+	mi := &file_agentre_wire_wire_proto_msgTypes[266]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19658,7 +19848,7 @@ func (x *CtlListRequest) String() string {
 func (*CtlListRequest) ProtoMessage() {}
 
 func (x *CtlListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[265]
+	mi := &file_agentre_wire_wire_proto_msgTypes[266]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19671,7 +19861,7 @@ func (x *CtlListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlListRequest.ProtoReflect.Descriptor instead.
 func (*CtlListRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{265}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{266}
 }
 
 func (x *CtlListRequest) GetKind() CtlKind {
@@ -19690,7 +19880,7 @@ type CtlListResponse struct {
 
 func (x *CtlListResponse) Reset() {
 	*x = CtlListResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[266]
+	mi := &file_agentre_wire_wire_proto_msgTypes[267]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19702,7 +19892,7 @@ func (x *CtlListResponse) String() string {
 func (*CtlListResponse) ProtoMessage() {}
 
 func (x *CtlListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[266]
+	mi := &file_agentre_wire_wire_proto_msgTypes[267]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19715,7 +19905,7 @@ func (x *CtlListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlListResponse.ProtoReflect.Descriptor instead.
 func (*CtlListResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{266}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{267}
 }
 
 func (x *CtlListResponse) GetItems() []*CtlResource {
@@ -19736,7 +19926,7 @@ type CtlGetRequest struct {
 
 func (x *CtlGetRequest) Reset() {
 	*x = CtlGetRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[267]
+	mi := &file_agentre_wire_wire_proto_msgTypes[268]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19748,7 +19938,7 @@ func (x *CtlGetRequest) String() string {
 func (*CtlGetRequest) ProtoMessage() {}
 
 func (x *CtlGetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[267]
+	mi := &file_agentre_wire_wire_proto_msgTypes[268]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19761,7 +19951,7 @@ func (x *CtlGetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlGetRequest.ProtoReflect.Descriptor instead.
 func (*CtlGetRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{267}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{268}
 }
 
 func (x *CtlGetRequest) GetKind() CtlKind {
@@ -19787,7 +19977,7 @@ type CtlGetResponse struct {
 
 func (x *CtlGetResponse) Reset() {
 	*x = CtlGetResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[268]
+	mi := &file_agentre_wire_wire_proto_msgTypes[269]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19799,7 +19989,7 @@ func (x *CtlGetResponse) String() string {
 func (*CtlGetResponse) ProtoMessage() {}
 
 func (x *CtlGetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[268]
+	mi := &file_agentre_wire_wire_proto_msgTypes[269]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19812,7 +20002,7 @@ func (x *CtlGetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlGetResponse.ProtoReflect.Descriptor instead.
 func (*CtlGetResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{268}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{269}
 }
 
 func (x *CtlGetResponse) GetResource() *CtlResource {
@@ -19852,7 +20042,7 @@ type CtlWriteRequest struct {
 
 func (x *CtlWriteRequest) Reset() {
 	*x = CtlWriteRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[269]
+	mi := &file_agentre_wire_wire_proto_msgTypes[270]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19864,7 +20054,7 @@ func (x *CtlWriteRequest) String() string {
 func (*CtlWriteRequest) ProtoMessage() {}
 
 func (x *CtlWriteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[269]
+	mi := &file_agentre_wire_wire_proto_msgTypes[270]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -19877,7 +20067,7 @@ func (x *CtlWriteRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlWriteRequest.ProtoReflect.Descriptor instead.
 func (*CtlWriteRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{269}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{270}
 }
 
 func (x *CtlWriteRequest) GetOp() CtlOp {
@@ -19976,7 +20166,7 @@ type CtlCallerInfo struct {
 
 func (x *CtlCallerInfo) Reset() {
 	*x = CtlCallerInfo{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[270]
+	mi := &file_agentre_wire_wire_proto_msgTypes[271]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -19988,7 +20178,7 @@ func (x *CtlCallerInfo) String() string {
 func (*CtlCallerInfo) ProtoMessage() {}
 
 func (x *CtlCallerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[270]
+	mi := &file_agentre_wire_wire_proto_msgTypes[271]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20001,7 +20191,7 @@ func (x *CtlCallerInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlCallerInfo.ProtoReflect.Descriptor instead.
 func (*CtlCallerInfo) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{270}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{271}
 }
 
 func (x *CtlCallerInfo) GetParentProcess() string {
@@ -20039,7 +20229,7 @@ type CtlFieldChange struct {
 
 func (x *CtlFieldChange) Reset() {
 	*x = CtlFieldChange{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[271]
+	mi := &file_agentre_wire_wire_proto_msgTypes[272]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20051,7 +20241,7 @@ func (x *CtlFieldChange) String() string {
 func (*CtlFieldChange) ProtoMessage() {}
 
 func (x *CtlFieldChange) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[271]
+	mi := &file_agentre_wire_wire_proto_msgTypes[272]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20064,7 +20254,7 @@ func (x *CtlFieldChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlFieldChange.ProtoReflect.Descriptor instead.
 func (*CtlFieldChange) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{271}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{272}
 }
 
 func (x *CtlFieldChange) GetField() string {
@@ -20111,7 +20301,7 @@ type CtlChange struct {
 
 func (x *CtlChange) Reset() {
 	*x = CtlChange{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[272]
+	mi := &file_agentre_wire_wire_proto_msgTypes[273]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20123,7 +20313,7 @@ func (x *CtlChange) String() string {
 func (*CtlChange) ProtoMessage() {}
 
 func (x *CtlChange) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[272]
+	mi := &file_agentre_wire_wire_proto_msgTypes[273]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20136,7 +20326,7 @@ func (x *CtlChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlChange.ProtoReflect.Descriptor instead.
 func (*CtlChange) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{272}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{273}
 }
 
 func (x *CtlChange) GetOp() CtlOp {
@@ -20199,7 +20389,7 @@ type CtlWriteResponse struct {
 
 func (x *CtlWriteResponse) Reset() {
 	*x = CtlWriteResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[273]
+	mi := &file_agentre_wire_wire_proto_msgTypes[274]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20211,7 +20401,7 @@ func (x *CtlWriteResponse) String() string {
 func (*CtlWriteResponse) ProtoMessage() {}
 
 func (x *CtlWriteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[273]
+	mi := &file_agentre_wire_wire_proto_msgTypes[274]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20224,7 +20414,7 @@ func (x *CtlWriteResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlWriteResponse.ProtoReflect.Descriptor instead.
 func (*CtlWriteResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{273}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{274}
 }
 
 func (x *CtlWriteResponse) GetId() int64 {
@@ -20284,7 +20474,7 @@ type CtlRequest struct {
 
 func (x *CtlRequest) Reset() {
 	*x = CtlRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[274]
+	mi := &file_agentre_wire_wire_proto_msgTypes[275]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20296,7 +20486,7 @@ func (x *CtlRequest) String() string {
 func (*CtlRequest) ProtoMessage() {}
 
 func (x *CtlRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[274]
+	mi := &file_agentre_wire_wire_proto_msgTypes[275]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20309,7 +20499,7 @@ func (x *CtlRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlRequest.ProtoReflect.Descriptor instead.
 func (*CtlRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{274}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{275}
 }
 
 func (x *CtlRequest) GetOp() isCtlRequest_Op {
@@ -20383,7 +20573,7 @@ type CtlResponse struct {
 
 func (x *CtlResponse) Reset() {
 	*x = CtlResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[275]
+	mi := &file_agentre_wire_wire_proto_msgTypes[276]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20395,7 +20585,7 @@ func (x *CtlResponse) String() string {
 func (*CtlResponse) ProtoMessage() {}
 
 func (x *CtlResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[275]
+	mi := &file_agentre_wire_wire_proto_msgTypes[276]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20408,7 +20598,7 @@ func (x *CtlResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CtlResponse.ProtoReflect.Descriptor instead.
 func (*CtlResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{275}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{276}
 }
 
 func (x *CtlResponse) GetResult() isCtlResponse_Result {
@@ -20484,7 +20674,7 @@ type CLIModelsListRequest struct {
 
 func (x *CLIModelsListRequest) Reset() {
 	*x = CLIModelsListRequest{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[276]
+	mi := &file_agentre_wire_wire_proto_msgTypes[277]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20496,7 +20686,7 @@ func (x *CLIModelsListRequest) String() string {
 func (*CLIModelsListRequest) ProtoMessage() {}
 
 func (x *CLIModelsListRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[276]
+	mi := &file_agentre_wire_wire_proto_msgTypes[277]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20509,7 +20699,7 @@ func (x *CLIModelsListRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CLIModelsListRequest.ProtoReflect.Descriptor instead.
 func (*CLIModelsListRequest) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{276}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{277}
 }
 
 func (x *CLIModelsListRequest) GetBackendType() string {
@@ -20561,7 +20751,7 @@ type CLIModel struct {
 
 func (x *CLIModel) Reset() {
 	*x = CLIModel{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[277]
+	mi := &file_agentre_wire_wire_proto_msgTypes[278]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20573,7 +20763,7 @@ func (x *CLIModel) String() string {
 func (*CLIModel) ProtoMessage() {}
 
 func (x *CLIModel) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[277]
+	mi := &file_agentre_wire_wire_proto_msgTypes[278]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20586,7 +20776,7 @@ func (x *CLIModel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CLIModel.ProtoReflect.Descriptor instead.
 func (*CLIModel) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{277}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{278}
 }
 
 func (x *CLIModel) GetValue() string {
@@ -20637,7 +20827,7 @@ type CLIModelsListResponse struct {
 
 func (x *CLIModelsListResponse) Reset() {
 	*x = CLIModelsListResponse{}
-	mi := &file_agentre_wire_wire_proto_msgTypes[278]
+	mi := &file_agentre_wire_wire_proto_msgTypes[279]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -20649,7 +20839,7 @@ func (x *CLIModelsListResponse) String() string {
 func (*CLIModelsListResponse) ProtoMessage() {}
 
 func (x *CLIModelsListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_agentre_wire_wire_proto_msgTypes[278]
+	mi := &file_agentre_wire_wire_proto_msgTypes[279]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -20662,7 +20852,7 @@ func (x *CLIModelsListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CLIModelsListResponse.ProtoReflect.Descriptor instead.
 func (*CLIModelsListResponse) Descriptor() ([]byte, []int) {
-	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{278}
+	return file_agentre_wire_wire_proto_rawDescGZIP(), []int{279}
 }
 
 func (x *CLIModelsListResponse) GetModels() []*CLIModel {
@@ -21279,7 +21469,25 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x0fsync_deleted_at\x18\x1b \x01(\x03R\rsyncDeletedAt\x12\x1f\n" +
 	"\vacp_command\x18\x1c \x01(\tR\n" +
 	"acpCommand\x12\x19\n" +
-	"\bacp_args\x18\x1d \x03(\tR\aacpArgs\"5\n" +
+	"\bacp_args\x18\x1d \x03(\tR\aacpArgs\"\xe6\x03\n" +
+	"\rEngineProfile\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
+	"\async_id\x18\x02 \x01(\tR\x06syncId\x12\x12\n" +
+	"\x04type\x18\x03 \x01(\tR\x04type\x12\x12\n" +
+	"\x04name\x18\x04 \x01(\tR\x04name\x12(\n" +
+	"\x10llm_provider_key\x18\x05 \x01(\tR\x0ellmProviderKey\x12\"\n" +
+	"\rllm_model_key\x18\x06 \x01(\tR\vllmModelKey\x12!\n" +
+	"\fmodel_routes\x18\a \x01(\tR\vmodelRoutes\x12\x18\n" +
+	"\asandbox\x18\b \x01(\tR\asandbox\x12\x1a\n" +
+	"\bapproval\x18\t \x01(\tR\bapproval\x12\x19\n" +
+	"\benv_json\x18\n" +
+	" \x01(\tR\aenvJson\x12)\n" +
+	"\x10reasoning_effort\x18\v \x01(\tR\x0freasoningEffort\x126\n" +
+	"\x17default_permission_mode\x18\f \x01(\tR\x15defaultPermissionMode\x12#\n" +
+	"\rdefault_model\x18\r \x01(\tR\fdefaultModel\x12\x1f\n" +
+	"\vacp_command\x18\x0e \x01(\tR\n" +
+	"acpCommand\x12\x19\n" +
+	"\bacp_args\x18\x0f \x03(\tR\aacpArgs\"5\n" +
 	"\vStoredBlock\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\"W\n" +
@@ -21293,7 +21501,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x05tools\x18\x04 \x03(\tR\x05tools\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8e\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xed\n" +
 	"\n" +
 	"\x11RuntimeRunRequest\x124\n" +
 	"\abackend\x18\x01 \x01(\v2\x1a.agentre.wire.AgentBackendR\abackend\x12\x19\n" +
@@ -21328,7 +21536,9 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x11desktop_ctl_token\x18\x1a \x01(\tR\x0fdesktopCtlToken\x12,\n" +
 	"\x12desktop_session_id\x18\x1b \x01(\x03R\x10desktopSessionId\x12$\n" +
 	"\x0ecli_model_mode\x18\x1c \x01(\tR\fcliModelMode\x12\x1b\n" +
-	"\tcli_model\x18\x1d \x01(\tR\bcliModel\x1aA\n" +
+	"\tcli_model\x18\x1d \x01(\tR\bcliModel\x12B\n" +
+	"\x0eengine_profile\x18\x1e \x01(\v2\x1b.agentre.wire.EngineProfileR\rengineProfile\x12\x19\n" +
+	"\bcli_path\x18\x1f \x01(\tR\acliPath\x1aA\n" +
 	"\x13EnabledPluginsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\xb2\x02\n" +
@@ -22451,7 +22661,7 @@ func file_agentre_wire_wire_proto_rawDescGZIP() []byte {
 }
 
 var file_agentre_wire_wire_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 288)
+var file_agentre_wire_wire_proto_msgTypes = make([]protoimpl.MessageInfo, 289)
 var file_agentre_wire_wire_proto_goTypes = []any{
 	(RpcMethod)(0),                              // 0: agentre.wire.RpcMethod
 	(AgentredSelfUpdateRejectReason)(0),         // 1: agentre.wire.AgentredSelfUpdateRejectReason
@@ -22572,183 +22782,184 @@ var file_agentre_wire_wire_proto_goTypes = []any{
 	(*ToolApprovalAnswerRequest)(nil),           // 116: agentre.wire.ToolApprovalAnswerRequest
 	(*ToolApprovalAnswerResponse)(nil),          // 117: agentre.wire.ToolApprovalAnswerResponse
 	(*AgentBackend)(nil),                        // 118: agentre.wire.AgentBackend
-	(*StoredBlock)(nil),                         // 119: agentre.wire.StoredBlock
-	(*HistoryMessage)(nil),                      // 120: agentre.wire.HistoryMessage
-	(*MCPServer)(nil),                           // 121: agentre.wire.MCPServer
-	(*RuntimeRunRequest)(nil),                   // 122: agentre.wire.RuntimeRunRequest
-	(*RuntimeRunResponse)(nil),                  // 123: agentre.wire.RuntimeRunResponse
-	(*RuntimeGoalRequest)(nil),                  // 124: agentre.wire.RuntimeGoalRequest
-	(*Goal)(nil),                                // 125: agentre.wire.Goal
-	(*RuntimeGoalResponse)(nil),                 // 126: agentre.wire.RuntimeGoalResponse
-	(*RuntimeGoalClearResponse)(nil),            // 127: agentre.wire.RuntimeGoalClearResponse
-	(*TerminalOpenRequest)(nil),                 // 128: agentre.wire.TerminalOpenRequest
-	(*TerminalOpenResponse)(nil),                // 129: agentre.wire.TerminalOpenResponse
-	(*TerminalWriteRequest)(nil),                // 130: agentre.wire.TerminalWriteRequest
-	(*TerminalResizeRequest)(nil),               // 131: agentre.wire.TerminalResizeRequest
-	(*TerminalCloseRequest)(nil),                // 132: agentre.wire.TerminalCloseRequest
-	(*TerminalDataNotification)(nil),            // 133: agentre.wire.TerminalDataNotification
-	(*TerminalExitNotification)(nil),            // 134: agentre.wire.TerminalExitNotification
-	(*HeaderValues)(nil),                        // 135: agentre.wire.HeaderValues
-	(*MCPProxyRequest)(nil),                     // 136: agentre.wire.MCPProxyRequest
-	(*MCPProxyResponse)(nil),                    // 137: agentre.wire.MCPProxyResponse
-	(*ProjectSetLocalPathRequest)(nil),          // 138: agentre.wire.ProjectSetLocalPathRequest
-	(*ProjectClearLocalPathRequest)(nil),        // 139: agentre.wire.ProjectClearLocalPathRequest
-	(*ProjectLocalPathResponse)(nil),            // 140: agentre.wire.ProjectLocalPathResponse
-	(*SkillAuthorization)(nil),                  // 141: agentre.wire.SkillAuthorization
-	(*SkillCatalogRequest)(nil),                 // 142: agentre.wire.SkillCatalogRequest
-	(*SkillPackSummary)(nil),                    // 143: agentre.wire.SkillPackSummary
-	(*SkillCatalogResponse)(nil),                // 144: agentre.wire.SkillCatalogResponse
-	(*SkillCommandsRequest)(nil),                // 145: agentre.wire.SkillCommandsRequest
-	(*SkillCommand)(nil),                        // 146: agentre.wire.SkillCommand
-	(*SkillCommandsResponse)(nil),               // 147: agentre.wire.SkillCommandsResponse
-	(*RemoteFsListDirRequest)(nil),              // 148: agentre.wire.RemoteFsListDirRequest
-	(*RemoteFsEntry)(nil),                       // 149: agentre.wire.RemoteFsEntry
-	(*RemoteFsListDirResponse)(nil),             // 150: agentre.wire.RemoteFsListDirResponse
-	(*RemoteFsMkdirRequest)(nil),                // 151: agentre.wire.RemoteFsMkdirRequest
-	(*RemoteFsMkdirResponse)(nil),               // 152: agentre.wire.RemoteFsMkdirResponse
-	(*WorkspaceFsListDirRequest)(nil),           // 153: agentre.wire.WorkspaceFsListDirRequest
-	(*WorkspaceFsEntry)(nil),                    // 154: agentre.wire.WorkspaceFsEntry
-	(*WorkspaceFsListDirResponse)(nil),          // 155: agentre.wire.WorkspaceFsListDirResponse
-	(*WorkspaceFsGitChangesRequest)(nil),        // 156: agentre.wire.WorkspaceFsGitChangesRequest
-	(*WorkspaceFsChange)(nil),                   // 157: agentre.wire.WorkspaceFsChange
-	(*WorkspaceFsGitChangesResponse)(nil),       // 158: agentre.wire.WorkspaceFsGitChangesResponse
-	(*WorkspaceFsGitBranchesRequest)(nil),       // 159: agentre.wire.WorkspaceFsGitBranchesRequest
-	(*WorkspaceFsBranch)(nil),                   // 160: agentre.wire.WorkspaceFsBranch
-	(*WorkspaceFsGitBranchesResponse)(nil),      // 161: agentre.wire.WorkspaceFsGitBranchesResponse
-	(*WorkspaceFsReadFileRequest)(nil),          // 162: agentre.wire.WorkspaceFsReadFileRequest
-	(*WorkspaceFsReadFileResponse)(nil),         // 163: agentre.wire.WorkspaceFsReadFileResponse
-	(*WorkspaceFsGitFileContentRequest)(nil),    // 164: agentre.wire.WorkspaceFsGitFileContentRequest
-	(*WorkspaceFsGitFileContentResponse)(nil),   // 165: agentre.wire.WorkspaceFsGitFileContentResponse
-	(*WorkspaceFsSearchFilesRequest)(nil),       // 166: agentre.wire.WorkspaceFsSearchFilesRequest
-	(*WorkspaceFsSearchHit)(nil),                // 167: agentre.wire.WorkspaceFsSearchHit
-	(*WorkspaceFsSearchFilesResponse)(nil),      // 168: agentre.wire.WorkspaceFsSearchFilesResponse
-	(*WorkspaceFsGitStateRequest)(nil),          // 169: agentre.wire.WorkspaceFsGitStateRequest
-	(*WorkspaceFsGitStateResponse)(nil),         // 170: agentre.wire.WorkspaceFsGitStateResponse
-	(*TranscriptImportFilter)(nil),              // 171: agentre.wire.TranscriptImportFilter
-	(*TranscriptImportScanRequest)(nil),         // 172: agentre.wire.TranscriptImportScanRequest
-	(*TranscriptImportCandidate)(nil),           // 173: agentre.wire.TranscriptImportCandidate
-	(*TranscriptImportBackendResult)(nil),       // 174: agentre.wire.TranscriptImportBackendResult
-	(*TranscriptImportScanResponse)(nil),        // 175: agentre.wire.TranscriptImportScanResponse
-	(*TranscriptImportGap)(nil),                 // 176: agentre.wire.TranscriptImportGap
-	(*TranscriptImportMeta)(nil),                // 177: agentre.wire.TranscriptImportMeta
-	(*TranscriptImportOpenRequest)(nil),         // 178: agentre.wire.TranscriptImportOpenRequest
-	(*TranscriptImportOpenResponse)(nil),        // 179: agentre.wire.TranscriptImportOpenResponse
-	(*TranscriptImportTurnsRequest)(nil),        // 180: agentre.wire.TranscriptImportTurnsRequest
-	(*TranscriptImportImage)(nil),               // 181: agentre.wire.TranscriptImportImage
-	(*TranscriptImportTurn)(nil),                // 182: agentre.wire.TranscriptImportTurn
-	(*TranscriptImportTurnsResponse)(nil),       // 183: agentre.wire.TranscriptImportTurnsResponse
-	(*TranscriptImportExecuteRequest)(nil),      // 184: agentre.wire.TranscriptImportExecuteRequest
-	(*TranscriptImportExecuteResponse)(nil),     // 185: agentre.wire.TranscriptImportExecuteResponse
-	(*RuntimeEventNotification)(nil),            // 186: agentre.wire.RuntimeEventNotification
-	(*TextDelta)(nil),                           // 187: agentre.wire.TextDelta
-	(*ThinkingDelta)(nil),                       // 188: agentre.wire.ThinkingDelta
-	(*OutputActivity)(nil),                      // 189: agentre.wire.OutputActivity
-	(*PermissionModeChanged)(nil),               // 190: agentre.wire.PermissionModeChanged
-	(*Retry)(nil),                               // 191: agentre.wire.Retry
-	(*ContextWindowUpdated)(nil),                // 192: agentre.wire.ContextWindowUpdated
-	(*CompactBoundary)(nil),                     // 193: agentre.wire.CompactBoundary
-	(*RuntimeStatus)(nil),                       // 194: agentre.wire.RuntimeStatus
-	(*UnsupportedRequestNotice)(nil),            // 195: agentre.wire.UnsupportedRequestNotice
-	(*Done)(nil),                                // 196: agentre.wire.Done
-	(*ErrorEvent)(nil),                          // 197: agentre.wire.ErrorEvent
-	(*UserMessage)(nil),                         // 198: agentre.wire.UserMessage
-	(*Usage)(nil),                               // 199: agentre.wire.Usage
-	(*RunResultDoneNotification)(nil),           // 200: agentre.wire.RunResultDoneNotification
-	(*AutonomousTurnStartedNotification)(nil),   // 201: agentre.wire.AutonomousTurnStartedNotification
-	(*TurnStartedNotification)(nil),             // 202: agentre.wire.TurnStartedNotification
-	(*ToolCall)(nil),                            // 203: agentre.wire.ToolCall
-	(*ToolResult)(nil),                          // 204: agentre.wire.ToolResult
-	(*ConsumedSteer)(nil),                       // 205: agentre.wire.ConsumedSteer
-	(*SteerConsumed)(nil),                       // 206: agentre.wire.SteerConsumed
-	(*AskOption)(nil),                           // 207: agentre.wire.AskOption
-	(*AskQuestion)(nil),                         // 208: agentre.wire.AskQuestion
-	(*AskAnswer)(nil),                           // 209: agentre.wire.AskAnswer
-	(*UserAskRequest)(nil),                      // 210: agentre.wire.UserAskRequest
-	(*UserAskResolved)(nil),                     // 211: agentre.wire.UserAskResolved
-	(*ToolPermissionRequest)(nil),               // 212: agentre.wire.ToolPermissionRequest
-	(*ToolPermissionResolved)(nil),              // 213: agentre.wire.ToolPermissionResolved
-	(*ExecApprovalRequested)(nil),               // 214: agentre.wire.ExecApprovalRequested
-	(*ExecApprovalResolved)(nil),                // 215: agentre.wire.ExecApprovalResolved
-	(*ToolApprovalRequested)(nil),               // 216: agentre.wire.ToolApprovalRequested
-	(*ToolApprovalResolved)(nil),                // 217: agentre.wire.ToolApprovalResolved
-	(*SubagentRun)(nil),                         // 218: agentre.wire.SubagentRun
-	(*SubagentInfo)(nil),                        // 219: agentre.wire.SubagentInfo
-	(*SubagentEvent)(nil),                       // 220: agentre.wire.SubagentEvent
-	(*SubagentModel)(nil),                       // 221: agentre.wire.SubagentModel
-	(*UsageUpdate)(nil),                         // 222: agentre.wire.UsageUpdate
-	(*PlanStep)(nil),                            // 223: agentre.wire.PlanStep
-	(*PlanAction)(nil),                          // 224: agentre.wire.PlanAction
-	(*PlanUpdated)(nil),                         // 225: agentre.wire.PlanUpdated
-	(*UnrecognizedBlock)(nil),                   // 226: agentre.wire.UnrecognizedBlock
-	(*BlobSource)(nil),                          // 227: agentre.wire.BlobSource
-	(*ImageBlock)(nil),                          // 228: agentre.wire.ImageBlock
-	(*PortForwardMapping)(nil),                  // 229: agentre.wire.PortForwardMapping
-	(*PortForwardListRequest)(nil),              // 230: agentre.wire.PortForwardListRequest
-	(*PortForwardListResponse)(nil),             // 231: agentre.wire.PortForwardListResponse
-	(*PortForwardCreateRequest)(nil),            // 232: agentre.wire.PortForwardCreateRequest
-	(*PortForwardCreateResponse)(nil),           // 233: agentre.wire.PortForwardCreateResponse
-	(*PortForwardSetEnabledRequest)(nil),        // 234: agentre.wire.PortForwardSetEnabledRequest
-	(*PortForwardSetEnabledResponse)(nil),       // 235: agentre.wire.PortForwardSetEnabledResponse
-	(*PortForwardDeleteRequest)(nil),            // 236: agentre.wire.PortForwardDeleteRequest
-	(*PortForwardDeleteResponse)(nil),           // 237: agentre.wire.PortForwardDeleteResponse
-	(*PortForwardOpenRequest)(nil),              // 238: agentre.wire.PortForwardOpenRequest
-	(*PortForwardOpenResponse)(nil),             // 239: agentre.wire.PortForwardOpenResponse
-	(*PortForwardWriteRequest)(nil),             // 240: agentre.wire.PortForwardWriteRequest
-	(*PortForwardCloseRequest)(nil),             // 241: agentre.wire.PortForwardCloseRequest
-	(*PortForwardAckRequest)(nil),               // 242: agentre.wire.PortForwardAckRequest
-	(*PortForwardResponseNotification)(nil),     // 243: agentre.wire.PortForwardResponseNotification
-	(*PortForwardDataNotification)(nil),         // 244: agentre.wire.PortForwardDataNotification
-	(*PortForwardClosedNotification)(nil),       // 245: agentre.wire.PortForwardClosedNotification
-	(*PortForwardRevokedNotification)(nil),      // 246: agentre.wire.PortForwardRevokedNotification
-	(*BackendCredentialStatusRequest)(nil),      // 247: agentre.wire.BackendCredentialStatusRequest
-	(*BackendCredentialStatusResponse)(nil),     // 248: agentre.wire.BackendCredentialStatusResponse
-	(*OpenClawTokenSetRequest)(nil),             // 249: agentre.wire.OpenClawTokenSetRequest
-	(*OpenClawTokenSetResponse)(nil),            // 250: agentre.wire.OpenClawTokenSetResponse
-	(*HermesAuthProvidersRequest)(nil),          // 251: agentre.wire.HermesAuthProvidersRequest
-	(*HermesAuthProvider)(nil),                  // 252: agentre.wire.HermesAuthProvider
-	(*HermesAuthProvidersResponse)(nil),         // 253: agentre.wire.HermesAuthProvidersResponse
-	(*HermesLoginRequest)(nil),                  // 254: agentre.wire.HermesLoginRequest
-	(*HermesLoginResponse)(nil),                 // 255: agentre.wire.HermesLoginResponse
-	(*HermesLogoutRequest)(nil),                 // 256: agentre.wire.HermesLogoutRequest
-	(*HermesLogoutResponse)(nil),                // 257: agentre.wire.HermesLogoutResponse
-	(*BackendConnectionTestRequest)(nil),        // 258: agentre.wire.BackendConnectionTestRequest
-	(*OpenClawAgentOption)(nil),                 // 259: agentre.wire.OpenClawAgentOption
-	(*OpenClawModelOption)(nil),                 // 260: agentre.wire.OpenClawModelOption
-	(*BackendConnectionTestResponse)(nil),       // 261: agentre.wire.BackendConnectionTestResponse
-	(*CtlAgent)(nil),                            // 262: agentre.wire.CtlAgent
-	(*CtlDepartment)(nil),                       // 263: agentre.wire.CtlDepartment
-	(*CtlProjectLocation)(nil),                  // 264: agentre.wire.CtlProjectLocation
-	(*CtlProject)(nil),                          // 265: agentre.wire.CtlProject
-	(*CtlProvider)(nil),                         // 266: agentre.wire.CtlProvider
-	(*CtlModel)(nil),                            // 267: agentre.wire.CtlModel
-	(*CtlBackend)(nil),                          // 268: agentre.wire.CtlBackend
-	(*CtlMemory)(nil),                           // 269: agentre.wire.CtlMemory
-	(*CtlResource)(nil),                         // 270: agentre.wire.CtlResource
-	(*CtlListRequest)(nil),                      // 271: agentre.wire.CtlListRequest
-	(*CtlListResponse)(nil),                     // 272: agentre.wire.CtlListResponse
-	(*CtlGetRequest)(nil),                       // 273: agentre.wire.CtlGetRequest
-	(*CtlGetResponse)(nil),                      // 274: agentre.wire.CtlGetResponse
-	(*CtlWriteRequest)(nil),                     // 275: agentre.wire.CtlWriteRequest
-	(*CtlCallerInfo)(nil),                       // 276: agentre.wire.CtlCallerInfo
-	(*CtlFieldChange)(nil),                      // 277: agentre.wire.CtlFieldChange
-	(*CtlChange)(nil),                           // 278: agentre.wire.CtlChange
-	(*CtlWriteResponse)(nil),                    // 279: agentre.wire.CtlWriteResponse
-	(*CtlRequest)(nil),                          // 280: agentre.wire.CtlRequest
-	(*CtlResponse)(nil),                         // 281: agentre.wire.CtlResponse
-	(*CLIModelsListRequest)(nil),                // 282: agentre.wire.CLIModelsListRequest
-	(*CLIModel)(nil),                            // 283: agentre.wire.CLIModel
-	(*CLIModelsListResponse)(nil),               // 284: agentre.wire.CLIModelsListResponse
-	nil,                                         // 285: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
-	nil,                                         // 286: agentre.wire.LLMProvider.ModelRoutesEntry
-	nil,                                         // 287: agentre.wire.MCPServer.HeadersEntry
-	nil,                                         // 288: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	nil,                                         // 289: agentre.wire.MCPProxyRequest.HeadersEntry
-	nil,                                         // 290: agentre.wire.MCPProxyResponse.HeadersEntry
-	nil,                                         // 291: agentre.wire.PortForwardOpenRequest.HeadersEntry
-	nil,                                         // 292: agentre.wire.PortForwardResponseNotification.HeadersEntry
-	nil,                                         // 293: agentre.wire.CtlBackend.EnvEntry
-	(*descriptorpb.FieldOptions)(nil),           // 294: google.protobuf.FieldOptions
-	(*descriptorpb.FileOptions)(nil),            // 295: google.protobuf.FileOptions
+	(*EngineProfile)(nil),                       // 119: agentre.wire.EngineProfile
+	(*StoredBlock)(nil),                         // 120: agentre.wire.StoredBlock
+	(*HistoryMessage)(nil),                      // 121: agentre.wire.HistoryMessage
+	(*MCPServer)(nil),                           // 122: agentre.wire.MCPServer
+	(*RuntimeRunRequest)(nil),                   // 123: agentre.wire.RuntimeRunRequest
+	(*RuntimeRunResponse)(nil),                  // 124: agentre.wire.RuntimeRunResponse
+	(*RuntimeGoalRequest)(nil),                  // 125: agentre.wire.RuntimeGoalRequest
+	(*Goal)(nil),                                // 126: agentre.wire.Goal
+	(*RuntimeGoalResponse)(nil),                 // 127: agentre.wire.RuntimeGoalResponse
+	(*RuntimeGoalClearResponse)(nil),            // 128: agentre.wire.RuntimeGoalClearResponse
+	(*TerminalOpenRequest)(nil),                 // 129: agentre.wire.TerminalOpenRequest
+	(*TerminalOpenResponse)(nil),                // 130: agentre.wire.TerminalOpenResponse
+	(*TerminalWriteRequest)(nil),                // 131: agentre.wire.TerminalWriteRequest
+	(*TerminalResizeRequest)(nil),               // 132: agentre.wire.TerminalResizeRequest
+	(*TerminalCloseRequest)(nil),                // 133: agentre.wire.TerminalCloseRequest
+	(*TerminalDataNotification)(nil),            // 134: agentre.wire.TerminalDataNotification
+	(*TerminalExitNotification)(nil),            // 135: agentre.wire.TerminalExitNotification
+	(*HeaderValues)(nil),                        // 136: agentre.wire.HeaderValues
+	(*MCPProxyRequest)(nil),                     // 137: agentre.wire.MCPProxyRequest
+	(*MCPProxyResponse)(nil),                    // 138: agentre.wire.MCPProxyResponse
+	(*ProjectSetLocalPathRequest)(nil),          // 139: agentre.wire.ProjectSetLocalPathRequest
+	(*ProjectClearLocalPathRequest)(nil),        // 140: agentre.wire.ProjectClearLocalPathRequest
+	(*ProjectLocalPathResponse)(nil),            // 141: agentre.wire.ProjectLocalPathResponse
+	(*SkillAuthorization)(nil),                  // 142: agentre.wire.SkillAuthorization
+	(*SkillCatalogRequest)(nil),                 // 143: agentre.wire.SkillCatalogRequest
+	(*SkillPackSummary)(nil),                    // 144: agentre.wire.SkillPackSummary
+	(*SkillCatalogResponse)(nil),                // 145: agentre.wire.SkillCatalogResponse
+	(*SkillCommandsRequest)(nil),                // 146: agentre.wire.SkillCommandsRequest
+	(*SkillCommand)(nil),                        // 147: agentre.wire.SkillCommand
+	(*SkillCommandsResponse)(nil),               // 148: agentre.wire.SkillCommandsResponse
+	(*RemoteFsListDirRequest)(nil),              // 149: agentre.wire.RemoteFsListDirRequest
+	(*RemoteFsEntry)(nil),                       // 150: agentre.wire.RemoteFsEntry
+	(*RemoteFsListDirResponse)(nil),             // 151: agentre.wire.RemoteFsListDirResponse
+	(*RemoteFsMkdirRequest)(nil),                // 152: agentre.wire.RemoteFsMkdirRequest
+	(*RemoteFsMkdirResponse)(nil),               // 153: agentre.wire.RemoteFsMkdirResponse
+	(*WorkspaceFsListDirRequest)(nil),           // 154: agentre.wire.WorkspaceFsListDirRequest
+	(*WorkspaceFsEntry)(nil),                    // 155: agentre.wire.WorkspaceFsEntry
+	(*WorkspaceFsListDirResponse)(nil),          // 156: agentre.wire.WorkspaceFsListDirResponse
+	(*WorkspaceFsGitChangesRequest)(nil),        // 157: agentre.wire.WorkspaceFsGitChangesRequest
+	(*WorkspaceFsChange)(nil),                   // 158: agentre.wire.WorkspaceFsChange
+	(*WorkspaceFsGitChangesResponse)(nil),       // 159: agentre.wire.WorkspaceFsGitChangesResponse
+	(*WorkspaceFsGitBranchesRequest)(nil),       // 160: agentre.wire.WorkspaceFsGitBranchesRequest
+	(*WorkspaceFsBranch)(nil),                   // 161: agentre.wire.WorkspaceFsBranch
+	(*WorkspaceFsGitBranchesResponse)(nil),      // 162: agentre.wire.WorkspaceFsGitBranchesResponse
+	(*WorkspaceFsReadFileRequest)(nil),          // 163: agentre.wire.WorkspaceFsReadFileRequest
+	(*WorkspaceFsReadFileResponse)(nil),         // 164: agentre.wire.WorkspaceFsReadFileResponse
+	(*WorkspaceFsGitFileContentRequest)(nil),    // 165: agentre.wire.WorkspaceFsGitFileContentRequest
+	(*WorkspaceFsGitFileContentResponse)(nil),   // 166: agentre.wire.WorkspaceFsGitFileContentResponse
+	(*WorkspaceFsSearchFilesRequest)(nil),       // 167: agentre.wire.WorkspaceFsSearchFilesRequest
+	(*WorkspaceFsSearchHit)(nil),                // 168: agentre.wire.WorkspaceFsSearchHit
+	(*WorkspaceFsSearchFilesResponse)(nil),      // 169: agentre.wire.WorkspaceFsSearchFilesResponse
+	(*WorkspaceFsGitStateRequest)(nil),          // 170: agentre.wire.WorkspaceFsGitStateRequest
+	(*WorkspaceFsGitStateResponse)(nil),         // 171: agentre.wire.WorkspaceFsGitStateResponse
+	(*TranscriptImportFilter)(nil),              // 172: agentre.wire.TranscriptImportFilter
+	(*TranscriptImportScanRequest)(nil),         // 173: agentre.wire.TranscriptImportScanRequest
+	(*TranscriptImportCandidate)(nil),           // 174: agentre.wire.TranscriptImportCandidate
+	(*TranscriptImportBackendResult)(nil),       // 175: agentre.wire.TranscriptImportBackendResult
+	(*TranscriptImportScanResponse)(nil),        // 176: agentre.wire.TranscriptImportScanResponse
+	(*TranscriptImportGap)(nil),                 // 177: agentre.wire.TranscriptImportGap
+	(*TranscriptImportMeta)(nil),                // 178: agentre.wire.TranscriptImportMeta
+	(*TranscriptImportOpenRequest)(nil),         // 179: agentre.wire.TranscriptImportOpenRequest
+	(*TranscriptImportOpenResponse)(nil),        // 180: agentre.wire.TranscriptImportOpenResponse
+	(*TranscriptImportTurnsRequest)(nil),        // 181: agentre.wire.TranscriptImportTurnsRequest
+	(*TranscriptImportImage)(nil),               // 182: agentre.wire.TranscriptImportImage
+	(*TranscriptImportTurn)(nil),                // 183: agentre.wire.TranscriptImportTurn
+	(*TranscriptImportTurnsResponse)(nil),       // 184: agentre.wire.TranscriptImportTurnsResponse
+	(*TranscriptImportExecuteRequest)(nil),      // 185: agentre.wire.TranscriptImportExecuteRequest
+	(*TranscriptImportExecuteResponse)(nil),     // 186: agentre.wire.TranscriptImportExecuteResponse
+	(*RuntimeEventNotification)(nil),            // 187: agentre.wire.RuntimeEventNotification
+	(*TextDelta)(nil),                           // 188: agentre.wire.TextDelta
+	(*ThinkingDelta)(nil),                       // 189: agentre.wire.ThinkingDelta
+	(*OutputActivity)(nil),                      // 190: agentre.wire.OutputActivity
+	(*PermissionModeChanged)(nil),               // 191: agentre.wire.PermissionModeChanged
+	(*Retry)(nil),                               // 192: agentre.wire.Retry
+	(*ContextWindowUpdated)(nil),                // 193: agentre.wire.ContextWindowUpdated
+	(*CompactBoundary)(nil),                     // 194: agentre.wire.CompactBoundary
+	(*RuntimeStatus)(nil),                       // 195: agentre.wire.RuntimeStatus
+	(*UnsupportedRequestNotice)(nil),            // 196: agentre.wire.UnsupportedRequestNotice
+	(*Done)(nil),                                // 197: agentre.wire.Done
+	(*ErrorEvent)(nil),                          // 198: agentre.wire.ErrorEvent
+	(*UserMessage)(nil),                         // 199: agentre.wire.UserMessage
+	(*Usage)(nil),                               // 200: agentre.wire.Usage
+	(*RunResultDoneNotification)(nil),           // 201: agentre.wire.RunResultDoneNotification
+	(*AutonomousTurnStartedNotification)(nil),   // 202: agentre.wire.AutonomousTurnStartedNotification
+	(*TurnStartedNotification)(nil),             // 203: agentre.wire.TurnStartedNotification
+	(*ToolCall)(nil),                            // 204: agentre.wire.ToolCall
+	(*ToolResult)(nil),                          // 205: agentre.wire.ToolResult
+	(*ConsumedSteer)(nil),                       // 206: agentre.wire.ConsumedSteer
+	(*SteerConsumed)(nil),                       // 207: agentre.wire.SteerConsumed
+	(*AskOption)(nil),                           // 208: agentre.wire.AskOption
+	(*AskQuestion)(nil),                         // 209: agentre.wire.AskQuestion
+	(*AskAnswer)(nil),                           // 210: agentre.wire.AskAnswer
+	(*UserAskRequest)(nil),                      // 211: agentre.wire.UserAskRequest
+	(*UserAskResolved)(nil),                     // 212: agentre.wire.UserAskResolved
+	(*ToolPermissionRequest)(nil),               // 213: agentre.wire.ToolPermissionRequest
+	(*ToolPermissionResolved)(nil),              // 214: agentre.wire.ToolPermissionResolved
+	(*ExecApprovalRequested)(nil),               // 215: agentre.wire.ExecApprovalRequested
+	(*ExecApprovalResolved)(nil),                // 216: agentre.wire.ExecApprovalResolved
+	(*ToolApprovalRequested)(nil),               // 217: agentre.wire.ToolApprovalRequested
+	(*ToolApprovalResolved)(nil),                // 218: agentre.wire.ToolApprovalResolved
+	(*SubagentRun)(nil),                         // 219: agentre.wire.SubagentRun
+	(*SubagentInfo)(nil),                        // 220: agentre.wire.SubagentInfo
+	(*SubagentEvent)(nil),                       // 221: agentre.wire.SubagentEvent
+	(*SubagentModel)(nil),                       // 222: agentre.wire.SubagentModel
+	(*UsageUpdate)(nil),                         // 223: agentre.wire.UsageUpdate
+	(*PlanStep)(nil),                            // 224: agentre.wire.PlanStep
+	(*PlanAction)(nil),                          // 225: agentre.wire.PlanAction
+	(*PlanUpdated)(nil),                         // 226: agentre.wire.PlanUpdated
+	(*UnrecognizedBlock)(nil),                   // 227: agentre.wire.UnrecognizedBlock
+	(*BlobSource)(nil),                          // 228: agentre.wire.BlobSource
+	(*ImageBlock)(nil),                          // 229: agentre.wire.ImageBlock
+	(*PortForwardMapping)(nil),                  // 230: agentre.wire.PortForwardMapping
+	(*PortForwardListRequest)(nil),              // 231: agentre.wire.PortForwardListRequest
+	(*PortForwardListResponse)(nil),             // 232: agentre.wire.PortForwardListResponse
+	(*PortForwardCreateRequest)(nil),            // 233: agentre.wire.PortForwardCreateRequest
+	(*PortForwardCreateResponse)(nil),           // 234: agentre.wire.PortForwardCreateResponse
+	(*PortForwardSetEnabledRequest)(nil),        // 235: agentre.wire.PortForwardSetEnabledRequest
+	(*PortForwardSetEnabledResponse)(nil),       // 236: agentre.wire.PortForwardSetEnabledResponse
+	(*PortForwardDeleteRequest)(nil),            // 237: agentre.wire.PortForwardDeleteRequest
+	(*PortForwardDeleteResponse)(nil),           // 238: agentre.wire.PortForwardDeleteResponse
+	(*PortForwardOpenRequest)(nil),              // 239: agentre.wire.PortForwardOpenRequest
+	(*PortForwardOpenResponse)(nil),             // 240: agentre.wire.PortForwardOpenResponse
+	(*PortForwardWriteRequest)(nil),             // 241: agentre.wire.PortForwardWriteRequest
+	(*PortForwardCloseRequest)(nil),             // 242: agentre.wire.PortForwardCloseRequest
+	(*PortForwardAckRequest)(nil),               // 243: agentre.wire.PortForwardAckRequest
+	(*PortForwardResponseNotification)(nil),     // 244: agentre.wire.PortForwardResponseNotification
+	(*PortForwardDataNotification)(nil),         // 245: agentre.wire.PortForwardDataNotification
+	(*PortForwardClosedNotification)(nil),       // 246: agentre.wire.PortForwardClosedNotification
+	(*PortForwardRevokedNotification)(nil),      // 247: agentre.wire.PortForwardRevokedNotification
+	(*BackendCredentialStatusRequest)(nil),      // 248: agentre.wire.BackendCredentialStatusRequest
+	(*BackendCredentialStatusResponse)(nil),     // 249: agentre.wire.BackendCredentialStatusResponse
+	(*OpenClawTokenSetRequest)(nil),             // 250: agentre.wire.OpenClawTokenSetRequest
+	(*OpenClawTokenSetResponse)(nil),            // 251: agentre.wire.OpenClawTokenSetResponse
+	(*HermesAuthProvidersRequest)(nil),          // 252: agentre.wire.HermesAuthProvidersRequest
+	(*HermesAuthProvider)(nil),                  // 253: agentre.wire.HermesAuthProvider
+	(*HermesAuthProvidersResponse)(nil),         // 254: agentre.wire.HermesAuthProvidersResponse
+	(*HermesLoginRequest)(nil),                  // 255: agentre.wire.HermesLoginRequest
+	(*HermesLoginResponse)(nil),                 // 256: agentre.wire.HermesLoginResponse
+	(*HermesLogoutRequest)(nil),                 // 257: agentre.wire.HermesLogoutRequest
+	(*HermesLogoutResponse)(nil),                // 258: agentre.wire.HermesLogoutResponse
+	(*BackendConnectionTestRequest)(nil),        // 259: agentre.wire.BackendConnectionTestRequest
+	(*OpenClawAgentOption)(nil),                 // 260: agentre.wire.OpenClawAgentOption
+	(*OpenClawModelOption)(nil),                 // 261: agentre.wire.OpenClawModelOption
+	(*BackendConnectionTestResponse)(nil),       // 262: agentre.wire.BackendConnectionTestResponse
+	(*CtlAgent)(nil),                            // 263: agentre.wire.CtlAgent
+	(*CtlDepartment)(nil),                       // 264: agentre.wire.CtlDepartment
+	(*CtlProjectLocation)(nil),                  // 265: agentre.wire.CtlProjectLocation
+	(*CtlProject)(nil),                          // 266: agentre.wire.CtlProject
+	(*CtlProvider)(nil),                         // 267: agentre.wire.CtlProvider
+	(*CtlModel)(nil),                            // 268: agentre.wire.CtlModel
+	(*CtlBackend)(nil),                          // 269: agentre.wire.CtlBackend
+	(*CtlMemory)(nil),                           // 270: agentre.wire.CtlMemory
+	(*CtlResource)(nil),                         // 271: agentre.wire.CtlResource
+	(*CtlListRequest)(nil),                      // 272: agentre.wire.CtlListRequest
+	(*CtlListResponse)(nil),                     // 273: agentre.wire.CtlListResponse
+	(*CtlGetRequest)(nil),                       // 274: agentre.wire.CtlGetRequest
+	(*CtlGetResponse)(nil),                      // 275: agentre.wire.CtlGetResponse
+	(*CtlWriteRequest)(nil),                     // 276: agentre.wire.CtlWriteRequest
+	(*CtlCallerInfo)(nil),                       // 277: agentre.wire.CtlCallerInfo
+	(*CtlFieldChange)(nil),                      // 278: agentre.wire.CtlFieldChange
+	(*CtlChange)(nil),                           // 279: agentre.wire.CtlChange
+	(*CtlWriteResponse)(nil),                    // 280: agentre.wire.CtlWriteResponse
+	(*CtlRequest)(nil),                          // 281: agentre.wire.CtlRequest
+	(*CtlResponse)(nil),                         // 282: agentre.wire.CtlResponse
+	(*CLIModelsListRequest)(nil),                // 283: agentre.wire.CLIModelsListRequest
+	(*CLIModel)(nil),                            // 284: agentre.wire.CLIModel
+	(*CLIModelsListResponse)(nil),               // 285: agentre.wire.CLIModelsListResponse
+	nil,                                         // 286: agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	nil,                                         // 287: agentre.wire.LLMProvider.ModelRoutesEntry
+	nil,                                         // 288: agentre.wire.MCPServer.HeadersEntry
+	nil,                                         // 289: agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	nil,                                         // 290: agentre.wire.MCPProxyRequest.HeadersEntry
+	nil,                                         // 291: agentre.wire.MCPProxyResponse.HeadersEntry
+	nil,                                         // 292: agentre.wire.PortForwardOpenRequest.HeadersEntry
+	nil,                                         // 293: agentre.wire.PortForwardResponseNotification.HeadersEntry
+	nil,                                         // 294: agentre.wire.CtlBackend.EnvEntry
+	(*descriptorpb.FieldOptions)(nil),           // 295: google.protobuf.FieldOptions
+	(*descriptorpb.FileOptions)(nil),            // 296: google.protobuf.FileOptions
 }
 var file_agentre_wire_wire_proto_depIdxs = []int32{
 	13,  // 0: agentre.wire.WireFrame.notification:type_name -> agentre.wire.Notification
@@ -22757,25 +22968,25 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	8,   // 3: agentre.wire.RpcFrame.notification:type_name -> agentre.wire.RpcNotification
 	11,  // 4: agentre.wire.RpcFrame.error:type_name -> agentre.wire.RpcError
 	12,  // 5: agentre.wire.RpcFrame.cancel:type_name -> agentre.wire.Cancel
-	186, // 6: agentre.wire.RpcNotification.runtime_event:type_name -> agentre.wire.RuntimeEventNotification
-	200, // 7: agentre.wire.RpcNotification.run_result_done:type_name -> agentre.wire.RunResultDoneNotification
-	201, // 8: agentre.wire.RpcNotification.autonomous_turn_started:type_name -> agentre.wire.AutonomousTurnStartedNotification
-	186, // 9: agentre.wire.RpcNotification.autonomous_turn_event:type_name -> agentre.wire.RuntimeEventNotification
-	200, // 10: agentre.wire.RpcNotification.autonomous_turn_done:type_name -> agentre.wire.RunResultDoneNotification
-	133, // 11: agentre.wire.RpcNotification.terminal_data:type_name -> agentre.wire.TerminalDataNotification
-	134, // 12: agentre.wire.RpcNotification.terminal_exit:type_name -> agentre.wire.TerminalExitNotification
-	202, // 13: agentre.wire.RpcNotification.turn_started:type_name -> agentre.wire.TurnStartedNotification
-	243, // 14: agentre.wire.RpcNotification.port_forward_response:type_name -> agentre.wire.PortForwardResponseNotification
-	244, // 15: agentre.wire.RpcNotification.port_forward_data:type_name -> agentre.wire.PortForwardDataNotification
-	245, // 16: agentre.wire.RpcNotification.port_forward_closed:type_name -> agentre.wire.PortForwardClosedNotification
-	246, // 17: agentre.wire.RpcNotification.port_forward_revoked:type_name -> agentre.wire.PortForwardRevokedNotification
+	187, // 6: agentre.wire.RpcNotification.runtime_event:type_name -> agentre.wire.RuntimeEventNotification
+	201, // 7: agentre.wire.RpcNotification.run_result_done:type_name -> agentre.wire.RunResultDoneNotification
+	202, // 8: agentre.wire.RpcNotification.autonomous_turn_started:type_name -> agentre.wire.AutonomousTurnStartedNotification
+	187, // 9: agentre.wire.RpcNotification.autonomous_turn_event:type_name -> agentre.wire.RuntimeEventNotification
+	201, // 10: agentre.wire.RpcNotification.autonomous_turn_done:type_name -> agentre.wire.RunResultDoneNotification
+	134, // 11: agentre.wire.RpcNotification.terminal_data:type_name -> agentre.wire.TerminalDataNotification
+	135, // 12: agentre.wire.RpcNotification.terminal_exit:type_name -> agentre.wire.TerminalExitNotification
+	203, // 13: agentre.wire.RpcNotification.turn_started:type_name -> agentre.wire.TurnStartedNotification
+	244, // 14: agentre.wire.RpcNotification.port_forward_response:type_name -> agentre.wire.PortForwardResponseNotification
+	245, // 15: agentre.wire.RpcNotification.port_forward_data:type_name -> agentre.wire.PortForwardDataNotification
+	246, // 16: agentre.wire.RpcNotification.port_forward_closed:type_name -> agentre.wire.PortForwardClosedNotification
+	247, // 17: agentre.wire.RpcNotification.port_forward_revoked:type_name -> agentre.wire.PortForwardRevokedNotification
 	14,  // 18: agentre.wire.Notification.account_sync_version:type_name -> agentre.wire.AccountSyncVersion
 	15,  // 19: agentre.wire.Notification.account_mirror_changed:type_name -> agentre.wire.AccountMirrorChanged
 	16,  // 20: agentre.wire.Notification.account_device_presence:type_name -> agentre.wire.AccountDevicePresence
 	27,  // 21: agentre.wire.LLMUpsertRequest.models:type_name -> agentre.wire.LLMModel
-	285, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
+	286, // 22: agentre.wire.LLMUpsertRequest.model_routes:type_name -> agentre.wire.LLMUpsertRequest.ModelRoutesEntry
 	27,  // 23: agentre.wire.LLMProvider.models:type_name -> agentre.wire.LLMModel
-	286, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
+	287, // 24: agentre.wire.LLMProvider.model_routes:type_name -> agentre.wire.LLMProvider.ModelRoutesEntry
 	33,  // 25: agentre.wire.LLMListResponse.providers:type_name -> agentre.wire.LLMProvider
 	38,  // 26: agentre.wire.EngineDiscoverResponse.models:type_name -> agentre.wire.EngineModel
 	41,  // 27: agentre.wire.EngineScanResponse.items:type_name -> agentre.wire.EngineScanItem
@@ -22796,135 +23007,136 @@ var file_agentre_wire_wire_proto_depIdxs = []int32{
 	82,  // 42: agentre.wire.SessionPendingWaitersResponse.tool_permissions:type_name -> agentre.wire.PendingToolPermission
 	83,  // 43: agentre.wire.SessionPendingWaitersResponse.ask_user_questions:type_name -> agentre.wire.PendingAskUserQuestion
 	81,  // 44: agentre.wire.SessionPendingWaitersResponse.approvals:type_name -> agentre.wire.PendingApproval
-	208, // 45: agentre.wire.PendingAskUserQuestion.questions:type_name -> agentre.wire.AskQuestion
+	209, // 45: agentre.wire.PendingAskUserQuestion.questions:type_name -> agentre.wire.AskQuestion
 	94,  // 46: agentre.wire.RuntimeCapabilitiesResponse.capabilities:type_name -> agentre.wire.CapabilityEntry
 	95,  // 47: agentre.wire.RuntimeCapabilitiesResponse.permission_mode:type_name -> agentre.wire.PermissionModeMeta
-	205, // 48: agentre.wire.RuntimeDrainPendingResponse.steers:type_name -> agentre.wire.ConsumedSteer
+	206, // 48: agentre.wire.RuntimeDrainPendingResponse.steers:type_name -> agentre.wire.ConsumedSteer
 	107, // 49: agentre.wire.RuntimeListSessionProcessesResponse.processes:type_name -> agentre.wire.SessionProcess
-	186, // 50: agentre.wire.RuntimeInjectSubagentEventsRequest.events:type_name -> agentre.wire.RuntimeEventNotification
-	208, // 51: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
-	209, // 52: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
-	119, // 53: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
-	287, // 54: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
+	187, // 50: agentre.wire.RuntimeInjectSubagentEventsRequest.events:type_name -> agentre.wire.RuntimeEventNotification
+	209, // 51: agentre.wire.RuntimeSubmitAnswerRequest.questions:type_name -> agentre.wire.AskQuestion
+	210, // 52: agentre.wire.RuntimeSubmitAnswerRequest.answers:type_name -> agentre.wire.AskAnswer
+	120, // 53: agentre.wire.HistoryMessage.blocks:type_name -> agentre.wire.StoredBlock
+	288, // 54: agentre.wire.MCPServer.headers:type_name -> agentre.wire.MCPServer.HeadersEntry
 	118, // 55: agentre.wire.RuntimeRunRequest.backend:type_name -> agentre.wire.AgentBackend
-	119, // 56: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
-	120, // 57: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
-	121, // 58: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
-	288, // 59: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
-	118, // 60: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
-	125, // 61: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
-	289, // 62: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
-	290, // 63: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
-	141, // 64: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
-	143, // 65: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
-	141, // 66: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
-	146, // 67: agentre.wire.SkillCommandsResponse.commands:type_name -> agentre.wire.SkillCommand
-	149, // 68: agentre.wire.RemoteFsListDirResponse.entries:type_name -> agentre.wire.RemoteFsEntry
-	154, // 69: agentre.wire.WorkspaceFsListDirResponse.entries:type_name -> agentre.wire.WorkspaceFsEntry
-	157, // 70: agentre.wire.WorkspaceFsGitChangesResponse.changes:type_name -> agentre.wire.WorkspaceFsChange
-	160, // 71: agentre.wire.WorkspaceFsGitBranchesResponse.branches:type_name -> agentre.wire.WorkspaceFsBranch
-	167, // 72: agentre.wire.WorkspaceFsSearchFilesResponse.hits:type_name -> agentre.wire.WorkspaceFsSearchHit
-	171, // 73: agentre.wire.TranscriptImportScanRequest.filter:type_name -> agentre.wire.TranscriptImportFilter
-	173, // 74: agentre.wire.TranscriptImportBackendResult.candidates:type_name -> agentre.wire.TranscriptImportCandidate
-	174, // 75: agentre.wire.TranscriptImportScanResponse.backends:type_name -> agentre.wire.TranscriptImportBackendResult
-	176, // 76: agentre.wire.TranscriptImportMeta.gaps:type_name -> agentre.wire.TranscriptImportGap
-	177, // 77: agentre.wire.TranscriptImportOpenResponse.meta:type_name -> agentre.wire.TranscriptImportMeta
-	181, // 78: agentre.wire.TranscriptImportTurn.user_images:type_name -> agentre.wire.TranscriptImportImage
-	186, // 79: agentre.wire.TranscriptImportTurn.events:type_name -> agentre.wire.RuntimeEventNotification
-	199, // 80: agentre.wire.TranscriptImportTurn.usage:type_name -> agentre.wire.Usage
-	182, // 81: agentre.wire.TranscriptImportTurnsResponse.turns:type_name -> agentre.wire.TranscriptImportTurn
-	187, // 82: agentre.wire.RuntimeEventNotification.text_delta:type_name -> agentre.wire.TextDelta
-	188, // 83: agentre.wire.RuntimeEventNotification.thinking_delta:type_name -> agentre.wire.ThinkingDelta
-	189, // 84: agentre.wire.RuntimeEventNotification.output_activity:type_name -> agentre.wire.OutputActivity
-	190, // 85: agentre.wire.RuntimeEventNotification.permission_mode_changed:type_name -> agentre.wire.PermissionModeChanged
-	191, // 86: agentre.wire.RuntimeEventNotification.retry:type_name -> agentre.wire.Retry
-	192, // 87: agentre.wire.RuntimeEventNotification.context_window_updated:type_name -> agentre.wire.ContextWindowUpdated
-	193, // 88: agentre.wire.RuntimeEventNotification.compact_boundary:type_name -> agentre.wire.CompactBoundary
-	194, // 89: agentre.wire.RuntimeEventNotification.runtime_status:type_name -> agentre.wire.RuntimeStatus
-	196, // 90: agentre.wire.RuntimeEventNotification.done:type_name -> agentre.wire.Done
-	197, // 91: agentre.wire.RuntimeEventNotification.error:type_name -> agentre.wire.ErrorEvent
-	198, // 92: agentre.wire.RuntimeEventNotification.user_message:type_name -> agentre.wire.UserMessage
-	203, // 93: agentre.wire.RuntimeEventNotification.tool_call:type_name -> agentre.wire.ToolCall
-	204, // 94: agentre.wire.RuntimeEventNotification.tool_result:type_name -> agentre.wire.ToolResult
-	206, // 95: agentre.wire.RuntimeEventNotification.steer_consumed:type_name -> agentre.wire.SteerConsumed
-	210, // 96: agentre.wire.RuntimeEventNotification.user_ask_request:type_name -> agentre.wire.UserAskRequest
-	211, // 97: agentre.wire.RuntimeEventNotification.user_ask_resolved:type_name -> agentre.wire.UserAskResolved
-	212, // 98: agentre.wire.RuntimeEventNotification.tool_permission_request:type_name -> agentre.wire.ToolPermissionRequest
-	213, // 99: agentre.wire.RuntimeEventNotification.tool_permission_resolved:type_name -> agentre.wire.ToolPermissionResolved
-	214, // 100: agentre.wire.RuntimeEventNotification.exec_approval_requested:type_name -> agentre.wire.ExecApprovalRequested
-	215, // 101: agentre.wire.RuntimeEventNotification.exec_approval_resolved:type_name -> agentre.wire.ExecApprovalResolved
-	220, // 102: agentre.wire.RuntimeEventNotification.subagent_started:type_name -> agentre.wire.SubagentEvent
-	220, // 103: agentre.wire.RuntimeEventNotification.subagent_progress:type_name -> agentre.wire.SubagentEvent
-	220, // 104: agentre.wire.RuntimeEventNotification.subagent_done:type_name -> agentre.wire.SubagentEvent
-	221, // 105: agentre.wire.RuntimeEventNotification.subagent_model:type_name -> agentre.wire.SubagentModel
-	222, // 106: agentre.wire.RuntimeEventNotification.usage_update:type_name -> agentre.wire.UsageUpdate
-	225, // 107: agentre.wire.RuntimeEventNotification.plan_updated:type_name -> agentre.wire.PlanUpdated
-	226, // 108: agentre.wire.RuntimeEventNotification.unrecognized_block:type_name -> agentre.wire.UnrecognizedBlock
-	228, // 109: agentre.wire.RuntimeEventNotification.image:type_name -> agentre.wire.ImageBlock
-	195, // 110: agentre.wire.RuntimeEventNotification.unsupported_request_notice:type_name -> agentre.wire.UnsupportedRequestNotice
-	216, // 111: agentre.wire.RuntimeEventNotification.tool_approval_requested:type_name -> agentre.wire.ToolApprovalRequested
-	217, // 112: agentre.wire.RuntimeEventNotification.tool_approval_resolved:type_name -> agentre.wire.ToolApprovalResolved
-	199, // 113: agentre.wire.RunResultDoneNotification.usage:type_name -> agentre.wire.Usage
-	205, // 114: agentre.wire.SteerConsumed.steers:type_name -> agentre.wire.ConsumedSteer
-	207, // 115: agentre.wire.AskQuestion.options:type_name -> agentre.wire.AskOption
-	208, // 116: agentre.wire.UserAskRequest.questions:type_name -> agentre.wire.AskQuestion
-	209, // 117: agentre.wire.UserAskResolved.answers:type_name -> agentre.wire.AskAnswer
-	218, // 118: agentre.wire.SubagentInfo.runs:type_name -> agentre.wire.SubagentRun
-	219, // 119: agentre.wire.SubagentEvent.info:type_name -> agentre.wire.SubagentInfo
-	199, // 120: agentre.wire.UsageUpdate.usage:type_name -> agentre.wire.Usage
-	223, // 121: agentre.wire.PlanUpdated.steps:type_name -> agentre.wire.PlanStep
-	224, // 122: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
-	227, // 123: agentre.wire.ImageBlock.source:type_name -> agentre.wire.BlobSource
-	229, // 124: agentre.wire.PortForwardListResponse.mappings:type_name -> agentre.wire.PortForwardMapping
-	229, // 125: agentre.wire.PortForwardCreateResponse.mapping:type_name -> agentre.wire.PortForwardMapping
-	229, // 126: agentre.wire.PortForwardSetEnabledResponse.mapping:type_name -> agentre.wire.PortForwardMapping
-	291, // 127: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
-	292, // 128: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
-	252, // 129: agentre.wire.HermesAuthProvidersResponse.providers:type_name -> agentre.wire.HermesAuthProvider
-	259, // 130: agentre.wire.BackendConnectionTestResponse.openclaw_agents:type_name -> agentre.wire.OpenClawAgentOption
-	260, // 131: agentre.wire.BackendConnectionTestResponse.openclaw_models:type_name -> agentre.wire.OpenClawModelOption
-	264, // 132: agentre.wire.CtlProject.locations:type_name -> agentre.wire.CtlProjectLocation
-	293, // 133: agentre.wire.CtlBackend.env:type_name -> agentre.wire.CtlBackend.EnvEntry
-	5,   // 134: agentre.wire.CtlBackend.token_state:type_name -> agentre.wire.CtlTokenState
-	262, // 135: agentre.wire.CtlResource.agent:type_name -> agentre.wire.CtlAgent
-	263, // 136: agentre.wire.CtlResource.department:type_name -> agentre.wire.CtlDepartment
-	265, // 137: agentre.wire.CtlResource.project:type_name -> agentre.wire.CtlProject
-	266, // 138: agentre.wire.CtlResource.provider:type_name -> agentre.wire.CtlProvider
-	267, // 139: agentre.wire.CtlResource.model:type_name -> agentre.wire.CtlModel
-	268, // 140: agentre.wire.CtlResource.backend:type_name -> agentre.wire.CtlBackend
-	269, // 141: agentre.wire.CtlResource.memory:type_name -> agentre.wire.CtlMemory
-	2,   // 142: agentre.wire.CtlListRequest.kind:type_name -> agentre.wire.CtlKind
-	270, // 143: agentre.wire.CtlListResponse.items:type_name -> agentre.wire.CtlResource
-	2,   // 144: agentre.wire.CtlGetRequest.kind:type_name -> agentre.wire.CtlKind
-	270, // 145: agentre.wire.CtlGetResponse.resource:type_name -> agentre.wire.CtlResource
-	3,   // 146: agentre.wire.CtlWriteRequest.op:type_name -> agentre.wire.CtlOp
-	2,   // 147: agentre.wire.CtlWriteRequest.kind:type_name -> agentre.wire.CtlKind
-	270, // 148: agentre.wire.CtlWriteRequest.resource:type_name -> agentre.wire.CtlResource
-	4,   // 149: agentre.wire.CtlWriteRequest.caller:type_name -> agentre.wire.CtlCaller
-	276, // 150: agentre.wire.CtlWriteRequest.caller_info:type_name -> agentre.wire.CtlCallerInfo
-	3,   // 151: agentre.wire.CtlChange.op:type_name -> agentre.wire.CtlOp
-	2,   // 152: agentre.wire.CtlChange.kind:type_name -> agentre.wire.CtlKind
-	277, // 153: agentre.wire.CtlChange.fields:type_name -> agentre.wire.CtlFieldChange
-	278, // 154: agentre.wire.CtlWriteResponse.changes:type_name -> agentre.wire.CtlChange
-	270, // 155: agentre.wire.CtlWriteResponse.resource:type_name -> agentre.wire.CtlResource
-	271, // 156: agentre.wire.CtlRequest.list:type_name -> agentre.wire.CtlListRequest
-	273, // 157: agentre.wire.CtlRequest.get:type_name -> agentre.wire.CtlGetRequest
-	275, // 158: agentre.wire.CtlRequest.write:type_name -> agentre.wire.CtlWriteRequest
-	272, // 159: agentre.wire.CtlResponse.list:type_name -> agentre.wire.CtlListResponse
-	274, // 160: agentre.wire.CtlResponse.get:type_name -> agentre.wire.CtlGetResponse
-	279, // 161: agentre.wire.CtlResponse.write:type_name -> agentre.wire.CtlWriteResponse
-	283, // 162: agentre.wire.CLIModelsListResponse.models:type_name -> agentre.wire.CLIModel
-	135, // 163: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	135, // 164: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	135, // 165: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	135, // 166: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
-	294, // 167: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
-	295, // 168: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
-	169, // [169:169] is the sub-list for method output_type
-	169, // [169:169] is the sub-list for method input_type
-	169, // [169:169] is the sub-list for extension type_name
-	167, // [167:169] is the sub-list for extension extendee
-	0,   // [0:167] is the sub-list for field type_name
+	120, // 56: agentre.wire.RuntimeRunRequest.user_blocks:type_name -> agentre.wire.StoredBlock
+	121, // 57: agentre.wire.RuntimeRunRequest.history:type_name -> agentre.wire.HistoryMessage
+	122, // 58: agentre.wire.RuntimeRunRequest.mcp_servers:type_name -> agentre.wire.MCPServer
+	289, // 59: agentre.wire.RuntimeRunRequest.enabled_plugins:type_name -> agentre.wire.RuntimeRunRequest.EnabledPluginsEntry
+	119, // 60: agentre.wire.RuntimeRunRequest.engine_profile:type_name -> agentre.wire.EngineProfile
+	118, // 61: agentre.wire.RuntimeGoalRequest.backend:type_name -> agentre.wire.AgentBackend
+	126, // 62: agentre.wire.RuntimeGoalResponse.goal:type_name -> agentre.wire.Goal
+	290, // 63: agentre.wire.MCPProxyRequest.headers:type_name -> agentre.wire.MCPProxyRequest.HeadersEntry
+	291, // 64: agentre.wire.MCPProxyResponse.headers:type_name -> agentre.wire.MCPProxyResponse.HeadersEntry
+	142, // 65: agentre.wire.SkillCatalogRequest.authorized:type_name -> agentre.wire.SkillAuthorization
+	144, // 66: agentre.wire.SkillCatalogResponse.packs:type_name -> agentre.wire.SkillPackSummary
+	142, // 67: agentre.wire.SkillCommandsRequest.authorized:type_name -> agentre.wire.SkillAuthorization
+	147, // 68: agentre.wire.SkillCommandsResponse.commands:type_name -> agentre.wire.SkillCommand
+	150, // 69: agentre.wire.RemoteFsListDirResponse.entries:type_name -> agentre.wire.RemoteFsEntry
+	155, // 70: agentre.wire.WorkspaceFsListDirResponse.entries:type_name -> agentre.wire.WorkspaceFsEntry
+	158, // 71: agentre.wire.WorkspaceFsGitChangesResponse.changes:type_name -> agentre.wire.WorkspaceFsChange
+	161, // 72: agentre.wire.WorkspaceFsGitBranchesResponse.branches:type_name -> agentre.wire.WorkspaceFsBranch
+	168, // 73: agentre.wire.WorkspaceFsSearchFilesResponse.hits:type_name -> agentre.wire.WorkspaceFsSearchHit
+	172, // 74: agentre.wire.TranscriptImportScanRequest.filter:type_name -> agentre.wire.TranscriptImportFilter
+	174, // 75: agentre.wire.TranscriptImportBackendResult.candidates:type_name -> agentre.wire.TranscriptImportCandidate
+	175, // 76: agentre.wire.TranscriptImportScanResponse.backends:type_name -> agentre.wire.TranscriptImportBackendResult
+	177, // 77: agentre.wire.TranscriptImportMeta.gaps:type_name -> agentre.wire.TranscriptImportGap
+	178, // 78: agentre.wire.TranscriptImportOpenResponse.meta:type_name -> agentre.wire.TranscriptImportMeta
+	182, // 79: agentre.wire.TranscriptImportTurn.user_images:type_name -> agentre.wire.TranscriptImportImage
+	187, // 80: agentre.wire.TranscriptImportTurn.events:type_name -> agentre.wire.RuntimeEventNotification
+	200, // 81: agentre.wire.TranscriptImportTurn.usage:type_name -> agentre.wire.Usage
+	183, // 82: agentre.wire.TranscriptImportTurnsResponse.turns:type_name -> agentre.wire.TranscriptImportTurn
+	188, // 83: agentre.wire.RuntimeEventNotification.text_delta:type_name -> agentre.wire.TextDelta
+	189, // 84: agentre.wire.RuntimeEventNotification.thinking_delta:type_name -> agentre.wire.ThinkingDelta
+	190, // 85: agentre.wire.RuntimeEventNotification.output_activity:type_name -> agentre.wire.OutputActivity
+	191, // 86: agentre.wire.RuntimeEventNotification.permission_mode_changed:type_name -> agentre.wire.PermissionModeChanged
+	192, // 87: agentre.wire.RuntimeEventNotification.retry:type_name -> agentre.wire.Retry
+	193, // 88: agentre.wire.RuntimeEventNotification.context_window_updated:type_name -> agentre.wire.ContextWindowUpdated
+	194, // 89: agentre.wire.RuntimeEventNotification.compact_boundary:type_name -> agentre.wire.CompactBoundary
+	195, // 90: agentre.wire.RuntimeEventNotification.runtime_status:type_name -> agentre.wire.RuntimeStatus
+	197, // 91: agentre.wire.RuntimeEventNotification.done:type_name -> agentre.wire.Done
+	198, // 92: agentre.wire.RuntimeEventNotification.error:type_name -> agentre.wire.ErrorEvent
+	199, // 93: agentre.wire.RuntimeEventNotification.user_message:type_name -> agentre.wire.UserMessage
+	204, // 94: agentre.wire.RuntimeEventNotification.tool_call:type_name -> agentre.wire.ToolCall
+	205, // 95: agentre.wire.RuntimeEventNotification.tool_result:type_name -> agentre.wire.ToolResult
+	207, // 96: agentre.wire.RuntimeEventNotification.steer_consumed:type_name -> agentre.wire.SteerConsumed
+	211, // 97: agentre.wire.RuntimeEventNotification.user_ask_request:type_name -> agentre.wire.UserAskRequest
+	212, // 98: agentre.wire.RuntimeEventNotification.user_ask_resolved:type_name -> agentre.wire.UserAskResolved
+	213, // 99: agentre.wire.RuntimeEventNotification.tool_permission_request:type_name -> agentre.wire.ToolPermissionRequest
+	214, // 100: agentre.wire.RuntimeEventNotification.tool_permission_resolved:type_name -> agentre.wire.ToolPermissionResolved
+	215, // 101: agentre.wire.RuntimeEventNotification.exec_approval_requested:type_name -> agentre.wire.ExecApprovalRequested
+	216, // 102: agentre.wire.RuntimeEventNotification.exec_approval_resolved:type_name -> agentre.wire.ExecApprovalResolved
+	221, // 103: agentre.wire.RuntimeEventNotification.subagent_started:type_name -> agentre.wire.SubagentEvent
+	221, // 104: agentre.wire.RuntimeEventNotification.subagent_progress:type_name -> agentre.wire.SubagentEvent
+	221, // 105: agentre.wire.RuntimeEventNotification.subagent_done:type_name -> agentre.wire.SubagentEvent
+	222, // 106: agentre.wire.RuntimeEventNotification.subagent_model:type_name -> agentre.wire.SubagentModel
+	223, // 107: agentre.wire.RuntimeEventNotification.usage_update:type_name -> agentre.wire.UsageUpdate
+	226, // 108: agentre.wire.RuntimeEventNotification.plan_updated:type_name -> agentre.wire.PlanUpdated
+	227, // 109: agentre.wire.RuntimeEventNotification.unrecognized_block:type_name -> agentre.wire.UnrecognizedBlock
+	229, // 110: agentre.wire.RuntimeEventNotification.image:type_name -> agentre.wire.ImageBlock
+	196, // 111: agentre.wire.RuntimeEventNotification.unsupported_request_notice:type_name -> agentre.wire.UnsupportedRequestNotice
+	217, // 112: agentre.wire.RuntimeEventNotification.tool_approval_requested:type_name -> agentre.wire.ToolApprovalRequested
+	218, // 113: agentre.wire.RuntimeEventNotification.tool_approval_resolved:type_name -> agentre.wire.ToolApprovalResolved
+	200, // 114: agentre.wire.RunResultDoneNotification.usage:type_name -> agentre.wire.Usage
+	206, // 115: agentre.wire.SteerConsumed.steers:type_name -> agentre.wire.ConsumedSteer
+	208, // 116: agentre.wire.AskQuestion.options:type_name -> agentre.wire.AskOption
+	209, // 117: agentre.wire.UserAskRequest.questions:type_name -> agentre.wire.AskQuestion
+	210, // 118: agentre.wire.UserAskResolved.answers:type_name -> agentre.wire.AskAnswer
+	219, // 119: agentre.wire.SubagentInfo.runs:type_name -> agentre.wire.SubagentRun
+	220, // 120: agentre.wire.SubagentEvent.info:type_name -> agentre.wire.SubagentInfo
+	200, // 121: agentre.wire.UsageUpdate.usage:type_name -> agentre.wire.Usage
+	224, // 122: agentre.wire.PlanUpdated.steps:type_name -> agentre.wire.PlanStep
+	225, // 123: agentre.wire.PlanUpdated.actions:type_name -> agentre.wire.PlanAction
+	228, // 124: agentre.wire.ImageBlock.source:type_name -> agentre.wire.BlobSource
+	230, // 125: agentre.wire.PortForwardListResponse.mappings:type_name -> agentre.wire.PortForwardMapping
+	230, // 126: agentre.wire.PortForwardCreateResponse.mapping:type_name -> agentre.wire.PortForwardMapping
+	230, // 127: agentre.wire.PortForwardSetEnabledResponse.mapping:type_name -> agentre.wire.PortForwardMapping
+	292, // 128: agentre.wire.PortForwardOpenRequest.headers:type_name -> agentre.wire.PortForwardOpenRequest.HeadersEntry
+	293, // 129: agentre.wire.PortForwardResponseNotification.headers:type_name -> agentre.wire.PortForwardResponseNotification.HeadersEntry
+	253, // 130: agentre.wire.HermesAuthProvidersResponse.providers:type_name -> agentre.wire.HermesAuthProvider
+	260, // 131: agentre.wire.BackendConnectionTestResponse.openclaw_agents:type_name -> agentre.wire.OpenClawAgentOption
+	261, // 132: agentre.wire.BackendConnectionTestResponse.openclaw_models:type_name -> agentre.wire.OpenClawModelOption
+	265, // 133: agentre.wire.CtlProject.locations:type_name -> agentre.wire.CtlProjectLocation
+	294, // 134: agentre.wire.CtlBackend.env:type_name -> agentre.wire.CtlBackend.EnvEntry
+	5,   // 135: agentre.wire.CtlBackend.token_state:type_name -> agentre.wire.CtlTokenState
+	263, // 136: agentre.wire.CtlResource.agent:type_name -> agentre.wire.CtlAgent
+	264, // 137: agentre.wire.CtlResource.department:type_name -> agentre.wire.CtlDepartment
+	266, // 138: agentre.wire.CtlResource.project:type_name -> agentre.wire.CtlProject
+	267, // 139: agentre.wire.CtlResource.provider:type_name -> agentre.wire.CtlProvider
+	268, // 140: agentre.wire.CtlResource.model:type_name -> agentre.wire.CtlModel
+	269, // 141: agentre.wire.CtlResource.backend:type_name -> agentre.wire.CtlBackend
+	270, // 142: agentre.wire.CtlResource.memory:type_name -> agentre.wire.CtlMemory
+	2,   // 143: agentre.wire.CtlListRequest.kind:type_name -> agentre.wire.CtlKind
+	271, // 144: agentre.wire.CtlListResponse.items:type_name -> agentre.wire.CtlResource
+	2,   // 145: agentre.wire.CtlGetRequest.kind:type_name -> agentre.wire.CtlKind
+	271, // 146: agentre.wire.CtlGetResponse.resource:type_name -> agentre.wire.CtlResource
+	3,   // 147: agentre.wire.CtlWriteRequest.op:type_name -> agentre.wire.CtlOp
+	2,   // 148: agentre.wire.CtlWriteRequest.kind:type_name -> agentre.wire.CtlKind
+	271, // 149: agentre.wire.CtlWriteRequest.resource:type_name -> agentre.wire.CtlResource
+	4,   // 150: agentre.wire.CtlWriteRequest.caller:type_name -> agentre.wire.CtlCaller
+	277, // 151: agentre.wire.CtlWriteRequest.caller_info:type_name -> agentre.wire.CtlCallerInfo
+	3,   // 152: agentre.wire.CtlChange.op:type_name -> agentre.wire.CtlOp
+	2,   // 153: agentre.wire.CtlChange.kind:type_name -> agentre.wire.CtlKind
+	278, // 154: agentre.wire.CtlChange.fields:type_name -> agentre.wire.CtlFieldChange
+	279, // 155: agentre.wire.CtlWriteResponse.changes:type_name -> agentre.wire.CtlChange
+	271, // 156: agentre.wire.CtlWriteResponse.resource:type_name -> agentre.wire.CtlResource
+	272, // 157: agentre.wire.CtlRequest.list:type_name -> agentre.wire.CtlListRequest
+	274, // 158: agentre.wire.CtlRequest.get:type_name -> agentre.wire.CtlGetRequest
+	276, // 159: agentre.wire.CtlRequest.write:type_name -> agentre.wire.CtlWriteRequest
+	273, // 160: agentre.wire.CtlResponse.list:type_name -> agentre.wire.CtlListResponse
+	275, // 161: agentre.wire.CtlResponse.get:type_name -> agentre.wire.CtlGetResponse
+	280, // 162: agentre.wire.CtlResponse.write:type_name -> agentre.wire.CtlWriteResponse
+	284, // 163: agentre.wire.CLIModelsListResponse.models:type_name -> agentre.wire.CLIModel
+	136, // 164: agentre.wire.MCPProxyRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	136, // 165: agentre.wire.MCPProxyResponse.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	136, // 166: agentre.wire.PortForwardOpenRequest.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	136, // 167: agentre.wire.PortForwardResponseNotification.HeadersEntry.value:type_name -> agentre.wire.HeaderValues
+	295, // 168: agentre.wire.event_kind:extendee -> google.protobuf.FieldOptions
+	296, // 169: agentre.wire.protocol_version:extendee -> google.protobuf.FileOptions
+	170, // [170:170] is the sub-list for method output_type
+	170, // [170:170] is the sub-list for method input_type
+	170, // [170:170] is the sub-list for extension type_name
+	168, // [168:170] is the sub-list for extension extendee
+	0,   // [0:168] is the sub-list for field type_name
 }
 
 func init() { file_agentre_wire_wire_proto_init() }
@@ -22965,9 +23177,9 @@ func file_agentre_wire_wire_proto_init() {
 	file_agentre_wire_wire_proto_msgTypes[30].OneofWrappers = []any{}
 	file_agentre_wire_wire_proto_msgTypes[54].OneofWrappers = []any{}
 	file_agentre_wire_wire_proto_msgTypes[55].OneofWrappers = []any{}
-	file_agentre_wire_wire_proto_msgTypes[118].OneofWrappers = []any{}
 	file_agentre_wire_wire_proto_msgTypes[119].OneofWrappers = []any{}
-	file_agentre_wire_wire_proto_msgTypes[180].OneofWrappers = []any{
+	file_agentre_wire_wire_proto_msgTypes[120].OneofWrappers = []any{}
+	file_agentre_wire_wire_proto_msgTypes[181].OneofWrappers = []any{
 		(*RuntimeEventNotification_TextDelta)(nil),
 		(*RuntimeEventNotification_ThinkingDelta)(nil),
 		(*RuntimeEventNotification_OutputActivity)(nil),
@@ -23000,7 +23212,7 @@ func file_agentre_wire_wire_proto_init() {
 		(*RuntimeEventNotification_ToolApprovalRequested)(nil),
 		(*RuntimeEventNotification_ToolApprovalResolved)(nil),
 	}
-	file_agentre_wire_wire_proto_msgTypes[264].OneofWrappers = []any{
+	file_agentre_wire_wire_proto_msgTypes[265].OneofWrappers = []any{
 		(*CtlResource_Agent)(nil),
 		(*CtlResource_Department)(nil),
 		(*CtlResource_Project)(nil),
@@ -23009,13 +23221,13 @@ func file_agentre_wire_wire_proto_init() {
 		(*CtlResource_Backend)(nil),
 		(*CtlResource_Memory)(nil),
 	}
-	file_agentre_wire_wire_proto_msgTypes[271].OneofWrappers = []any{}
-	file_agentre_wire_wire_proto_msgTypes[274].OneofWrappers = []any{
+	file_agentre_wire_wire_proto_msgTypes[272].OneofWrappers = []any{}
+	file_agentre_wire_wire_proto_msgTypes[275].OneofWrappers = []any{
 		(*CtlRequest_List)(nil),
 		(*CtlRequest_Get)(nil),
 		(*CtlRequest_Write)(nil),
 	}
-	file_agentre_wire_wire_proto_msgTypes[275].OneofWrappers = []any{
+	file_agentre_wire_wire_proto_msgTypes[276].OneofWrappers = []any{
 		(*CtlResponse_List)(nil),
 		(*CtlResponse_Get)(nil),
 		(*CtlResponse_Write)(nil),
@@ -23026,7 +23238,7 @@ func file_agentre_wire_wire_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agentre_wire_wire_proto_rawDesc), len(file_agentre_wire_wire_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   288,
+			NumMessages:   289,
 			NumExtensions: 2,
 			NumServices:   0,
 		},

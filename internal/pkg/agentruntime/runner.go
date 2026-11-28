@@ -348,7 +348,10 @@ type RunRequest struct {
 	CLIModelMode string
 	CLIModel     string
 	Backend      *agent_backend_entity.AgentBackend
-	Provider     *llm_provider_entity.LLMProvider // 可为 nil（CLI 后端走自身 login）
+	// EngineProfileID 是这一轮钉住的引擎配置（spec 2026-11-25 决策 10）；Backend 此时是它摊成
+	// 的后端视图。0 = 这一轮跑在一行旧后端上。只有远端 runtime 读它（runtime.run 带引擎配置）。
+	EngineProfileID int64
+	Provider        *llm_provider_entity.LLMProvider // 可为 nil（CLI 后端走自身 login）
 	// Effective 是本轮执行侧唯一解析结果（EffectiveLLMConfig v1 seam）。
 	// chat_svc 通过 ResolveTarget 解析产生；runtime 读取它决定实际 ModelID，
 	// 不再各自从 Provider 旧单模型字段取值。native（无供应商）时为 nil 或

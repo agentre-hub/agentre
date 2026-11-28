@@ -187,6 +187,9 @@ func setupChatTest(t *testing.T) *chatMocks {
 	// 对同一方法再叠加精确期望(永远匹配不到);真正要验证写回参数的用例改用
 	// exec_target_pin_test.go 里独立搭建、不含这条宽松桩的专用 mock 环境。
 	m.session.EXPECT().UpdateExecDaemon(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	// 同一理由:第一轮把派发出来的引擎配置钉进会话行(spec 2026-11-25 决策 10)。钉住本身的
+	// 行为在 engine_pin_test.go 里用不含这条宽松桩的专用环境覆盖。
+	m.session.EXPECT().UpdateEngineProfile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	// 默认宽松桩:首个回合把记忆快照存到会话行上(spec 2026-11-11 决策 11)。这批用例的
 	// agent 记忆开关是零值(关),存下的是空快照;快照本身的行为在
 	// memory_snapshot_internal_test.go 里用专门搭的环境覆盖。
@@ -1187,6 +1190,8 @@ func TestLoadSession_PopulatesDeviceFields(t *testing.T) {
 		t.Cleanup(func() { exec_target_svc.RegisterCwdResolver(nil) })
 
 		convey.Convey("本地 backend (DeviceID='') → DeviceID/DeviceName/Online 均为零值, Cwd 由 CwdResolver 填充", func() {
+			// 聊天头 chip 守卫数一次本机配对表（ExecTargetCount）。
+			mockRDS.EXPECT().List(ctx).Return(nil, nil)
 			m.session.EXPECT().Find(ctx, int64(100)).Return(&chat_entity.Session{
 				ID: 100, AgentID: 50, Status: consts.ACTIVE,
 			}, nil)
@@ -1208,8 +1213,9 @@ func TestLoadSession_PopulatesDeviceFields(t *testing.T) {
 		})
 
 		convey.Convey("远端 backend + device 在线 → DeviceID/DeviceName/Online 填充", func() {
+			// 跑在远端的会话第一轮就钉住了那台设备（决策 10）。
 			m.session.EXPECT().Find(ctx, int64(101)).Return(&chat_entity.Session{
-				ID: 101, AgentID: 51, Status: consts.ACTIVE,
+				ID: 101, AgentID: 51, Status: consts.ACTIVE, ExecAgentBackendID: 61, ExecDeviceFingerprint: "sha256:device-7",
 			}, nil)
 			m.agent.EXPECT().Find(ctx, int64(51)).Return(&agent_entity.Agent{
 				ID: 51, Name: "远端 Agent", AgentBackendID: 61, Status: consts.ACTIVE,
@@ -1232,7 +1238,7 @@ func TestLoadSession_PopulatesDeviceFields(t *testing.T) {
 
 		convey.Convey("远端 backend + device 查询失败 → DeviceID 填入但 DeviceName/Online 留零值（不报错）", func() {
 			m.session.EXPECT().Find(ctx, int64(102)).Return(&chat_entity.Session{
-				ID: 102, AgentID: 52, Status: consts.ACTIVE,
+				ID: 102, AgentID: 52, Status: consts.ACTIVE, ExecAgentBackendID: 62, ExecDeviceFingerprint: "sha256:device-9",
 			}, nil)
 			m.agent.EXPECT().Find(ctx, int64(52)).Return(&agent_entity.Agent{
 				ID: 52, Name: "孤儿 Agent", AgentBackendID: 62, Status: consts.ACTIVE,
@@ -1283,6 +1289,7 @@ func TestLoadSession_PopulatesDeviceFields(t *testing.T) {
 			m.session.EXPECT().Find(ctx, int64(104)).Return(&chat_entity.Session{
 				ID: 104, AgentID: 54, Status: consts.ACTIVE, ExecAgentBackendID: 72,
 			}, nil)
+			mockRDS.EXPECT().List(ctx).Return(nil, nil) // 本机会话的聊天头 chip 守卫
 			m.agent.EXPECT().Find(ctx, int64(54)).Return(&agent_entity.Agent{
 				ID: 54, Name: "钉档已删", AgentBackendID: 71, Status: consts.ACTIVE,
 			}, nil)
@@ -2601,111 +2608,18 @@ func TestSend_NewSession(t *testing.T) {
 	})
 }
 
-// TestSend_NewSessionWithExecTargetOverride_GivenNotInAgentsList_ThenRejects 用
-// setupChatTest 的既有宽松桩（ListByAgent 恒返回空列表）证明 R15a 的校验闸门真的
-// 挂在 Send 的新建会话路径上：指定一个不在(空)列表里的 agentBackendID 必须在
-// 建会话之前就被拒绝——不设 session.Create 期望，一旦校验被跳过误建了会话，
-// gomock 会因未预期调用直接判这条用例失败。
-func TestSend_NewSessionWithExecTargetOverride_GivenNotInAgentsList_ThenRejects(t *testing.T) {
+// TestSend_NewSessionWithExecTargetOverride_GivenUnknownBackend_ThenRejects 证明旧界面的
+// 手动指定（ExecTargetOverride，协议切换前仍被接受）指向一档已不存在的后端时，在建会话
+// 之前就被拒绝——不设 session.Create 期望，一旦误建了会话 gomock 会直接判这条用例失败。
+func TestSend_NewSessionWithExecTargetOverride_GivenUnknownBackend_ThenRejects(t *testing.T) {
 	m := setupChatTest(t)
 	ctx := m.ctx
+	m.backend.EXPECT().Find(gomock.Any(), int64(999)).Return(nil, nil)
 
 	_, err := m.svc.Send(ctx, &chat_svc.SendRequest{
 		AgentID: 7, Text: "hi", ExecTargetOverride: 999,
 	})
-	require.Error(t, err, "指定的档不在这个 Agent 的执行目标列表里，必须拒绝")
-}
-
-// TestSend_NewSessionWithExecTargetOverride_GivenValidNonFirstTarget_ThenResolvesToIt
-// 证明手动指定生效且不受 Agent 默认档影响：Agent 的执行目标列表把 backend 51 排
-// 最前，手动指定排第二的 52；新建会话必须实际跑在 52 上（recordingRunner 收到的
-// RunRequest.Backend.ID）且钉住的也是 52（UpdateExecDaemon 的 agentBackendID 参数）。
-// 不复用 setupChatTest——它对 ListByAgent 的默认宽松桩恒返回空列表，测试内再叠加
-// 的精确期望永远匹配不到（exec_target_pin_test.go 顶部注释踩过的同一个坑），这里
-// 用一套不带默认桩的干净 mock。
-func TestSend_NewSessionWithExecTargetOverride_GivenValidNonFirstTarget_ThenResolvesToIt(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	t.Cleanup(ctrl.Finish)
-	dbCtx, _, dbMock := testutils.Database(t)
-
-	agentMock := mock_agent_repo.NewMockAgentRepo(ctrl)
-	execTargetMock := mock_agent_repo.NewMockAgentExecTargetRepo(ctrl)
-	backendMock := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
-	sessionMock := mock_chat_repo.NewMockSessionRepo(ctrl)
-	messageMock := mock_transcript_repo.NewMockMessageRepo(ctrl)
-	// 首个回合存记忆快照(spec 2026-11-11 决策 11),与本用例无关。
-	sessionMock.EXPECT().SaveMemorySnapshot(gomock.Any(), gomock.Any(), gomock.Any()).Return(true, nil).AnyTimes()
-
-	prevAgent, prevExecTarget := agent_repo.Agent(), agent_repo.AgentExecTarget()
-	prevBackend := agent_backend_repo.AgentBackend()
-	prevSession, prevMessage := chat_repo.Session(), transcript_repo.Message()
-	agent_repo.RegisterAgent(agentMock)
-	agent_repo.RegisterAgentExecTarget(execTargetMock)
-	agent_backend_repo.RegisterAgentBackend(backendMock)
-	chat_repo.RegisterSession(sessionMock)
-	transcript_repo.RegisterMessage(messageMock)
-	t.Cleanup(func() {
-		agent_repo.RegisterAgent(prevAgent)
-		agent_repo.RegisterAgentExecTarget(prevExecTarget)
-		agent_backend_repo.RegisterAgentBackend(prevBackend)
-		chat_repo.RegisterSession(prevSession)
-		transcript_repo.RegisterMessage(prevMessage)
-	})
-
-	svc := chat_svc.NewChat(chat_svc.NoopEmitter{})
-	chat_svc.RegisterChat(svc)
-
-	runner := &recordingRunner{requests: make(chan agentruntime.RunRequest, 1)}
-	restore := agentruntime.SwapRuntimeForTest(agent_backend_entity.TypeClaudeCode, runner)
-	t.Cleanup(restore)
-
-	agentMock.EXPECT().Find(gomock.Any(), int64(7)).Return(&agent_entity.Agent{
-		ID: 7, Name: "多档", AgentBackendID: 51, Status: consts.ACTIVE, PromptJSON: `[]`,
-	}, nil)
-	execTargetMock.EXPECT().ListByAgent(gomock.Any(), int64(7)).Return([]*agent_entity.AgentExecTarget{
-		{ID: 1, AgentID: 7, AgentBackendID: 51, SortOrder: 0},
-		{ID: 2, AgentID: 7, AgentBackendID: 52, SortOrder: 1},
-	}, nil).AnyTimes()
-	backendMock.EXPECT().Find(gomock.Any(), int64(52)).Return(&agent_backend_entity.AgentBackend{
-		ID: 52, Type: string(agent_backend_entity.TypeClaudeCode), Status: consts.ACTIVE,
-	}, nil).AnyTimes()
-
-	sessionMock.EXPECT().Create(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, s *chat_entity.Session) error {
-			s.ID = 100
-			return nil
-		})
-	sessionMock.EXPECT().UpdateExecDaemon(gomock.Any(), int64(100), int64(0), devicefp.Carrier(""), int64(52)).
-		Return(nil)
-	sessionMock.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
-
-	dbMock.ExpectBegin()
-	messageMock.EXPECT().NextSeq(gomock.Any(), int64(100)).Return(1, nil)
-	messageMock.EXPECT().Create(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, msg *chat_entity.Message) error {
-			if msg.Role == "user" {
-				msg.ID = 1000
-			} else {
-				msg.ID = 1001
-			}
-			return nil
-		}).Times(2)
-	dbMock.ExpectCommit()
-	messageMock.EXPECT().Update(gomock.Any(), gomock.Any()).AnyTimes()
-	messageMock.EXPECT().UpsertBlocks(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
-
-	resp, err := svc.Send(dbCtx, &chat_svc.SendRequest{
-		AgentID: 7, Text: "hi", ExecTargetOverride: 52,
-	})
-	require.NoError(t, err)
-	chat_svc.WaitForStreamForTest(svc, resp.AssistantMessageID)
-
-	select {
-	case req := <-runner.requests:
-		assert.Equal(t, int64(52), req.Backend.ID, "手动指定的第二档必须真的跑起来，不是 Agent 默认的第一档")
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for runtime request")
-	}
+	require.Error(t, err, "指定的那一档不存在，必须拒绝")
 }
 
 func TestSend_ExistingSessionUsesSessionAgentBackend(t *testing.T) {
@@ -2756,7 +2670,8 @@ func TestSend_ExistingSessionUsesSessionAgentBackend(t *testing.T) {
 
 	select {
 	case req := <-runner.requests:
-		assert.Equal(t, int64(12), req.Backend.ID)
+		// 跑的是会话自己那名成员生效的引擎配置（夹具桥里它就是 Agent 7 那一行后端摊成的配置）。
+		assert.Equal(t, int64(12), req.EngineProfileID)
 		assert.Equal(t, int64(7), req.AgentID)
 		assert.Equal(t, int64(100), req.SessionID)
 		assert.Equal(t, "hi", req.UserText)

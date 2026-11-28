@@ -41,15 +41,14 @@ func shouldSignChatGateway(be *agent_backend_entity.AgentBackend, prov *llm_prov
 	return prov != nil
 }
 
-// gatewayRoutesLLM 报告这个后端的 LLM 流量是否真的经本机网关（antigravity 靠
-// GOOGLE_GEMINI_BASE_URL + GEMINI_API_KEY 指向网关）：claudecode 靠
-// ANTHROPIC_BASE_URL、codex 靠 model_provider/base_url，两者都是 spawn 时从网关派生的
-// 启动期参数，拿不到网关就会静默退回 CLI 自身登录态。piagent 不在此列 —— 它把
-// provider.APIKey 直接注进子进程 env（agentruntime.BuildPiAgentProviderEnv），整个
-// piagent runtime 没有任何 GatewayURL/GatewayToken 消费点，网关没在跑照样打得到所选
-// 供应商。「有 effective provider 就必须有可用网关」这条门控只对前两者成立。
+// gatewayRoutesLLM 报告这个后端的 LLM 流量是否真的经本机网关：claudecode 靠
+// ANTHROPIC_BASE_URL、codex 靠 model_provider/base_url、antigravity 靠
+// GOOGLE_GEMINI_BASE_URL + GEMINI_API_KEY、piagent 靠它的 models.json 指向网关并以会话
+// 网关 token 为 apiKey（子进程环境里没有真实 key，agentruntime.BuildPiAgentProviderEnv）。
+// 都是 spawn 时从网关派生的启动期参数，拿不到网关就没有任何路能打到所选供应商。
+// 「有 effective provider 就必须有可用网关」这条门控对它们一律成立。
 func gatewayRoutesLLM(be *agent_backend_entity.AgentBackend) bool {
-	return be != nil && (be.IsClaudeCode() || be.IsCodex() || be.IsAntigravity())
+	return be != nil && (be.IsClaudeCode() || be.IsCodex() || be.IsAntigravity() || be.IsPiAgent())
 }
 
 func remoteProviderNotConfiguredError(ctx context.Context, providerKey string) error {

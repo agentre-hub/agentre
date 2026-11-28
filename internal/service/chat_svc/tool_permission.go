@@ -9,9 +9,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
@@ -103,16 +103,13 @@ func (s *chatSvc) AnswerToolPermission(ctx context.Context, req *AnswerToolPermi
 	if err != nil || a == nil {
 		return nil, i18n.NewError(ctx, code.AgentNotFound)
 	}
-	backendID := a.AgentBackendID
-	if sess.ExecAgentBackendID > 0 {
-		backendID = sess.ExecAgentBackendID
+	// 投回这一轮正在跑的那个 runner：会话钉住的引擎配置、钉住的那台设备（决策 10）。
+	be, err := sessionengine.ForSession(ctx, sess, a)
+	if err != nil {
+		return nil, err
 	}
-	if backendID <= 0 {
+	if be == nil {
 		return nil, i18n.NewError(ctx, code.AgentBackendRequired)
-	}
-	be, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
-	if err != nil || be == nil {
-		return nil, i18n.NewError(ctx, code.AgentBackendNotFound)
 	}
 
 	runner, err := s.selectRunner(ctx, be, sess.ID)

@@ -45,6 +45,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/app_settings_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
 	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	"github.com/agentre-hub/agentre/internal/service/ctlskill_svc"
 	"github.com/agentre-hub/agentre/internal/service/dispatch_svc"
@@ -170,6 +171,8 @@ func Init(ctx context.Context) (*Runtime, error) {
 	exec_target_svc.RegisterExecTarget(exec_target_svc.NewExecTarget(nil))
 	// 派发服务：共享派发函数 + 本机的设备、设备情况、设备偏好；本机会话 cwd 规则来自 project_svc。
 	dispatch_svc.RegisterDispatch(dispatch_svc.New(dispatch_svc.DefaultDeps(project_svc.Default().ResolveSessionCwd)))
+	// 会话还没钉住时的只读口（会话头、工具审批投递等）取成员此刻生效的引擎配置。
+	sessionengine.RegisterEffective(memberEffectiveEngine)
 	// 把会话的执行设备 / cwd 解析注入 workspace_fs_svc（它自己声明的窄接口），让它不必
 	// 跨域读会话、成员与设备。
 	workspace_fs_svc.RegisterSessionWorkspaceResolver(
@@ -201,7 +204,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	if err := InitRemoteDevice(ctx); err != nil {
 		return nil, fmt.Errorf("init remote device: %w", err)
 	}
-	openclawrt.RegisterConfigResolver(openclawrt.ConfigResolverFunc(agent_backend_svc.ResolveOpenClawRuntimeConfig))
+	openclawrt.RegisterConfigResolver(openclawrt.ConfigResolverFunc(openClawRuntimeConfig))
 
 	// 装配本地 HTTP 代理。启动失败软降级——只记日志、不阻断 App。
 	host, port := loadProxyAddr(ctx)

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
 	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 
@@ -24,7 +25,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
 	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
@@ -331,7 +331,7 @@ func localWaiterLister(backend *agent_backend_entity.AgentBackend) agentruntime.
 
 // peerSessionExecBackend 解出这条会话此刻实际执行所在的那一档 backend。
 //
-// 解析与写侧 AnswerToolPermission 逐字一致（会话钉住哪一档就用哪一档）：读出来的
+// 解析与写侧 AnswerToolPermission 逐字一致（会话钉住哪份引擎配置、哪台设备就用哪份）：读出来的
 // waiter 与提交答案的目标必须是同一个 runner，否则浏览器会照着一份别处的 requestID
 // 去答一个这里没有的问题。
 func (s *chatSvc) peerSessionExecBackend(
@@ -344,19 +344,12 @@ func (s *chatSvc) peerSessionExecBackend(
 	if agent == nil {
 		return nil, fmt.Errorf("%w: agent %d", ErrPeerSessionNotFound, session.AgentID)
 	}
-	backendID := agent.AgentBackendID
-	if session.ExecAgentBackendID > 0 {
-		backendID = session.ExecAgentBackendID
-	}
-	if backendID <= 0 {
-		return nil, fmt.Errorf("%w: session %d has no agent backend", ErrPeerSessionMetadata, session.ID)
-	}
-	backend, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
+	backend, err := sessionengine.ForSession(ctx, session, agent)
 	if err != nil {
-		return nil, operationFailedWithCause(ctx, err)
+		return nil, err
 	}
 	if backend == nil {
-		return nil, fmt.Errorf("%w: agent backend %d", ErrPeerSessionMetadata, backendID)
+		return nil, fmt.Errorf("%w: session %d has no agent backend", ErrPeerSessionMetadata, session.ID)
 	}
 	return backend, nil
 }

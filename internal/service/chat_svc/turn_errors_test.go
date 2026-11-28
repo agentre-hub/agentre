@@ -22,6 +22,7 @@ import (
 func TestGatewayRoutesLLM_IncludesAntigravity(t *testing.T) {
 	assert.True(t, gatewayRoutesLLM(&agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeAntigravity)}))
 	assert.True(t, gatewayRoutesLLM(&agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}))
+	assert.True(t, gatewayRoutesLLM(&agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypePiAgent)}))
 	assert.False(t, gatewayRoutesLLM(&agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeACP)}))
 }
 

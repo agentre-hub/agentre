@@ -477,7 +477,8 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 	if err := ErrInvalidConversationID(request.GetConversationId()); err != nil {
 		return nil, err
 	}
-	backend := protowire.BackendFromProto(request.GetBackend())
+	// 带了引擎配置的一轮按它建（加单列的 CLI 路径），只带 backend 的照旧按 backend。
+	backend := protowire.RunBackendFromProto(request)
 	if backend == nil {
 		backend = &agent_backend_entity.AgentBackend{}
 	}

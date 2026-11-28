@@ -93,6 +93,17 @@ func (h chatGoalHost) ResolveAgentBackend(
 	return h.s.resolveAgentBackend(ctx, sess, agentID, projectID)
 }
 
+func (h chatGoalHost) ResolveNewSessionBackend(
+	ctx context.Context, agentID, projectID int64,
+) (*agent_entity.Agent, *agent_backend_entity.AgentBackend, *llm_provider_entity.LLMProvider,
+	func(context.Context, *chat_entity.Session), error) {
+	a, be, prov, pin, err := h.s.resolveTurn(ctx, nil, agentID, projectID, turnPick{})
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return a, be, prov, func(ctx context.Context, sess *chat_entity.Session) { h.s.pinTurn(ctx, sess, pin) }, nil
+}
+
 func (h chatGoalHost) ResolveSessionProvider(
 	ctx context.Context, sess *chat_entity.Session,
 	be *agent_backend_entity.AgentBackend, prov *llm_provider_entity.LLMProvider,
@@ -139,12 +150,6 @@ func (h chatGoalHost) ReleaseRemoteRuntime(deviceID, sessionID int64) {
 
 func (h chatGoalHost) ResolveProjectContext(ctx context.Context, projectID, agentID int64) (int64, error) {
 	return h.s.resolveProjectContext(ctx, projectID, agentID)
-}
-
-func (h chatGoalHost) PinExecTargetIfUnset(
-	ctx context.Context, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend,
-) {
-	h.s.pinExecTargetIfUnset(ctx, sess, be)
 }
 
 func (h chatGoalHost) SessionTitle(text string) string { return sessionTitleFromFirstMessage(text) }

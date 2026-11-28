@@ -34,7 +34,11 @@ func registerPeerWaiterRepos(t *testing.T, ctrl *gomock.Controller, backend *age
 	sessRepo := mock_chat_repo.NewMockSessionRepo(ctrl)
 	agtRepo := mock_agent_repo.NewMockAgentRepo(ctrl)
 	beRepo := mock_agent_backend_repo.NewMockAgentBackendRepo(ctrl)
-	row := &chat_entity.Session{ID: 42, ConversationID: convID(42), AgentID: 7, Status: consts.ACTIVE}
+	// 跑在远端的会话第一轮就钉住了那台设备与那一档（决策 10）。
+	row := &chat_entity.Session{
+		ID: 42, ConversationID: convID(42), AgentID: 7, Status: consts.ACTIVE,
+		ExecAgentBackendID: backend.ID, ExecDeviceID: 7, ExecDeviceFingerprint: backend.DeviceFingerprint,
+	}
 	sessRepo.EXPECT().Find(gomock.Any(), int64(42)).Return(row, nil).AnyTimes()
 	// conversation_id → 本地主键的反查:那一列上的唯一索引,一次查询(见
 	// ResolvePeerConversation)。别的对话身份一律「不在本机」。

@@ -397,6 +397,14 @@ export interface RunParams extends WireObject {
    */
   desktopCtlToken?: string;
   desktopSessionId?: number;
+
+  /**
+   * EngineProfileID 点名这一轮跑在哪份引擎配置上（spec 2026-11-25 决策 10：会话钉住的那份）。
+   * 非零时 Backend 就是这份配置摊成的后端视图（设置是本轮的有效值，带着目标设备上这种运行时
+   * 的 CLI 路径），线上据此另带一份不含设备的引擎配置与单列的 CLI 路径；0 = 这一轮只有
+   * Backend（浏览器派发、钉在旧后端行上的会话）。
+   */
+  engineProfileId?: number;
 }
 
 export function decodeRunParams(v: unknown): RunParams {
@@ -445,6 +453,7 @@ export function decodeRunParams(v: unknown): RunParams {
       o.desktopSessionId,
       "RunParams.desktopSessionId",
     );
+    o.engineProfileId = optNum(o.engineProfileId, "RunParams.engineProfileId");
   });
 }
 

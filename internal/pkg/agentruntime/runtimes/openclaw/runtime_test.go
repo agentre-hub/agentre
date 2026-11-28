@@ -194,7 +194,7 @@ func runtimeIdentity(t *testing.T) *openclawgateway.DeviceIdentity {
 
 func runtimeResolver(t *testing.T, gatewayURL string) ConfigResolver {
 	t.Helper()
-	return ConfigResolverFunc(func(context.Context, int64) (openclawgateway.Config, error) {
+	return ConfigResolverFunc(func(context.Context, *agent_backend_entity.AgentBackend) (openclawgateway.Config, error) {
 		return openclawgateway.Config{
 			URL: gatewayURL, Identity: runtimeIdentity(t), Platform: "linux",
 		}, nil
@@ -636,6 +636,37 @@ func TestRuntimeExecApprovalReconnectListRestoresPendingWithoutReplayingTurn(t *
 	assert.True(t, ok)
 	assert.Equal(t, int32(1), agentCalls.Load())
 	assert.Equal(t, int32(2), listCalls.Load())
+}
+
+// Given 一轮用的是引擎配置摊成的后端视图（不是 agent_backends 的一行，ID 为零，同步身份是
+// 配置自己的），When 起一轮，Then 配置解析拿到的是这份视图本身（Gateway 地址与按配置
+// sync_id 命名的 token 槽位都从它来），这一轮照常起跑，不因没有后端 ID 被拒。
+func TestRuntimeRunsEngineProfileViewWithoutBackendID(t *testing.T) {
+	gatewayURL := runtimeGateway(t, func(conn *websocket.Conn, connection int) {
+		runtimeHandshake(t, conn, connection)
+		request := runtimeReadTurnRequest(t, conn)
+		var params runtimeAgentParams
+		require.NoError(t, json.Unmarshal(request.Params, &params))
+		runtimeWrite(t, conn, map[string]any{"type": "res", "id": request.ID, "ok": true, "payload": map[string]any{"runId": params.IdempotencyKey, "status": "accepted"}})
+		runtimeWrite(t, conn, map[string]any{"type": "event", "event": "agent", "seq": 2, "payload": map[string]any{"runId": params.IdempotencyKey, "sessionKey": params.SessionKey, "seq": 1, "stream": "lifecycle", "ts": 1, "data": map[string]any{"phase": "end"}}})
+		<-time.After(100 * time.Millisecond)
+	})
+	view := runtimeBackend()
+	view.ID = 0
+	view.SyncID = "profile-openclaw"
+	var resolved *agent_backend_entity.AgentBackend
+	runtime := New(ConfigResolverFunc(func(_ context.Context, be *agent_backend_entity.AgentBackend) (openclawgateway.Config, error) {
+		resolved = be
+		return openclawgateway.Config{URL: gatewayURL, Identity: runtimeIdentity(t), Platform: "linux"}, nil
+	}))
+
+	events, _, err := runtime.Run(context.Background(), agentruntime.RunRequest{
+		Backend: view, SessionID: 35, AgentID: 8, UserText: "hello",
+	})
+	require.NoError(t, err)
+	collectRuntimeEvents(t, events)
+	require.NotNil(t, resolved)
+	assert.Equal(t, "profile-openclaw", resolved.SyncID)
 }
 
 func TestRuntimeStreamsTurnAndCreatesStableSessionMapping(t *testing.T) {

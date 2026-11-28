@@ -818,6 +818,40 @@ func TestRuntime_Run_GivenNoSuccessfulAccountSnapshot_WhenExecuting_ThenKeepsPai
 		"logged-out daemons and pre-snapshot paired desktop calls keep their existing execution path")
 }
 
+// Given 一轮 runtime.run 带了引擎配置（以及单列的 CLI 路径），旧的 backend 那一格也照旧填着
+// 但内容不同，When 执行，Then 交给 runtime 的后端按引擎配置建（设置、同步身份、单列的 CLI
+// 路径），而不是按 backend —— spec 2026-11-25「开一轮的请求带引擎配置（而不是后端）」。
+func TestRuntime_Run_GivenEngineProfile_WhenExecuting_ThenBuildsTheTurnFromIt(t *testing.T) {
+	rt := &fullRT{}
+	ctx, notif, h := setupRuntimeTestWithCLIOverlay(t, rt, func(string) (string, bool) { return "", false })
+	legacy := agent_backend_entity.AgentBackend{
+		Type: string(agent_backend_entity.TypeClaudeCode), LLMModelKey: "stale-model", CLIPath: "/stale/claude",
+	}
+	legacy.SyncID = "backend-sync-legacy"
+
+	_, err := h.Run(ctx, &agentrewire.RuntimeRunRequest{
+		Backend: backendProto(t, legacy),
+		EngineProfile: &agentrewire.EngineProfile{
+			Id: 31, SyncId: "profile-31", Type: string(agent_backend_entity.TypeClaudeCode),
+			LlmModelKey: "model-x", DefaultPermissionMode: "acceptEdits",
+		},
+		CliPath:        "/engine/claude",
+		ConversationId: convID(73),
+	})
+	require.NoError(t, err)
+	_ = notif.waitFrames(t, 1)
+	rt.mu.Lock()
+	runReqs := append([]runCall(nil), rt.runReqs...)
+	rt.mu.Unlock()
+	require.Len(t, runReqs, 1)
+	got := runReqs[0].req.Backend
+	require.NotNil(t, got)
+	assert.Equal(t, "profile-31", got.SyncID)
+	assert.Equal(t, "model-x", got.LLMModelKey)
+	assert.Equal(t, "acceptEdits", got.DefaultPermissionMode)
+	assert.Equal(t, "/engine/claude", got.CLIPath)
+}
+
 func TestRuntime_Run_GivenBrowserDispatchBySyncID_WhenSnapshotHasACPConfig_ThenAppliesConfigBeforeRuntimeStarts(t *testing.T) {
 	rt := &fullRT{}
 	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(syncID string) (enginesnapshot.Backend, bool) {

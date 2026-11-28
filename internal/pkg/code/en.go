@@ -77,6 +77,7 @@ var enUS = map[int]string{
 
 	DispatchNoEligibleDevice:        "No device can run this member right now",
 	DispatchManualDeviceUnavailable: "The chosen device cannot run this member right now; pick another or let it choose automatically",
+	DispatchDeviceReasonLine:        "%s: %s",
 
 	AppSettingNotFound:      "App setting not found",
 	AppSettingInvalidPort:   "Port must be an integer between 0 and 65535",

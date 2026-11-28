@@ -142,8 +142,8 @@ func (s *chatSvc) daemonFingerprint(ctx context.Context, deviceID int64) devicef
 	return view.DaemonFingerprint
 }
 
-// recordExecDaemon 把「这条会话跑在哪台 daemon 的哪个实例上、钉在哪一档」写进会话行
-// (R15b / 决策36)。
+// recordExecDaemon 把「这条会话跑在哪台 daemon 的哪个实例上」写进会话行(连同这一轮跑在的
+// 旧后端行;引擎配置视图不是后端行,写 0 —— 引擎配置由第一轮的 pinTurn 钉在自己那一列)。
 //
 // 游标的读写守卫全靠这一对 (设备, 实例标识):不写,LoadCursor 永远判失效,断连补齐
 // 就退化回「断连即终止」。标识为空说明这台设备还没配对出实例标识,此时没有可记录的

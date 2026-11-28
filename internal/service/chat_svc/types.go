@@ -982,12 +982,18 @@ type SendRequest struct {
 	//   - codex: default / plan
 	// 空串表示不改已有会话；新建 codex 会话空串按 default 落库。
 	PermissionMode string `json:"permissionMode,omitempty"`
-	// ExecTargetOverride 是 R15a 的手动指定：仅新建会话时生效（与 ProviderKey 同一条
-	// 规则），值是用户在空会话态「改选」浮层里选中的 agentBackendID。0 = 不指定，按
-	// R15 顺序自动挑第一个可用的档。非零时必须在该 Agent 的执行目标列表里且此刻可用，
-	// 否则整个 Send 失败（不静默回落自动挑选）——拒绝指定一个不可用的档。已有会话
-	// （SessionID>0）忽略这个字段：会话早已按 R15b 钉在它落到的那一档上，不可能再改。
+	// ExecTargetOverride 是旧界面空会话态「改选」浮层里选中的 agentBackendID，协议切换前
+	// 仍被接受：仅新建会话时生效，翻成「手动指定那一档所在的设备」（ExecDevice 在场时
+	// 不看它）。那一档不存在时 Send 失败；那台设备此刻不能跑时派发回落到自动结果。已有
+	// 会话（SessionID>0）忽略这个字段：会话早已钉在它落到的设备上，不可能再改。
 	ExecTargetOverride int64 `json:"execTargetOverride,omitempty"`
+	// ExecDevice 是新会话「在哪台设备上跑」弹层里手动选中的设备（spec「会话」）：仅新建会话
+	// 生效，空 = 按派发规则自动选。它此刻不能跑时派发回落到自动结果，不报错。第一轮发出后
+	// 会话已钉在它落到的设备上，这个字段不再起作用。
+	ExecDevice devicefp.Carrier `json:"execDevice,omitempty"`
+	// EngineProfileID 是新会话模型胶囊弹层里「这次改用」的引擎配置：仅新建会话生效，0 =
+	// 成员生效的那份。只改本会话，第一轮发出后锁定。
+	EngineProfileID int64 `json:"engineProfileId,omitempty"`
 	// ProviderKey 仅新建会话（SessionID=0）生效：所选 LLM ModelTarget 的 ProviderKey，
 	// 随首条消息与 Session 一同 Create 落库（spec 决策 2）。空串 = 跟随 agent 绑定
 	// （inherit-agent）。已有会话在这里忽略——改 target 走 SetChatSessionModelTarget

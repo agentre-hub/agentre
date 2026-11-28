@@ -57,12 +57,11 @@ type turnStart struct {
 	startupCancelRegistered bool
 }
 
-// buildMessages 钉住本轮执行目标,并组出 user / assistant 两行(此时尚未落库)。
+// buildMessages 钉住这一轮派发出来的设备与引擎配置,并组出 user / assistant 两行(此时
+// 尚未落库)。
 func (ts *turnStart) buildMessages(ctx context.Context) error {
-	// 首轮实际落在这一档（R15b / 决策36）：会话已经钉住就是 no-op,没钉住就在这里
-	// 钉住并写回——这是"没值涵盖首轮与全部老会话"里唯一的写点(本机档;远端档由
-	// recordExecDaemon 在下面 prepareTurnRun / runTurn 实际 borrow 到 runtime 时写)。
-	ts.svc.pinExecTargetIfUnset(ctx, ts.sess, ts.be)
+	// 第一轮发出时钉住(spec 2026-11-25 决策 10):会话已经钉住时 extras.pin 为 nil、no-op。
+	ts.svc.pinTurn(ctx, ts.sess, ts.extras.pin)
 
 	ts.userMsg = &chat_entity.Message{SessionID: ts.sess.ID, Role: "user", DeviceFingerprint: ts.be.DeviceFingerprint}
 	_ = ts.userMsg.SetBlocks(ts.userBlocks)

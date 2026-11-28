@@ -1689,6 +1689,23 @@ func TestBuildRunParams_ForwardsMCPServers(t *testing.T) {
 	}
 }
 
+// TestBuildRunParams_ForwardsEngineProfile 钉死「开一轮的请求带引擎配置」（spec 2026-11-25）：
+// chat_svc 交来的这一轮钉在哪份引擎配置上，必须随 wire 过线 —— 漏传则执行端只看得到旧的
+// backend 那一格。
+func TestBuildRunParams_ForwardsEngineProfile(t *testing.T) {
+	params, err := New(newFakeConn(), WithConversationIDResolver(convOf)).buildRunParams(agentruntime.RunRequest{
+		Backend:         &agent_backend_entity.AgentBackend{Type: "codex"},
+		SessionID:       9,
+		EngineProfileID: 31,
+	})
+	if err != nil {
+		t.Fatalf("buildRunParams: %v", err)
+	}
+	if params.EngineProfileID != 31 {
+		t.Fatalf("buildRunParams dropped EngineProfileID: %+v", params)
+	}
+}
+
 // TestBuildRunParams_ForwardsFreshSession 钉死挂账修复(2026-08-11)的映射:chat_svc 在
 // 本地 sess.ProviderSessionID 为空时置 RunRequest.FreshSession=true,必须随 wire 过线到
 // daemon —— 漏传则 daemon 拿落库旧 id 续话,regenerate / provider 会话失效恢复又变回坏路径。

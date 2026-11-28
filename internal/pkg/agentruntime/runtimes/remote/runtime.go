@@ -682,6 +682,7 @@ func (r *Runtime) buildRunParams(req agentruntime.RunRequest) (wire.RunParams, e
 	desktopCtlToken, desktopSessionID := desktopCtlCredentials(req)
 	return wire.RunParams{
 		Backend:           backendJSON,
+		EngineProfileID:   req.EngineProfileID,
 		AgentID:           crossHostAgentID(req.AgentID, req.AgentSyncID),
 		ConversationID:    r.conversationID(req.SessionID),
 		Cwd:               req.Cwd,

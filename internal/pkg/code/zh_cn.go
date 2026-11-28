@@ -77,6 +77,7 @@ var zhCN = map[int]string{
 
 	DispatchNoEligibleDevice:        "现在没有能跑这名成员的设备",
 	DispatchManualDeviceUnavailable: "指定的设备现在不能跑这名成员，换一台或交给自动选择",
+	DispatchDeviceReasonLine:        "%s：%s",
 
 	AppSettingNotFound:      "设置项不存在",
 	AppSettingInvalidPort:   "端口必须是 0~65535 之间的整数",

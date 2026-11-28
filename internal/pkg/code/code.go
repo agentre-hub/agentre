@@ -123,6 +123,7 @@ const (
 const (
 	DispatchNoEligibleDevice        = iota + 12080 // 成员现在没有能跑的设备
 	DispatchManualDeviceUnavailable                // 手动指定的设备现在不能跑这名成员
+	DispatchDeviceReasonLine                       // 「无处可跑」报错里一台设备的一行：设备名 + 原因码
 )
 
 // App 设置 15000~15999

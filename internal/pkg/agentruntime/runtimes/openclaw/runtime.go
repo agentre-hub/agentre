@@ -20,14 +20,17 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/openclawgateway"
 )
 
+// ConfigResolver 把这一轮的后端（引擎配置摊成的视图，或协议切换前仍在用的旧后端行）解成
+// Gateway 连接配置：地址取自它，设备本地的 token 按它的同步身份找槽位。交的是后端本身而
+// 不是一个 ID —— 引擎配置视图不是 agent_backends 的一行，没有可查的 ID。
 type ConfigResolver interface {
-	ResolveOpenClawConfig(ctx context.Context, backendID int64) (openclawgateway.Config, error)
+	ResolveOpenClawConfig(ctx context.Context, backend *agent_backend_entity.AgentBackend) (openclawgateway.Config, error)
 }
 
-type ConfigResolverFunc func(context.Context, int64) (openclawgateway.Config, error)
+type ConfigResolverFunc func(context.Context, *agent_backend_entity.AgentBackend) (openclawgateway.Config, error)
 
-func (f ConfigResolverFunc) ResolveOpenClawConfig(ctx context.Context, backendID int64) (openclawgateway.Config, error) {
-	return f(ctx, backendID)
+func (f ConfigResolverFunc) ResolveOpenClawConfig(ctx context.Context, backend *agent_backend_entity.AgentBackend) (openclawgateway.Config, error) {
+	return f(ctx, backend)
 }
 
 type Runtime struct {
@@ -80,8 +83,8 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 	// resolveAgentBackend 就已拒绝、也到不了本地 runtime。是否拿得到远端 secret 由
 	// config resolver 定夺（远端档的 resolver 会回 ErrOpenClawRemoteSecretUnavailable），
 	// 这里不再用 DeviceID 非空当「远端」拦——那会把本机档误杀。
-	if req.SessionID <= 0 || req.Backend.ID <= 0 {
-		return nil, nil, fmt.Errorf("openclaw runtime: backend and chat session IDs are required")
+	if req.SessionID <= 0 {
+		return nil, nil, fmt.Errorf("openclaw runtime: chat session ID is required")
 	}
 	r.resolverMu.RLock()
 	resolver := r.resolver
@@ -89,7 +92,7 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 	if resolver == nil {
 		return nil, nil, fmt.Errorf("openclaw runtime: config resolver is unavailable")
 	}
-	config, err := resolver.ResolveOpenClawConfig(ctx, req.Backend.ID)
+	config, err := resolver.ResolveOpenClawConfig(ctx, req.Backend)
 	if err != nil {
 		return nil, nil, err
 	}

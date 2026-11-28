@@ -9,9 +9,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
 )
 
 // CatchUpRemoteSessions 是桌面 App 启动后的远端补齐入口:把「这段时间远端上发生的
@@ -220,16 +220,17 @@ func (s *chatSvc) watchCatchUpTurns(ctx context.Context, sess *chat_entity.Sessi
 	return true
 }
 
-// sessionBackend 解析某会话此刻挂在哪个 agent backend 上。解析不出返回 nil。
+// sessionBackend 解析某会话此刻用的后端：钉住的引擎配置（在钉住的设备上），还没钉住时成员
+// 此刻生效的那份（sessionengine.ForSession）。解析不出返回 nil。
 func (s *chatSvc) sessionBackend(ctx context.Context, sess *chat_entity.Session) *agent_backend_entity.AgentBackend {
 	if sess == nil {
 		return nil
 	}
 	a, err := agent_repo.Agent().Find(ctx, sess.AgentID)
-	if err != nil || a == nil || a.AgentBackendID <= 0 {
+	if err != nil || a == nil {
 		return nil
 	}
-	be, err := agent_backend_repo.AgentBackend().Find(ctx, a.AgentBackendID)
+	be, err := sessionengine.ForSession(ctx, sess, a)
 	if err != nil {
 		return nil
 	}

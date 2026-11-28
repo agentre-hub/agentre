@@ -30,10 +30,15 @@ import (
 // Host 是本包对 chat_svc 的窄端口(ISP):只声明目标链路真正调用的那几件事。
 // 会话表、runtime 注册表、i18n 错误码本包自己会用,不必经宿主。
 type Host interface {
-	// ResolveAgentBackend 解析这条会话(sess 可为 nil = 尚未落库的新会话)该用哪个
-	// Agent / 执行目标档 / 供应商。
+	// ResolveAgentBackend 解析这条已落库的会话该用哪个 Agent / 后端（钉住的那份；没钉住时
+	// 按派发方案现选，不写库）/ 供应商。
 	ResolveAgentBackend(ctx context.Context, sess *chat_entity.Session, agentID, projectID int64) (
 		*agent_entity.Agent, *agent_backend_entity.AgentBackend, *llm_provider_entity.LLMProvider, error)
+	// ResolveNewSessionBackend 与 ResolveAgentBackend 同一解析，给尚未落库的新会话：第一轮
+	// 派发出来的设备与引擎配置随 pin 交回，会话行建好之后由调用方调 pin 写进去。
+	ResolveNewSessionBackend(ctx context.Context, agentID, projectID int64) (
+		*agent_entity.Agent, *agent_backend_entity.AgentBackend, *llm_provider_entity.LLMProvider,
+		func(context.Context, *chat_entity.Session), error)
 	// ResolveSessionProvider 把 agent 绑定的供应商按会话覆盖/回退解析成本轮真正生效的那家。
 	ResolveSessionProvider(
 		ctx context.Context, sess *chat_entity.Session,
@@ -59,8 +64,6 @@ type Host interface {
 		*llm_provider_entity.LLMProvider, error)
 	// ResolveProjectContext 校验并归一 StartGoal 传来的 projectID。
 	ResolveProjectContext(ctx context.Context, projectID, agentID int64) (int64, error)
-	// PinExecTargetIfUnset 把首轮实际落在的那一档钉进会话行(R15b)。
-	PinExecTargetIfUnset(ctx context.Context, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend)
 	// SessionTitle 由首条文本派生会话标题。
 	SessionTitle(text string) string
 	// Fail 是宿主的通用失败包装(cause 一并进日志与前端)。
@@ -142,10 +145,10 @@ func (c *Controller) Clear(ctx context.Context, sessionID int64) (bool, error) {
 // Start 以一个目标开一条新会话:建会话行 → 下发目标 → 把 codex 交回的 threadID
 // 记成 provider session。threadID 为空视为失败(会话没有可续的 provider 侧身份)。
 func (c *Controller) Start(ctx context.Context, in StartInput) (int64, *agentruntime.Goal, error) {
-	// sess=nil：这是全新会话，还没有可粘的档；projectID 用请求原始值——
-	// ResolveProjectContext 的默认/成员校验发生在下面，这里只用来喂 R15 的
-	// "该机器上有没有配这个项目的路径" 判据，两边算的是同一个 project id。
-	a, be, prov, err := c.host.ResolveAgentBackend(ctx, nil, in.AgentID, in.ProjectID)
+	// 全新会话，还没有钉住什么；projectID 用请求原始值 —— ResolveProjectContext 的默认 /
+	// 成员校验发生在下面，这里只用来喂派发的「那台设备上有没有这个项目的路径」判据，两边
+	// 算的是同一个 project id。
+	a, be, prov, pin, err := c.host.ResolveNewSessionBackend(ctx, in.AgentID, in.ProjectID)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -189,8 +192,8 @@ func (c *Controller) Start(ctx context.Context, in StartInput) (int64, *agentrun
 	if err := chat_repo.Session().Create(ctx, sess); err != nil {
 		return 0, nil, c.host.Fail(ctx, err)
 	}
-	// 首轮实际落在这一档（R15b / 决策36）：会话行已存在，钉住它。
-	c.host.PinExecTargetIfUnset(ctx, sess, be)
+	// 第一轮派发出来的设备与引擎配置（spec 2026-11-25 决策 10）：会话行已存在，钉住它。
+	pin(ctx, sess)
 	patch := in.Patch
 	patch.Objective = &objective
 	goal, release, err := c.setOnSession(ctx, sess, a, be, prov, patch)

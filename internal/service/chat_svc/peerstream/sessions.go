@@ -16,10 +16,10 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/conversationid"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/projectsync"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
@@ -287,20 +287,12 @@ func peerSessionSummary(
 	}, nil
 }
 
+// peerSessionBackendType 会话的运行时类型：钉住的引擎配置的，还没钉住时成员此刻生效的那份的
+// （sessionengine.ForSession）。都没有时为空串。
 func peerSessionBackendType(ctx context.Context, session *chat_entity.Session, agent *agent_entity.Agent) (string, error) {
-	backendID := agent.AgentBackendID
-	if session.ExecAgentBackendID != 0 {
-		backendID = session.ExecAgentBackendID
-	}
-	if backendID == 0 {
-		return "", nil
-	}
-	backend, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
-	if err != nil {
-		return "", operationFailedWithCause(ctx, err)
-	}
-	if backend == nil {
-		return "", nil
+	backend, err := sessionengine.ForSession(ctx, session, agent)
+	if err != nil || backend == nil {
+		return "", err
 	}
 	return backend.Type, nil
 }

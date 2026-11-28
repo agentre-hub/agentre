@@ -649,7 +649,7 @@ func ctlExecDevice(ctx context.Context, be *agent_backend_entity.AgentBackend) (
 
 // PinCtlExecTarget 把新会话钉到选中的那一档(R15b 的会话粘性):此后每一轮的后端解析
 // 都短路到它。远端档的设备列不在这里写 —— 真正借到连接时由 recordExecDaemon 带着当下
-// 的 daemon 实例标识一并写上(与 pinExecTargetIfUnset 同一条约定)。
+// 的 daemon 实例标识一并写上。
 func (s *chatSvc) PinCtlExecTarget(ctx context.Context, sessionID, agentBackendID int64) error {
 	if err := chat_repo.Session().UpdateExecDaemon(ctx, sessionID, 0, "", agentBackendID); err != nil {
 		return operationFailedWithCause(ctx, err, zap.Int64("sessionId", sessionID), zap.Int64("agentBackendId", agentBackendID))

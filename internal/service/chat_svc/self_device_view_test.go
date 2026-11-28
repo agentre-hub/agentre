@@ -77,9 +77,6 @@ func TestLoadSession_GivenSelfFingerprintBackend_ThenSessionViewReportsLocalDevi
 	m.agent.EXPECT().Find(ctx, int64(8)).Return(&agent_entity.Agent{
 		ID: 8, Name: "pi", AgentBackendID: 234, Status: 1,
 	}, nil)
-	m.execTarget.EXPECT().ListByAgent(ctx, int64(8)).Return([]*agent_entity.AgentExecTarget{
-		{ID: 256, AgentID: 8, AgentBackendID: 234, SortOrder: 0},
-	}, nil)
 	m.backend.EXPECT().Find(ctx, int64(234)).Return(&agent_backend_entity.AgentBackend{
 		ID: 234, Type: string(agent_backend_entity.TypePiAgent), Status: 1,
 		DeviceFingerprint: "sha256:self",

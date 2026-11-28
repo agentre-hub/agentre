@@ -28,7 +28,31 @@ func RunRequestToProto(value wire.RunParams) (*agentrewire.RuntimeRunRequest, er
 	for _, server := range value.MCPServers {
 		out.McpServers = append(out.McpServers, &agentrewire.MCPServer{Name: server.Name, Url: server.URL, Headers: server.Headers, Tools: append([]string(nil), server.Tools...)})
 	}
+	if value.EngineProfileID > 0 && backend != nil {
+		out.EngineProfile = engineProfileToProto(value.EngineProfileID, backend)
+		out.CliPath = backend.CLIPath
+	}
 	return out, nil
+}
+
+// engineProfileToProto 把这一轮的引擎配置视图（配置摊成的后端，设置是本轮有效值）翻成线上
+// 的引擎配置：不带设备，CLI 路径单列在请求上。
+func engineProfileToProto(id int64, v *agent_backend_entity.AgentBackend) *agentrewire.EngineProfile {
+	return &agentrewire.EngineProfile{Id: id, SyncId: v.SyncID, Type: v.Type, Name: v.Name, LlmProviderKey: v.LLMProviderKey, LlmModelKey: v.LLMModelKey, ModelRoutes: v.ModelRoutes, Sandbox: v.Sandbox, Approval: v.Approval, EnvJson: v.EnvJSON, ReasoningEffort: v.ReasoningEffort, DefaultPermissionMode: v.DefaultPermissionMode, DefaultModel: v.DefaultModel, AcpCommand: v.ACPCommand, AcpArgs: v.ACPArgs}
+}
+
+// RunBackendFromProto 是执行端建这一轮后端的唯一入口：请求带了引擎配置就按它（加单列的 CLI
+// 路径）建 —— 视图不是 agent_backends 的一行、没有设备（就在执行它的这台上）；只带 backend
+// 的请求（浏览器派发、钉在旧后端行上的会话）照旧按 backend。
+func RunBackendFromProto(request *agentrewire.RuntimeRunRequest) *agent_backend_entity.AgentBackend {
+	if request == nil {
+		return nil
+	}
+	engine := request.GetEngineProfile()
+	if engine == nil {
+		return BackendFromProto(request.GetBackend())
+	}
+	return &agent_backend_entity.AgentBackend{Type: engine.GetType(), Name: engine.GetName(), LLMProviderKey: engine.GetLlmProviderKey(), LLMModelKey: engine.GetLlmModelKey(), CLIPath: request.GetCliPath(), ModelRoutes: engine.GetModelRoutes(), Sandbox: engine.GetSandbox(), Approval: engine.GetApproval(), EnvJSON: engine.GetEnvJson(), ReasoningEffort: engine.GetReasoningEffort(), DefaultPermissionMode: engine.GetDefaultPermissionMode(), DefaultModel: engine.GetDefaultModel(), ACPCommand: engine.GetAcpCommand(), ACPArgs: engine.GetAcpArgs(), SyncMeta: syncmeta_entity.SyncMeta{SyncID: engine.GetSyncId()}}
 }
 
 func RunRequestFromProto(value *agentrewire.RuntimeRunRequest) (wire.RunParams, error) {
@@ -39,7 +63,7 @@ func RunRequestFromProto(value *agentrewire.RuntimeRunRequest) (wire.RunParams, 
 	if err != nil {
 		return wire.RunParams{}, err
 	}
-	out := wire.RunParams{Backend: backend, AgentID: value.GetAgentId(), ConversationID: value.GetConversationId(), PeerFingerprint: devicefp.Initiator(value.GetPeerFingerprint()), Cwd: value.GetCwd(), Title: value.GetTitle(), AgentSyncID: value.GetAgentSyncId(), ProjectSyncID: value.GetProjectSyncId(), SystemPrompt: value.GetSystemPrompt(), ProviderSessionID: value.GetProviderSessionId(), FreshSession: value.GetFreshSession(), UserText: value.GetUserText(), UserBlocks: blocksFromProto(value.GetUserBlocks()), Compact: value.GetCompact(), ForkAnchor: value.GetForkAnchor(), PermissionMode: value.GetPermissionMode(), CollaborationMode: value.GetCollaborationMode(), EnabledPlugins: value.GetEnabledPlugins(), LLMProviderKey: value.GetLlmProviderKey(), LLMModelKey: value.GetLlmModelKey(), ReasoningEffort: value.GetReasoningEffort(), CLIModelMode: value.GetCliModelMode(), CLIModel: value.GetCliModel(), SourceDevice: devicefp.Initiator(value.GetSourceDevice()), SourceDeviceName: value.GetSourceDeviceName(), DesktopCtlToken: value.GetDesktopCtlToken(), DesktopSessionID: value.GetDesktopSessionId()}
+	out := wire.RunParams{Backend: backend, AgentID: value.GetAgentId(), ConversationID: value.GetConversationId(), PeerFingerprint: devicefp.Initiator(value.GetPeerFingerprint()), Cwd: value.GetCwd(), Title: value.GetTitle(), AgentSyncID: value.GetAgentSyncId(), ProjectSyncID: value.GetProjectSyncId(), SystemPrompt: value.GetSystemPrompt(), ProviderSessionID: value.GetProviderSessionId(), FreshSession: value.GetFreshSession(), UserText: value.GetUserText(), UserBlocks: blocksFromProto(value.GetUserBlocks()), Compact: value.GetCompact(), ForkAnchor: value.GetForkAnchor(), PermissionMode: value.GetPermissionMode(), CollaborationMode: value.GetCollaborationMode(), EnabledPlugins: value.GetEnabledPlugins(), LLMProviderKey: value.GetLlmProviderKey(), LLMModelKey: value.GetLlmModelKey(), ReasoningEffort: value.GetReasoningEffort(), CLIModelMode: value.GetCliModelMode(), CLIModel: value.GetCliModel(), SourceDevice: devicefp.Initiator(value.GetSourceDevice()), SourceDeviceName: value.GetSourceDeviceName(), DesktopCtlToken: value.GetDesktopCtlToken(), DesktopSessionID: value.GetDesktopSessionId(), EngineProfileID: value.GetEngineProfile().GetId()}
 	for _, message := range value.GetHistory() {
 		out.History = append(out.History, wire.HistoryMessageWire{Role: message.GetRole(), Blocks: blocksFromProto(message.GetBlocks())})
 	}

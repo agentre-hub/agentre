@@ -11,9 +11,9 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 )
 
@@ -93,23 +93,18 @@ func (s *chatSvc) AnswerUserQuestion(ctx context.Context, req *AnswerUserQuestio
 			zap.Int64("sessionId", req.SessionID), zap.String("requestId", req.RequestID), zap.Error(err))
 		return nil, i18n.NewError(ctx, code.AgentNotFound)
 	}
-	// 会话已经钉住某一档时（R15b / 决策36）用那一档 —— 正在等待应答的这一轮已经在跑
-	// 在那一档上,答案必须投回同一个 backend/runner,不能重新按 Agent 的当前主档解析
-	// （那可能已经被改成别的 backend）。
-	backendID := a.AgentBackendID
-	if sess.ExecAgentBackendID > 0 {
-		backendID = sess.ExecAgentBackendID
+	// 会话钉住的引擎配置与设备（决策 10）—— 正在等待应答的这一轮已经跑在那里,答案必须
+	// 投回同一个 runner,不能按成员当前生效的配置重新解析（那可能已经换成别的了）。
+	be, err := sessionengine.ForSession(ctx, sess, a)
+	if err != nil {
+		logger.Ctx(ctx).Warn("chat_svc.AnswerUserQuestion: session backend unresolved",
+			zap.Int64("sessionId", req.SessionID), zap.String("requestId", req.RequestID), zap.Error(err))
+		return nil, err
 	}
-	if backendID <= 0 {
+	if be == nil {
 		logger.Ctx(ctx).Warn("chat_svc.AnswerUserQuestion: agent backend required",
 			zap.Int64("sessionId", req.SessionID), zap.String("requestId", req.RequestID))
 		return nil, i18n.NewError(ctx, code.AgentBackendRequired)
-	}
-	be, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
-	if err != nil || be == nil {
-		logger.Ctx(ctx).Warn("chat_svc.AnswerUserQuestion: agent backend not found",
-			zap.Int64("sessionId", req.SessionID), zap.String("requestId", req.RequestID), zap.Error(err))
-		return nil, i18n.NewError(ctx, code.AgentBackendNotFound)
 	}
 
 	runner, err := s.selectRunner(ctx, be, sess.ID)

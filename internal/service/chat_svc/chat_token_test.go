@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cago-frame/cago/pkg/consts"
+	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -18,6 +19,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
@@ -387,14 +389,12 @@ func TestPrepareTurnRun_SessionProviderNeedsRunningGateway(t *testing.T) {
 	})
 }
 
-// TestPrepareTurnRun_PiAgentSessionProviderRunsWithoutGateway 是上面那条门控的边界：
-// 「有 effective provider 就必须有网关」只对**把 LLM 流量指向本机网关**的后端成立
-// （claudecode 的 ANTHROPIC_BASE_URL / codex 的 model_provider 都是启动期从网关派生的）。
-// pi-agent 不走网关 —— 它把 provider.APIKey 直接注进子进程 env
-// （agentruntime.BuildPiAgentProviderEnv），GatewayURL/Token 在整个 piagent runtime 里
-// 没有任何消费点。所以网关没在跑时这一轮照样能正常执行，把它打成
-// ChatBackendGatewayUnavailable 等于凭空失败一条本来跑得通的会话。
-func TestPrepareTurnRun_PiAgentSessionProviderRunsWithoutGateway(t *testing.T) {
+// TestPrepareTurnRun_PiAgentSessionProviderNeedsRunningGateway 是上面那条门控对 Pi 的
+// 适用：Pi 改走网关之后（子进程只拿会话网关 token 与网关地址，没有真实 key），它与
+// claudecode / codex 一样**只能**经本机网关取 LLM。这一轮有 effective provider 而网关没在
+// 跑时，Pi 会话必须与其它网关后端同一口径报 ChatBackendGatewayUnavailable，而不是带着一个
+// 空 token 起子进程、在对话中途撞 401。
+func TestPrepareTurnRun_PiAgentSessionProviderNeedsRunningGateway(t *testing.T) {
 	registerProviderMockForTurn(t, "session-picked", "", string(llm_provider_entity.TypeAnthropic))
 	runner := &directRunRunner{request: make(chan agentruntime.RunRequest, 1)}
 	t.Cleanup(agentruntime.SwapRuntimeForTest(agent_backend_entity.TypePiAgent, runner))
@@ -410,15 +410,14 @@ func TestPrepareTurnRun_PiAgentSessionProviderRunsWithoutGateway(t *testing.T) {
 	a := &agent_entity.Agent{ID: 7, AgentBackendID: 12}
 	be := &agent_backend_entity.AgentBackend{ID: 12, Type: string(agent_backend_entity.TypePiAgent)}
 	prov := &llm_provider_entity.LLMProvider{
-		ProviderKey: "session-picked", Type: string(llm_provider_entity.TypeAnthropic), APIKey: "sk-x", Status: consts.ACTIVE,
+		ProviderKey: "session-picked", Type: string(llm_provider_entity.TypeAnthropic), Status: consts.ACTIVE,
 	}
 
-	prepared, err := s.prepareTurnRun(context.Background(), sess, a, be, prov, nil, nil, "", false, false)
-	require.NoError(t, err, "pi 不经网关取 LLM，网关没在跑不该把这一轮打成失败")
-	require.NotNil(t, prepared)
-	require.NotNil(t, prepared.req.Provider)
-	assert.Equal(t, "session-picked", prepared.req.Provider.ProviderKey,
-		"所选供应商仍随 RunRequest 下发 —— pi 从它取 APIKey")
+	_, err := s.prepareTurnRun(context.Background(), sess, a, be, prov, nil, nil, "", false, false)
+	require.Error(t, err, "pi 经网关取 LLM，网关没在跑必须报错")
+	var httpErr *httputils.Error
+	require.ErrorAs(t, err, &httpErr)
+	assert.Equal(t, code.ChatBackendGatewayUnavailable, httpErr.Code)
 }
 
 // TestPrepareTurnRun_BackendFixedModelResolvesSpecificChild 钉死 spec 决策 5/10 的

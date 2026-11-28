@@ -3244,6 +3244,54 @@ public nonisolated struct Agentre_Wire_AgentBackend: @unchecked Sendable {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+/// EngineProfile is the engine profile a turn runs with: the "what to use and
+/// how to work" half of a former backend, without the device it runs on or the
+/// CLI path on that device (those belong to the dispatch result and the device's
+/// settings). The fields carry the turn's effective values, so a session-level
+/// override already applied by the originator travels with them. sync_id is the
+/// profile's account-wide identity (it keys the device-local credential slots and
+/// the account snapshot's profile entry). OpenClaw and builtin never run on
+/// agentred and so have no fields here.
+public nonisolated struct Agentre_Wire_EngineProfile: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var id: Int64 = 0
+
+  public var syncID: String = String()
+
+  public var type: String = String()
+
+  public var name: String = String()
+
+  public var llmProviderKey: String = String()
+
+  public var llmModelKey: String = String()
+
+  public var modelRoutes: String = String()
+
+  public var sandbox: String = String()
+
+  public var approval: String = String()
+
+  public var envJson: String = String()
+
+  public var reasoningEffort: String = String()
+
+  public var defaultPermissionMode: String = String()
+
+  public var defaultModel: String = String()
+
+  public var acpCommand: String = String()
+
+  public var acpArgs: [String] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 public nonisolated struct Agentre_Wire_StoredBlock: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -3476,6 +3524,30 @@ public nonisolated struct Agentre_Wire_RuntimeRunRequest: @unchecked Sendable {
   public var cliModel: String {
     get {_storage._cliModel}
     set {_uniqueStorage()._cliModel = newValue}
+  }
+
+  /// engine_profile is the engine profile this turn runs with. When present the
+  /// executor builds the turn from it (plus cli_path) instead of from backend;
+  /// backend stays populated alongside it until the protocol cut, so a caller or
+  /// executor that only knows backend keeps working. Absent = the caller only
+  /// sent backend (a browser dispatch, or a session still pinned to a legacy
+  /// backend row).
+  public var engineProfile: Agentre_Wire_EngineProfile {
+    get {_storage._engineProfile ?? Agentre_Wire_EngineProfile()}
+    set {_uniqueStorage()._engineProfile = newValue}
+  }
+  /// Returns true if `engineProfile` has been explicitly set.
+  public var hasEngineProfile: Bool {_storage._engineProfile != nil}
+  /// Clears the value of `engineProfile`. Subsequent reads from it will return its default value.
+  public mutating func clearEngineProfile() {_uniqueStorage()._engineProfile = nil}
+
+  /// cli_path is the CLI path override on the executing device for the engine
+  /// profile's runtime type (per runtime type and device, not per backend).
+  /// Empty = resolve the CLI from PATH. Read together with engine_profile; an
+  /// executor with an authoritative account snapshot still replaces it.
+  public var cliPath: String {
+    get {_storage._cliPath}
+    set {_uniqueStorage()._cliPath = newValue}
   }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -12743,6 +12815,106 @@ nonisolated extension Agentre_Wire_AgentBackend: SwiftProtobuf.Message, SwiftPro
   }
 }
 
+nonisolated extension Agentre_Wire_EngineProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".EngineProfile"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}sync_id\0\u{1}type\0\u{1}name\0\u{3}llm_provider_key\0\u{3}llm_model_key\0\u{3}model_routes\0\u{1}sandbox\0\u{1}approval\0\u{3}env_json\0\u{3}reasoning_effort\0\u{3}default_permission_mode\0\u{3}default_model\0\u{3}acp_command\0\u{3}acp_args\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.syncID) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.type) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.llmProviderKey) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.llmModelKey) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.modelRoutes) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.sandbox) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.approval) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.envJson) }()
+      case 11: try { try decoder.decodeSingularStringField(value: &self.reasoningEffort) }()
+      case 12: try { try decoder.decodeSingularStringField(value: &self.defaultPermissionMode) }()
+      case 13: try { try decoder.decodeSingularStringField(value: &self.defaultModel) }()
+      case 14: try { try decoder.decodeSingularStringField(value: &self.acpCommand) }()
+      case 15: try { try decoder.decodeRepeatedStringField(value: &self.acpArgs) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.id != 0 {
+      try visitor.visitSingularInt64Field(value: self.id, fieldNumber: 1)
+    }
+    if !self.syncID.isEmpty {
+      try visitor.visitSingularStringField(value: self.syncID, fieldNumber: 2)
+    }
+    if !self.type.isEmpty {
+      try visitor.visitSingularStringField(value: self.type, fieldNumber: 3)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 4)
+    }
+    if !self.llmProviderKey.isEmpty {
+      try visitor.visitSingularStringField(value: self.llmProviderKey, fieldNumber: 5)
+    }
+    if !self.llmModelKey.isEmpty {
+      try visitor.visitSingularStringField(value: self.llmModelKey, fieldNumber: 6)
+    }
+    if !self.modelRoutes.isEmpty {
+      try visitor.visitSingularStringField(value: self.modelRoutes, fieldNumber: 7)
+    }
+    if !self.sandbox.isEmpty {
+      try visitor.visitSingularStringField(value: self.sandbox, fieldNumber: 8)
+    }
+    if !self.approval.isEmpty {
+      try visitor.visitSingularStringField(value: self.approval, fieldNumber: 9)
+    }
+    if !self.envJson.isEmpty {
+      try visitor.visitSingularStringField(value: self.envJson, fieldNumber: 10)
+    }
+    if !self.reasoningEffort.isEmpty {
+      try visitor.visitSingularStringField(value: self.reasoningEffort, fieldNumber: 11)
+    }
+    if !self.defaultPermissionMode.isEmpty {
+      try visitor.visitSingularStringField(value: self.defaultPermissionMode, fieldNumber: 12)
+    }
+    if !self.defaultModel.isEmpty {
+      try visitor.visitSingularStringField(value: self.defaultModel, fieldNumber: 13)
+    }
+    if !self.acpCommand.isEmpty {
+      try visitor.visitSingularStringField(value: self.acpCommand, fieldNumber: 14)
+    }
+    if !self.acpArgs.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.acpArgs, fieldNumber: 15)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_EngineProfile, rhs: Agentre_Wire_EngineProfile) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.syncID != rhs.syncID {return false}
+    if lhs.type != rhs.type {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.llmProviderKey != rhs.llmProviderKey {return false}
+    if lhs.llmModelKey != rhs.llmModelKey {return false}
+    if lhs.modelRoutes != rhs.modelRoutes {return false}
+    if lhs.sandbox != rhs.sandbox {return false}
+    if lhs.approval != rhs.approval {return false}
+    if lhs.envJson != rhs.envJson {return false}
+    if lhs.reasoningEffort != rhs.reasoningEffort {return false}
+    if lhs.defaultPermissionMode != rhs.defaultPermissionMode {return false}
+    if lhs.defaultModel != rhs.defaultModel {return false}
+    if lhs.acpCommand != rhs.acpCommand {return false}
+    if lhs.acpArgs != rhs.acpArgs {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Agentre_Wire_StoredBlock: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".StoredBlock"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}type\0\u{1}data\0")
@@ -12860,7 +13032,7 @@ nonisolated extension Agentre_Wire_MCPServer: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeRunRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}backend\0\u{3}agent_id\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}cwd\0\u{1}title\0\u{3}agent_sync_id\0\u{3}system_prompt\0\u{3}provider_session_id\0\u{3}fresh_session\0\u{3}user_text\0\u{3}user_blocks\0\u{1}history\0\u{1}compact\0\u{3}fork_anchor\0\u{3}permission_mode\0\u{3}collaboration_mode\0\u{3}mcp_servers\0\u{3}enabled_plugins\0\u{3}llm_provider_key\0\u{3}llm_model_key\0\u{3}source_device\0\u{3}source_device_name\0\u{3}project_sync_id\0\u{3}reasoning_effort\0\u{3}desktop_ctl_token\0\u{3}desktop_session_id\0\u{3}cli_model_mode\0\u{3}cli_model\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}backend\0\u{3}agent_id\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}cwd\0\u{1}title\0\u{3}agent_sync_id\0\u{3}system_prompt\0\u{3}provider_session_id\0\u{3}fresh_session\0\u{3}user_text\0\u{3}user_blocks\0\u{1}history\0\u{1}compact\0\u{3}fork_anchor\0\u{3}permission_mode\0\u{3}collaboration_mode\0\u{3}mcp_servers\0\u{3}enabled_plugins\0\u{3}llm_provider_key\0\u{3}llm_model_key\0\u{3}source_device\0\u{3}source_device_name\0\u{3}project_sync_id\0\u{3}reasoning_effort\0\u{3}desktop_ctl_token\0\u{3}desktop_session_id\0\u{3}cli_model_mode\0\u{3}cli_model\0\u{3}engine_profile\0\u{3}cli_path\0")
 
   fileprivate class _StorageClass {
     var _backend: Agentre_Wire_AgentBackend? = nil
@@ -12892,6 +13064,8 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
     var _desktopSessionID: Int64 = 0
     var _cliModelMode: String = String()
     var _cliModel: String = String()
+    var _engineProfile: Agentre_Wire_EngineProfile? = nil
+    var _cliPath: String = String()
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -12931,6 +13105,8 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
       _desktopSessionID = source._desktopSessionID
       _cliModelMode = source._cliModelMode
       _cliModel = source._cliModel
+      _engineProfile = source._engineProfile
+      _cliPath = source._cliPath
     }
   }
 
@@ -12978,6 +13154,8 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
         case 27: try { try decoder.decodeSingularInt64Field(value: &_storage._desktopSessionID) }()
         case 28: try { try decoder.decodeSingularStringField(value: &_storage._cliModelMode) }()
         case 29: try { try decoder.decodeSingularStringField(value: &_storage._cliModel) }()
+        case 30: try { try decoder.decodeSingularMessageField(value: &_storage._engineProfile) }()
+        case 31: try { try decoder.decodeSingularStringField(value: &_storage._cliPath) }()
         default: break
         }
       }
@@ -13077,6 +13255,12 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
       if !_storage._cliModel.isEmpty {
         try visitor.visitSingularStringField(value: _storage._cliModel, fieldNumber: 29)
       }
+      try { if let v = _storage._engineProfile {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 30)
+      } }()
+      if !_storage._cliPath.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._cliPath, fieldNumber: 31)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -13115,6 +13299,8 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
         if _storage._desktopSessionID != rhs_storage._desktopSessionID {return false}
         if _storage._cliModelMode != rhs_storage._cliModelMode {return false}
         if _storage._cliModel != rhs_storage._cliModel {return false}
+        if _storage._engineProfile != rhs_storage._engineProfile {return false}
+        if _storage._cliPath != rhs_storage._cliPath {return false}
         return true
       }
       if !storagesAreEqual {return false}

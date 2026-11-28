@@ -962,6 +962,32 @@ message AgentBackend {
   repeated string acp_args = 29;
 }
 
+// EngineProfile is the engine profile a turn runs with: the "what to use and
+// how to work" half of a former backend, without the device it runs on or the
+// CLI path on that device (those belong to the dispatch result and the device's
+// settings). The fields carry the turn's effective values, so a session-level
+// override already applied by the originator travels with them. sync_id is the
+// profile's account-wide identity (it keys the device-local credential slots and
+// the account snapshot's profile entry). OpenClaw and builtin never run on
+// agentred and so have no fields here.
+message EngineProfile {
+  int64 id = 1;
+  string sync_id = 2;
+  string type = 3;
+  string name = 4;
+  string llm_provider_key = 5;
+  string llm_model_key = 6;
+  string model_routes = 7;
+  string sandbox = 8;
+  string approval = 9;
+  string env_json = 10;
+  string reasoning_effort = 11;
+  string default_permission_mode = 12;
+  string default_model = 13;
+  string acp_command = 14;
+  repeated string acp_args = 15;
+}
+
 message StoredBlock { string type = 1; bytes data = 2; }
 message HistoryMessage { string role = 1; repeated StoredBlock blocks = 2; }
 message MCPServer {
@@ -1034,6 +1060,18 @@ message RuntimeRunRequest {
   // fixed = 下发 cli_model。与会话摘要同名，不能传成已解析模型而丢掉选择语义。
   string cli_model_mode = 28;
   string cli_model = 29;
+  // engine_profile is the engine profile this turn runs with. When present the
+  // executor builds the turn from it (plus cli_path) instead of from backend;
+  // backend stays populated alongside it until the protocol cut, so a caller or
+  // executor that only knows backend keeps working. Absent = the caller only
+  // sent backend (a browser dispatch, or a session still pinned to a legacy
+  // backend row).
+  EngineProfile engine_profile = 30;
+  // cli_path is the CLI path override on the executing device for the engine
+  // profile's runtime type (per runtime type and device, not per backend).
+  // Empty = resolve the CLI from PATH. Read together with engine_profile; an
+  // executor with an authoritative account snapshot still replaces it.
+  string cli_path = 31;
 }
 message RuntimeRunResponse {
   string conversation_id = 1;

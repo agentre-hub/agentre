@@ -12,10 +12,10 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
 )
 
 // CtlListFilter 是 agrctl list sessions 的收窄条件;零值 = 不收窄。
@@ -148,24 +148,17 @@ func (s *chatSvc) DetailCtlConversation(ctx context.Context, sessionID int64) (*
 		return nil, err
 	}
 	d := &CtlConversationDetail{CtlConversation: *c, ProviderKey: sess.ProviderKey, ModelKey: sess.ModelKey}
-	backendID := sess.ExecAgentBackendID
-	if backendID <= 0 {
-		a, err := agent_repo.Agent().Find(ctx, sess.AgentID)
-		if err != nil {
-			return nil, operationFailedWithCause(ctx, err, zap.Int64("agentId", sess.AgentID))
-		}
-		if a != nil {
-			backendID = a.AgentBackendID
-		}
+	a, err := agent_repo.Agent().Find(ctx, sess.AgentID)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err, zap.Int64("agentId", sess.AgentID))
 	}
-	if backendID > 0 {
-		be, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
-		if err != nil {
-			return nil, operationFailedWithCause(ctx, err, zap.Int64("agentBackendId", backendID))
-		}
-		if be != nil {
-			d.Backend = be.Name
-		}
+	// 会话钉住的引擎配置（还没钉住时成员此刻生效的那份）的名字。
+	be, err := sessionengine.ForSession(ctx, sess, a)
+	if err != nil {
+		return nil, err
+	}
+	if be != nil {
+		d.Backend = be.Name
 	}
 	metas, err := transcript_repo.Message().ListMeta(ctx, sess.ID)
 	if err != nil {

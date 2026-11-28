@@ -60,8 +60,10 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/peerstream"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/projectsync"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/remotepool"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/transcriptfork"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
+	"github.com/agentre-hub/agentre/internal/service/dispatch_svc"
 	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	"github.com/agentre-hub/agentre/internal/service/workspace_fs_svc"
@@ -794,43 +796,29 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 		// 查询失败一律不阻塞加载会话本身。
 		var prov *llm_provider_entity.LLMProvider
 		var be *agent_backend_entity.AgentBackend
-		// 会话已经钉住某一档时(sess.ExecAgentBackendID > 0，R15b / 决策36)优先解析
-		// 那一档，而不是 Agent 的（最小 sort_order）默认档——否则多档 Agent 里续轮
-		// 落在第二档以后的会话，聊天头会一直展示错误的机器/后端信息。没钉住时回落
-		// a.AgentBackendID，与 resolveTurnBackendID 的语义一致。
-		displayBackendID := sess.ExecAgentBackendID
-		if displayBackendID <= 0 {
-			displayBackendID = a.AgentBackendID
-		}
-		if displayBackendID > 0 {
-			be, _ = agent_backend_repo.AgentBackend().Find(ctx, displayBackendID)
-			// 钉住的那一档已被删除时，展示口径与执行口径同一恢复边界
-			// （resolveAgentBackend：该引用已经不再指向一档，按 Agent 当前列表重挑）：
-			// 回落 Agent 当前的第一档，而不是让整组后端字段留空。留空会让前端
-			// activeBackendType 变成空串，composer 的模型 pill 与权限模式 pill 一起
-			// 不渲染，直到用户发出一条消息、执行侧把钉档换成活的才回来。
-			// 这里只读不写：重钉仍归执行侧那一处，展示不制造持久化副作用。
-			if be == nil && a.AgentBackendID > 0 && a.AgentBackendID != displayBackendID {
-				be, _ = agent_backend_repo.AgentBackend().Find(ctx, a.AgentBackendID)
+		// 展示口径与执行口径同一份：会话钉住的引擎配置（在钉住的那台设备上），还没钉住时
+		// 是成员此刻生效的那份（sessionengine.ForSession，只读、不派发）。读不出时整组后端
+		// 字段留空，不让 LoadSession 整体失败。
+		be, _ = sessionengine.ForSession(ctx, sess, a)
+		if be != nil {
+			resp.Session.BackendType = be.Type
+			// 展示口径（spec 2026-08-10）：按 effective provider（会话 provider_key >
+			// agent 绑定）解析，与这条会话下一轮真正会用的那家一致；agent 绑定 key
+			// 一并回传，供 composer 的供应商 pill 渲染「跟随绑定」时的标签。
+			prov, _ = s.resolveEffectiveProvider(ctx, sess, be)
+			// AgentBackendID 只留给协议切换前的旧界面（按后端取 CLI 模型目录），口径不变：
+			// 会话钉住的旧执行档，否则 Agent 自己的那一档。引擎配置视图不是 agent_backends
+			// 的一行，报不出自己的 ID。
+			resp.Session.AgentBackendID = sess.ExecAgentBackendID
+			if resp.Session.AgentBackendID <= 0 {
+				resp.Session.AgentBackendID = a.AgentBackendID
 			}
-			if be != nil {
-				resp.Session.BackendType = be.Type
-				// 展示口径（spec 2026-08-10）：按 effective provider（会话 provider_key >
-				// agent 绑定）解析，与这条会话下一轮真正会用的那家一致；agent 绑定 key
-				// 一并回传，供 composer 的供应商 pill 渲染「跟随绑定」时的标签。
-				prov, _ = s.resolveEffectiveProvider(ctx, sess, be)
-				resp.Session.AgentBackendID, resp.Session.AgentCLIModel = be.ID, be.DefaultModel
-				resp.Session.AgentProviderKey = be.LLMProviderKey
-				resp.Session.AgentModelKey = be.LLMModelKey
-				// 后端配置的思考力度：弹层「默认」区块的「→ 跟随后端配置 · <档位>」
-				// 解析副行要在用户选之前就说清跟随会拿到什么（决策 11）。
-				resp.Session.AgentReasoningEffort = be.ReasoningEffort
-			}
-		}
-		// ExecTargetCount 给前端聊天头 chip 守卫用（R15 / R20）：多档 Agent 的会话
-		// 总是显示机器 chip(含本机)，单档维持既有"只有远端才显示"的行为。
-		if targets, terr := agent_repo.AgentExecTarget().ListByAgent(ctx, sess.AgentID); terr == nil {
-			resp.Session.ExecTargetCount = len(targets)
+			resp.Session.AgentCLIModel = be.DefaultModel
+			resp.Session.AgentProviderKey = be.LLMProviderKey
+			resp.Session.AgentModelKey = be.LLMModelKey
+			// 后端配置的思考力度：弹层「默认」区块的「→ 跟随后端配置 · <档位>」
+			// 解析副行要在用户选之前就说清跟随会拿到什么（决策 11）。
+			resp.Session.AgentReasoningEffort = be.ReasoningEffort
 		}
 		if prov != nil {
 			resp.Session.LLMProviderType = prov.Type
@@ -865,6 +853,11 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 						zap.Int64("sessionID", sess.ID))
 				}
 			}
+			// ExecTargetCount 给前端聊天头 chip 守卫用：远端会话总显示机器 chip；本机会话在这台
+			// 桌面端还能派到别的设备（已配对的 agentred）时也显示 —— 会话钉在哪台才有意义。
+			if resp.Session.DeviceID == "" {
+				resp.Session.ExecTargetCount = dispatchableDeviceCount(ctx)
+			}
 			if reader := s.cliModelStateReader(ctx, be, sess.ID, pairedDeviceID); reader != nil {
 				state := reader.CLIModelState(ctx, sess.ID)
 				resp.Session.ActualCLIModel, resp.Session.CLIModelError = state.ModelID, state.Error
@@ -890,6 +883,26 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 	return resp, nil
 }
 
+// dispatchableDeviceCount 这台桌面端此刻能把会话派到几台设备：本机 + 本机配对表里的
+// agentred。配对表读不出时报 0（不知道），聊天头按「只有远端会话才显示」处理。
+func dispatchableDeviceCount(ctx context.Context) int {
+	rds := remote_device_svc.Default()
+	if rds == nil {
+		return 0
+	}
+	rows, err := rds.List(ctx)
+	if err != nil {
+		return 0
+	}
+	n := 1
+	for _, row := range rows {
+		if row != nil {
+			n++
+		}
+	}
+	return n
+}
+
 // GetLaunchCommand 把当前 session 关联的 CLI 后端配置拼成一条人类可读、可在终端
 // 粘贴运行的命令。Token 故意写成占位符 <TOKEN>，不发放实际 token —— 用户自行替换。
 //
@@ -912,15 +925,14 @@ func (s *chatSvc) GetLaunchCommand(ctx context.Context, req *LaunchCommandReques
 	if a == nil {
 		return nil, i18n.NewError(ctx, code.AgentNotFound)
 	}
-	// 钉住的那一档优先（R15b / 决策36）：启动命令要跟这条会话续轮实际用的那一档
-	// 一致，否则复制出去的是另一档的 CLI 路径 / 供应商 / 网关口令。
-	backendID := exec_target_svc.SessionBackendID(sess, a)
-	if backendID <= 0 {
-		return nil, i18n.NewError(ctx, code.ChatAgentNoBackend)
-	}
-	be, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
+	// 钉住的那份优先（决策 10）：启动命令要跟这条会话续轮实际用的那份引擎配置一致，否则
+	// 复制出去的是另一份的供应商 / 模型 / 网关口令。
+	be, err := sessionengine.ForSession(ctx, sess, a)
 	if err != nil {
-		return nil, operationFailedWithCause(ctx, err)
+		return nil, err
+	}
+	if be == nil {
+		return nil, i18n.NewError(ctx, code.ChatAgentNoBackend)
 	}
 	if be.IsBuiltin() {
 		return nil, i18n.NewError(ctx, code.ChatLaunchCommandNotAvailable)
@@ -961,8 +973,13 @@ func (s *chatSvc) GetLaunchCommand(ctx context.Context, req *LaunchCommandReques
 	if err != nil {
 		return nil, err
 	}
+	// 可执行文件与续轮同一个：这台设备上这种运行时的 CLI 路径覆盖（见 withDeviceCLIOverlay）。
+	launchBackend, err := withDeviceCLIOverlay(ctx, effectiveBackendForSession(sess, be))
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
 	cmd, err := agentruntime.BuildLaunchCommand(agentruntime.LaunchCommandSpec{
-		Backend:           effectiveBackendForSession(sess, be),
+		Backend:           launchBackend,
 		Effective:         cfg,
 		AgentID:           a.ID,
 		SessionID:         sess.ID,
@@ -1104,26 +1121,29 @@ func (s *chatSvc) send(ctx context.Context, req *SendRequest, opts sendOptions) 
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
 
-	// sess 非 nil 时是续轮（可能已经钉住某一档，R15b / 决策36）；sess 为 nil 时是
-	// 全新会话，还没有可粘的档，projectID 用请求原始值(下面新建 sess 时也是它)。
+	// sess 非 nil 时是续轮（通常已经钉住，决策 10）；sess 为 nil 时是全新会话，还没有
+	// 钉住什么，projectID 用请求原始值(下面新建 sess 时也是它)。
 	pickProjectID := req.ProjectID
 	if sess != nil {
 		pickProjectID = sess.ProjectID
 	}
-	// R15a 手动指定：仅新建会话（sess 为 nil）生效，与 ModelOverride 同一条规则——
-	// 已有会话早就按 R15b 钉在它落到的那一档上，这个字段对它没有意义。用一个只填了
-	// ExecAgentBackendID 的探针 session 喂给 resolveAgentBackend，让
-	// resolveTurnBackendID 走"已钉住"分支直接采用它，不再触发 PickExecTarget 的
-	// 自动挑选；探针不落库，真正的持久化钉住由下面 startTurn → pinExecTargetIfUnset
-	// 对真实新建的 sess 完成。
-	resolveSess := sess
-	if sess == nil && req.ExecTargetOverride > 0 {
-		if err := s.execTargets().ValidateExecTargetOverride(ctx, targetAgentID, pickProjectID, req.ExecTargetOverride); err != nil {
-			return nil, err
+	var (
+		a    *agent_entity.Agent
+		be   *agent_backend_entity.AgentBackend
+		prov *llm_provider_entity.LLMProvider
+		pin  *turnPin
+	)
+	if sess != nil {
+		a, be, prov, pin, err = s.resolveTurn(ctx, sess, targetAgentID, pickProjectID, turnPick{})
+	} else {
+		// 新会话第一轮的手动选择（设备、「这次改用」的引擎配置）只在这里起作用。钉住随
+		// turnExtras 交给 startTurn，在下面建好会话行、建出这一轮的消息时写进去。
+		pick, perr := s.sendTurnPick(ctx, req)
+		if perr != nil {
+			return nil, perr
 		}
-		resolveSess = &chat_entity.Session{ExecAgentBackendID: req.ExecTargetOverride}
+		a, be, prov, pin, err = s.resolveTurn(ctx, nil, targetAgentID, pickProjectID, pick)
 	}
-	a, be, prov, err := s.resolveAgentBackend(ctx, resolveSess, targetAgentID, pickProjectID)
 	if err != nil {
 		return nil, err
 	}
@@ -1245,7 +1265,33 @@ func (s *chatSvc) send(ctx context.Context, req *SendRequest, opts sendOptions) 
 		peerSource:             req.peerSource,
 		emitTurnStartedBypass:  req.EmitTurnStartedBypass,
 		providerFallbackNotice: providerFallbackNotice,
+		pin:                    pin,
 	}, prelocked)
+}
+
+// sendTurnPick 把新会话请求里的手动选择翻成 turnPick。旧界面的 ExecTargetOverride
+// （选中的是某一档后端）在协议切换前仍被接受：它说的是「在那一档所在的设备上跑」，
+// 翻成手动指定那台设备，引擎配置照常按成员生效的那份（或 EngineProfileID）派发。
+func (s *chatSvc) sendTurnPick(ctx context.Context, req *SendRequest) (turnPick, error) {
+	pick := turnPick{device: req.ExecDevice, engineProfileID: req.EngineProfileID}
+	if req.EngineProfileID < 0 {
+		return turnPick{}, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	if pick.device != "" || req.ExecTargetOverride <= 0 {
+		return pick, nil
+	}
+	legacy, err := agent_backend_repo.AgentBackend().Find(ctx, req.ExecTargetOverride)
+	if err != nil {
+		return turnPick{}, operationFailedWithCause(ctx, err, zap.Int64("agentBackendId", req.ExecTargetOverride))
+	}
+	if legacy == nil {
+		return turnPick{}, i18n.NewError(ctx, code.ChatAgentNotChattable)
+	}
+	pick.device = legacy.DeviceFingerprint
+	if !remote_device_svc.TargetsAnotherMachine(pick.device) {
+		pick.device = selfFingerprint()
+	}
+	return pick, nil
 }
 
 func userBlocksForSend(text string, imageBlocks []blocks.ContentBlock) []blocks.ContentBlock {
@@ -1350,98 +1396,214 @@ func (s *chatSvc) isAgentInProjectChain(ctx context.Context, agentID int64, p *p
 	return false, nil
 }
 
-// resolveAgentBackend 查 agent → backend → provider 并做完整的"可对话"校验，同时是
-// 会话粘性（R15b / 决策36）的唯一解析点：sess 非 nil 且已经钉住某一档
-// (ExecAgentBackendID > 0) 时直接解析那一档、不重挑 —— 同一台机器上可以有多档，钉住
-// 的是档本身，续轮不因排序里有更靠前的档现在可用而改派。唯一恢复边界是钉住的
-// backend 已被删除：该引用已经不再指向一档，按 Agent 当前列表重挑并替换失效钉档。
-// 没钉住时（首轮 / sess 为 nil / 老会话）按 R15 顺序挑第一个可用的档
-// （PickExecTarget，task 2 的挑选口）。
+// resolveAgentBackend 查 agent → 这一轮的后端 → provider 并做完整的"可对话"校验，是
+// 会话钉住（spec 2026-11-25 决策 10）的唯一解析点：
 //
-// Agent 的执行目标列表为空时退化为直接用 a.AgentBackendID 解析：这与
-// agent_repo.hydrateExecTargets 的语义一致（两者理论上永远同值），提前短路避免对着
-// 一个天然只有 0/1 个目标的 Agent 走 PickExecTarget 的逐档 BlockReason 枚举。
+//   - 已钉住（sessionengine.Pinned：钉了引擎配置，或只有旧执行目标档且那一行还在）：
+//     直接用钉住的那份、在钉住的那台设备上，不重新派发 —— 包括迁移前钉住、迁移后换成
+//     引擎配置的老会话（同一台设备、同一份模型 / 力度 / 权限设置）。
+//   - 还没钉（第一轮，或从没跑过的老会话）：按派发方案选设备与引擎配置（resolveTurn）。
 //
-// Send / Regenerate / Edit / Compact / StartGoal 等所有"起 / 续一轮"的入口都走这条；
-// 规则集中在一处避免多处漂移。
+// 本函数只读不写。真正起一轮的入口（Send / Regenerate / Edit）改调 resolveTurn，把交回
+// 的钉住随 turnExtras 交给 startTurn，在建出这一轮的消息时写进会话行（pinTurn）——
+// 「第一轮发出时」钉住，停止、查进程这类只读入口不会提前钉。
 func (s *chatSvc) resolveAgentBackend(ctx context.Context, sess *chat_entity.Session, agentID, projectID int64) (
 	*agent_entity.Agent,
 	*agent_backend_entity.AgentBackend,
 	*llm_provider_entity.LLMProvider,
 	error,
 ) {
+	a, be, prov, _, err := s.resolveTurn(ctx, sess, agentID, projectID, turnPick{})
+	return a, be, prov, err
+}
+
+// turnPick 是新会话第一轮的手动选择（spec「会话」）：Device 是「在哪台设备上跑」弹层里点
+// 的那台（空 = 自动；它之后变得不可用时由派发回落到自动结果），EngineProfileID 是模型胶囊
+// 弹层里「这次改用」的那份引擎配置（0 = 成员生效的那份）。第一轮发出后会话已钉住，它们
+// 不再起作用。
+type turnPick struct {
+	device          devicefp.Carrier
+	engineProfileID int64
+}
+
+// turnPin 是第一轮派发出来、还没写进会话行的钉住：引擎配置与设备（空 = 本机）。
+type turnPin struct {
+	engineProfileID int64
+	device          devicefp.Carrier
+}
+
+// resolveTurn 是 resolveAgentBackend 的解析半边：只读不写，没钉住的会话额外交回要写的
+// turnPin（已钉住时为 nil）。
+func (s *chatSvc) resolveTurn(
+	ctx context.Context, sess *chat_entity.Session, agentID, projectID int64, pick turnPick,
+) (*agent_entity.Agent, *agent_backend_entity.AgentBackend, *llm_provider_entity.LLMProvider, *turnPin, error) {
 	a, err := agent_repo.Agent().Find(ctx, agentID)
 	if err != nil {
-		return nil, nil, nil, operationFailedWithCause(ctx, err)
+		return nil, nil, nil, nil, operationFailedWithCause(ctx, err)
 	}
 	if a == nil {
-		return nil, nil, nil, i18n.NewError(ctx, code.NotFound)
+		return nil, nil, nil, nil, i18n.NewError(ctx, code.NotFound)
 	}
-	backendID, err := s.resolveTurnBackendID(ctx, sess, agentID, projectID, a.AgentBackendID)
+	be, ok, err := sessionengine.Pinned(ctx, sess)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	if backendID <= 0 {
-		return nil, nil, nil, i18n.NewError(ctx, code.ChatAgentNoBackend)
-	}
-	be, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
-	if err != nil {
-		return nil, nil, nil, operationFailedWithCause(ctx, err)
-	}
-	if be == nil && sess != nil && sess.ID > 0 && sess.ExecAgentBackendID == backendID {
-		choice, pickErr := s.execTargets().PickExecTarget(ctx, agentID, projectID)
-		if pickErr != nil {
-			return nil, nil, nil, pickErr
+	var pin *turnPin
+	if !ok {
+		if be, pin, err = s.planTurn(ctx, sess, a, projectID, pick); err != nil {
+			return nil, nil, nil, nil, err
 		}
-		be = choice.Backend
-		sess.ExecAgentBackendID = 0
-		s.pinExecTargetIfUnset(ctx, sess, be)
-		logger.Ctx(ctx).Info("chat_svc.resolveAgentBackend: recovered deleted pinned exec target",
-			zap.Int64("sessionId", sess.ID),
-			zap.Int64("deletedAgentBackendId", backendID),
-			zap.Int64("agentBackendId", be.ID))
 	}
+	prov, err := s.validateTurnBackend(ctx, be)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return a, be, prov, pin, nil
+}
+
+// planTurn 为还没钉住的会话派发第一轮：引擎配置取「这次改用」的那份，否则成员生效的那份；
+// 设备取派发方案选中的那台。会话的设备列已经有值（只差引擎配置没钉）时设备不再变 ——
+// 会话不能换设备。所有设备都不通过时报 *NoEligibleDeviceError，带上每台设备的原因。
+func (s *chatSvc) planTurn(
+	ctx context.Context, sess *chat_entity.Session, a *agent_entity.Agent, projectID int64, pick turnPick,
+) (*agent_backend_entity.AgentBackend, *turnPin, error) {
+	profile, err := s.turnEngineProfile(ctx, a, pick.engineProfileID)
+	if err != nil {
+		return nil, nil, err
+	}
+	dispatcher := dispatch_svc.Dispatch()
+	if dispatcher == nil {
+		return nil, nil, operationFailedWithCause(ctx, errors.New("dispatch service unavailable"), zap.Int64("agentId", a.ID))
+	}
+	lockedDevice := devicefp.Carrier("")
+	if sess != nil {
+		lockedDevice = sess.ExecDeviceFingerprint
+	}
+	manual := pick.device
+	if lockedDevice != "" {
+		manual = lockedDevice
+	}
+	plan, err := dispatcher.Plan(ctx, &dispatch_svc.PlanRequest{
+		AgentID: a.ID, ProjectID: projectID, EngineProfileID: profile.ID, ManualDevice: manual,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	device := lockedDevice
+	if device == "" {
+		if !plan.Found {
+			return nil, nil, newNoEligibleDeviceError(ctx, plan)
+		}
+		device = plan.Chosen
+	}
+	if !remote_device_svc.TargetsAnotherMachine(device) {
+		device = ""
+	}
+	return sessionengine.View(profile, device), &turnPin{engineProfileID: profile.ID, device: device}, nil
+}
+
+// turnEngineProfile 第一轮用的引擎配置：「这次改用」的那份（须是活的），否则成员生效的那份。
+func (s *chatSvc) turnEngineProfile(
+	ctx context.Context, a *agent_entity.Agent, overrideID int64,
+) (*agent_backend_entity.EngineProfile, error) {
+	if overrideID > 0 {
+		p, err := agent_backend_repo.EngineProfile().Find(ctx, overrideID)
+		if err != nil {
+			return nil, operationFailedWithCause(ctx, err, zap.Int64("engineProfileId", overrideID))
+		}
+		if !p.IsActive() {
+			return nil, i18n.NewError(ctx, code.EngineProfileNotFound)
+		}
+		return p, nil
+	}
+	p, err := sessionengine.Effective(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, i18n.NewError(ctx, code.EngineProfileRequired)
+	}
+	return p, nil
+}
+
+// pinTurn 把第一轮派发出来的设备与引擎配置写进已落库的会话（决策 10：此后不再改变）；
+// 已经钉了引擎配置的会话不再写（自动续轮会带着同一份 turnExtras 再来一次）。
+// 远端设备先写设备指纹（连同本机配对表里的行号），再写引擎配置：反过来时一次半途失败会
+// 留下「有配置、没设备」的行，下一轮就被当成本机会话（dispatch_svc 的作用域同一判据）。
+// 写库失败只记日志、不阻断这一轮 —— 下一轮仍落在「没钉」分支、重新派发并重试写回。
+func (s *chatSvc) pinTurn(ctx context.Context, sess *chat_entity.Session, pin *turnPin) {
+	if pin == nil || sess == nil || sess.ID <= 0 || sess.EngineProfileID > 0 {
+		return
+	}
+	if pin.device != "" && sess.ExecDeviceFingerprint != pin.device {
+		deviceID, _ := exec_target_svc.LocalPairedDeviceID(ctx, pin.device)
+		if err := chat_repo.Session().UpdateExecDaemon(ctx, sess.ID, deviceID, pin.device, 0); err != nil {
+			logger.Ctx(ctx).Warn("chat_svc.pinTurn: persist pinned device failed",
+				zap.Int64("sessionId", sess.ID), zap.String("deviceFingerprint", string(pin.device)), zap.Error(err))
+			return
+		}
+		sess.ExecDeviceID, sess.ExecDeviceFingerprint, sess.ExecAgentBackendID = deviceID, pin.device, 0
+	}
+	if err := chat_repo.Session().UpdateEngineProfile(ctx, sess.ID, pin.engineProfileID); err != nil {
+		logger.Ctx(ctx).Warn("chat_svc.pinTurn: persist pinned engine profile failed",
+			zap.Int64("sessionId", sess.ID), zap.Int64("engineProfileId", pin.engineProfileID), zap.Error(err))
+		return
+	}
+	sess.EngineProfileID = pin.engineProfileID
+	logger.Ctx(ctx).Info("chat_svc.pinTurn: session pinned",
+		zap.Int64("sessionId", sess.ID), zap.Int64("engineProfileId", pin.engineProfileID),
+		zap.String("deviceFingerprint", string(pin.device)))
+}
+
+// validateTurnBackend 是「这一轮的后端能不能对话」的校验：供应商存在、启用、与后端类型
+// 兼容，本机经网关取 LLM 的后端要求网关在跑；不能远端执行的类型在远端设备上直接拒绝。
+func (s *chatSvc) validateTurnBackend(
+	ctx context.Context, be *agent_backend_entity.AgentBackend,
+) (*llm_provider_entity.LLMProvider, error) {
 	if be == nil {
-		return nil, nil, nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
+		return nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
 	}
 	kind := be.Kind()
 	if kind == nil {
-		return nil, nil, nil, i18n.NewError(ctx, code.AgentBackendInvalidType)
+		return nil, i18n.NewError(ctx, code.AgentBackendInvalidType)
 	}
 
-	var prov *llm_provider_entity.LLMProvider
+	var (
+		prov *llm_provider_entity.LLMProvider
+		err  error
+	)
 	switch agent_backend_entity.BackendType(be.Type) {
 	case agent_backend_entity.TypeBuiltin:
 		prov, err = llm_provider_repo.LLMProvider().FindByKey(ctx, be.LLMProviderKey)
 		if err != nil {
-			return nil, nil, nil, operationFailedWithCause(ctx, err)
+			return nil, operationFailedWithCause(ctx, err)
 		}
 		if prov == nil || !prov.IsActive() {
-			return nil, nil, nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
+			return nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
 		}
 	case agent_backend_entity.TypeClaudeCode, agent_backend_entity.TypeCodex, agent_backend_entity.TypePiAgent,
 		agent_backend_entity.TypeAntigravity:
 		// antigravity 与 claudecode/codex 同档经网关取 LLM，但没有 CLI 登录态可退：必须绑供应商。
 		if be.LLMProviderKey == "" && be.IsAntigravity() {
-			return nil, nil, nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
+			return nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
 		}
 		if be.LLMProviderKey != "" {
 			prov, err = llm_provider_repo.LLMProvider().FindByKey(ctx, be.LLMProviderKey)
 			if err != nil {
-				return nil, nil, nil, operationFailedWithCause(ctx, err)
+				return nil, operationFailedWithCause(ctx, err)
 			}
 			if prov == nil || !prov.IsActive() ||
 				!kind.ProviderTypeMatch(llm_provider_entity.ProviderType(prov.Type)) {
-				return nil, nil, nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
+				return nil, i18n.NewError(ctx, code.ChatAgentNotChattable)
 			}
 			if exec_target_svc.RemoteProviderKnownMissing(ctx, be) {
-				return nil, nil, nil, remoteProviderNotConfiguredError(ctx, be.LLMProviderKey)
+				return nil, remoteProviderNotConfiguredError(ctx, be.LLMProviderKey)
 			}
 			if exec_target_svc.BackendTargetsRemote(be) {
 				break
 			}
 			if s.gateway == nil || s.gateway.Status().State != "running" {
-				return nil, nil, nil, i18n.NewError(ctx, code.ChatBackendGatewayUnavailable)
+				return nil, i18n.NewError(ctx, code.ChatBackendGatewayUnavailable)
 			}
 		}
 		// LLMProviderKey == "" → CLI 自身 login 状态生效，不强制 gateway。
@@ -1449,7 +1611,7 @@ func (s *chatSvc) resolveAgentBackend(ctx context.Context, sess *chat_entity.Ses
 		if exec_target_svc.BackendTargetsRemote(be) {
 			// Hermes 只在运行 `hermes serve` 的那台桌面端本机工作，没有派发到
 			// agentred 的执行通道；明确拒绝，而不是让它悄悄走远端池。
-			return nil, nil, nil, i18n.NewError(ctx, code.ChatBackendRemoteHermesUnavailable)
+			return nil, i18n.NewError(ctx, code.ChatBackendRemoteHermesUnavailable)
 		}
 		// 本机 hermes 自带 provider/model/凭证，不绑定 Agentre LLMProvider，也不经
 		// 本地网关转发：不查 provider、不要求 gateway。URL 连不上由轮次启动时报错。
@@ -1459,64 +1621,13 @@ func (s *chatSvc) resolveAgentBackend(ctx context.Context, sess *chat_entity.Ses
 		// 子进程起不来 / 握手失败由轮次启动时报出可读错误。
 	case agent_backend_entity.TypeOpenClaw:
 		if exec_target_svc.BackendTargetsRemote(be) {
-			return nil, nil, nil, fmt.Errorf("openclaw remote secret enrollment is unavailable")
+			return nil, fmt.Errorf("openclaw remote secret enrollment is unavailable")
 		}
 	default:
-		return nil, nil, nil, i18n.NewError(ctx, code.AgentBackendInvalidType)
+		return nil, i18n.NewError(ctx, code.AgentBackendInvalidType)
 	}
 
-	return a, be, prov, nil
-}
-
-// resolveTurnBackendID 是 resolveAgentBackend 的解析半边（R15b / 决策36）：决定这一轮
-// 该用哪个 backend id。写回半边见 pinExecTargetIfUnset —— 本函数只读不写。
-//
-//   - sess 已经钉住(ExecAgentBackendID > 0)：直接用它，不重挑。
-//   - 否则这个 Agent 的执行目标列表为空：退化用 fallbackBackendID
-//     (=a.AgentBackendID，与 agent_repo.hydrateExecTargets 的语义一致，理论上永远
-//     同值)，不经 PickExecTarget（对空列表它本就是 ChatAgentNoBackend）。
-//   - 否则按 R15 顺序挑第一个可用的档（PickExecTarget，task 2 的挑选口）。
-func (s *chatSvc) resolveTurnBackendID(
-	ctx context.Context, sess *chat_entity.Session, agentID, projectID, fallbackBackendID int64,
-) (int64, error) {
-	if sess != nil && sess.ExecAgentBackendID > 0 {
-		return sess.ExecAgentBackendID, nil
-	}
-	targets, err := agent_repo.AgentExecTarget().ListByAgent(ctx, agentID)
-	if err != nil {
-		return 0, operationFailedWithCause(ctx, err, zap.Int64("agentId", agentID))
-	}
-	if len(targets) == 0 {
-		return fallbackBackendID, nil
-	}
-	choice, err := s.execTargets().PickExecTarget(ctx, agentID, projectID)
-	if err != nil {
-		return 0, err
-	}
-	return choice.Target.AgentBackendID, nil
-}
-
-// pinExecTargetIfUnset 给一条已持久化的会话首次钉住它落到的那一档（R15b / 决策36）：
-// 已经钉过（sess.ExecAgentBackendID != 0）不重复写 —— 续轮的解析短路在
-// resolveTurnBackendID 里发生，这里只在"没值"分支实际选出了 be 之后调用一次。
-//
-// 只处理本机档：远端档的钉住由 recordExecDaemon 在实际 borrow 到 *remote.Runtime 时
-// 一并完成（selectRunner → borrowRemoteRuntime，它现在也写 agentBackendID）——那里
-// 才拿得到当下真实的 daemon 实例标识，不在这里提前解析一次、写一份可能过期的指纹。
-//
-// 与 exec_device_id / exec_device_fingerprint 走同一条专用单列更新 UpdateExecDaemon
-// 一并写入，三列同生共死，不拆成两个写入点。写库失败只记日志、不阻断这一轮 —— 下一轮
-// 会再次落进"没值"分支重新挑选并重试写回，不会永久卡住对话。
-func (s *chatSvc) pinExecTargetIfUnset(ctx context.Context, sess *chat_entity.Session, be *agent_backend_entity.AgentBackend) {
-	if sess == nil || sess.ID <= 0 || be == nil || sess.ExecAgentBackendID != 0 || exec_target_svc.BackendTargetsRemote(be) {
-		return
-	}
-	if err := chat_repo.Session().UpdateExecDaemon(ctx, sess.ID, 0, "", be.ID); err != nil {
-		logger.Ctx(ctx).Warn("chat_svc.pinExecTargetIfUnset: persist pinned exec target failed",
-			zap.Int64("sessionId", sess.ID), zap.Int64("agentBackendId", be.ID), zap.Error(err))
-		return
-	}
-	sess.ExecAgentBackendID = be.ID
+	return prov, nil
 }
 
 // validateNewSessionProvider 校验新建会话所选供应商（spec 决策 2）：非空时供应商必须
@@ -1873,7 +1984,7 @@ func (s *chatSvc) Regenerate(ctx context.Context, req *RegenerateRequest) (*Send
 		return nil, i18n.NewError(ctx, code.ChatRegenerateNotAssistant)
 	}
 
-	a, be, prov, err := s.resolveAgentBackend(ctx, sess, sess.AgentID, sess.ProjectID)
+	a, be, prov, pin, err := s.resolveTurn(ctx, sess, sess.AgentID, sess.ProjectID, turnPick{})
 	if err != nil {
 		return nil, err
 	}
@@ -1947,6 +2058,7 @@ func (s *chatSvc) Regenerate(ctx context.Context, req *RegenerateRequest) (*Send
 	gateOwned = false
 	return s.startTurn(ctx, sess, a, be, prov, userBlocks, preTx, replacement, forkAnchor, turnExtras{
 		providerFallbackNotice: providerFallbackNotice,
+		pin:                    pin,
 	}, gate.lock)
 }
 
@@ -1988,7 +2100,7 @@ func (s *chatSvc) Edit(ctx context.Context, req *EditRequest) (*SendResponse, er
 		return nil, i18n.NewError(ctx, code.ChatEditNotUser)
 	}
 
-	a, be, prov, err := s.resolveAgentBackend(ctx, sess, sess.AgentID, sess.ProjectID)
+	a, be, prov, pin, err := s.resolveTurn(ctx, sess, sess.AgentID, sess.ProjectID, turnPick{})
 	if err != nil {
 		return nil, err
 	}
@@ -2059,7 +2171,7 @@ func (s *chatSvc) Edit(ctx context.Context, req *EditRequest) (*SendResponse, er
 		preTx,
 		replacement,
 		forkAnchor,
-		turnExtras{providerFallbackNotice: providerFallbackNotice},
+		turnExtras{providerFallbackNotice: providerFallbackNotice, pin: pin},
 		gate.lock,
 	)
 }
@@ -2090,6 +2202,9 @@ type turnExtras struct {
 	// agent 绑定(spec 决策 8)时由 send 填充;runTurn 把它追加成一条持久 transcript notice。
 	// 随自动续轮一路携带 —— 回退期间每轮都提示,与 #26 偏离提示"每次发生都提示"先例一致。
 	providerFallbackNotice *blocks.NoticeBlock
+	// pin 是这一轮派发出来、还没写进会话行的设备与引擎配置（会话已钉住时为 nil）；startTurn
+	// 建出这一轮的消息时写进去（pinTurn）。
+	pin *turnPin
 }
 
 type sessionTurnGate struct {
@@ -2577,6 +2692,7 @@ func (s *chatSvc) buildRunRequest(
 	}
 	req := agentruntime.RunRequest{
 		Backend:           runBackend,
+		EngineProfileID:   sess.EngineProfileID,
 		Provider:          prov,
 		Effective:         cfg,
 		AgentID:           a.ID,
@@ -2594,7 +2710,7 @@ func (s *chatSvc) buildRunRequest(
 		Compact:        compact,
 		ForkAnchor:     forkAnchor,
 		MCPServers:     appendTurnMCP(ctx, nil, a, sess.ID, runner.Capabilities().Has(capability.CapMCPTools)),
-		EnabledPlugins: enabledPluginsForTurn(ctx, a, be.ID, runner.Capabilities().Has(capability.CapSkills)),
+		EnabledPlugins: enabledPluginsForTurn(ctx, a, be.Type, runner.Capabilities().Has(capability.CapSkills)),
 	}
 	applySessionCLIModel(&req, sess)
 	if userMsg != nil {
