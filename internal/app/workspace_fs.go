@@ -6,9 +6,24 @@ import (
 
 // WorkspaceFsWorkRoots 列出本会话已认领的工作根:会话 cwd 恒是第一项
 // (isPrimary),AI 写进同一主仓库的另一个 worktree 时那个 worktree 也在其中。
-// 下面几个方法的 root 参数只接受这里给出的路径,其余一律被拒。
+// 下面几个方法的 root 参数只接受这里给出的路径,其余一律被拒。界面在挂载与轮次结束时
+// 取它,已认领的根因此各重验一次:进程里被删掉的 worktree 就此出集合。
+//
+// 集合之后接着从集合中消失、至今没被认领回来的根(removed=true,不是可用的根;记在认领
+// 行的 removed_at 上,重启后照样在):界面没开着这个会话时被移除的 worktree,前端只能
+// 从这里知道它曾是一个根(变更窗的「已移除」分组)。
+// 移除清单在重验之后读,重验刚发现的移除也在其中。
 func (a *App) WorkspaceFsWorkRoots(sessionID int64) ([]workspace_fs_svc.WorkRootView, error) {
-	return workspace_fs_svc.Default().WorkRoots(a.ctx, sessionID)
+	svc := workspace_fs_svc.Default()
+	roots, err := svc.RefreshWorkRoots(a.ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	removed, err := svc.RemovedWorkRoots(a.ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return append(roots, removed...), nil
 }
 
 // WorkspaceFsListDir 列出 root 下 relPath 这一层。
@@ -64,4 +79,16 @@ func (a *App) WorkspaceFsGitFileContent(sessionID int64, root, relPath string) (
 // 把 -32601 翻成「远端 agentred 版本过旧」而不是通用调用失败。
 func (a *App) WorkspaceFsSearchFiles(sessionID int64, root, query string, includeIgnored bool) (*workspace_fs_svc.SearchFilesView, error) {
 	return workspace_fs_svc.Default().SearchFiles(a.ctx, sessionID, root, query, includeIgnored)
+}
+
+// WorkspaceFsClaimPath 是用户点击了一个绝对路径(spec 决策 20):把它当认领候选,
+// 落在同一主仓库、尚未认领的 worktree 里时当场认领(规则与自动认领相同),然后交回
+// 认领之后的完整工作根集合,前端在其中找包含该路径的最深的根去预览。认领不成立
+// (不同仓库、/tmp、git 判定失败)不报错,集合照旧返回。
+func (a *App) WorkspaceFsClaimPath(sessionID int64, absPath string) ([]workspace_fs_svc.WorkRootView, error) {
+	svc := workspace_fs_svc.Default()
+	if _, err := svc.Claim(a.ctx, sessionID, []string{absPath}); err != nil {
+		return nil, err
+	}
+	return svc.WorkRoots(a.ctx, sessionID)
 }

@@ -21,9 +21,9 @@ type Params = {
   /** 当前工作根的 root 实参（空串 = 会话 cwd）；两页共享同一个根。 */
   root: string;
   /**
-   * 只有需要这份数据的页可见时才取数（决策 13：无手动刷新、也不在别的页后台
-   * 拉）。「变更」页要它撑起「未提交」档与那一档的角标、并据 notARepo 决定
-   * 那一档是否存在；「目录」页要它做状态叠加。两者要的是同一份「未提交」快照，
+   * 只在有人用得上这份数据时取数（无手动刷新）：「变更」停在「未提交」档时
+   * 它撑起那一档与图标条角标（变更窗收着也要），并据 notARepo 决定那一档是否
+   * 存在；「目录」页要它做状态叠加。两者要的是同一份「未提交」快照，
    * 所以共用一个 hook 实例、一个在途请求，切页不会重复打后端。
    */
   enabled: boolean;
@@ -95,14 +95,19 @@ export function useGitChanges({
     );
   }, [enabled, cwd, root, sessionId, doneTick, reloadTick]);
 
-  const loaded = state.status === "loaded" ? state.view : null;
-  const notARepo = loaded?.notARepo === true;
+  const reload = React.useCallback(() => setReloadTick((tick) => tick + 1), []);
 
-  return {
-    state,
-    count: loaded && !notARepo ? (loaded.changes?.length ?? 0) : null,
-    notARepo,
-    reload: () => setReloadTick((tick) => tick + 1),
-    overlayChanges: loaded && !notARepo ? (loaded.changes ?? []) : null,
-  };
+  // 返回值只随快照变：它经 context 交给各工具窗，宿主在流式输出期间每个文字
+  // delta 都重渲染，返回一个新对象就会让所有工具窗跟着重渲染。
+  return React.useMemo(() => {
+    const loaded = state.status === "loaded" ? state.view : null;
+    const notARepo = loaded?.notARepo === true;
+    return {
+      state,
+      count: loaded && !notARepo ? (loaded.changes?.length ?? 0) : null,
+      notARepo,
+      reload,
+      overlayChanges: loaded && !notARepo ? (loaded.changes ?? []) : null,
+    };
+  }, [state, reload]);
 }

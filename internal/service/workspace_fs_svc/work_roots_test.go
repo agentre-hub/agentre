@@ -2,6 +2,7 @@ package workspace_fs_svc
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -57,6 +58,12 @@ func newWorktreeRig(t *testing.T) worktreeRig {
 // 因此这里按 Root 查表而不是钉死调用次数。
 // 返回值是被问过的 Root 序列,调用方据此断言"哪些路径进过 RPC"。
 func (r *rig) expectGitState(states map[string]wire.GitStateResp) *[]string {
+	return r.expectGitStateOrErr(states, nil)
+}
+
+// expectGitStateOrErr 同 expectGitState,另外让 failing 里的 Root 回一个 RPC 错误,
+// 用来复现「git 判定失败」(远端掉线、daemon 侧 git 报错)。
+func (r *rig) expectGitStateOrErr(states map[string]wire.GitStateResp, failing map[string]error) *[]string {
 	seen := &[]string{}
 	r.rd.EXPECT().Pool().Return(r.pool).AnyTimes()
 	r.pool.EXPECT().Borrow(gomock.Any(), gomock.Any()).Return(r.lease, nil).AnyTimes()
@@ -65,6 +72,9 @@ func (r *rig) expectGitState(states map[string]wire.GitStateResp) *[]string {
 	r.fallback["workspacefs.gitState"] = func(_ context.Context, _ string, req any, out any) error {
 		root := req.(wire.GitStateReq).Root
 		*seen = append(*seen, root)
+		if err, bad := failing[root]; bad {
+			return err
+		}
 		resp, ok := states[root]
 		if !ok {
 			resp = wire.GitStateResp{NotARepo: true}
@@ -75,10 +85,20 @@ func (r *rig) expectGitState(states map[string]wire.GitStateResp) *[]string {
 	return seen
 }
 
-// withWritten 把「本会话 AI 写过的路径」这个窄端口换成固定清单。
+// withWritten 把「本会话 AI 写过的路径」这个窄端口换成固定清单(调用所在目录
+// 都没有记录,即 Dir 为空)。
 func (r *rig) withWritten(paths ...string) {
-	r.svc.writtenPaths = func(context.Context, int64) ([]string, error) {
-		return paths, nil
+	ws := make([]WrittenPath, 0, len(paths))
+	for _, p := range paths {
+		ws = append(ws, WrittenPath{Path: p})
+	}
+	r.withWrites(ws...)
+}
+
+// withWrites 同 withWritten,但每次写入可带调用所在目录。
+func (r *rig) withWrites(ws ...WrittenPath) {
+	r.svc.writtenPaths = func(context.Context, int64) ([]WrittenPath, error) {
+		return ws, nil
 	}
 }
 
@@ -294,4 +314,213 @@ func TestRootParam_RemoteSessionRunsSameJudgement(t *testing.T) {
 			assert.Equal(t, "/remote/wt/pkg", view.Path)
 		})
 	})
+}
+
+// addWorktreeAt 在 main 仓库里把一个新 worktree 建到 dir(可以落在 main 自己的目录树
+// 之内,正是 Claude Code EnterWorktree / Hermes 的默认布局),并在里面放一个文件。
+func addWorktreeAt(t *testing.T, main, dir, branch string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(dir), 0o755))
+	runGit(t, main, "worktree", "add", "-q", "-b", branch, dir)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"), []byte("package a\n"), 0o644))
+}
+
+// 问题 5:建在仓库内部的 worktree 路径前缀落在主根之内,不能因此被当成「已在根内」。
+func TestWorkRoots_ClaimsWorktreeNestedInsideClaimedRoot(t *testing.T) {
+	convey.Convey("嵌在主 checkout 目录树里的 worktree 也认领为新根", t, func() {
+		for _, rel := range []string{".claude/worktrees/x", ".worktrees/x"} {
+			convey.Convey(rel, func() {
+				main := filepath.Join(t.TempDir(), "main")
+				initRepoAt(t, main)
+				nested := filepath.Join(main, filepath.FromSlash(rel))
+				addWorktreeAt(t, main, nested, "nested")
+				r := newRig(t, 0, main)
+				r.withWritten(filepath.Join(nested, "a.go"))
+
+				roots, err := r.svc.WorkRoots(r.ctx, 42)
+				require.NoError(t, err)
+				require.Len(t, roots, 2)
+				assert.Equal(t, main, roots[0].Path)
+				assert.Equal(t, nested, roots[1].Path)
+				assert.Equal(t, "x", roots[1].Name)
+				assert.True(t, roots[1].IsWorktree)
+			})
+		}
+
+		convey.Convey("远端会话:同一 commonDir、不同 worktree 的嵌套目录被认领", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten("/remote/main/.claude/worktrees/x/pkg/a.go")
+			r.expectGitState(map[string]wire.GitStateResp{
+				"/remote/main":                         {CommonDir: "/remote/main/.git"},
+				"/remote/main/.claude/worktrees/x/pkg": {CommonDir: "/remote/main/.git", Worktree: "x"},
+				"/remote/main/.claude/worktrees/x":     {CommonDir: "/remote/main/.git", Worktree: "x"},
+				"/remote/main/.claude/worktrees":       {CommonDir: "/remote/main/.git"},
+			})
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 2)
+			assert.Equal(t, "/remote/main/.claude/worktrees/x", roots[1].Path)
+			assert.True(t, roots[1].IsWorktree)
+		})
+	})
+}
+
+// 问题 7:相对写入路径不能直接跳过。
+func TestWorkRoots_RelativeWrittenPathAnchored(t *testing.T) {
+	convey.Convey("相对写入路径按 AI 所在目录补全", t, func() {
+		convey.Convey("无记录目录 → 回落会话 cwd:../wt/pkg/x.go 认领 wt", func() {
+			wr := newWorktreeRig(t)
+			r := newRig(t, 0, wr.main)
+			r.withWritten("../wt/pkg/x.go")
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 2)
+			assert.Equal(t, wr.wt, roots[1].Path)
+			assert.True(t, roots[1].IsWorktree)
+		})
+
+		convey.Convey("有记录目录 → 按该目录补全,而不是会话 cwd", func() {
+			wr := newWorktreeRig(t)
+			r := newRig(t, 0, wr.main)
+			// 同一个相对路径:按 cwd 补全落在 main 里(不认领),按 Dir 补全才落进 wt。
+			r.withWrites(WrittenPath{Path: "pkg/x.go", Dir: wr.wt})
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 2)
+			assert.Equal(t, wr.wt, roots[1].Path)
+		})
+
+		convey.Convey("远端会话同样补全:Dir 为空回落 cwd,有 Dir 按 Dir", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWrites(
+				WrittenPath{Path: "../wt/pkg/x.go"},
+				WrittenPath{Path: "y.go", Dir: "/remote/wt2"},
+			)
+			r.expectGitState(map[string]wire.GitStateResp{
+				"/remote/main":   {CommonDir: "/remote/main/.git"},
+				"/remote/wt/pkg": {CommonDir: "/remote/main/.git", Worktree: "wt"},
+				"/remote/wt":     {CommonDir: "/remote/main/.git", Worktree: "wt"},
+				"/remote/wt2":    {CommonDir: "/remote/main/.git", Worktree: "wt2"},
+			})
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 3)
+			assert.Equal(t, "/remote/wt", roots[1].Path)
+			assert.Equal(t, "/remote/wt2", roots[2].Path)
+		})
+	})
+}
+
+// 比较路径前统一为真实路径:同一个目录经符号链接换个写法(macOS 的 /tmp 与
+// /private/tmp)不能被当成两个地方。
+func TestWorkRoots_SymlinkSpellingsAreOnePlace(t *testing.T) {
+	convey.Convey("符号链接写法不同的同一目录只算一个根", t, func() {
+		convey.Convey("本机:cwd 走链接,写入走真实路径", func() {
+			realDir := t.TempDir()
+			link := filepath.Join(t.TempDir(), "link")
+			require.NoError(t, os.Symlink(realDir, link))
+			initRepoAt(t, filepath.Join(realDir, "main"))
+			runGit(t, filepath.Join(realDir, "main"), "worktree", "add", "-q", "-b", "side", filepath.Join(realDir, "wt"))
+
+			r := newRig(t, 0, filepath.Join(link, "main"))
+			r.withWritten(
+				filepath.Join(realDir, "main", "a.go"), // 就是会话 cwd
+				filepath.Join(realDir, "wt", "b.go"),   // 另一个 worktree
+				filepath.Join(link, "wt", "c.go"),      // 同一个 worktree 的另一种写法
+			)
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 2)
+			assert.Equal(t, filepath.Join(link, "main"), roots[0].Path)
+			assert.Equal(t, "wt", roots[1].Name)
+		})
+
+		convey.Convey("远端:/tmp 与 /private/tmp 指向同一 checkout", func() {
+			r := newRig(t, 7, "/tmp/r/main")
+			r.withWritten("/private/tmp/r/main/a.go")
+			r.expectGitState(map[string]wire.GitStateResp{
+				"/tmp/r/main":         {CommonDir: "/private/tmp/r/main/.git"},
+				"/private/tmp/r/main": {CommonDir: "/private/tmp/r/main/.git"},
+			})
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 1)
+			assert.Equal(t, "/tmp/r/main", roots[0].Path)
+		})
+	})
+}
+
+// 判定已认领工作树里的写入只问一次 git:向上找工作树根只发生在要认领新根时,
+// 远端会话下每一层都是一跳 RPC。
+func TestWorkRoots_WritesInClaimedWorktreeAskGitOncePerDir(t *testing.T) {
+	r := newRig(t, 7, "/remote/main")
+	r.withWritten("/remote/main/a/b/c/x.go", "/remote/main/a/b/c/y.go", "/remote/main/d/z.go")
+	seen := r.expectGitState(map[string]wire.GitStateResp{
+		"/remote/main":       {CommonDir: "/remote/main/.git"},
+		"/remote/main/a/b/c": {CommonDir: "/remote/main/.git"},
+		"/remote/main/d":     {CommonDir: "/remote/main/.git"},
+	})
+
+	roots, err := r.svc.WorkRoots(r.ctx, 42)
+	require.NoError(t, err)
+	require.Len(t, roots, 1)
+	assert.Equal(t, []string{"/remote/main", "/remote/main/a/b/c", "/remote/main/d"}, *seen)
+}
+
+func TestWorkRoots_RemoteNegatives(t *testing.T) {
+	convey.Convey("远端:不指回同一主仓库或 git 判定失败 → 不认领、不报错", t, func() {
+		convey.Convey("非 git 的 /tmp 文件与另一个仓库都不认领", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten("/tmp/patch.diff", "/other/repo/b.go")
+			r.expectGitState(map[string]wire.GitStateResp{
+				"/remote/main": {CommonDir: "/remote/main/.git"},
+				"/other/repo":  {CommonDir: "/other/repo/.git"},
+			})
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 1)
+		})
+
+		convey.Convey("候选目录的 gitState 失败 → 跳过它,其余照常认领", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten("/remote/broken/a.go", "/remote/wt/b.go")
+			r.expectGitStateOrErr(map[string]wire.GitStateResp{
+				"/remote/main": {CommonDir: "/remote/main/.git"},
+				"/remote/wt":   {CommonDir: "/remote/main/.git", Worktree: "wt"},
+			}, map[string]error{"/remote/broken": errors.New("git exploded")})
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 2)
+			assert.Equal(t, "/remote/wt", roots[1].Path)
+		})
+
+		convey.Convey("向上找工作树根时 gitState 失败 → 这个候选不认领", func() {
+			r := newRig(t, 7, "/remote/main")
+			r.withWritten("/remote/wt3/pkg/a.go")
+			r.expectGitStateOrErr(map[string]wire.GitStateResp{
+				"/remote/main":    {CommonDir: "/remote/main/.git"},
+				"/remote/wt3/pkg": {CommonDir: "/remote/main/.git", Worktree: "wt3"},
+			}, map[string]error{"/remote/wt3": errors.New("connection lost")})
+
+			roots, err := r.svc.WorkRoots(r.ctx, 42)
+			require.NoError(t, err)
+			require.Len(t, roots, 1)
+		})
+	})
+}
+
+func TestRelativeTo(t *testing.T) {
+	assert.Equal(t, "a/b.go", RelativeTo("/r", "/r/a/b.go"))
+	assert.Equal(t, "a/b.go", RelativeTo("/r/", "/r/a/b.go"))
+	assert.Equal(t, "/rx/a.go", RelativeTo("/r", "/rx/a.go"), "a sibling with a shared prefix is not inside")
+	assert.Equal(t, "/elsewhere/a.go", RelativeTo("/r", "/elsewhere/a.go"))
+	assert.Equal(t, "a.go", RelativeTo("/", "/a.go"))
 }

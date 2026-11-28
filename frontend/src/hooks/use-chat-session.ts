@@ -95,11 +95,12 @@ function preserveMessageIdentity(
 // 读路径只随 LoadChatSession 下发最近一个窗口的完整正文(spec 2026-08-27 决策 6),
 // 而后台任务面板、大纲、「变更」与文件预览的 diff 重放都要看**整条会话**:
 //   - tool_use 带着后台任务的 subagent 元数据、编辑类工具名与 canonical 载荷;
-//   - text 是大纲每一轮的标题。
+//   - text 是大纲每一轮的标题;
+//   - plan 是 Codex 的计划块(Claude 的计划走 tool_use),任务进度条取会话最近一次计划。
 // 少取哪一类,对应的视图就会静默算错(漏任务 / 大纲残缺 / 变更少几次调用),而不是
 // 显式地少一段历史 —— 这正是决策 6 拒绝「只返回最近 N 轮」的理由。
 // 上下文占用不在这里:它只读消息元数据上的 token 计数列,元数据本来就全量下发。
-export const DERIVED_VIEW_BLOCK_TYPES = ["text", "tool_use"];
+export const DERIVED_VIEW_BLOCK_TYPES = ["text", "tool_use", "plan"];
 
 // hasUnloadedBlocks:表里还有消息只拿到了元数据(正文还没取)。
 function hasUnloadedBlocks(messages: readonly ChatMessage[]): boolean {

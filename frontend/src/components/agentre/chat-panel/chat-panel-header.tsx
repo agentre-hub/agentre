@@ -1,11 +1,5 @@
-import type * as React from "react";
-import {
-  LoaderCircle,
-  MoreHorizontal,
-  PanelRight,
-  PanelRightClose,
-  Square,
-} from "lucide-react";
+import * as React from "react";
+import { LoaderCircle, MoreHorizontal, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   Button,
@@ -15,9 +9,6 @@ import {
   DropdownMenuTrigger,
   SessionHeaderAgentMark,
   SessionHeaderBand,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   type SessionHeaderMetaPart,
 } from "@agentre-hub/agentre-ui";
 
@@ -30,6 +21,8 @@ import { DeviceTag } from "../primitives";
 import type { AgentColor, AgentStatus } from "../types";
 import { statusConfig } from "../types";
 import { useAgentIdentity } from "../use-agent-identity";
+
+import { WorkRootCapsule, WorkRootNotice } from "./work-root-capsule";
 
 import type { chat_svc } from "../../../../wailsjs/go/models";
 
@@ -48,6 +41,7 @@ type ChatPanelHeaderProps = {
   backgroundTasks: BackgroundTask[];
   processes?: SessionProcess[];
   onOpenProcess?: (process: SessionProcess, port: number) => void;
+  onPreviewProcess?: (process: SessionProcess, port: number) => void;
   onKillProcess?: (process: SessionProcess) => void | Promise<void>;
   onProcessesOpenChange?: (open: boolean) => void;
   onClearCompletedTasks: () => void;
@@ -57,8 +51,6 @@ type ChatPanelHeaderProps = {
   /** 已点停止、这一轮还没结束。与输入框提交位的停止键共用同一份。 */
   stopping?: boolean;
   onStop: (sessionId: number) => void;
-  sidebarOpen: boolean;
-  onToggleSidebar: () => void;
   onRename: (session: ChatSessionDetail) => void;
   onCopyLaunchCommand: (sessionId: number) => void;
   onDelete: (sessionId: number) => void;
@@ -67,9 +59,9 @@ type ChatPanelHeaderProps = {
 /* ── Toolbar / Header ── */
 /* 四态同一副外壳：固定两行标题的高度 + 整块垂直居中，所以新建会话首发、
    切 tab、标题长短都不改变它（决策 2/3）。
-   单行 meta：breadcrumb · dot+agent · relativeTime · device(tooltip cwd)；
+   单行 meta：breadcrumb · dot+agent · relativeTime · 工作根胶囊 · device；
    状态文案 (RUNNING/WAITING) 由裸 dot 与 agent 名的颜色携带（决策 1）。
-   cwd 太长不适合常驻一行，挪到 DeviceTag 的 tooltip。
+   工作目录由工作根胶囊说（它的 title 是当前根的完整路径），不再挂在 DeviceTag 上。
    窄档不折行，改按 @container/header 分档收起：先机器名（DeviceTag 本来
    就有 tooltip 兜底），再项目/分支（标题与侧栏都还说得出它在哪）（决策 4）。 */
 function ChatPanelHeader({
@@ -84,6 +76,7 @@ function ChatPanelHeader({
   backgroundTasks,
   processes,
   onOpenProcess,
+  onPreviewProcess,
   onKillProcess,
   onProcessesOpenChange,
   onClearCompletedTasks,
@@ -92,8 +85,6 @@ function ChatPanelHeader({
   canStop,
   stopping = false,
   onStop,
-  sidebarOpen,
-  onToggleSidebar,
   onRename,
   onCopyLaunchCommand,
   onDelete,
@@ -102,6 +93,9 @@ function ChatPanelHeader({
   // 会话 meta 只有名字与颜色；图标 key 与上传图片在 chat-agents-store 里
   // （规格 2026-11-02 决策 17）。新建未首发态用即将使用的那个 Agent 的 id。
   const identity = useAgentIdentity(session?.agentId ?? newSessionAgent?.id);
+  // 工作根胶囊的外层：它下方的跟随 / 移除提示对齐到这里。
+  const workRootRef = React.useRef<HTMLSpanElement>(null);
+  const workRootCwd = session?.cwd ?? "";
   /* meta 行的各段。只有拿得出来的才进来，分隔符由顶带夹在真的存在的两段之间。 */
   const metaParts: SessionHeaderMetaPart[] = [];
   if (topline) {
@@ -153,153 +147,143 @@ function ChatPanelHeader({
       node: <span className="shrink-0">{metaTail}</span>,
     });
   }
+  /* 工作根胶囊（spec「标题栏工作根胶囊」）：会话没有工作目录时不显示。 */
+  if (session && workRootCwd) {
+    metaParts.push({
+      key: "work-root",
+      testId: "chat-header-work-root",
+      node: (
+        <WorkRootCapsule
+          ref={workRootRef}
+          sessionId={session.id}
+          cwd={workRootCwd}
+        />
+      ),
+    });
+  }
   /* 机器 chip 守卫（R15/R20）：远端会话今天就显示；
      多档 Agent（execTargetCount > 1）的本机会话也总是显示——本机走
      DeviceTag 既有的 deviceId === "" 分支（组件本来就实现了这一支，
      只是这里以前没调用）。单档 Agent 的本机会话维持今天"什么都不
      显示"的行为。 */
   if (session && (session.deviceID || session.execTargetCount > 1)) {
-    const tag = (
-      <DeviceTag
-        deviceId={session.deviceID}
-        deviceName={session.deviceName || session.deviceID}
-        online={session.online ?? true}
-      />
-    );
     metaParts.push({
       key: "device",
       testId: "chat-header-device",
       // 最先收：机器名在 DeviceTag 的 tooltip 与设备页里都还在。
       hideAt: "@max-[560px]/header:hidden",
-      node: session.cwd ? (
-        <Tooltip>
-          <TooltipTrigger asChild>{tag}</TooltipTrigger>
-          <TooltipContent
-            side="bottom"
-            className="max-w-[480px] break-all font-mono text-2xs"
-          >
-            {session.cwd}
-          </TooltipContent>
-        </Tooltip>
-      ) : (
-        tag
+      node: (
+        <DeviceTag
+          deviceId={session.deviceID}
+          deviceName={session.deviceName || session.deviceID}
+          online={session.online ?? true}
+        />
       ),
     });
   }
 
   return (
-    <SessionHeaderBand
-      testId="chat-header"
-      metaTestId="chat-header-meta"
-      className="px-5"
-      title={title}
-      meta={metaParts}
-      actions={
-        /* role="toolbar" 只包这一组控件；标题与 meta 是内容，不在其中（决策 9 之外
+    /* 外层只为给工作根提示一个定位容器：提示就地画在顶带下方、盖在转录之上。 */
+    <div className="relative shrink-0">
+      <SessionHeaderBand
+        testId="chat-header"
+        metaTestId="chat-header-meta"
+        className="px-5"
+        title={title}
+        meta={metaParts}
+        actions={
+          /* role="toolbar" 只包这一组控件；标题与 meta 是内容，不在其中（决策 9 之外
            的可及性修正：工具栏语义此前罩住了标题文本）。 */
-        <div
-          role="toolbar"
-          aria-label={t("chatPanel.toolbar.aria")}
-          className="flex shrink-0 items-center gap-3"
-        >
-          {session ? (
-            /* 后台任务胶囊：有后台任务时显示，点击展开弹层 */
-            <BackgroundTasksChip
-              tasks={backgroundTasks}
-              processes={processes}
-              onOpenProcess={onOpenProcess}
-              onKillProcess={onKillProcess}
-              onOpenChange={onProcessesOpenChange}
-              onClearCompleted={onClearCompletedTasks}
-              onStopTask={onStopTask}
-              onLocateTask={onLocateTask}
-            />
-          ) : null}
-          {/* 停止按需渲染（决策 8）：停不下来的时候不摆一个空转的禁用控件。 */}
-          {session && canStop ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onStop(session.id)}
-              disabled={stopping}
-              aria-label={t("chatPanel.toolbar.stop")}
-              title={t("chatPanel.toolbar.stopActiveTitle")}
-              className="hover:bg-destructive/15 hover:text-destructive-text dark:hover:bg-destructive/20"
-            >
-              {stopping ? (
-                <LoaderCircle
-                  data-icon="only"
-                  className="size-3.5 animate-spin"
-                  aria-hidden="true"
-                />
-              ) : (
-                <Square
-                  data-icon="only"
-                  className="size-3.5 fill-current"
-                  aria-hidden="true"
-                />
-              )}
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={t("chatPanel.toolbar.contextSidebar")}
-            onClick={onToggleSidebar}
-            title={
-              sidebarOpen
-                ? t("chatPanel.toolbar.hideContextSidebar")
-                : t("chatPanel.toolbar.showContextSidebar")
-            }
+          <div
+            role="toolbar"
+            aria-label={t("chatPanel.toolbar.aria")}
+            className="flex shrink-0 items-center gap-3"
           >
-            {sidebarOpen ? (
-              <PanelRightClose data-icon="only" aria-hidden="true" />
-            ) : (
-              <PanelRight data-icon="only" aria-hidden="true" />
-            )}
-          </Button>
-          {/* 更多操作：改名 / 复制启动命令 / 删除三项都要一条真的会话，
-            新建未首发与加载中因此不摆这颗。 */}
-          {session ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={t("common.moreActions")}
-                  title={t("common.moreActions")}
-                >
-                  <MoreHorizontal data-icon="only" aria-hidden="true" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onRename(session)}>
-                  {t("chatPanel.actions.rename")}
-                </DropdownMenuItem>
-                {(session.backendType === "claudecode" ||
-                  session.backendType === "codex" ||
-                  session.backendType === "piagent") && (
-                  <DropdownMenuItem
-                    onClick={() => onCopyLaunchCommand(session.id)}
-                  >
-                    {t("chatPanel.launchCommand.copy")}
-                  </DropdownMenuItem>
+            {session ? (
+              /* 后台任务胶囊：有后台任务时显示，点击展开弹层 */
+              <BackgroundTasksChip
+                tasks={backgroundTasks}
+                processes={processes}
+                onOpenProcess={onOpenProcess}
+                onPreviewProcess={onPreviewProcess}
+                onKillProcess={onKillProcess}
+                onOpenChange={onProcessesOpenChange}
+                onClearCompleted={onClearCompletedTasks}
+                onStopTask={onStopTask}
+                onLocateTask={onLocateTask}
+              />
+            ) : null}
+            {/* 停止按需渲染（决策 8）：停不下来的时候不摆一个空转的禁用控件。 */}
+            {session && canStop ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => onStop(session.id)}
+                disabled={stopping}
+                aria-label={t("chatPanel.toolbar.stop")}
+                title={t("chatPanel.toolbar.stopActiveTitle")}
+                className="hover:bg-destructive/15 hover:text-destructive-text dark:hover:bg-destructive/20"
+              >
+                {stopping ? (
+                  <LoaderCircle
+                    data-icon="only"
+                    className="size-3.5 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Square
+                    data-icon="only"
+                    className="size-3.5 fill-current"
+                    aria-hidden="true"
+                  />
                 )}
-                <DropdownMenuItem
-                  className="text-destructive-text focus:text-destructive-text"
-                  onClick={() => onDelete(session.id)}
-                >
-                  {t("common.delete")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
-      }
-    />
+              </Button>
+            ) : null}
+            {/* 更多操作：改名 / 复制启动命令 / 删除三项都要一条真的会话，
+            新建未首发与加载中因此不摆这颗。 */}
+            {session ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("common.moreActions")}
+                    title={t("common.moreActions")}
+                  >
+                    <MoreHorizontal data-icon="only" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onRename(session)}>
+                    {t("chatPanel.actions.rename")}
+                  </DropdownMenuItem>
+                  {(session.backendType === "claudecode" ||
+                    session.backendType === "codex" ||
+                    session.backendType === "piagent") && (
+                    <DropdownMenuItem
+                      onClick={() => onCopyLaunchCommand(session.id)}
+                    >
+                      {t("chatPanel.launchCommand.copy")}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    className="text-destructive-text focus:text-destructive-text"
+                    onClick={() => onDelete(session.id)}
+                  >
+                    {t("common.delete")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </div>
+        }
+      />
+      {session && workRootCwd ? (
+        <WorkRootNotice sessionId={session.id} anchorRef={workRootRef} />
+      ) : null}
+    </div>
   );
 }
 

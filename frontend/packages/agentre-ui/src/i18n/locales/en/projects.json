@@ -172,6 +172,7 @@
   "board": {
     "aria": "Board",
     "cardMenu": "Task actions",
+    "startSession": "Start session",
     "edit": "Edit",
     "moveTo": "Move to",
     "moveCardTo": "Move #{{id}} to",

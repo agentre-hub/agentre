@@ -17,6 +17,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
@@ -38,6 +39,14 @@ type IssueSvc interface {
 	CreateLabel(ctx context.Context, req *LabelRequest) (*LabelDetail, error)
 	UpdateLabel(ctx context.Context, req *LabelRequest) (*LabelDetail, error)
 	DeleteLabel(ctx context.Context, id int64) error
+
+	// 会话 ↔ 任务关联(session_link.go;spec 2026-11-24 决策 23)。
+	LinkSession(ctx context.Context, sessionID, issueID int64) error
+	UnlinkSession(ctx context.Context, sessionID, issueID int64) error
+	CreateLinked(ctx context.Context, req *CreateLinkedRequest) (*IssueDetail, error)
+	ListBySession(ctx context.Context, sessionID int64) ([]*LinkedIssueView, error)
+	SessionsOfIssues(ctx context.Context, issueIDs []int64) (map[int64][]*LinkedSessionView, error)
+	SearchForSession(ctx context.Context, sessionID int64, keyword string) ([]*LinkCandidate, error)
 }
 
 type issueSvc struct {
@@ -206,6 +215,10 @@ func (s *issueSvc) Delete(ctx context.Context, id int64) error {
 	}
 	if issue == nil {
 		return i18n.NewError(ctx, code.IssueNotFound)
+	}
+	// 会话关联只存本机,先清再删:清理失败时任务还在,重试能走完整条路。
+	if err := session_issue_link_repo.SessionIssueLink().DeleteByIssue(ctx, id); err != nil {
+		return err
 	}
 	if err := issue_repo.Issue().Delete(ctx, id); err != nil {
 		return err

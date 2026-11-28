@@ -11,6 +11,13 @@ vi.mock("sonner", () => sonnerMocks);
 
 const listDirMock = vi.fn();
 const gitChangesMock = vi.fn();
+// 工具窗骨架订阅会话的 chat:workroots 推送（useSessionRootSync）；happy-dom 下没有
+// window.runtime，事件订阅桩成 no-op，其余 runtime 函数照旧。
+vi.mock("@/../wailsjs/runtime/runtime", async () => ({
+  ...(await vi.importActual("@/../wailsjs/runtime/runtime")),
+  EventsOn: vi.fn(() => () => {}),
+}));
+
 vi.mock("@/../wailsjs/go/app/App", () => ({
   // 多工作根：本组用例都是单根会话，认领集合恒为空 → 根切换器不渲染，
   // 分支状态条整条收起，chrome 与本轮之前一致。
@@ -50,7 +57,14 @@ import {
 import { useChatStreamsStore } from "@/stores/chat-streams-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { ChatContextSidebar } from "../index";
+import { ChatContextToolWindows } from "../index";
+
+import {
+  changesHeading,
+  isToolWindowShown,
+  showOnly,
+  stripButton,
+} from "./tool-window-helpers";
 
 import type { chat_svc } from "../../../../../wailsjs/go/models";
 
@@ -135,10 +149,10 @@ function changesView(
 }
 
 function renderSidebar(
-  props: Partial<React.ComponentProps<typeof ChatContextSidebar>> = {},
+  props: Partial<React.ComponentProps<typeof ChatContextToolWindows>> = {},
 ) {
   return render(
-    <ChatContextSidebar
+    <ChatContextToolWindows
       sessionId={7}
       messages={messages}
       activeMessageId={null}
@@ -167,9 +181,8 @@ function scopeTabs(): string[] {
 
 beforeEach(() => {
   localStorage.clear();
+  showOnly("changes");
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "changes",
     changesScope: "session",
     showIgnored: false,
   });
@@ -183,67 +196,62 @@ beforeEach(() => {
   sonnerMocks.toast.error.mockReset();
 });
 
-describe("「变更」页 · 一级导航", () => {
-  it("一级三段是大纲 / 变更 / 目录，Git 不再是其中之一，目录段不带计数", async () => {
+describe("「变更」工具窗 · 图标条", () => {
+  it("图标条上是大纲 / 变更 / 网页预览 / 目录 / 关联 / 会话信息 / 终端七个工具窗，Git 不是其中之一；变更带当前档的文件数", () => {
     renderSidebar();
 
-    const tabs = screen.getAllByRole("tab", { selected: false });
+    const toolbar = screen.getByRole("toolbar", { name: "Tool windows" });
     expect(
-      screen.getAllByRole("tablist")[0].querySelectorAll('[role="tab"]').length,
-    ).toBe(3);
-    expect(screen.queryByRole("tab", { name: /^git/i })).toBeNull();
-    expect(tabs.length).toBeGreaterThan(0);
+      within(toolbar)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label")),
+    ).toEqual([
+      "Outline",
+      "Changes",
+      "Web preview",
+      "Directory",
+      "Relations",
+      "Session info",
+      "Terminal",
+    ]);
+    expect(within(toolbar).queryByRole("button", { name: /^git/i })).toBeNull();
 
-    const changesTab = screen.getByRole("tab", { name: /^Changes/ });
-    expect(changesTab).toHaveAttribute("aria-selected", "true");
-    // 「变更」段的角标是当前档（本次会话）的文件数：/tmp 的那次写入不算数。
-    expect(changesTab).toHaveTextContent(/^Changes3$/);
-    expect(screen.getByRole("tab", { name: /^Directory$/ })).toHaveTextContent(
-      /^Directory$/,
-    );
+    expect(stripButton("Changes")).toHaveAttribute("aria-pressed", "true");
+    // 角标与标题的数字是当前档（本次会话）的文件数：/tmp 的那次写入不算数。
+    expect(
+      within(stripButton("Changes")).getByTestId("tool-window-badge"),
+    ).toHaveTextContent("3");
+    expect(changesHeading()).toHaveTextContent(/^Changes3$/);
   });
 
-  it("Given 一级三段, When 在当前段上按方向键 / Home / End, Then 焦点与选中一起移动并回绕，只有当前段在 Tab 序列里", async () => {
+  it("Given 图标条, When 在图标上按 ↓ / ↑ / Home / End, Then 焦点在图标之间移动并回绕，不改变显示状态", async () => {
     const user = userEvent.setup();
     renderSidebar();
 
-    const outline = screen.getByRole("tab", { name: /^Outline/ });
-    const changes = screen.getByRole("tab", { name: /^Changes/ });
-    const directory = screen.getByRole("tab", { name: /^Directory$/ });
-    expect(changes).toHaveAttribute("tabindex", "0");
-    expect(outline).toHaveAttribute("tabindex", "-1");
-    expect(directory).toHaveAttribute("tabindex", "-1");
-
-    changes.focus();
-    await user.keyboard("{ArrowRight}");
-    expect(useChatSidebarStore.getState().activeTab).toBe("directory");
-    expect(screen.getByRole("tab", { name: /^Directory$/ })).toHaveFocus();
-
-    await user.keyboard("{ArrowRight}");
-    expect(useChatSidebarStore.getState().activeTab).toBe("outline");
-    expect(screen.getByRole("tab", { name: /^Outline/ })).toHaveFocus();
-
-    await user.keyboard("{ArrowLeft}");
-    expect(useChatSidebarStore.getState().activeTab).toBe("directory");
-
+    stripButton("Outline").focus();
+    await user.keyboard("{ArrowDown}");
+    expect(stripButton("Changes")).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(stripButton("Web preview")).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(stripButton("Directory")).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(stripButton("Relations")).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(stripButton("Session info")).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(stripButton("Terminal")).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(stripButton("Outline")).toHaveFocus();
+    await user.keyboard("{ArrowUp}");
+    expect(stripButton("Terminal")).toHaveFocus();
     await user.keyboard("{Home}");
-    expect(useChatSidebarStore.getState().activeTab).toBe("outline");
+    expect(stripButton("Outline")).toHaveFocus();
     await user.keyboard("{End}");
-    expect(useChatSidebarStore.getState().activeTab).toBe("directory");
-    expect(screen.getByRole("tab", { name: /^Directory$/ })).toHaveAttribute(
-      "tabindex",
-      "0",
-    );
-  });
+    expect(stripButton("Terminal")).toHaveFocus();
 
-  it('持久化的旧一级 tab 值 "git" 非法，回落到大纲', () => {
-    localStorage.setItem(
-      "chat-sidebar-state",
-      JSON.stringify({ state: { open: true, activeTab: "git" }, version: 0 }),
-    );
-    useChatSidebarStore.persist.rehydrate();
-
-    expect(useChatSidebarStore.getState().activeTab).toBe("outline");
+    expect(isToolWindowShown("changes")).toBe(true);
+    expect(isToolWindowShown("directory")).toBe(false);
   });
 });
 
@@ -279,8 +287,8 @@ describe("「变更」页 · 本次会话档", () => {
     session.focus();
     await user.keyboard("{ArrowRight}");
     expect(useChatSidebarStore.getState().changesScope).toBe("uncommitted");
-    // 焦点留在档位组里，不冒泡到一级三段上（那会把一级 tab 也切走）。
-    expect(useChatSidebarStore.getState().activeTab).toBe("changes");
+    // 焦点留在档位组里，不冒泡出「变更」工具窗。
+    expect(isToolWindowShown("changes")).toBe(true);
     expect(screen.getByRole("tab", { name: "Uncommitted" })).toHaveFocus();
 
     await user.keyboard("{ArrowLeft}");
@@ -310,9 +318,7 @@ describe("「变更」页 · 本次会话档", () => {
 
     const row = changeRow("live/only.go");
     expect(within(row).getByText("only.go")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /^Changes/ })).toHaveTextContent(
-      /^Changes4$/,
-    );
+    expect(changesHeading()).toHaveTextContent(/^Changes4$/);
   });
 
   it("行是扁平的：basename 主显 + 目录后缀，右端是本会话累计的 ±N", () => {
@@ -400,9 +406,7 @@ describe("「变更」页 · 未提交档", () => {
     expect(within(row).getByText("+2")).toBeInTheDocument();
 
     await waitFor(() =>
-      expect(screen.getByRole("tab", { name: /^Changes/ })).toHaveTextContent(
-        /^Changes2$/,
-      ),
+      expect(changesHeading()).toHaveTextContent(/^Changes2$/),
     );
   });
 

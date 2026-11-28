@@ -31,6 +31,7 @@ import {
 import { PreviewNotice, PreviewSkeleton } from "./preview-feedback";
 import {
   PreviewTabStrip,
+  isSamePreviewTab,
   type FilePreviewTab,
   type PreviewTabStripProps,
 } from "./preview-tab-strip";
@@ -68,6 +69,8 @@ export type FilePreviewPanelProps = {
    * 比多画一帧标题糟得多。
    */
   activePath: string | null;
+  /** 活动标签的工作根（与 `activePath` 一起定位标签）；单根宿主不传。 */
+  activeRoot?: string;
   /** 活动标签存着的 markdown 档位。非 markdown 的标签传 null。 */
   segment: FilePreviewSegment | null;
   /** 活动标签的来源模式。 */
@@ -129,7 +132,7 @@ export type FilePreviewPanelProps = {
   onActivate: PreviewTabStripProps["onActivate"];
   onPromote: PreviewTabStripProps["onPromote"];
   onPin: PreviewTabStripProps["onPin"];
-  onClose: (path: string) => void;
+  onClose: PreviewTabStripProps["onClose"];
   onCloseOthers: PreviewTabStripProps["onCloseOthers"];
   onCloseAll: PreviewTabStripProps["onCloseAll"];
   renderFileIcon?: FilePreviewIconRenderer;
@@ -196,6 +199,7 @@ function targetKey(sourceKey: string, path: string): string {
 export function FilePreviewPanel({
   tabs,
   activePath,
+  activeRoot,
   segment: storedSegment,
   revealTarget,
   sourceMode,
@@ -233,8 +237,9 @@ export function FilePreviewPanel({
   // 文件」报给宿主。
   const handleClose = React.useCallback(() => {
     if (path === undefined) return;
-    onClose(path);
-  }, [onClose, path]);
+    if (activeRoot === undefined) onClose(path);
+    else onClose(path, activeRoot);
+  }, [onClose, path, activeRoot]);
 
   // 档位是标签自身的状态,切换标签时各自保留。markdown 的档位才是存储的
   // segment(render/text/split);代码 / 文本没有分段控件,首视图由入口模式决定
@@ -365,6 +370,11 @@ export function FilePreviewPanel({
   if (!path) return null;
 
   const dir = dirname(path);
+  // 活动标签的根名与「已移除」标记：路径行显示的 dir 本来就是该根下的相对路径，
+  // 这里补上它属于哪个根（标签条只在 ≥2 个标签时才出现，单标签也要看得到）。
+  const activeTabInfo = tabs.find((tab) =>
+    isSamePreviewTab(tab, activePath, activeRoot),
+  );
   // markdown 与 html 有分段控件（渲染/文本或源码/双栏）；代码 / 文本与图片都
   // 没有（首视图由入口模式决定，spec 决策 9）。
   const segments =
@@ -414,6 +424,7 @@ export function FilePreviewPanel({
       <PreviewTabStrip
         tabs={tabs}
         activePath={activePath}
+        activeRoot={activeRoot}
         onActivate={onActivate}
         onPromote={onPromote}
         onPin={onPin}
@@ -453,6 +464,22 @@ export function FilePreviewPanel({
               )}
             />
             {deviceName}
+          </span>
+        ) : null}
+        {activeTabInfo?.rootLabel ? (
+          <span
+            data-testid="file-preview-root"
+            className="shrink-0 rounded bg-muted px-1 text-3xs text-muted-foreground"
+          >
+            {activeTabInfo.rootLabel}
+          </span>
+        ) : null}
+        {activeTabInfo?.removed ? (
+          <span
+            data-testid="file-preview-root-removed"
+            className="shrink-0 text-3xs text-muted-foreground"
+          >
+            {t("filePreview.rootRemoved")}
           </span>
         ) : null}
         {dir !== "" ? (

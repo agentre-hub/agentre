@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   collapseDirChain,
-  deriveLatestWriteRoot,
   deriveOutline,
   deriveSessionChanges,
 } from "../derive";
@@ -191,6 +190,27 @@ describe("deriveOutline", () => {
 
 describe("deriveSessionChanges", () => {
   const ROOT = "/Users/me/proj";
+
+  // 嵌在主根里的 worktree（<repo>/.claude/worktrees/x）是另一个工作根：它里面的文件归
+  // 包含它的最深的根（spec「文件链接」同一口径），不在主根的「本次会话」里再算一遍，
+  // 胶囊下拉里两个根的数字也就不重复。
+  it("leaves files of a nested worktree root out of the enclosing root's rows", () => {
+    const NESTED = `${ROOT}/.claude/worktrees/x`;
+    const msgs = [
+      userMsg(1, "u1"),
+      assistantWithBlocks(2, [
+        writeBlock("Write", `${ROOT}/a.go`, 1),
+        writeBlock("Write", `${NESTED}/b.go`, 2),
+      ]),
+    ];
+
+    expect(
+      deriveSessionChanges(msgs, ROOT, [], [NESTED]).map((r) => r.path),
+    ).toEqual(["a.go"]);
+    expect(deriveSessionChanges(msgs, NESTED).map((r) => r.path)).toEqual([
+      "b.go",
+    ]);
+  });
 
   it("lists one row per file the tools touched, biggest change first", () => {
     const msgs = [
@@ -714,72 +734,5 @@ describe("collapseDirChain", () => {
     expect(result.names).toEqual(["internal"]);
     expect(result.cursor).toBe("internal");
     expect(result.children).toBeNull();
-  });
-});
-
-describe("deriveLatestWriteRoot", () => {
-  const MAIN = "/Users/me/proj";
-  const WT = "/Users/me/proj-ia";
-  const roots = [MAIN, WT];
-
-  it("Given the last tool write landed in a claimed worktree, When the latest root is derived, Then it is that worktree", () => {
-    const msgs = [
-      userMsg(1, "go"),
-      assistantWithBlocks(2, [
-        editBlock("Edit", `${MAIN}/a.go`, [{ path: `${MAIN}/a.go` }]),
-        editBlock("Edit", `${WT}/b.go`, [{ path: `${WT}/b.go` }]),
-      ]),
-    ];
-
-    expect(deriveLatestWriteRoot(msgs, roots)).toBe(WT);
-  });
-
-  it("Given the last write landed back in the main repo, When the latest root is derived, Then it is the main repo, not the worktree touched earlier", () => {
-    const msgs = [
-      userMsg(1, "go"),
-      assistantWithBlocks(2, [
-        editBlock("Edit", `${WT}/b.go`, [{ path: `${WT}/b.go` }]),
-      ]),
-      userMsg(3, "again"),
-      assistantWithBlocks(4, [writeBlock("Write", `${MAIN}/c.md`, 4)]),
-    ];
-
-    expect(deriveLatestWriteRoot(msgs, roots)).toBe(MAIN);
-  });
-
-  it("Given every write landed outside the claimed roots, When the latest root is derived, Then nothing is claimed and the caller keeps its current root", () => {
-    const msgs = [
-      userMsg(1, "go"),
-      assistantWithBlocks(2, [
-        editBlock("Edit", "/tmp/patch.diff", [{ path: "/tmp/patch.diff" }]),
-      ]),
-    ];
-
-    expect(deriveLatestWriteRoot(msgs, roots)).toBeNull();
-  });
-
-  it("Given nested roots, When a write falls in both subtrees, Then the most specific root wins", () => {
-    const nested = [MAIN, `${MAIN}/vendored`];
-    const msgs = [
-      userMsg(1, "go"),
-      assistantWithBlocks(2, [
-        editBlock("Edit", `${MAIN}/vendored/x.go`, [
-          { path: `${MAIN}/vendored/x.go` },
-        ]),
-      ]),
-    ];
-
-    expect(deriveLatestWriteRoot(msgs, nested)).toBe(`${MAIN}/vendored`);
-  });
-
-  it("Given a relative tool path, When the roots cannot disambiguate it, Then no root is claimed by it", () => {
-    const msgs = [
-      userMsg(1, "go"),
-      assistantWithBlocks(2, [
-        editBlock("Edit", "internal/turn.go", [{ path: "internal/turn.go" }]),
-      ]),
-    ];
-
-    expect(deriveLatestWriteRoot(msgs, roots)).toBeNull();
   });
 });

@@ -400,7 +400,7 @@ func TestEnsureForPort(t *testing.T) {
 				return nil, nil
 			})
 
-			view, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			view, err := r.svc.EnsureForPort(r.ctx, "7", "http", 3000)
 			require.NoError(t, err)
 			assert.Equal(t, "11", view.ID)
 			assert.True(t, view.Enabled)
@@ -421,7 +421,7 @@ func TestEnsureForPort(t *testing.T) {
 				}}, nil
 			})
 
-			view, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			view, err := r.svc.EnsureForPort(r.ctx, "7", "http", 3000)
 			require.NoError(t, err)
 			assert.Equal(t, "12", view.ID)
 		})
@@ -445,7 +445,7 @@ func TestEnsureForPort(t *testing.T) {
 				return nil, nil
 			})
 
-			view, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			view, err := r.svc.EnsureForPort(r.ctx, "7", "https", 3000)
 			require.NoError(t, err)
 			assert.Equal(t, "11", view.ID)
 			assert.True(t, view.Enabled)
@@ -465,16 +465,66 @@ func TestEnsureForPort(t *testing.T) {
 				}}, nil
 			})
 
-			view, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			view, err := r.svc.EnsureForPort(r.ctx, "7", "http", 3000)
 			require.NoError(t, err)
 			assert.Equal(t, "13", view.ID)
+		})
+
+		convey.Convey("https 链接 → 新建 https 目标,不忽略证书", func() {
+			r := newRig(t)
+			r.expectRoundTrip(t, 7)
+			r.expectRoundTrip(t, 7)
+			onList(r, listOf())
+			onCreate(r, func(request *agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
+				require.Equal(t, "https://127.0.0.1:3000", request.GetTarget())
+				require.Equal(t, "3000", request.GetName())
+				require.False(t, request.GetInsecure())
+				return &agentrewire.PortForwardCreateResponse{Mapping: &agentrewire.PortForwardMapping{
+					Id: 14, Port: 3000, Name: request.GetName(), Enabled: true, Target: "https://127.0.0.1:3000",
+				}}, nil
+			})
+
+			view, err := r.svc.EnsureForPort(r.ctx, "7", "https", 3000)
+			require.NoError(t, err)
+			assert.Equal(t, "14", view.ID)
+		})
+
+		convey.Convey("同端口只有 http 映射、要 https → 不复用,新建", func() {
+			r := newRig(t)
+			r.expectRoundTrip(t, 7)
+			r.expectRoundTrip(t, 7)
+			onList(r, listOf(
+				&agentrewire.PortForwardMapping{Id: 10, Port: 3000, Enabled: true, Target: "http://127.0.0.1:3000"},
+			))
+			onCreate(r, func(request *agentrewire.PortForwardCreateRequest) (*agentrewire.PortForwardCreateResponse, error) {
+				require.Equal(t, "https://127.0.0.1:3000", request.GetTarget())
+				return &agentrewire.PortForwardCreateResponse{Mapping: &agentrewire.PortForwardMapping{
+					Id: 15, Port: 3000, Enabled: true, Target: "https://127.0.0.1:3000",
+				}}, nil
+			})
+
+			view, err := r.svc.EnsureForPort(r.ctx, "7", "https", 3000)
+			require.NoError(t, err)
+			assert.Equal(t, "15", view.ID)
+		})
+
+		convey.Convey("已有启用的 https 映射 → 复用", func() {
+			r := newRig(t)
+			r.expectRoundTrip(t, 7)
+			onList(r, listOf(
+				&agentrewire.PortForwardMapping{Id: 16, Port: 3000, Enabled: true, Target: "https://localhost:3000"},
+			))
+
+			view, err := r.svc.EnsureForPort(r.ctx, "7", "https", 3000)
+			require.NoError(t, err)
+			assert.Equal(t, "16", view.ID)
 		})
 
 		convey.Convey("设备离线 → 离线码,不新建", func() {
 			r := newRig(t)
 			r.expectBorrowFails(7, errors.New("connection refused"))
 
-			_, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			_, err := r.svc.EnsureForPort(r.ctx, "7", "http", 3000)
 			assert.Equal(t, code.PortForwardDeviceOffline, codeOf(t, err))
 		})
 
@@ -487,7 +537,7 @@ func TestEnsureForPort(t *testing.T) {
 				return nil, rpcErr(rpcerror.CodePortForwardInvalidPort)
 			})
 
-			_, err := r.svc.EnsureForPort(r.ctx, "7", 3000)
+			_, err := r.svc.EnsureForPort(r.ctx, "7", "http", 3000)
 			assert.Equal(t, code.PortForwardInvalidPort, codeOf(t, err))
 		})
 	})

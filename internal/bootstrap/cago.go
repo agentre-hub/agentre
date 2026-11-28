@@ -37,8 +37,11 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/memory_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_dispatch_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncqueue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/agent_backend_svc"
 	"github.com/agentre-hub/agentre/internal/service/app_settings_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
@@ -151,6 +154,11 @@ func Init(ctx context.Context) (*Runtime, error) {
 	issue_repo.RegisterIssueLabel(issue_repo.NewIssueLabel())
 	issue_svc.SetDefault(issue_svc.New())
 	memory_repo.RegisterMemory(memory_repo.NewMemory())
+	workspace_fs_repo.RegisterWorkRoot(workspace_fs_repo.NewWorkRoot())
+	session_dispatch_repo.RegisterSessionDispatch(session_dispatch_repo.NewSessionDispatch())
+	session_issue_link_repo.RegisterSessionIssueLink(session_issue_link_repo.NewSessionIssueLink())
+	// 上次运行留下的未收尾派发:跟踪它们的 goroutine 随上个进程没了,收成「已停止」。
+	chat_svc.Dispatch().ReconcileAfterRestart(ctx)
 	// 把 project_svc 的 cwd 解析注入 exec_target_svc —— 那个包不直接 import project_svc，
 	// 避免 project_svc → chat_repo 与 exec_target_svc → project_svc 形成环。
 	exec_target_svc.RegisterCwdResolver(project_svc.Default().ResolveSessionCwd)
@@ -165,6 +173,15 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// 里的事实。这里注入的是包级函数（不经 chat_svc.Chat()），因为它只读消息、
 	// 不依赖那个单例的任何状态。
 	workspace_fs_svc.RegisterSessionWrittenPaths(chat_svc.SessionWrittenPaths)
+	// 第三个窄接口：AI 当前位置（据它标出 AI 所在的工作根）。位置随工具事件实时更新，
+	// 状态在 chat_svc 单例上；单例在 app.go 里才注册，所以这里每次现取。
+	workspace_fs_svc.RegisterSessionAILocation(func(ctx context.Context, sessionID int64) (string, error) {
+		chat := chat_svc.Chat()
+		if chat == nil {
+			return "", nil
+		}
+		return chat.AILocation(ctx, sessionID)
+	})
 
 	// 启动时按持久化的开关恢复 Debug 日志级别（取代旧 AGENTRE_DEBUG 环境变量）。
 	applyDebugLoggingOnBoot(ctx)
@@ -251,6 +268,9 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// 之后 PostToolUse hook 子进程会 GET /hook/v1/inbox 拉走，turn 结束时
 	// chat_svc 还会调 runner.DrainPending 把残留转成下一轮的 user msg。
 	claudecode.Default().SetSteerInbox(gw.Steer())
+	// hook 同一次收件箱请求还报工具跑完之后的目录(Bash `cd` 之后),runtime 据此把
+	// 位置盖到工具事件上(spec 2026-11-24-chat-right-toolwindows 决策 15/17)。
+	claudecode.Default().SetHookLocations(gw.HookLocations())
 
 	// 安装 agrctl 伴随 CLI 并把 PostToolUse hook 指向它（<AppDataDir>/bin/agrctl）。hook 每次
 	// 工具调用都会 exec，用小二进制而非整个桌面 app。从随 app 打进 bundle 的源拷到可写的

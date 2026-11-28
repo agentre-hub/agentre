@@ -136,14 +136,17 @@
       "expand": "Expand",
       "collapse": "Collapse"
     },
-    "sidebar": "Chat context",
     "workRoots": {
       "mainRepo": "Main repo",
       "worktree": "worktree",
-      "pinned": "Pinned",
-      "followed": "Switched to the worktree the agent is editing: {{name}}",
-      "followedRepo": "Switched to the repo the agent is editing: {{name}}",
-      "stayInMain": "Stay in the main repo"
+      "menuTitle": "Work roots",
+      "aiHere": "Agent is here",
+      "follow": "Follow the agent",
+      "followed": "Followed the agent to worktree {{name}}",
+      "followedRepo": "Followed the agent to the main repo {{name}}",
+      "stay": "Stay in {{name}}",
+      "removed": "Worktree {{name}} was removed; back to {{main}}",
+      "removedGroup": "{{name}} (removed)"
     },
     "gitStatus": {
       "ahead": "{{count}} commit ahead of upstream",
@@ -350,6 +353,8 @@
       "noPort": "No listening port",
       "openPort": "Open in browser",
       "openPortNumber": "Open :{{port}} in browser",
+      "previewPort": "Preview in app",
+      "previewPortNumber": "Preview :{{port}} in app",
       "killProcess": "Stop process",
       "killProcessConfirm": "Stop?",
       "killedProcess": "Stopped {{command}}",
@@ -358,9 +363,6 @@
     },
     "toolbar": {
       "aria": "Session toolbar",
-      "contextSidebar": "Context sidebar",
-      "hideContextSidebar": "Hide context sidebar",
-      "showContextSidebar": "Show context sidebar",
       "stop": "Stop",
       "stopActiveTitle": "Stop current turn"
     },
@@ -478,5 +480,140 @@
   "taskProgress": {
     "allCompleted": "All done",
     "title": "Task Progress"
+  },
+  "toolWindows": {
+    "strip": "Tool windows",
+    "rightArea": "Right tool windows",
+    "bottomArea": "Bottom tool windows",
+    "hide": "Hide",
+    "options": "{{name}} options",
+    "slots": {
+      "rightTop": "Right top",
+      "rightBottom": "Right bottom",
+      "bottomLeft": "Bottom left",
+      "bottomRight": "Bottom right"
+    },
+    "modes": {
+      "pinned": "Docked · Pinned",
+      "autoHide": "Docked · Auto-hide on blur",
+      "float": "Float"
+    },
+    "menu": {
+      "viewMode": "View mode",
+      "moveTo": "Move to",
+      "maximize": "Maximize",
+      "restore": "Restore",
+      "restoreDefaults": "Restore default layout"
+    },
+    "dividers": {
+      "right": "Resize right tool windows",
+      "bottom": "Resize bottom tool windows",
+      "rightSplit": "Resize right top and bottom",
+      "bottomSplit": "Resize bottom left and right"
+    },
+    "dropTo": "Drop in {{slot}}",
+    "running": "Running",
+    "alert": "Overlapping edits"
+  },
+  "terminalToolWindow": {
+    "label": "Terminal",
+    "tabTitle": "Terminal {{n}}",
+    "withRoot": "{{title}} · {{root}}",
+    "new": "New terminal",
+    "close": "Close {{name}}"
+  },
+  "editorSplit": {
+    "divider": "Resize chat and file",
+    "fill": "Fill editor",
+    "restore": "Restore",
+    "closeAll": "Close all files",
+    "rail": {
+      "title": "Chat"
+    }
+  },
+  "sessionInfoToolWindow": {
+    "label": "Session info",
+    "rows": {
+      "agent": "Agent",
+      "backend": "Backend",
+      "model": "Model & reasoning effort",
+      "permission": "Permission mode",
+      "context": "Context usage",
+      "usage": "Total usage",
+      "memory": "Carried-in memory",
+      "location": "Location",
+      "created": "Created & turns",
+      "cliSession": "CLI session ID"
+    },
+    "usage": "Input {{input}} · Output {{output}} · Cache hits {{cache}}",
+    "otherWorktrees_one": "{{count}} other worktree",
+    "otherWorktrees_other": "{{count}} other worktrees",
+    "turns_one": "{{count}} turn",
+    "turns_other": "{{count}} turns",
+    "memory": {
+      "none": "None",
+      "count_one": "{{count}} entry",
+      "count_other": "{{count}} entries",
+      "view": "View",
+      "title": "Carried-in memory"
+    }
+  },
+  "relationsToolWindow": {
+    "label": "Relations",
+    "empty": "Nothing related yet",
+    "groups": {
+      "tasks": "Tasks",
+      "dispatchedBy": "Dispatched by",
+      "dispatched": "I dispatched",
+      "sharing": "Running on the same code"
+    },
+    "otherSessions_one": "{{count}} other session",
+    "otherSessions_other": "{{count}} other sessions",
+    "openTask": "Open task #{{id}} on the board",
+    "linkTask": "Link task",
+    "newTask": "New task",
+    "searchTasks": "Search tasks",
+    "noMatch": "No matching tasks",
+    "createNamed": "New task “{{term}}”",
+    "failed": "Action failed",
+    "method": {
+      "agrctl_send": "agrctl send",
+      "agent_call": "agent dispatch"
+    },
+    "isolated": "Isolated",
+    "lastReply": "Last reply",
+    "noReply": "No reply yet",
+    "overlapOne": "Also edited {{file}}",
+    "overlapMany": "Also edited {{file}} and {{count}} files in all"
+  },
+  "webPreviewToolWindow": {
+    "label": "Web preview",
+    "empty": "No listening ports yet. A tab appears when a dev server starts.",
+    "address": "Address",
+    "back": "Back",
+    "refresh": "Refresh",
+    "openInBrowser": "Open in browser",
+    "fill": "Fill editor",
+    "restore": "Restore",
+    "closeTab": "Close tab",
+    "loading": "Loading…",
+    "invalidUrl": "Enter an http or https address.",
+    "forwarded": "{{device}} · via port forward",
+    "portGone": "This port is no longer listening",
+    "reload": "Reload",
+    "openForwardSettings": "Open port forwarding settings",
+    "reasons": {
+      "frameBlocked": "This page can't be shown in the app: the site doesn't allow embedding ({{detail}}).",
+      "certificate": "The certificate failed verification: {{detail}}",
+      "forwardFailed": "The port forward didn't complete: {{detail}}",
+      "unreachable": "The page can't be reached: {{detail}}",
+      "noLoad": "The page did not load. It may be unreachable or too slow."
+    },
+    "forwardFailures": {
+      "tlsVerification": "the https target's certificate failed verification on the execution device, and this port forward does not ignore certificate errors",
+      "noListener": "nothing accepted the connection on the execution device",
+      "nameResolution": "the target host name did not resolve on the execution device",
+      "deviceUnreachable": "the execution device is not reachable right now"
+    }
   }
 }

@@ -13,8 +13,9 @@ import {
   type SvcChatMessage,
 } from "./optimistic";
 
+import { deleteChatSession } from "../session-index/delete-chat-session";
+
 import {
-  DeleteChatSession,
   EditChatMessage,
   RegenerateChatMessage,
   RenameChatSession,
@@ -200,7 +201,7 @@ function useMessageActions({
     const id = pendingDeleteId;
     if (id == null) return;
     setPendingDeleteId(null);
-    await DeleteChatSession({ sessionId: id });
+    await deleteChatSession(id);
     onSessionDeleted?.();
     onSidebarShouldReload?.();
   }

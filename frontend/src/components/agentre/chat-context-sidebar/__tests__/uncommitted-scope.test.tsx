@@ -12,6 +12,13 @@ vi.mock("sonner", () => sonnerMocks);
 const openPathMock = vi.fn();
 const listDirMock = vi.fn();
 const gitChangesMock = vi.fn();
+// 工具窗骨架订阅会话的 chat:workroots 推送（useSessionRootSync）；happy-dom 下没有
+// window.runtime，事件订阅桩成 no-op，其余 runtime 函数照旧。
+vi.mock("@/../wailsjs/runtime/runtime", async () => ({
+  ...(await vi.importActual("@/../wailsjs/runtime/runtime")),
+  EventsOn: vi.fn(() => () => {}),
+}));
+
 vi.mock("@/../wailsjs/go/app/App", () => ({
   // 多工作根：本组用例都是单根会话，认领集合恒为空 → 根切换器不渲染，
   // 分支状态条整条收起，chrome 与本轮之前一致。
@@ -50,7 +57,9 @@ import {
 } from "@/stores/file-preview-tabs-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { ChatContextSidebar } from "../index";
+import { ChatContextToolWindows } from "../index";
+
+import { changesHeading, showOnly, stripButton } from "./tool-window-helpers";
 
 import type { chat_svc } from "../../../../../wailsjs/go/models";
 
@@ -90,10 +99,10 @@ function changesView(
 }
 
 function renderSidebar(
-  props: Partial<React.ComponentProps<typeof ChatContextSidebar>>,
+  props: Partial<React.ComponentProps<typeof ChatContextToolWindows>>,
 ) {
   return render(
-    <ChatContextSidebar
+    <ChatContextToolWindows
       sessionId={7}
       messages={[] as chat_svc.ChatMessage[]}
       activeMessageId={null}
@@ -113,17 +122,20 @@ function gitRow(path: string): HTMLElement {
   return found;
 }
 
-function changesTab(): HTMLElement {
-  return screen.getByRole("tab", { name: /^Changes/ });
+/** 图标条上「变更」的角标数字；不显示角标时为 null。 */
+function changesBadge(): string | null {
+  return (
+    within(stripButton("Changes")).queryByTestId("tool-window-badge")
+      ?.textContent ?? null
+  );
 }
 
 beforeEach(() => {
   localStorage.clear();
-  // 「未提交」是「变更」页内的第二档（决策 2）：一级 tab 停在「变更」，档位
+  // 「未提交」是「变更」工具窗内的第二档（决策 2）：「变更」工具窗显示，档位
   // 停在「未提交」。
+  showOnly("changes");
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "changes",
     changesScope: "uncommitted",
     showIgnored: false,
   });
@@ -200,26 +212,44 @@ describe("「变更」页 · 未提交档", () => {
     ).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("shows this scope's changed-file count on the top-level Changes tab", async () => {
+  it("shows this scope's changed-file count on the Changes icon and title", async () => {
     gitChangesMock.mockResolvedValue(
       changesView([{ path: "a.go" }, { path: "b.go" }]),
     );
     renderSidebar({});
 
-    await waitFor(() => expect(changesTab()).toHaveTextContent("Changes2"));
+    await waitFor(() => expect(changesBadge()).toBe("2"));
+    expect(changesHeading()).toHaveTextContent(/^Changes2$/);
   });
 
-  it("shows no count on the Changes tab until this scope's data has loaded", async () => {
-    // 未加载 / 加载中都不显角标（决策：served requirement）。
-    useChatSidebarStore.setState({ activeTab: "outline" });
-    gitChangesMock.mockResolvedValue(
-      changesView([{ path: "a.go" }, { path: "b.go" }]),
+  it("shows no badge on the Changes icon until this scope's data has loaded", async () => {
+    // 加载中不显角标（spec「图标条」：数据未就绪时不显示）。
+    showOnly("outline");
+    let resolve: (v: ReturnType<typeof changesView>) => void = () => {};
+    gitChangesMock.mockReturnValue(
+      new Promise((r) => {
+        resolve = r;
+      }),
     );
     renderSidebar({});
 
-    expect(changesTab()).toHaveTextContent("Changes");
-    expect(changesTab()).not.toHaveTextContent("Changes2");
-    expect(gitChangesMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(gitChangesMock).toHaveBeenCalled());
+    expect(changesBadge()).toBeNull();
+    resolve(changesView([{ path: "a.go" }, { path: "b.go" }]));
+    await waitFor(() => expect(changesBadge()).toBe("2"));
+  });
+
+  it("keeps the uncommitted count on the Changes icon while the Changes window is hidden", async () => {
+    // spec「图标条」：角标数字为变更工具窗当前档位的文件数——用户故事 2「侧栏关着
+    // 也能看到改了几个文件」，所以档位停在「未提交」时，变更窗收着也照样取数。
+    showOnly("outline");
+    gitChangesMock.mockResolvedValue(
+      changesView([{ path: "a.go" }, { path: "b.go" }, { path: "c.go" }]),
+    );
+    renderSidebar({});
+
+    await waitFor(() => expect(changesBadge()).toBe("3"));
+    expect(gitChangesMock).toHaveBeenCalledWith(7, "uncommitted", "");
   });
 
   it("drops the previous session's count when the session changes behind another tab", async () => {
@@ -228,11 +258,13 @@ describe("「变更」页 · 未提交档", () => {
     );
     const { rerender } = renderSidebar({});
 
-    await waitFor(() => expect(changesTab()).toHaveTextContent("Changes2"));
+    await waitFor(() => expect(changesBadge()).toBe("2"));
 
-    await userEvent.click(screen.getByRole("tab", { name: /^Outline/ }));
+    await userEvent.click(stripButton("Outline"));
+    // 新会话的快照还在路上：旧会话的数字不能留在角标上。
+    gitChangesMock.mockReturnValue(new Promise(() => {}));
     rerender(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={8}
         messages={[]}
         activeMessageId={null}
@@ -242,15 +274,15 @@ describe("「变更」页 · 未提交档", () => {
       />,
     );
 
-    await waitFor(() => expect(changesTab()).toHaveTextContent("Changes"));
-    expect(changesTab()).not.toHaveTextContent("Changes2");
+    await waitFor(() => expect(changesBadge()).toBeNull());
   });
 
-  it("makes no git call at all while browsing the Outline tab", async () => {
-    useChatSidebarStore.setState({ activeTab: "outline" });
+  it("makes no git call at all while only the Outline window is open and Changes sits on the session tier", async () => {
+    showOnly("outline");
+    useChatSidebarStore.setState({ changesScope: "session" });
     renderSidebar({});
 
-    await screen.findByRole("tab", { name: /^Outline/ });
+    await screen.findByRole("region", { name: "Outline" });
     expect(gitChangesMock).not.toHaveBeenCalled();
   });
 

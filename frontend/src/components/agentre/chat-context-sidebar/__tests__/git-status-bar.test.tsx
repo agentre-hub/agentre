@@ -12,6 +12,13 @@ const listDirMock = vi.fn();
 const gitChangesMock = vi.fn();
 const workRootsMock = vi.fn();
 const gitStateMock = vi.fn();
+// 工具窗骨架订阅会话的 chat:workroots 推送（useSessionRootSync）；happy-dom 下没有
+// window.runtime，事件订阅桩成 no-op，其余 runtime 函数照旧。
+vi.mock("@/../wailsjs/runtime/runtime", async () => ({
+  ...(await vi.importActual("@/../wailsjs/runtime/runtime")),
+  EventsOn: vi.fn(() => () => {}),
+}));
+
 vi.mock("@/../wailsjs/go/app/App", () => ({
   OpenPath: vi.fn(),
   RevealPath: vi.fn(),
@@ -37,7 +44,9 @@ import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { ChatContextSidebar } from "../index";
+import { ChatContextToolWindows } from "../index";
+
+import { showOnly } from "./tool-window-helpers";
 
 const CWD = "/Users/me/proj";
 
@@ -57,7 +66,7 @@ function gitState(extra: Record<string, unknown> = {}) {
 
 function renderSidebar(remote = false) {
   return render(
-    <ChatContextSidebar
+    <ChatContextToolWindows
       sessionId={7}
       messages={[]}
       activeMessageId={null}
@@ -70,9 +79,8 @@ function renderSidebar(remote = false) {
 
 beforeEach(() => {
   localStorage.clear();
+  showOnly("directory");
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "directory",
     changesScope: "session",
     showIgnored: false,
   });
@@ -131,7 +139,7 @@ describe("目录页第二行的 git 状态条", () => {
     renderSidebar();
 
     await waitFor(() => expect(gitStateMock).toHaveBeenCalled());
-    await screen.findByRole("tab", { name: /Directory/ });
+    await screen.findByRole("region", { name: "Directory" });
     expect(screen.queryByTestId("git-status-bar")).toBeNull();
   });
 
@@ -180,8 +188,8 @@ describe("目录页第二行的 git 状态条", () => {
     expect(gitStateMock).toHaveBeenCalledWith(7, "");
   });
 
-  it("Given the changes page, When it renders, Then it carries no git status bar (that row belongs to the directory page)", async () => {
-    useChatSidebarStore.setState({ activeTab: "changes" });
+  it("Given only the changes window, When it renders, Then it carries no git status bar (that row belongs to the directory window)", async () => {
+    showOnly("changes");
     renderSidebar();
 
     await screen.findByRole("tablist", { name: "Change scope" });

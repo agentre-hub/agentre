@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"sync"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -61,6 +62,24 @@ type WorkspaceFsSvc interface {
 	// WorkRoots 列出本会话已认领的工作根集合(见 work_roots.go)。第一项恒是
 	// 会话 cwd 对应的根(IsPrimary)。
 	WorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error)
+	// RefreshWorkRoots 同 WorkRoots,但先把已认领的根各重验一次(界面重取用):进程里
+	// 认领后被删掉 / 换掉的 worktree 就此出集合(spec「worktree 被移除」)。
+	RefreshWorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error)
+	// Claim 按认领规则判定候选路径(文件或目录的绝对路径:AI 当前位置、写入目标、
+	// `git worktree add` 的路径、用户点击的路径),把指回会话主仓库、尚未认领的
+	// 工作树的根认领并持久化。返回本次**新增**的根(没有新增时为空);git 判定
+	// 失败的候选不认领、不报错。
+	Claim(ctx context.Context, sessionID int64, candidates []string) ([]WorkRootView, error)
+	// Revoke 撤销本会话已认领的根 root(不再出现在集合里,认领行记成已移除)。主根不能
+	// 撤销;root 不是已认领的根时什么也不做。返回是否真的撤销了一个根。
+	Revoke(ctx context.Context, sessionID int64, root string) (bool, error)
+	// ForgetSession 在会话被删除时清掉它的认领:库里的行与本进程里的认领状态。
+	ForgetSession(ctx context.Context, sessionID int64) error
+	// RemovedWorkRoots 列出从本会话认领集合中消失的根(撤销的,或重验时已不是认领时那个
+	// 工作树的),每项 Removed=true;之后又被认领回来的不在其中。移除记在认领行上,
+	// 重启后照样在:界面没开着这个会话时,前端只能从这里知道它曾是一个根(spec
+	// 「worktree 被移除」)。
+	RemovedWorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error)
 	// ListDir 列出 root 下 relPath 这一层(relPath 为空即 root 本身)。root 为
 	// 空串表示会话 cwd;非空时必须命中本会话已认领的工作根集合,否则拒绝。
 	ListDir(ctx context.Context, sessionID int64, root, relPath string, includeIgnored bool) (*ListDirView, error)
@@ -208,11 +227,19 @@ var defaultSvc WorkspaceFsSvc = &workspaceFsImpl{}
 
 func Default() WorkspaceFsSvc { return defaultSvc }
 
+// RegisterWorkspaceFs 替换默认实现(绑定层单测注入桩)。
+func RegisterWorkspaceFs(impl WorkspaceFsSvc) { defaultSvc = impl }
+
 type workspaceFsImpl struct {
 	// rdSvc / resolver / writtenPaths 默认走包级单例;单测注入 mock 与闭包。
 	rdSvc        remote_device_svc.RemoteDeviceSvc
 	resolver     SessionWorkspaceResolver
 	writtenPaths SessionWrittenPathsResolver
+	aiLocation   SessionAILocationResolver
+
+	// claims 是各会话在本进程里的认领状态(见 claim.go)。
+	claimsMu sync.Mutex
+	claims   map[int64]*claimState
 }
 
 func (s *workspaceFsImpl) deviceSvc() remote_device_svc.RemoteDeviceSvc {

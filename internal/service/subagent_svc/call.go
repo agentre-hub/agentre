@@ -35,6 +35,8 @@ func (s *subagentSvc) callAgent(ctx context.Context, ref agenttool.Ref, agentNam
 		return "", errors.New("创建子 agent 会话失败")
 	}
 	sessionID := resp.SessionID
+	// 派发关系:登记先于起轮;agent 派发的子会话恒为隔离。
+	dispatch := s.beginDispatch(ctx, ref.SessionID, sessionID, prompt)
 	s.registerChain(sessionID, chain)
 	defer s.clearChain(sessionID)
 
@@ -47,13 +49,16 @@ func (s *subagentSvc) callAgent(ctx context.Context, ref agenttool.Ref, agentNam
 		Text:                  prompt,
 		EmitTurnStartedBypass: true,
 	}); err != nil {
+		dispatch.finish(ctx, chat_svc.DispatchOutcome{Status: chat_svc.CtlSendFailed})
 		return "", errors.New("子 agent 起轮失败")
 	}
+	dispatch.started(ctx)
 
 	// 不设应用层超时:让子 agent 跑到完成。调用方 CLI 的 MCP 调用自身有上限,届时 ctx 取消,
 	// 我们据此中止子 agent(下面的 ctx.Done 分支)。
 	select {
 	case res := <-turnCh:
+		dispatch.finish(ctx, chat_svc.DispatchOutcomeOfTurn(res))
 		if res.Err != nil {
 			return "", fmt.Errorf("子 agent 执行出错: %v", res.Err)
 		}
@@ -71,6 +76,7 @@ func (s *subagentSvc) callAgent(ctx context.Context, ref agenttool.Ref, agentNam
 	case <-ctx.Done():
 		// 调用方 CLI 放弃(MCP 调用超时)或用户取消 → 中止子 agent, 不留悬空 turn。
 		_, _ = s.chat.Stop(context.Background(), &chat_svc.StopRequest{SessionID: sessionID})
+		dispatch.finish(context.WithoutCancel(ctx), chat_svc.DispatchOutcome{Status: chat_svc.CtlSendCanceled})
 		return "", errors.New("子 agent 调用被取消")
 	}
 }

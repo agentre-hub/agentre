@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 
 	"github.com/cago-frame/agents/agent"
+	"github.com/cago-frame/agents/agent/blocks"
 	"github.com/cago-frame/agents/app/coding"
 	"github.com/cago-frame/agents/provider"
 	"github.com/cago-frame/cago/pkg/logger"
@@ -23,6 +24,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentprovider"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/shellloc"
 )
 
 var defaultRuntime = New()
@@ -79,11 +81,21 @@ type builtinActive struct {
 type Runtime struct {
 	mu     sync.Mutex
 	active map[int64]*builtinActive
+	// locations 按会话给工具事件标上所在目录(builtin 没有结构化位置信号,从 bash 命令
+	// 文本识别)。
+	locations shellloc.Registry
 }
 
 // New 构造一个新 Runtime。
 func New() *Runtime {
-	return &Runtime{active: map[int64]*builtinActive{}}
+	// cago 的 bash 工具每次调用都是新进程、cwd 固定在会话工作目录:cd 只作用于它所在的那次调用。
+	return &Runtime{active: map[int64]*builtinActive{}, locations: shellloc.Registry{Fresh: true}}
+}
+
+// CloseSession 在会话被删除时由释放广播调到(agentruntime.CloseSessionEverywhere):
+// builtin 没有常驻子进程,只丢掉这条会话的位置跟踪。
+func (r *Runtime) CloseSession(_ context.Context, sessionID int64) {
+	r.locations.Forget(sessionID)
 }
 
 // Capabilities 返回 builtin runtime 的能力矩阵。
@@ -242,10 +254,7 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		return nil, nil, err
 	}
 
-	history := make([]agent.Message, 0, len(req.History))
-	for _, h := range req.History {
-		history = append(history, agent.Message{Role: agent.Role(h.Role), Content: h.Blocks})
-	}
+	history := historyMessages(req.History)
 	convID := req.ProviderSessionID
 	if convID == "" {
 		convID = fmt.Sprintf("builtin-%d", req.SessionID)
@@ -308,9 +317,11 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 			steerBatch = nil
 		}
 
+		loc := r.locations.For(req.SessionID, cwd)
 		for ev := range events {
 			translated := translate(ev)
 			for _, t := range translated {
+				t = stampLocation(loc, t)
 				if sc, ok := t.(agentruntime.SteerConsumed); ok {
 					steerBatch = append(steerBatch, sc.Steers...)
 					continue
@@ -340,4 +351,55 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		)
 	}()
 	return out, result, nil
+}
+
+// historyMessages 把落库历史翻成喂给模型的对话。bash 调用落库的入参里带着
+// shellloc.WorktreeAddKey —— 那是认领用的标记,模型从没发过它,喂回去之前去掉
+// (换一份副本,不改落库的块)。
+func historyMessages(in []agentruntime.HistoryMessage) []agent.Message {
+	history := make([]agent.Message, 0, len(in))
+	for _, h := range in {
+		history = append(history, agent.Message{Role: agent.Role(h.Role), Content: withoutLocationMarkers(h.Blocks)})
+	}
+	return history
+}
+
+func withoutLocationMarkers(in []blocks.ContentBlock) []blocks.ContentBlock {
+	var out []blocks.ContentBlock
+	for i, b := range in {
+		var tu blocks.ToolUseBlock
+		switch v := b.(type) {
+		case blocks.ToolUseBlock:
+			tu = v
+		case *blocks.ToolUseBlock:
+			if v == nil {
+				continue
+			}
+			tu = *v
+		default:
+			continue
+		}
+		if _, marked := tu.Input[shellloc.WorktreeAddKey]; !marked {
+			continue
+		}
+		if out == nil {
+			out = append(make([]blocks.ContentBlock, 0, len(in)), in...)
+		}
+		input := make(map[string]any, len(tu.Input)-1)
+		for k, v := range tu.Input {
+			if k != shellloc.WorktreeAddKey {
+				input[k] = v
+			}
+		}
+		tu.Input = input
+		if _, ptr := b.(*blocks.ToolUseBlock); ptr {
+			out[i] = &tu
+		} else {
+			out[i] = tu
+		}
+	}
+	if out == nil {
+		return in
+	}
+	return out
 }

@@ -153,6 +153,10 @@ type ChatStreamEvent struct {
 	// 用它把系统分配的 task id 喂给前端做 task-progress 关联。无 meta 时留 nil。
 	ToolResultMeta map[string]any `json:"toolResultMeta,omitempty"`
 
+	// tool_use / tool_result 共用:产生它时 AI 所在的目录,与重新加载后
+	// ChatBlock.Cwd 同一口径;空 = 未知。
+	Cwd string `json:"cwd,omitempty"`
+
 	// StreamConnectionState 事件填充。ConnectionState 是通道状态取值;
 	// CaughtUpCount / PendingDecisions 只在补齐落定(connected)那一发有意义,
 	// 分别是本次补齐重放了多少条通知、补完后还有多少个待决策没回答。
@@ -345,6 +349,14 @@ type ChatBlock struct {
 	ParentToolCallID string `json:"parentToolUseId,omitempty"`
 	// SubagentRunID 可选；空值表示 runtime/remote peer 未提供，仍作为父卡 fallback step 下行。
 	SubagentRunID string `json:"subagentRunId,omitempty"`
+	// Cwd 仅工具卡(tool_use / tool_result)上填:产生它时 AI 所在的目录,由执行侧
+	// 产生、随工具事件传来并落库(spec 2026-11-24-chat-right-toolwindows 决策 17)。
+	// 空 = 没有这项记录(旧消息 / 旧 agentred),消费方回落到会话工作目录。
+	Cwd string `json:"cwd,omitempty"`
+	// ResultCwd 仅外层 tool_use 卡上填:这次调用跑完之后 AI 所在的目录(结果的记录)。
+	// 派生视图按类型只取 tool_use、不取 tool_result,前端靠它推出加载窗口之前 AI 最后
+	// 在哪(spec「AI 当时所在目录」:重新加载后不变)。空 = 没有记录。
+	ResultCwd string `json:"resultCwd,omitempty"`
 
 	// 仅外层 Agent / Task 工具的 tool_use block 上填，缓存 subagent 元数据快照
 	// （subagent_type / 累计 token / last_tool_name / status 等）。
@@ -677,6 +689,14 @@ type ChatSessionDetail struct {
 	// 原因) / "local-path-missing"（本机未配置路径，ProjectLocalPathMissing）/
 	// "location-missing"（远端机器未配置路径，ProjectLocationMissing）。
 	CwdUnavailableReason string `json:"cwdUnavailableReason,omitempty"`
+	// ProviderSessionID 是 CLI 自己的会话 ID（claude --resume / codex resume 用的那个）；
+	// 还没起过 CLI 或后端没有这个概念时为空串。会话信息工具窗只读展示。
+	ProviderSessionID string `json:"providerSessionId"`
+	// CarriedMemory 是这条会话首个回合带入的记忆，按层分组：每一层是 [层标题, 条目…]，
+	// 只含条目行（不含总标题、遗漏提示与使用说明）。没带入时是空列表（不是 null），
+	// 前端据此显示「无」。用 [][]string 而不是结构体切片：嵌套结构会让 wails 给
+	// ChatSessionDetail 生成 convertValues 方法，破坏前端按展开对象构造它的既有写法。
+	CarriedMemory [][]string `json:"carriedMemory"`
 }
 
 // BlockReason 是不可对话 Agent 的结构化原因枚举；空串 = 可对话（与 Chattable=true 一致）。
@@ -908,6 +928,18 @@ type ListIndexSessionsResponse struct {
 	Sessions []ChatSessionLite `json:"sessions"`
 	Total    int64             `json:"total"`
 	HasMore  bool              `json:"hasMore"`
+}
+
+// ListSessionsByIDsRequest 按 id 取一组会话的索引行 —— 恢复出来、还没激活过的会话
+// 标签用它补标题与 agent（规格 2026-11-27-toolwindow-polish 决策 9）。
+type ListSessionsByIDsRequest struct {
+	IDs []int64 `json:"ids"`
+}
+
+// ListSessionsByIDsResponse 与 ListIndexSessionsResponse 同一种行。不认识（已删 /
+// 从未存在）的 id 只是不出现，顺序不保证与请求一致。
+type ListSessionsByIDsResponse struct {
+	Sessions []ChatSessionLite `json:"sessions"`
 }
 
 type SessionPurpose string

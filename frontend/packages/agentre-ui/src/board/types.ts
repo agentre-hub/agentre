@@ -49,6 +49,15 @@ export interface BoardCardProject extends ProjectGlyphInfo {
   nested?: boolean;
 }
 
+/** 卡片下方「关联会话」块的一行。宿主不给 `sessions` 时整块不画。 */
+export interface BoardLinkedSession {
+  id: number;
+  title: string;
+  agentName?: string;
+  /** 与会话列表同一枚运行状态点。 */
+  status: "running" | "idle" | "waiting" | "error";
+}
+
 export interface BoardCardView {
   id: number;
   stage: BoardStage;
@@ -61,6 +70,8 @@ export interface BoardCardView {
   /** 毫秒时间戳；相对时间由包内 `formatRelativeTime` 算，两端一份实现。 */
   updatedAt?: number;
   project?: BoardCardProject | null;
+  /** 与这张卡关联的会话；缺省或空 = 不画那一块（网页端不提供）。 */
+  sessions?: BoardLinkedSession[];
 }
 
 export interface BoardColumnView {
@@ -103,6 +114,10 @@ export interface BoardPorts {
   /** 新建一条任务。带上列名 = 从那一列的「+」进来，表单的阶段预置为它。 */
   onCreateTask?: (stage?: BoardStage) => void;
   onClearFilters?: () => void;
+  /** 从这张卡开始一个会话；给了才在卡片 ⋯ 菜单首位出现「开始会话」。 */
+  onStartSession?: (cardId: number) => void;
+  /** 点关联会话行打开该会话。 */
+  onOpenSession?: (sessionId: number) => void;
 }
 
 /**

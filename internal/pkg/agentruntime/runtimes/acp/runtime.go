@@ -20,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
+	"github.com/agentre-hub/agentre/internal/pkg/shellloc"
 )
 
 // defaultRuntime / antigravityRuntime 是包级单例,init() 时登记到 agentruntime 注册表:
@@ -51,6 +52,9 @@ type Runtime struct {
 	// session 的 turn,见 claudecode 的同款教训)。
 	spawnLocks sync.Map // key(string) → *sync.Mutex
 	cache      *agentruntime.CLISessionPool
+	// locations 按会话跟踪 AI 当前位置(ACP 没有结构化位置信号,从 execute 工具的命令
+	// 文本识别),让 cd 跨工具调用、跨轮保持。
+	locations shellloc.Registry
 	// abortGrace 单测覆写成毫秒级。
 	abortGrace time.Duration
 	profile    backendProfile
@@ -176,7 +180,7 @@ func (r *Runtime) Run(ctx context.Context, req agentruntime.RunRequest) (<-chan 
 		zap.Int64("sessionID", req.SessionID),
 		zap.String("providerSessionID", result.ProviderSessionID),
 		zap.String("cwd", cwd))
-	go r.drainTurn(ctx, s, req, out, result, blocks, done)
+	go r.drainTurn(ctx, s, req, out, result, blocks, done, r.locations.For(req.SessionID, cwd))
 	return out, result, nil
 }
 
@@ -196,6 +200,7 @@ func (r *Runtime) drainTurn(
 	result *agentruntime.RunResult,
 	blocks []acpsdk.ContentBlock,
 	done chan struct{},
+	loc *shellloc.Tracker,
 ) {
 	defer close(out)
 	s.attachOut(out)
@@ -225,7 +230,7 @@ func (r *Runtime) drainTurn(
 			// 创建帧:同时把聚合态登记进 drain 本地的 per-id 表。
 			var ev agentruntime.ToolCall
 			ev, tools[n.Update.ToolCall.ToolCallId] = translateToolCallAggregate(n.Update.ToolCall)
-			events = []agentruntime.Event{ev}
+			events = []agentruntime.Event{stampLocation(loc, ev, tools[n.Update.ToolCall.ToolCallId].shell)}
 		case n.Update.ToolCallUpdate != nil:
 			// 更新帧:与聚合态合并后出 ToolCall(非终态,同 ID 增量)或 ToolResult(终态)。
 			u := n.Update.ToolCallUpdate
@@ -234,7 +239,13 @@ func (r *Runtime) drainTurn(
 				st = &toolCallState{}
 				tools[u.ToolCallId] = st
 			}
+			if u.Kind != nil {
+				st.shell = *u.Kind == acpsdk.ToolKindExecute
+			}
 			events = translateToolCallUpdate(*st, u)
+			for i, e := range events {
+				events[i] = stampLocation(loc, e, st.shell)
+			}
 			st.status = toolCallUpdateStatus(u)
 			if t := u.Title; t != nil && strings.TrimSpace(*t) != "" {
 				st.name = *t
@@ -487,6 +498,7 @@ func (r *Runtime) CloseSession(_ context.Context, sessionID int64) {
 		return
 	}
 	r.cache.Remove(r.sessionKey(sessionID))
+	r.locations.Forget(sessionID)
 }
 
 // CloseAllSessions 宿主关机时调,收掉所有常驻 agent 进程。

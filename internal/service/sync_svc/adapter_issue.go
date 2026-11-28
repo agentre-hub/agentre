@@ -10,6 +10,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
@@ -212,6 +213,11 @@ func (issueAdapter) apply(ctx context.Context, in *inbound, resolved map[string]
 func (issueAdapter) remove(ctx context.Context, in *inbound) error {
 	id, err := syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindIssue, in.SyncID)
 	if err != nil || id == 0 {
+		return err
+	}
+	// 会话 ↔ 任务关联只存本机、不同步:任务在本机一旦消失,指向它的关联随之清掉
+	// (与 issue_svc.Delete 同口径)。先清再删,清理失败时任务还在,重放能走完。
+	if err := session_issue_link_repo.SessionIssueLink().DeleteByIssue(ctx, id); err != nil {
 		return err
 	}
 	return issue_repo.Issue().Delete(ctx, id)

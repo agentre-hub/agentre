@@ -24,3 +24,12 @@ export function resolveToolPathInRoot(
   // relPath 为空串 = 这条路径就是工作根本身,不是一行文件。
   return link.relPath === "" ? null : link.relPath;
 }
+
+/**
+ * 路径的最后一段（工作根没有登记名时的显示名）：去掉末尾分隔符，`/` 与 `\` 都认；
+ * 没有可显示的一段（如 `/`）时原样交回。
+ */
+export function pathBasename(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, "");
+  return trimmed.split(/[\\/]/).pop() || path;
+}

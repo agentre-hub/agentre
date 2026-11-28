@@ -9,6 +9,17 @@ const sonnerMocks = vi.hoisted(() => ({
 }));
 vi.mock("sonner", () => sonnerMocks);
 
+const runtime = vi.hoisted(() => ({
+  handlers: new Map<string, (payload: unknown) => void>(),
+}));
+vi.mock("@/../wailsjs/runtime/runtime", async () => ({
+  ...(await vi.importActual("@/../wailsjs/runtime/runtime")),
+  EventsOn: vi.fn((name: string, cb: (payload: unknown) => void) => {
+    runtime.handlers.set(name, cb);
+    return () => runtime.handlers.delete(name);
+  }),
+}));
+
 const listDirMock = vi.fn();
 const gitChangesMock = vi.fn();
 const workRootsMock = vi.fn();
@@ -43,9 +54,12 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
 
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
+import { useSessionRootStore } from "@/stores/session-root-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { ChatContextSidebar } from "../index";
+import { ChatContextToolWindows } from "../index";
+
+import { showOnly, stripButton } from "./tool-window-helpers";
 
 import type { chat_svc } from "../../../../../wailsjs/go/models";
 
@@ -88,30 +102,27 @@ const twoRootMessages: Msg[] = [
   assistantMsg(4, [editBlock(`${CWD}/a.go`), editBlock(`${CWD}/docs/b.md`)]),
 ];
 
-/** 最后一次写入落在 worktree —— 自动跟随的触发条件。 */
-const wroteInWorktree: Msg[] = [
-  ...twoRootMessages,
-  userMsg(5),
-  assistantMsg(6, [editBlock(`${WT}/internal/dispatcher.go`)]),
-];
-
 function root(
   path: string,
   name: string,
-  extra: { isWorktree?: boolean; isPrimary?: boolean } = {},
+  extra: { isWorktree?: boolean; isPrimary?: boolean; aiHere?: boolean } = {},
 ) {
   return {
     path,
     name,
     isWorktree: extra.isWorktree ?? false,
     isPrimary: extra.isPrimary ?? false,
+    aiHere: extra.aiHere ?? false,
   };
 }
 
-const TWO_ROOTS = [
-  root(CWD, "proj", { isPrimary: true }),
-  root(WT, "proj-ia", { isWorktree: true }),
-];
+/** 主仓库 + worktree；AI 在 `ai` 那个根。 */
+function twoRoots(ai: "main" | "wt" = "main") {
+  return [
+    root(CWD, "proj", { isPrimary: true, aiHere: ai === "main" }),
+    root(WT, "proj-ia", { isWorktree: true, aiHere: ai === "wt" }),
+  ];
+}
 
 function gitState(extra: Record<string, unknown> = {}) {
   return {
@@ -159,10 +170,10 @@ function listing(entries: string[] = []) {
 }
 
 function renderSidebar(
-  props: Partial<React.ComponentProps<typeof ChatContextSidebar>> = {},
+  props: Partial<React.ComponentProps<typeof ChatContextToolWindows>> = {},
 ) {
   return render(
-    <ChatContextSidebar
+    <ChatContextToolWindows
       sessionId={7}
       messages={twoRootMessages}
       activeMessageId={null}
@@ -174,26 +185,25 @@ function renderSidebar(
   );
 }
 
-/** 根切换器的触发按钮。 */
-function switcher(): HTMLElement {
-  return screen.getByTestId("root-switcher");
-}
-
-async function openSwitcher(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(switcher());
-  return await screen.findByRole("menu");
+/** 会话 7 的根集合取回之后，把当前根手动切到 path（标题栏下拉的那个动作）。 */
+async function pickRoot(path: string) {
+  await waitFor(() =>
+    expect(useSessionRootStore.getState().bySession[7]?.roots).toHaveLength(2),
+  );
+  act(() => useSessionRootStore.getState().select(7, path));
 }
 
 beforeEach(() => {
   localStorage.clear();
+  showOnly("directory");
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "directory",
     changesScope: "session",
     showIgnored: false,
   });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
+  useSessionRootStore.setState({ bySession: {} });
   useSessionStatusStore.getState().__reset();
+  runtime.handlers.clear();
   listDirMock.mockReset();
   listDirMock.mockResolvedValue(listing(["a.go"]));
   gitChangesMock.mockReset();
@@ -201,7 +211,7 @@ beforeEach(() => {
   searchFilesMock.mockReset();
   searchFilesMock.mockResolvedValue({ hits: [], truncated: false });
   workRootsMock.mockReset();
-  workRootsMock.mockResolvedValue(TWO_ROOTS);
+  workRootsMock.mockResolvedValue(twoRoots());
   gitStateMock.mockReset();
   gitStateMock.mockResolvedValue(gitState());
   revealPathMock.mockReset();
@@ -209,95 +219,81 @@ beforeEach(() => {
   sonnerMocks.toast.error.mockReset();
 });
 
-describe("根切换器：只在工作根 ≥ 2 时存在", () => {
-  it("Given a session with a single work root, When the sidebar renders, Then no root switcher chrome appears at all", async () => {
-    workRootsMock.mockResolvedValue([root(CWD, "proj", { isPrimary: true })]);
+describe("工具窗不再各带一个工作根切换器", () => {
+  it("Given two work roots, When the Directory and Changes windows render, Then neither carries a root switcher or follow notice of its own", async () => {
+    const user = userEvent.setup();
     renderSidebar();
-
     await waitFor(() => expect(workRootsMock).toHaveBeenCalledWith(7));
-    await screen.findByRole("tab", { name: /Directory/ });
+    await screen.findByRole("region", { name: "Directory" });
+    await user.click(stripButton("Changes"));
+    await screen.findByRole("region", { name: "Changes" });
+
     expect(screen.queryByTestId("root-switcher")).toBeNull();
+    expect(screen.queryByTestId("root-follow-notice")).toBeNull();
+    expect(screen.queryByRole("button", { name: /proj-ia/ })).toBeNull();
   });
+});
 
-  it("Given two work roots, When the sidebar renders, Then the switcher sits above the tab bar and names the current root, whether it is the main repo, and its change count", async () => {
-    renderSidebar();
-
-    const trigger = await screen.findByTestId("root-switcher");
-    expect(trigger).toHaveTextContent("proj");
-    expect(trigger).toHaveTextContent("Main repo");
-    // 主仓库下本会话改了 a.go 与 docs/b.md 两个文件。
-    expect(trigger).toHaveTextContent("2");
-
-    const tabBar = screen
-      .getByRole("tab", { name: /Directory/ })
-      .closest('[role="tablist"]');
-    expect(tabBar).not.toBeNull();
-    expect(
-      trigger.compareDocumentPosition(tabBar!) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  it("Given the switcher is opened, When the menu lists every work root, Then each option carries its own change count and worktree marking", async () => {
+describe("目录与变更按会话当前工作根取数", () => {
+  it("Given the session root is switched to the worktree, When the directory and the changes page load, Then both are rooted at that worktree", async () => {
     const user = userEvent.setup();
     renderSidebar();
-    await screen.findByTestId("root-switcher");
+    await waitFor(() =>
+      expect(listDirMock).toHaveBeenCalledWith(7, "", "", false),
+    );
+    await pickRoot(WT);
 
-    const menu = await openSwitcher(user);
-    const options = within(menu).getAllByTestId("root-option");
-    expect(options.map((el) => el.getAttribute("data-root"))).toEqual([
-      CWD,
-      WT,
-    ]);
-    expect(options[0]).toHaveTextContent("2");
-    expect(options[1]).toHaveTextContent("proj-ia");
-    expect(options[1]).toHaveTextContent("worktree");
-    expect(options[1]).toHaveTextContent("1");
+    await waitFor(() =>
+      expect(listDirMock).toHaveBeenCalledWith(7, WT, "", false),
+    );
+    await user.click(stripButton("Changes"));
+    await waitFor(() =>
+      expect(gitChangesMock).toHaveBeenCalledWith(7, WT, "uncommitted", ""),
+    );
   });
 
-  it("Given two same-named worktrees under different folders, When the menu opens, Then the current root is marked current and every option shows its parent folder on a second line", async () => {
-    const user = userEvent.setup();
-    workRootsMock.mockResolvedValue([
-      root("/work/shop-web", "shop-web", { isPrimary: true }),
-      root("/work/.worktrees/a/shop-web", "shop-web", { isWorktree: true }),
-      root("/work/.worktrees/b/shop-web", "shop-web", { isWorktree: true }),
-    ]);
-    renderSidebar({ cwd: "/work/shop-web" });
-    await screen.findByTestId("root-switcher");
+  it("Given following is on, When chat:workroots says the agent moved into the worktree mid-turn, Then the directory re-roots there without waiting for the turn to end", async () => {
+    renderSidebar();
+    await waitFor(() =>
+      expect(listDirMock).toHaveBeenCalledWith(7, "", "", false),
+    );
+    await waitFor(() =>
+      expect(runtime.handlers.has("chat:workroots:7")).toBe(true),
+    );
 
-    const menu = await openSwitcher(user);
-    const options = within(menu).getAllByTestId("root-option");
-    expect(options[0]).toHaveAttribute("aria-current", "true");
-    expect(options[1]).not.toHaveAttribute("aria-current");
-    expect(options[2]).not.toHaveAttribute("aria-current");
-    expect(
-      options.map(
-        (el) => within(el).getByTestId("root-option-parent").textContent,
-      ),
-    ).toEqual(["/work", "/work/.worktrees/a", "/work/.worktrees/b"]);
+    act(() =>
+      runtime.handlers.get("chat:workroots:7")!({
+        sessionId: 7,
+        roots: twoRoots("wt"),
+      }),
+    );
+
+    await waitFor(() =>
+      expect(listDirMock).toHaveBeenCalledWith(7, WT, "", false),
+    );
+    expect(workRootsMock).toHaveBeenCalledTimes(1);
   });
 
-  it("Given a Windows work root, When the menu opens, Then its parent folder is cut at the backslash", async () => {
-    const user = userEvent.setup();
-    workRootsMock.mockResolvedValue([
-      root("C:\\src\\proj", "proj", { isPrimary: true }),
-      root("C:\\src\\wt\\proj", "proj", { isWorktree: true }),
-    ]);
-    renderSidebar({ cwd: "C:\\src\\proj" });
-    await screen.findByTestId("root-switcher");
+  it("Given a root disappears, When the work roots are refetched at turn end, Then the directory falls back to the primary root instead of going blank", async () => {
+    renderSidebar();
+    await pickRoot(WT);
+    await waitFor(() =>
+      expect(listDirMock).toHaveBeenCalledWith(7, WT, "", false),
+    );
 
-    const menu = await openSwitcher(user);
-    expect(
-      within(menu)
-        .getAllByTestId("root-option-parent")
-        .map((el) => el.textContent),
-    ).toEqual(["C:\\src", "C:\\src\\wt"]);
+    workRootsMock.mockResolvedValue([
+      root(CWD, "proj", { isPrimary: true, aiHere: true }),
+    ]);
+    useSessionStatusStore.getState().bumpDone(7, { kind: "done" });
+
+    await waitFor(() =>
+      expect(listDirMock).toHaveBeenLastCalledWith(7, "", "", false),
+    );
   });
 });
 
 describe("换根时在途的分支状态响应", () => {
-  it("Given the previous root's git state is still in flight, When it lands after the user switched roots, Then the bar keeps showing the root it is actually on", async () => {
-    const user = userEvent.setup();
+  it("Given the previous root's git state is still in flight, When it lands after the session root switched, Then the bar keeps showing the root it is actually on", async () => {
     let landMain: ((view: unknown) => void) | null = null;
     gitStateMock.mockImplementation((_sessionId: number, root: string) =>
       root === ""
@@ -310,9 +306,7 @@ describe("换根时在途的分支状态响应", () => {
     );
 
     renderSidebar();
-    await screen.findByTestId("root-switcher");
-    const menu = await openSwitcher(user);
-    await user.click(within(menu).getAllByTestId("root-option")[1]);
+    await pickRoot(WT);
 
     await waitFor(() =>
       expect(screen.getByTestId("git-status-branch")).toHaveTextContent(
@@ -333,21 +327,21 @@ describe("换根时在途的分支状态响应", () => {
 });
 
 describe("变更行的本机操作跟着当前工作根走", () => {
-  it("Given the sidebar is rooted at the worktree, When a session change row is revealed, Then the absolute target is built from that worktree and not from the session cwd", async () => {
+  it("Given the session is rooted at the worktree, When a session change row is revealed, Then the absolute target is built from that worktree and not from the session cwd", async () => {
     const user = userEvent.setup();
-    useChatSidebarStore.setState({
-      activeTab: "changes",
-      changesScope: "session",
-    });
+    showOnly("changes");
+    useChatSidebarStore.setState({ changesScope: "session" });
     renderSidebar();
-    await screen.findByTestId("root-switcher");
-
-    const menu = await openSwitcher(user);
-    await user.click(within(menu).getAllByTestId("root-option")[1]);
+    await pickRoot(WT);
 
     // 切到 worktree 之后这一档只剩 worktree 里的那一个文件。
-    const row = await screen.findByTestId("change-row");
-    expect(row).toHaveAttribute("data-path", "internal/turn.go");
+    await waitFor(() =>
+      expect(screen.getByTestId("change-row")).toHaveAttribute(
+        "data-path",
+        "internal/turn.go",
+      ),
+    );
+    const row = screen.getByTestId("change-row");
 
     await user.click(
       within(row).getByRole("button", { name: /more actions/i }),
@@ -362,187 +356,39 @@ describe("变更行的本机操作跟着当前工作根走", () => {
   });
 });
 
-describe("根切换器：手动切换、固定与跨页共享", () => {
-  it("Given the user picks the worktree, When the directory and the changes page load, Then both are rooted at that worktree and the switcher marks itself pinned", async () => {
-    const user = userEvent.setup();
-    renderSidebar();
-    await screen.findByTestId("root-switcher");
-
-    const menu = await openSwitcher(user);
-    await user.click(within(menu).getAllByTestId("root-option")[1]);
+describe("嵌在主根里的 worktree（Windows 路径）", () => {
+  // Given Windows 会话的主根里嵌着一个 worktree（反斜杠路径）,
+  // When 「本次会话」按主根列行,
+  // Then worktree 里的文件归 worktree，不在主根的行里重复出现。
+  it("Given a worktree nested in a Windows primary root, When the session changes list the primary root, Then the worktree's files stay out of it", async () => {
+    const WIN_CWD = "C:\\code\\app";
+    const WIN_WT = "C:\\code\\app\\.worktrees\\feat";
+    workRootsMock.mockResolvedValue([
+      root(WIN_CWD, "app", { isPrimary: true, aiHere: true }),
+      root(WIN_WT, "feat", { isWorktree: true }),
+    ]);
+    showOnly("changes");
+    useChatSidebarStore.setState({ changesScope: "session" });
+    renderSidebar({
+      cwd: WIN_CWD,
+      messages: [
+        userMsg(1),
+        assistantMsg(2, [
+          editBlock(`${WIN_WT}\\x.go`),
+          editBlock(`${WIN_CWD}\\a.go`),
+        ]),
+      ],
+    });
+    await waitFor(() =>
+      expect(useSessionRootStore.getState().bySession[7]?.roots).toHaveLength(
+        2,
+      ),
+    );
 
     await waitFor(() =>
-      expect(listDirMock).toHaveBeenCalledWith(7, WT, "", false),
+      expect(
+        screen.getAllByTestId("change-row").map((r) => r.dataset.path),
+      ).toEqual(["a.go"]),
     );
-    expect(switcher()).toHaveTextContent("proj-ia");
-    expect(switcher()).toHaveTextContent("Pinned");
-
-    // 切一级 tab 不改变工作根：「变更」页的未提交档对同一个根取数。
-    await user.click(screen.getByRole("tab", { name: /Changes/ }));
-    await waitFor(() =>
-      expect(gitChangesMock).toHaveBeenCalledWith(7, WT, "uncommitted", ""),
-    );
-    expect(switcher()).toHaveTextContent("proj-ia");
-  });
-
-  it("Given the sidebar is following automatically, When nothing has been pinned, Then the switcher carries no pinned marking at all", async () => {
-    renderSidebar();
-
-    const trigger = await screen.findByTestId("root-switcher");
-    expect(trigger).not.toHaveTextContent("Pinned");
-  });
-
-  it("Given a root disappears, When the work roots are refetched, Then the sidebar falls back to the primary root instead of going blank", async () => {
-    const user = userEvent.setup();
-    renderSidebar();
-    await screen.findByTestId("root-switcher");
-
-    const menu = await openSwitcher(user);
-    await user.click(within(menu).getAllByTestId("root-option")[1]);
-    await waitFor(() => expect(switcher()).toHaveTextContent("proj-ia"));
-
-    workRootsMock.mockResolvedValue([root(CWD, "proj", { isPrimary: true })]);
-    useSessionStatusStore.getState().bumpDone(7, { kind: "done" });
-
-    await waitFor(() =>
-      expect(screen.queryByTestId("root-switcher")).toBeNull(),
-    );
-    await waitFor(() =>
-      expect(listDirMock).toHaveBeenLastCalledWith(7, "", "", false),
-    );
-  });
-});
-
-describe("自动跟随：AI 写进另一个根", () => {
-  it("Given the agent writes into a claimed worktree, When the messages arrive, Then the sidebar switches to that root and offers an immediate undo", async () => {
-    const { rerender } = renderSidebar();
-    await screen.findByTestId("root-switcher");
-    expect(switcher()).toHaveTextContent("proj");
-
-    rerender(
-      <ChatContextSidebar
-        sessionId={7}
-        messages={wroteInWorktree}
-        activeMessageId={null}
-        onJumpToMessage={() => {}}
-        cwd={CWD}
-        remote={false}
-      />,
-    );
-
-    await waitFor(() => expect(switcher()).toHaveTextContent("proj-ia"));
-    const notice = await screen.findByTestId("root-follow-notice");
-    expect(
-      within(notice).getByRole("button", { name: "Stay in the main repo" }),
-    ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(listDirMock).toHaveBeenCalledWith(7, WT, "", false),
-    );
-  });
-
-  it("Given the automatic switch happened, When the user takes the undo, Then the sidebar returns to the main repo and stops following", async () => {
-    const user = userEvent.setup();
-    const { rerender } = renderSidebar({ messages: wroteInWorktree });
-
-    await waitFor(() => expect(switcher()).toHaveTextContent("proj-ia"));
-    const notice = await screen.findByTestId("root-follow-notice");
-    await user.click(
-      within(notice).getByRole("button", { name: "Stay in the main repo" }),
-    );
-
-    await waitFor(() => expect(switcher()).toHaveTextContent("proj"));
-    expect(switcher()).toHaveTextContent("Pinned");
-    expect(screen.queryByTestId("root-follow-notice")).toBeNull();
-
-    // 撤销之后再写进 worktree 也不再跟过去。
-    rerender(
-      <ChatContextSidebar
-        sessionId={7}
-        messages={[
-          ...wroteInWorktree,
-          userMsg(7),
-          assistantMsg(8, [editBlock(`${WT}/internal/again.go`)]),
-        ]}
-        activeMessageId={null}
-        onJumpToMessage={() => {}}
-        cwd={CWD}
-        remote={false}
-      />,
-    );
-    await waitFor(() => expect(switcher()).toHaveTextContent("proj"));
-    expect(screen.queryByTestId("root-follow-notice")).toBeNull();
-  });
-
-  it("Given the user already picked a root by hand, When the agent later writes into the other root, Then the sidebar stays where the user put it", async () => {
-    const user = userEvent.setup();
-    const { rerender } = renderSidebar();
-    await screen.findByTestId("root-switcher");
-
-    const menu = await openSwitcher(user);
-    await user.click(within(menu).getAllByTestId("root-option")[0]);
-    await waitFor(() => expect(switcher()).toHaveTextContent("Pinned"));
-
-    rerender(
-      <ChatContextSidebar
-        sessionId={7}
-        messages={wroteInWorktree}
-        activeMessageId={null}
-        onJumpToMessage={() => {}}
-        cwd={CWD}
-        remote={false}
-      />,
-    );
-
-    await waitFor(() => expect(switcher()).toHaveTextContent("proj"));
-    expect(switcher()).not.toHaveTextContent("proj-ia");
-    expect(screen.queryByTestId("root-follow-notice")).toBeNull();
-  });
-
-  it("Given the agent writes back in the main checkout, When the sidebar follows there, Then the notice names that root without calling it a worktree", async () => {
-    const { rerender } = renderSidebar({ messages: wroteInWorktree });
-    await waitFor(() => expect(switcher()).toHaveTextContent("proj-ia"));
-
-    rerender(
-      <ChatContextSidebar
-        sessionId={7}
-        messages={[
-          ...wroteInWorktree,
-          userMsg(7),
-          assistantMsg(8, [editBlock(`${CWD}/internal/turn.go`)]),
-        ]}
-        activeMessageId={null}
-        onJumpToMessage={() => {}}
-        cwd={CWD}
-        remote={false}
-      />,
-    );
-
-    await waitFor(() => expect(switcher()).toHaveTextContent("proj"));
-    const notice = await screen.findByTestId("root-follow-notice");
-    expect(notice).toHaveTextContent(
-      "Switched to the repo the agent is editing: proj",
-    );
-    expect(notice).not.toHaveTextContent("worktree");
-  });
-
-  it("Given the temporary notice is showing, When a few seconds pass, Then it collapses on its own without touching the selected root", async () => {
-    vi.useFakeTimers();
-    try {
-      renderSidebar({ messages: wroteInWorktree });
-
-      await vi.waitFor(() =>
-        expect(screen.getByTestId("root-follow-notice")).toBeInTheDocument(),
-      );
-      // act 包住这次推进：happy-dom 里 React 的调度走 MessageChannel，假计时器
-      // 推不到它，不进 act 的话计时器回调里那次 setState 到断言时还没被刷出来。
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(6000);
-      });
-
-      expect(screen.queryByTestId("root-follow-notice")).toBeNull();
-      expect(switcher()).toHaveTextContent("proj-ia");
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });

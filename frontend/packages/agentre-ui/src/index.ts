@@ -225,6 +225,7 @@ export {
 } from "./ui/tooltip";
 export type { LiveTurnInput } from "./transcript/turn-stats";
 export { classifyLink } from "./lib/link-classify";
+export { loopbackURLPort } from "./lib/loopback-url";
 export {
   anchoredOpenSegment,
   previewKind,
@@ -513,6 +514,7 @@ export {
   buildSourceByMessageId,
   buildTranscriptRows,
   estimateRowSizeWithSpacing,
+  lastRecordedToolCwd,
   transcriptRowPadClass,
 } from "./transcript/transcript-rows";
 export type {
@@ -529,7 +531,7 @@ export { shortenModelName } from "./transcript/canonical-tool/agent-spawn/card";
 export { AGRCTL_ORIGIN } from "./transcript/canonical-tool/agrctl";
 // 「本次会话」的工具 diff：把同一个文件的每一次工具调用重放成一个连续 diff。
 // 纯函数（挑调用 + 重放）与呈现件都在包里，两端不各写一份（AGENTS.md 约束 6）。
-export { resolveToolPathInRoot } from "./lib/work-root-path";
+export { pathBasename, resolveToolPathInRoot } from "./lib/work-root-path";
 export type { PlanActionStream } from "./transcript/canonical-tool/props";
 // 消息行装配:把行模型装成带外壳(头像/名字/时间戳/元信息)的一条消息。
 // 这是 agentre-server 拿到「完整消息」而不只是正文块的那一层。
@@ -759,6 +761,7 @@ export type {
   BoardColumnView,
   BoardDragBindings,
   BoardEmptyScope,
+  BoardLinkedSession,
   BoardStage,
   BoardViewModel,
   IssueTone,

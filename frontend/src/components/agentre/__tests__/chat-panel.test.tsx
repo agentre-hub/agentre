@@ -442,8 +442,13 @@ import {
   streamForMessage,
   useChatStreamsStore,
 } from "@/stores/chat-streams-store";
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import {
+  DEFAULT_DIVIDER_RATIOS,
+  DEFAULT_TOOL_WINDOW_SLOTS,
+  TOOL_WINDOW_LAYOUT_KEY,
+  useToolWindowLayout,
+} from "@/stores/tool-window-layout-store";
 import { useQueuedMessagesStore } from "@/stores/queued-messages-store";
 import { useSessionConnStore } from "@/stores/session-conn-store";
 import { localCommandRuntimeStore } from "@/stores/local-command-runtime-store";
@@ -6521,10 +6526,10 @@ describe("ChatPanel · 头部在四态都在位且恒高", () => {
 
     render(<ChatPanel sessionId={42} />);
 
-    const toolbar = screen.getByRole("toolbar");
+    const toolbar = screen.getByRole("toolbar", { name: "Session toolbar" });
     expect(within(toolbar).queryByText("Test session")).toBeNull();
     expect(
-      within(toolbar).getByRole("button", { name: "Context sidebar" }),
+      within(toolbar).getByRole("button", { name: "More actions" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2 })).not.toBe(toolbar);
     expect(toolbar.contains(screen.getByRole("heading", { level: 2 }))).toBe(
@@ -6559,8 +6564,8 @@ describe("ChatPanel · 头部在四态都在位且恒高", () => {
 
     render(<ChatPanel sessionId={42} />);
 
-    const toolbar = screen.getByRole("toolbar");
-    for (const name of ["Stop", "Context sidebar", "More actions"]) {
+    const toolbar = screen.getByRole("toolbar", { name: "Session toolbar" });
+    for (const name of ["Stop", "More actions"]) {
       const button = within(toolbar).getByRole("button", { name });
       expect(button).toHaveAttribute("data-variant", "ghost");
       expect(button.getAttribute("title")).toBeTruthy();
@@ -7012,23 +7017,38 @@ describe("ChatPanel · 会话级思考力度控件（trailing 侧，决策 6/9�
   });
 });
 
-// ─── 2026-10-15 无边框改版 · 对话页是一张内容页，右侧栏落在外框上（P1） ─────────
+// ─── 2026-10-15 无边框改版 · 对话页是一张内容页，右侧落在外框上（P1） ───────────
+// ─── 2026-11-24 右侧栏换成工具窗骨架（图标条 + 槽位），标题栏的侧栏开关移除 ─────
 
-describe("ChatPanel · 右侧栏渲染在聊天内容页之外", () => {
-  const WIDTH_KEY = "agentre.sidebarWidth.chat-context";
-
-  function openSidebar() {
-    const prev = useChatSidebarStore.getState().open;
-    useChatSidebarStore.getState().setOpen(true);
+describe("ChatPanel · 工具窗渲染在聊天内容页之外", () => {
+  function showOutlineOnly() {
+    const prev = useToolWindowLayout.getState();
+    useToolWindowLayout.setState({
+      slotOf: { ...DEFAULT_TOOL_WINDOW_SLOTS },
+      shown: {
+        rightTop: "outline",
+        rightBottom: null,
+        bottomLeft: null,
+        bottomRight: null,
+      },
+      focusRequest: null,
+    });
     onTestFinished(() => {
-      useChatSidebarStore.getState().setOpen(prev);
-      localStorage.removeItem(WIDTH_KEY);
+      useToolWindowLayout.setState({
+        slotOf: prev.slotOf,
+        shown: prev.shown,
+        focusRequest: null,
+      });
     });
   }
 
-  it("Given 已有会话且右侧栏打开, When 渲染, Then 标题、转录、输入框在同一张内容页上，右侧栏在内容页之外、落在外框色上", () => {
+  function strip() {
+    return screen.getByRole("toolbar", { name: "Tool windows" });
+  }
+
+  it("Given 已有会话且大纲工具窗打开, When 渲染, Then 标题、转录、输入框在同一张内容页上，工具窗与图标条在内容页之外、落在外框色上", () => {
     resetStore();
-    openSidebar();
+    showOutlineOnly();
     mockSessionStore.session = makeSession({ id: 42 });
 
     render(<ChatPanel sessionId={42} />);
@@ -7041,59 +7061,107 @@ describe("ChatPanel · 右侧栏渲染在聊天内容页之外", () => {
     );
     expect(sheet.contains(screen.getByTestId("chat-composer-band"))).toBe(true);
 
-    const aside = screen.getByRole("complementary", { name: "Chat context" });
+    const aside = screen.getByRole("complementary", {
+      name: "Right tool windows",
+    });
     expect(sheet.contains(aside)).toBe(false);
     expect(aside).toHaveClass("bg-chrome");
-    // 内容页与右侧栏是同一行里的兄弟：右侧栏仍占满从 Tab 条下沿到底的整高。
-    expect(aside.parentElement).toBe(sheet.parentElement);
+    expect(
+      within(aside).getByRole("region", { name: "Outline" }),
+    ).toBeInTheDocument();
+    expect(sheet.contains(strip())).toBe(false);
+    // 内容页、右侧工具窗、图标条排在同一行里：右侧仍占满从 Tab 条下沿到底的整高，
+    // 图标条在最右。
+    const row = aside.parentElement!;
+    expect(row.contains(sheet)).toBe(true);
+    expect(row.lastElementChild).toBe(strip());
   });
 
-  it("Given 右侧栏在内容页之外, When 用标题栏开关收起再展开, Then 它跟着隐藏与重现", async () => {
+  it("Given 对话标题栏, When 渲染, Then 不再有「显示 / 隐藏侧栏」按钮", () => {
     resetStore();
-    openSidebar();
+    showOutlineOnly();
+    mockSessionStore.session = makeSession({ id: 42 });
+
+    render(<ChatPanel sessionId={42} />);
+
+    const toolbar = screen.getByRole("toolbar", { name: "Session toolbar" });
+    expect(
+      within(toolbar).queryByRole("button", { name: /sidebar/i }),
+    ).toBeNull();
+  });
+
+  it("Given 大纲工具窗打开, When 在图标条上点大纲收起再展开, Then 它跟着隐藏与重现", async () => {
+    resetStore();
+    showOutlineOnly();
     mockSessionStore.session = makeSession({ id: 42 });
     const user = userEvent.setup();
 
     render(<ChatPanel sessionId={42} />);
-    const toggle = within(screen.getByRole("toolbar")).getByRole("button", {
-      name: "Context sidebar",
-    });
+    const toggle = within(strip()).getByRole("button", { name: "Outline" });
 
     await user.click(toggle);
-    expect(
-      screen.queryByRole("complementary", { name: "Chat context" }),
-    ).toBeNull();
+    expect(screen.queryByRole("region", { name: "Outline" })).toBeNull();
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
 
     await user.click(toggle);
-    expect(
-      screen.getByRole("complementary", { name: "Chat context" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Outline" })).toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("Given 已存的右侧栏宽度, When 渲染并拖拽调宽, Then 沿用 agentre.sidebarWidth.chat-context 读写", () => {
+  it("Given 布局里右侧比例为 0.3, When 渲染并拖动编辑区与右侧之间的分隔条, Then 右侧列按布局比例占宽，新比例写回全局布局", () => {
     resetStore();
-    openSidebar();
-    localStorage.setItem(WIDTH_KEY, "300");
+    showOutlineOnly();
+    const prevRatios = useToolWindowLayout.getState().ratios;
+    useToolWindowLayout.setState({
+      ratios: { ...DEFAULT_DIVIDER_RATIOS, right: 0.3 },
+    });
+    onTestFinished(() => {
+      useToolWindowLayout.setState({ ratios: prevRatios });
+    });
+    // 工具窗区域宽 1600px（够宽，不触发窄窗口浮动），比例按它换算。
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        width: 1600,
+        height: 800,
+        right: 1600,
+        bottom: 800,
+        toJSON: () => ({}),
+      } as DOMRect);
+    onTestFinished(() => rect.mockRestore());
     mockSessionStore.session = makeSession({ id: 42 });
 
     render(<ChatPanel sessionId={42} />);
 
-    const aside = screen.getByRole("complementary", { name: "Chat context" });
-    expect(aside).toHaveStyle({ width: "300px" });
+    const aside = screen.getByRole("complementary", {
+      name: "Right tool windows",
+    });
+    // 列宽按 splitAreaBasis 换算（calc()，happy-dom 读不到），这里看分隔条报的比例。
+    const handle = within(aside).getByRole("separator", {
+      name: "Resize right tool windows",
+    });
+    expect(handle).toHaveAttribute("aria-valuenow", "30");
 
-    // 手柄在左边缘：往左拖 40px，宽度 +40。
-    const handle = within(aside).getByRole("separator");
-    fireEvent.pointerDown(handle, { button: 0, clientX: 500 });
-    fireEvent.pointerMove(document, { clientX: 460 });
-    fireEvent.pointerUp(document, { clientX: 460 });
+    // 分隔条压在右侧列左边缘：拖到 x=1200，右侧占 (1600-1200)/1600 = 25%。
+    fireEvent.pointerDown(handle, { button: 0, clientX: 1120 });
+    fireEvent.pointerMove(document, { clientX: 1200 });
+    fireEvent.pointerUp(document, { clientX: 1200 });
 
-    expect(aside).toHaveStyle({ width: "340px" });
-    expect(localStorage.getItem(WIDTH_KEY)).toBe("340");
+    expect(useToolWindowLayout.getState().ratios.right).toBeCloseTo(0.25);
+    expect(handle).toHaveAttribute("aria-valuenow", "25");
+    const saved = JSON.parse(
+      localStorage.getItem(TOOL_WINDOW_LAYOUT_KEY) ?? "{}",
+    ) as { state?: { ratios?: { right?: number } } };
+    expect(saved.state?.ratios?.right).toBeCloseTo(0.25);
   });
 
-  it("Given 新建会话尚未首发, When 渲染, Then 内容页照样在位、没有右侧栏", () => {
+  it("Given 新建会话尚未首发, When 渲染, Then 内容页照样在位、没有图标条也没有工具窗", () => {
     resetStore();
-    openSidebar();
+    showOutlineOnly();
 
     render(
       <ChatPanel
@@ -7110,9 +7178,11 @@ describe("ChatPanel · 右侧栏渲染在聊天内容页之外", () => {
     );
 
     expect(screen.getByRole("main")).toHaveClass("content-sheet");
+    expect(screen.queryByRole("toolbar", { name: "Tool windows" })).toBeNull();
     expect(
-      screen.queryByRole("complementary", { name: "Chat context" }),
+      screen.queryByRole("complementary", { name: "Right tool windows" }),
     ).toBeNull();
+    expect(screen.queryByRole("region")).toBeNull();
   });
 });
 
@@ -7340,5 +7410,138 @@ describe("ChatPanel · 会话进程与端口", () => {
         "Action failed: gone",
       ),
     );
+  });
+});
+
+// 看板「开始会话」：新建会话标签带一份「种子」——输入框预填、执行后端 / 模型预选。
+// 预填不自动发送；预选只在种子点名了才覆盖，没点名的维持新建会话的默认。
+describe("新建会话种子（看板「开始会话」）", () => {
+  function renderSeeded(seed?: Record<string, unknown>) {
+    resetStore();
+    mockSessionStore.session = null;
+    componentMocks.effectiveExecTarget = {
+      kind: "local",
+      deviceId: "",
+      deviceName: "",
+      backendType: "claudecode",
+    };
+    appMocks.SendChatMessage.mockResolvedValue({
+      assistantMessageId: 1001,
+      sessionId: 42,
+      stream: "chat:event:42:1001",
+      userMessageId: 1000,
+    });
+    appMocks.ListLLMProviders.mockResolvedValue({
+      items: [
+        {
+          id: 11,
+          providerKey: "acme-anthropic",
+          name: "Acme Claude",
+          type: "anthropic",
+          enabled: true,
+          defaultModelKey: "",
+          model: "claude-sonnet-4-5",
+        },
+      ],
+    });
+    return render(
+      <ChatPanel
+        sessionId={0}
+        newSessionAgent={
+          {
+            id: 7,
+            name: "Eng",
+            agentBackendId: 1,
+            backendType: "claudecode",
+            llmProviderKey: "",
+          } as never
+        }
+        newSessionSeed={seed as never}
+      />,
+    );
+  }
+
+  function submitHello() {
+    const submit = componentMocks.chatComposerProps.at(-1)?.onSubmit as
+      | ((text: string) => void)
+      | undefined;
+    act(() => submit?.("hello"));
+  }
+
+  it("Given a seed with text, When the panel opens, Then the composer is prefilled once and nothing is sent", async () => {
+    renderSeeded({ text: "标题\n\n正文", issueId: 5 });
+
+    await waitFor(() =>
+      expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalledWith(
+        "标题\n\n正文",
+      ),
+    );
+    expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalledTimes(1);
+    expect(appMocks.SendChatMessage).not.toHaveBeenCalled();
+  });
+
+  it("Given a seed naming backend and model, When the first message is sent, Then the send carries them", async () => {
+    renderSeeded({
+      text: "t",
+      issueId: 5,
+      backendId: 9,
+      providerKey: "acme-anthropic",
+      modelKey: "claude-sonnet-4-5",
+    });
+    await waitFor(() =>
+      expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalled(),
+    );
+
+    submitHello();
+
+    await waitFor(() =>
+      expect(appMocks.SendChatMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 0,
+          agentId: 7,
+          execTargetOverride: 9,
+          providerKey: "acme-anthropic",
+          modelKey: "claude-sonnet-4-5",
+        }),
+      ),
+    );
+  });
+
+  it("Given a seed that names nothing but text, When the first message is sent, Then the new-session defaults apply", async () => {
+    renderSeeded({ text: "t", issueId: 5 });
+    await waitFor(() =>
+      expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalled(),
+    );
+
+    submitHello();
+
+    await waitFor(() => expect(appMocks.SendChatMessage).toHaveBeenCalled());
+    const payload = appMocks.SendChatMessage.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(payload.execTargetOverride).toBeUndefined();
+    expect(payload.providerKey ?? "").toBe("");
+  });
+
+  it("Given a seed naming the agent's own backend, When sent, Then no override is carried", async () => {
+    renderSeeded({ text: "t", issueId: 5, backendId: 1 });
+    await waitFor(() =>
+      expect(componentMocks.composerHandle.appendDraft).toHaveBeenCalled(),
+    );
+
+    submitHello();
+
+    await waitFor(() => expect(appMocks.SendChatMessage).toHaveBeenCalled());
+    expect(
+      (appMocks.SendChatMessage.mock.calls[0][0] as Record<string, unknown>)
+        .execTargetOverride,
+    ).toBeUndefined();
+  });
+
+  it("Given no seed, When the panel opens, Then the composer is untouched", async () => {
+    renderSeeded();
+    await screen.findByTestId("provider-pill");
+    expect(componentMocks.composerHandle.appendDraft).not.toHaveBeenCalled();
   });
 });

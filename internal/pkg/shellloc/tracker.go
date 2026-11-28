@@ -1,0 +1,197 @@
+package shellloc
+
+import (
+	"bytes"
+	"encoding/json"
+	"path"
+	"path/filepath"
+	"regexp"
+	"sync"
+)
+
+// WorktreeAddKey is the key a Tracker adds to a shell tool call's JSON input
+// when the command contains `git worktree add <path>`; the value is the
+// absolute path. Consumers read it as a claim candidate.
+const WorktreeAddKey = "agentre_worktree_add"
+
+// Tracker follows the AI's current directory across the shell calls of one
+// session, for backends with no structured location signal. Safe for
+// concurrent use.
+//
+// A persistent tracker models a shell whose `cd` carries into later calls. A
+// fresh-shell tracker (NewFreshTracker) models a shell tool that starts every
+// call as a new process in the session working directory (builtin's cago bash
+// tool, Pi's bash tool): a `cd` moves only the call it appears in, and every
+// other call is stamped with the directory it really runs in.
+type Tracker struct {
+	mu    sync.Mutex
+	dir   string
+	fresh bool
+	calls map[string]callRec // call id -> what it recorded, until its result
+}
+
+type callRec struct{ dir, worktreeAdd string }
+
+// NewTracker starts at start (the session working directory; "" = unknown).
+func NewTracker(start string) *Tracker {
+	return &Tracker{dir: start, calls: map[string]callRec{}}
+}
+
+// NewFreshTracker is a tracker for a shell tool that starts every call in start.
+func NewFreshTracker(start string) *Tracker {
+	return &Tracker{dir: start, fresh: true, calls: map[string]callRec{}}
+}
+
+// Dir is the current location (for a fresh-shell tracker, always its start).
+func (t *Tracker) Dir() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.dir
+}
+
+// Call records the shell tool call id whose JSON input carries a "command" and
+// returns the location after the command (what ToolCall.Cwd should hold) plus
+// the input, with WorktreeAddKey added when the command creates a worktree. A
+// command it cannot read or follow leaves the location, and the input,
+// unchanged. A call id seen again (an incremental re-emit) is not applied twice.
+func (t *Tracker) Call(id string, input []byte) (cwd string, out []byte) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	rec, seen := t.calls[id]
+	if !seen {
+		rec = callRec{dir: t.dir}
+		var args struct {
+			Command *string `json:"command"`
+		}
+		if json.Unmarshal(input, &args) == nil && args.Command != nil {
+			dir, wt, ok := ParseShellLocation(*args.Command, t.dir)
+			if !ok {
+				dir = t.dir
+			}
+			if !t.fresh {
+				t.dir = dir
+			}
+			rec = callRec{dir: dir, worktreeAdd: wt}
+		}
+		t.calls[id] = rec
+	}
+	out = input
+	if rec.worktreeAdd != "" {
+		out = withWorktreeAdd(input, rec.worktreeAdd)
+	}
+	return rec.dir, out
+}
+
+// Here records a non-shell tool call id at the current location and returns it.
+func (t *Tracker) Here(id string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if rec, seen := t.calls[id]; seen {
+		return rec.dir
+	}
+	t.calls[id] = callRec{dir: t.dir}
+	return t.dir
+}
+
+// Result returns the location recorded for call id (what ToolResult.Cwd should
+// hold) and forgets it; an unknown id gets the current location.
+func (t *Tracker) Result(id string) string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if rec, ok := t.calls[id]; ok {
+		delete(t.calls, id)
+		return rec.dir
+	}
+	return t.dir
+}
+
+// CodexCommandTool is the tool name Codex reports shell commands under; its
+// JSON input carries the directory the command starts in ("cwd").
+const CodexCommandTool = "command_execution"
+
+// InputCwd returns the absolute "cwd" a shell tool call's JSON input reports,
+// or "" when it is missing, not absolute, or the input is not a JSON object.
+func InputCwd(input []byte) string {
+	var in struct {
+		Cwd string `json:"cwd"`
+	}
+	if json.Unmarshal(input, &in) != nil {
+		return ""
+	}
+	return AbsDir(in.Cwd)
+}
+
+var windowsAbs = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
+
+// AbsDir returns p cleaned if it is an absolute directory (POSIX or Windows
+// drive form), else "". Structured location signals from backends are only
+// trusted when absolute.
+func AbsDir(p string) string {
+	switch {
+	case p == "":
+		return ""
+	case path.IsAbs(p):
+		return path.Clean(p)
+	case windowsAbs.MatchString(p), filepath.IsAbs(p):
+		return p
+	}
+	return ""
+}
+
+// withWorktreeAdd splices WorktreeAddKey into a JSON object, leaving the other
+// bytes untouched. Non-objects are returned as is.
+func withWorktreeAdd(in []byte, p string) []byte {
+	trimmed := bytes.TrimRight(in, " \t\r\n")
+	if len(trimmed) == 0 || trimmed[len(trimmed)-1] != '}' || !json.Valid(in) {
+		return in
+	}
+	val, err := json.Marshal(p)
+	if err != nil {
+		return in
+	}
+	body := bytes.TrimRight(trimmed[:len(trimmed)-1], " \t\r\n")
+	sep := []byte(",")
+	if len(body) == 0 || body[len(body)-1] == '{' {
+		sep = nil
+	}
+	var b bytes.Buffer
+	b.Write(body)
+	b.Write(sep)
+	b.WriteString(`"` + WorktreeAddKey + `":`)
+	b.Write(val)
+	b.WriteByte('}')
+	return b.Bytes()
+}
+
+// Registry keeps one Tracker per session key so a cd survives across turns.
+// The zero value is ready to use and hands out persistent trackers; set Fresh
+// for a shell tool that starts every call in the session working directory.
+type Registry struct {
+	Fresh bool
+
+	mu sync.Mutex
+	m  map[int64]*Tracker
+}
+
+// For returns the session's tracker, creating it at start on first use.
+func (r *Registry) For(key int64, start string) *Tracker {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.m == nil {
+		r.m = map[int64]*Tracker{}
+	}
+	t, ok := r.m[key]
+	if !ok {
+		t = NewTracker(start)
+		t.fresh = r.Fresh
+		r.m[key] = t
+	}
+	return t
+}
+
+// Forget drops the session's tracker (the session is gone).
+func (r *Registry) Forget(key int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.m, key)
+}

@@ -64,6 +64,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
 	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/workspace_fs_svc"
 )
 
 const (
@@ -85,6 +86,9 @@ type ChatSvc interface {
 	// ListIndexSessions 给单一会话索引翻页：scope=recent 是跨 agent、跨项目的全局
 	// 最近活动（「按时间」档），scope=free 是未挂项目的会话（「随手对话」组）。
 	ListIndexSessions(ctx context.Context, req *ListIndexSessionsRequest) (*ListIndexSessionsResponse, error)
+	// ListSessionsByIDs 按 id 取一组会话的索引行（与 ListIndexSessions 同形），不拉消息：
+	// 给恢复的会话标签补标题与 agent 用。不认识的 id 不出现，不算错。
+	ListSessionsByIDs(ctx context.Context, req *ListSessionsByIDsRequest) (*ListSessionsByIDsResponse, error)
 	LoadSession(ctx context.Context, req *LoadSessionRequest) (*LoadSessionResponse, error)
 	// LoadMessageBlocks 取回更早一段消息的正文(前端向上滚动时续接转录)。
 	LoadMessageBlocks(ctx context.Context, req *LoadMessageBlocksRequest) (*LoadMessageBlocksResponse, error)
@@ -94,6 +98,9 @@ type ChatSvc interface {
 	GetSessionGitState(ctx context.Context, req *GetSessionGitStateRequest) (*GetSessionGitStateResponse, error)
 	Send(ctx context.Context, req *SendRequest) (*SendResponse, error)
 	Compact(ctx context.Context, req *CompactRequest) (*CompactResponse, error)
+	// ListSessionsSharingRoot 汇总与本会话在同一执行设备同一工作根上运行的其它会话
+	// (本桌面端拥有、正在运行含后台活动),并标出与本会话写过同一文件的重叠。
+	ListSessionsSharingRoot(ctx context.Context, sessionID int64) ([]*SharingRootSession, error)
 	GetGoal(ctx context.Context, req *GoalRequest) (*GoalResponse, error)
 	SetGoal(ctx context.Context, req *SetGoalRequest) (*GoalResponse, error)
 	StartGoal(ctx context.Context, req *StartGoalRequest) (*StartGoalResponse, error)
@@ -162,6 +169,14 @@ type ChatSvc interface {
 	// CatchUpRemoteDevice 在某台 daemon 重新上线时补上启动那次没做成的补齐(启动补齐
 	// 只跑一次,开机自启早于网络就绪的那一次拨号失败否则就是终局)。见 remote_catchup.go。
 	CatchUpRemoteDevice(ctx context.Context, deviceID int64) error
+	// ObserveAILocation 是不随工具事件到达的位置信号的入口(Claude Code init 帧目录、
+	// PostToolUse hook 的 cwd、ExitWorktree 选择删除),与工具事件上的 Cwd 走同一条路:
+	// 更新 AI 当前位置(子代理信号只认领)、认领、按需撤销,变化时推 chat:workroots:<sid>。
+	// 见 ai_location.go。
+	ObserveAILocation(ctx context.Context, sessionID int64, sig AILocationSignal)
+	// AILocation 返回会话的 AI 当前位置(执行设备上的目录);空串 = 没有位置记录,即会话
+	// 工作目录。workspace_fs_svc 据它标出 AI 所在的工作根。
+	AILocation(ctx context.Context, sessionID int64) (string, error)
 }
 
 var defaultChat ChatSvc
@@ -343,6 +358,15 @@ type chatSvc struct {
 	connStates map[int64]remote.ConnState
 	// testHookPool 如果非 nil,代替 remote_device_svc.Default().Pool() 用于测试注入。
 	testHookPool remote_device_svc.ConnPool
+
+	// AI 当前位置与工作根认领,见 ai_location.go。workRoots 为 nil 时走
+	// workspace_fs_svc.Default();workRootsRunner 为 nil 时认领在后台 goroutine 里跑
+	// (单测换成同步执行)。
+	workRoots       WorkRootsPort
+	workRootsRunner func(func())
+	aiLocations     aiLocationBook
+	// writtenPaths 取会话写过的路径(「同一份代码上在跑」的重叠判定);nil 时走 SessionWrittenPaths。
+	writtenPaths func(ctx context.Context, sessionID int64) ([]workspace_fs_svc.WrittenPath, error)
 }
 
 // ── ListAgents ───────────────────────────────────────────────────────────────
@@ -571,6 +595,41 @@ func (s *chatSvc) ListIndexSessions(ctx context.Context, req *ListIndexSessionsR
 	return resp, nil
 }
 
+// ── ListSessionsByIDs ────────────────────────────────────────────────────────
+
+// ListSessionsByIDs 见接口注释。行由 sessionLiteFromEntity 组装，与索引翻页同一处，
+// 两边因此不会对同一条会话给出两种形状。
+func (s *chatSvc) ListSessionsByIDs(ctx context.Context, req *ListSessionsByIDsRequest) (*ListSessionsByIDsResponse, error) {
+	if req == nil {
+		return nil, i18n.NewError(ctx, code.InvalidParameter)
+	}
+	ids := make([]int64, 0, len(req.IDs))
+	seen := make(map[int64]struct{}, len(req.IDs))
+	for _, id := range req.IDs {
+		if id <= 0 {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	resp := &ListSessionsByIDsResponse{Sessions: []ChatSessionLite{}}
+	if len(ids) == 0 {
+		return resp, nil
+	}
+	sessions, err := chat_repo.Session().FindByIDs(ctx, ids)
+	if err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	resp.Sessions = make([]ChatSessionLite, 0, len(sessions))
+	for _, sess := range sessions {
+		resp.Sessions = append(resp.Sessions, s.sessionLiteFromEntity(sess))
+	}
+	return resp, nil
+}
+
 // ── ListAgentSessions ────────────────────────────────────────────────────────
 
 // ListAgentSessions 给「查看全部 N 个会话」popover 翻页拉数据用。
@@ -691,6 +750,8 @@ func (s *chatSvc) LoadSession(ctx context.Context, req *LoadSessionRequest) (*Lo
 			ModelKey:               sess.ModelKey,
 			ReasoningEffort:        sess.ReasoningEffort,
 			ProjectID:              sess.ProjectID,
+			ProviderSessionID:      sess.ProviderSessionID,
+			CarriedMemory:          carriedMemory(sess),
 		},
 		Messages: make([]ChatMessage, 0, len(served)),
 	}

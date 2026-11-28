@@ -67,6 +67,7 @@ import {
 } from "./meta-fit";
 import { OpenClawExecApprovalCard } from "./openclaw-exec-approval/card";
 import { useOptionalPort } from "./ports-context";
+import { ItemCwdProvider } from "./session-location";
 import { ThinkingBlock } from "./thinking-block";
 import { ToolApprovalCard } from "./tool-approval/card";
 import type { TranscriptRow, TranscriptRowItem } from "./transcript-rows";
@@ -1257,9 +1258,13 @@ type RenderItemViewProps = {
 function RenderItemView(props: RenderItemViewProps) {
   const ctx = React.useContext(TranscriptRenderContext);
   if (isDockedDecision(props.item, ctx)) return null;
+  // 这一项里的链接按它产生时 AI 所在的目录补全（行模型已按项算好）。
+  const itemCwd = "cwd" in props.item ? props.item.cwd : undefined;
   return (
     <ShortcutHintsProvider hidden={ctx?.hideShortcutHints}>
-      <RenderItemContent {...props} />
+      <ItemCwdProvider cwd={itemCwd}>
+        <RenderItemContent {...props} />
+      </ItemCwdProvider>
     </ShortcutHintsProvider>
   );
 }

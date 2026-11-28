@@ -48,6 +48,9 @@ type Service struct {
 	mu       sync.Mutex
 	sessions map[string]*sessionEntry
 	inFlight map[string]*openAttempt // pending starts, keyed by terminalID
+	// chatOwners maps a session terminal's ID to the chat session that opened it
+	// (see chat_session.go).
+	chatOwners map[string]int64
 }
 
 // sessionEntry is the comparable ownership token for one live terminal. Handle
@@ -382,6 +385,7 @@ func (s *Service) Resize(ctx context.Context, terminalID string, cols, rows uint
 
 func (s *Service) Close(ctx context.Context, terminalID string) error {
 	s.mu.Lock()
+	s.forgetChatOwnerLocked(terminalID)
 	attempt, hadInFlight := s.inFlight[terminalID]
 	if hadInFlight {
 		delete(s.inFlight, terminalID)

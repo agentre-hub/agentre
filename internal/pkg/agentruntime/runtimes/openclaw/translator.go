@@ -8,6 +8,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/openclawgateway"
+	"github.com/agentre-hub/agentre/internal/pkg/shellloc"
 )
 
 type agentEventPayload struct {
@@ -175,14 +176,36 @@ func (a *activeTurn) handleTool(raw json.RawMessage) {
 		if len(data.Args) == 0 {
 			data.Args = json.RawMessage(`{}`)
 		}
-		a.emit(agentruntime.ToolCall{ID: data.ToolCallID, Name: data.Name, Input: data.Args})
+		cwd := execWorkdir(data.Name, data.Args)
+		if cwd != "" {
+			a.toolCwds.Store(data.ToolCallID, cwd)
+		}
+		a.emit(agentruntime.ToolCall{ID: data.ToolCallID, Name: data.Name, Input: data.Args, Cwd: cwd})
 	case "result":
+		cwd, _ := a.toolCwds.LoadAndDelete(data.ToolCallID)
+		cwdStr, _ := cwd.(string)
 		a.emit(agentruntime.ToolResult{
 			ToolCallID: data.ToolCallID,
 			Content:    rawResultText(data.Result),
 			IsError:    data.IsError,
+			Cwd:        cwdStr,
 		})
 	}
+}
+
+// execWorkdir is the `workdir` an exec call ran in; other tools, a missing or
+// non-absolute workdir → "" (unknown).
+func execWorkdir(name string, args json.RawMessage) string {
+	if name != "exec" {
+		return ""
+	}
+	var in struct {
+		Workdir string `json:"workdir"`
+	}
+	if json.Unmarshal(args, &in) != nil {
+		return ""
+	}
+	return shellloc.AbsDir(in.Workdir)
 }
 
 func (a *activeTurn) handleLifecycle(raw json.RawMessage) {

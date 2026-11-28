@@ -2,12 +2,13 @@ import * as React from "react";
 
 import {
   FilePreviewPanel as SharedFilePreviewPanel,
-  ResizableSidebar,
   cn,
+  pathBasename,
   previewNeedsMonaco,
   useUiTranslation,
   type FilePreviewFailure,
   type FilePreviewFailureKind,
+  type FilePreviewTab as SharedPreviewTab,
   type FilePreviewPorts,
 } from "@agentre-hub/agentre-ui";
 
@@ -16,11 +17,11 @@ import {
   WorkspaceFsReadFile,
 } from "@/../wailsjs/go/app/App";
 import type { chat_svc } from "@/../wailsjs/go/models";
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import {
   selectActivePreviewTab,
   useFilePreviewTabsStore,
 } from "@/stores/file-preview-tabs-store";
+import { useSessionRoot } from "@/stores/session-root-store";
 import { useSessionStatus } from "@/stores/session-status-store";
 
 import { useOpenFile } from "../chat-context-sidebar/views/use-open-file";
@@ -36,10 +37,16 @@ type Props = {
    */
   messages?: chat_svc.ChatMessage[];
   /**
-   * 会话工作目录。多工作根会话下真正生效的是侧栏当前选中的那个根（经
-   * chat-sidebar-store 转发），这里只是它的兜底。
+   * 会话工作目录（主根的绝对路径）。标签自己绑定工作根（`tab.root`，空串 = 这个
+   * 主根），**不**跟随侧栏当前选中的根。
    */
   cwd?: string;
+  /**
+   * 面板第一行右端的宿主动作（编辑区分屏的「占满 / 还原」「关闭全部」）。共享面板
+   * 没有动作槽，这几颗按钮叠在它第一行的右端——两个以上标签时是标签条（34px），
+   * 只有一个标签时标签条不画、第一行是 header（40px）——第一行为它们让出右侧空间。
+   */
+  actions?: React.ReactNode;
 };
 
 /** 文件身份图标是宿主的资产（扩展名目录 + 色调 token），经 props 交给包里那份面板。 */
@@ -61,17 +68,23 @@ function renderFileIcon(path: string, slot: "tab" | "overflow" | "header") {
  *      的会话 + 工作根实参在闭包里带着，包那侧只认 relPath）；
  *   2. 把 `file-preview-tabs-store` 的这一会话的标签与动作映射成 props；
  *   3. 装载 Monaco（装载器用 Vite 的 `?worker`，进不了纯 tsc 构建的包）并注进去；
- *   4. **给它一个容器**：桌面端这一栏是右侧栏里那条可拖宽的 ResizableSidebar
- *      （独立 persistenceKey），关掉最后一个标签时先播 200ms 出场动画再收起。
+ *   4. **给它一个容器**：桌面端是编辑区分屏的文件一侧（editor-split，宽度与
+ *      比例由分屏决定），关掉最后一个标签时先播 200ms 出场动画再收起。
  *      「开在哪、多宽、能不能拖」是宿主的布局问题（spec 决策 3），控制台那侧的
  *      容器是详情列里一条定宽 420、不可拖的分栏。
  *
- * 工作根的持有者是侧栏（chat-sidebar-store），侧栏还没写过（例如被收起）时回落到
- * 会话 cwd；绑定的 root 实参在当前根就是会话 cwd 时传空串（后端把空串解释成会话
- * cwd）。轮次结束（doneTick）是「文件可能变了」的唯一强信号，接成包那侧的
+ * 每个标签绑定自己的工作根（`tab.root`，空串 = 会话主根，后端把空串解释成会话
+ * cwd），取数、Diff 归属与路径行都按活动标签的根走，侧栏当前选中的根与它无关。
+ * 根已不在会话认领集合里的标签标「已移除」：「文件」给文件不存在态，「Diff」仍按
+ * 对话记录显示。轮次结束（doneTick）是「文件可能变了」的唯一强信号，接成包那侧的
  * `refreshToken`。
  */
-export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
+export function FilePreviewPanel({
+  sessionId,
+  messages,
+  cwd = "",
+  actions,
+}: Props) {
   const { t: uiT } = useUiTranslation();
   const entry = useFilePreviewTabsStore(
     (s) => s.previewTabsBySession[sessionId],
@@ -97,11 +110,37 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
     (s) => s.closeAllPreviewTabs,
   );
 
-  const workRoot = useChatSidebarStore(
-    (s) => s.workRootBySession[sessionId] ?? "",
-  );
-  const root = workRoot === "" ? cwd : workRoot;
-  const rootArg = root === cwd ? "" : root;
+  const doneTick = useSessionStatus(sessionId)?.doneTick ?? 0;
+  // 认领集合只有一份：会话根 store（对话页挂着它的取数与 chat:workroots 推送，点链接
+  // 认领也落在那里）。空集合是「还没取到 / 取不到」，不据此判任何标签已移除。
+  const workRoots = useSessionRoot(sessionId).roots;
+
+  // 活动标签自己的根——不看侧栏当前选的是哪个根。
+  // 侧栏打开的标签绑的是绝对路径形式的主根：后端约定主根传空串，在这一个边界
+  // 归一，其余一律照标签自己的根。
+  const tabRoot = activeTab?.root ?? "";
+  const rootArg = tabRoot === cwd ? "" : tabRoot;
+  const root = rootArg === "" ? cwd : rootArg;
+
+  // 标签条要的根信息：非主根显示根名；根集合已知且不含它 = 已移除。空集合是「还没
+  // 取到 / 取不到」，不当作移除。
+  const sharedTabs = React.useMemo((): SharedPreviewTab[] => {
+    const known = workRoots.length > 0;
+    return (entry?.tabs ?? []).map((tab) => {
+      if (tab.root === "" || tab.root === cwd) return tab;
+      const claimed = workRoots.find((r) => r.path === tab.root);
+      if (claimed?.isPrimary) return tab;
+      return {
+        ...tab,
+        rootLabel: claimed?.name || pathBasename(tab.root),
+        removed: known && !claimed,
+      };
+    });
+  }, [entry?.tabs, workRoots, cwd]);
+  const activeRemoved =
+    sharedTabs.find(
+      (tab) => tab.root === tabRoot && tab.path === activeTab?.path,
+    )?.removed === true;
 
   // 工具 diff 与图片两档永远不碰 Monaco，不为它们把那个懒加载 chunk 拉下来。
   const monaco = useMonaco(previewNeedsMonaco(activeTab));
@@ -114,6 +153,12 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
   const ports: FilePreviewPorts = React.useMemo(
     () => ({
       readFile: async (path) => {
+        // 根已被移除：目录不在了，不去问后端（它会把空/未知根当会话 cwd 读）。
+        if (activeRemoved) {
+          throw Object.assign(new Error(), {
+            kind: "notFound",
+          } satisfies FilePreviewFailure);
+        }
         const view = await WorkspaceFsReadFile(sessionId, rootArg, path);
         // 归类的**产出点**就在这里：服务层把能判的失败作为结构化原因随应答带回
         // （Wails 边界只过 Error() 字符串，没有别的通道），宿主在这里把它翻成包
@@ -142,14 +187,20 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
         }
         return view;
       },
-      gitFileContent: (path) =>
-        WorkspaceFsGitFileContent(sessionId, rootArg, path),
+      gitFileContent: (path) => {
+        if (activeRemoved) {
+          return Promise.reject(
+            Object.assign(new Error(), {
+              kind: "notFound",
+            } satisfies FilePreviewFailure),
+          );
+        }
+        return WorkspaceFsGitFileContent(sessionId, rootArg, path);
+      },
       ...(canOpenLocally ? { openPath: openFile } : {}),
     }),
-    [sessionId, rootArg, canOpenLocally, openFile],
+    [sessionId, rootArg, canOpenLocally, openFile, activeRemoved],
   );
-
-  const doneTick = useSessionStatus(sessionId)?.doneTick ?? 0;
 
   // 关掉最后一个标签时整栏要先播 200ms 出场动画再消失：动画期间标签还留在 store
   // 里，面板照常渲染。关闭按路径下发——出场动画期间用户可能已打开另一个文件
@@ -166,15 +217,15 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
   );
   const tabCount = entry?.tabs.length ?? 0;
   const handleClose = React.useCallback(
-    (path: string) => {
+    (path: string, tabRoot = "") => {
       if (closing) return;
       if (tabCount > 1) {
-        closePreviewTab(sessionId, path);
+        closePreviewTab(sessionId, { root: tabRoot, path });
         return;
       }
       setClosing(true);
       closeTimerRef.current = window.setTimeout(() => {
-        closePreviewTab(sessionId, path);
+        closePreviewTab(sessionId, { root: tabRoot, path });
         setClosing(false);
       }, 200);
     },
@@ -184,44 +235,59 @@ export function FilePreviewPanel({ sessionId, messages, cwd = "" }: Props) {
   if (!activeTab) return null;
 
   return (
-    <ResizableSidebar
-      persistenceKey="file-preview"
-      ariaLabel={uiT("filePreview.panelAria")}
-      edge="left"
-      defaultWidth={440}
+    <aside
+      aria-label={uiT("filePreview.panelAria")}
       className={cn(
-        "overflow-hidden",
+        "content-sheet relative flex min-h-0 min-w-0 flex-1 flex-col",
         closing
           ? "animate-out slide-out-to-right-6 duration-200 ease-out motion-reduce:animate-none"
           : "animate-in slide-in-from-right-6 duration-200 ease-out motion-reduce:animate-none",
       )}
     >
       <SharedFilePreviewPanel
-        tabs={entry?.tabs ?? []}
+        tabs={sharedTabs}
         activePath={activeTab.path}
+        activeRoot={activeTab.root}
         segment={activeTab.segment}
         sourceMode={activeTab.sourceMode}
         revealTarget={activeTab.reveal ?? undefined}
         ports={ports}
         // 取数目标的身份：哪个会话的哪个工作根（见包那侧 sourceKey 的注释）。
-        sourceKey={`${sessionId}\n${rootArg}`}
+        sourceKey={`${sessionId}\n${rootArg}\n${activeRemoved}`}
         refreshToken={doneTick}
         monaco={monaco}
         messages={messages}
         root={root}
         renderFileIcon={renderFileIcon}
         onSegmentChange={(segment) => setPreviewSegment(sessionId, segment)}
-        onActivate={(path) => activatePreviewTab(sessionId, path)}
+        onActivate={(path, tabRoot = "") =>
+          activatePreviewTab(sessionId, { root: tabRoot, path })
+        }
         // 「双击转常驻」在 store 里是「先切过去，再把活动的临时标签转常驻」两步。
-        onPromote={(path) => {
-          activatePreviewTab(sessionId, path);
+        onPromote={(path, tabRoot = "") => {
+          activatePreviewTab(sessionId, { root: tabRoot, path });
           promoteActivePreviewTab(sessionId);
         }}
-        onPin={(path) => togglePreviewTabPin(sessionId, path)}
+        onPin={(path, tabRoot = "") =>
+          togglePreviewTabPin(sessionId, { root: tabRoot, path })
+        }
         onClose={handleClose}
-        onCloseOthers={(path) => closeOtherPreviewTabs(sessionId, path)}
+        onCloseOthers={(path, tabRoot = "") =>
+          closeOtherPreviewTabs(sessionId, { root: tabRoot, path })
+        }
         onCloseAll={() => closeAllPreviewTabs(sessionId)}
+        className={actions ? "[&>:first-child]:pr-14" : undefined}
       />
-    </ResizableSidebar>
+      {actions ? (
+        <div
+          className={cn(
+            "absolute top-0 right-0 flex items-center gap-0.5 px-1",
+            tabCount > 1 ? "h-[34px]" : "h-10",
+          )}
+        >
+          {actions}
+        </div>
+      ) : null}
+    </aside>
   );
 }

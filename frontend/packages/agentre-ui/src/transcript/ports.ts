@@ -15,6 +15,7 @@
 
 import type { MentionRef } from "../chat-input/mentions/xml";
 import type { PreviewAnchor } from "../file-preview/anchor";
+import type { LinkRoot } from "../lib/link-classify";
 import type {
   MemoryDraft,
   MemoryEntryView,
@@ -70,6 +71,12 @@ export interface ResolvePlanActionResult {
   userMessageId?: number;
   assistantMessageId?: number;
   stream?: string;
+}
+
+/** 预览一个工作根里的文件：`root` 是根的绝对路径，`path` 相对它。 */
+export interface PreviewFileTarget {
+  root: string;
+  path: string;
 }
 
 export interface ReadFileResult {
@@ -136,8 +143,20 @@ export interface TranscriptPorts {
    * 提供时浮窗不出相反按钮，点击按今天的 previewFile 握手分流。
    */
   fileOpenDefault?(): "preview" | "external";
-  /** 在外部浏览器打开 URL。桌面端走 Wails runtime，浏览器端就是 window.open。 */
-  openExternalURL?(url: string): void;
+  /**
+   * 在外部浏览器打开 URL。桌面端走 Wails runtime，浏览器端就是 window.open。
+   * 带 sessionId 时宿主可按会话改写目标（远端会话里的 localhost 链接要经端口转发
+   * 才够得到执行设备上的服务）；宿主不认这个参数时照旧直接打开。
+   */
+  openExternalURL?(
+    url: string,
+    opts?: { sessionId?: number },
+  ): void | Promise<void>;
+  /**
+   * 在宿主的应用内网页预览里打开这条 URL（桌面端的「网页预览」工具窗）。只对指向 localhost
+   * 的链接提供入口；宿主不提供时（agentre-server）浮窗里不渲染「应用内预览」。
+   */
+  previewURL?(sessionId: number, url: string): void;
   /** 读工作区文件（转录里内联图片需要）。 */
   readWorkspaceFile?(sessionId: number, path: string): Promise<ReadFileResult>;
   /** 把一条本地命令挂到终端标签上。纯桌面能力。 */
@@ -166,7 +185,12 @@ export interface TranscriptPorts {
    */
   previewFile?(
     sessionId: number,
-    path: string,
+    /**
+     * 字符串 = 会话级 relPath（今天的形状）。`{ root, path }` 只在宿主给了工作根
+     * （`SessionLocationProvider` 的 `roots`）时出现：`root` 是链接归属的那个根的
+     * 绝对路径，`path` 相对它。
+     */
+    path: string | PreviewFileTarget,
     anchor?: PreviewAnchor,
     /**
      * `force`：用户在浮窗 / 失败提示里**明确**选了「预览」，宿主忽略
@@ -174,6 +198,14 @@ export interface TranscriptPorts {
      */
     opts?: { force?: boolean },
   ): boolean;
+
+  /**
+   * 用户点了一条不在任何已认领根内的绝对路径：请宿主按自动认领的同一套规则当场
+   * 认领（同一仓库的 worktree 才成立），回认领后的**完整**根集合。认领不成立时
+   * 照样回集合（不含它）或 reject，调用方都按今天的外部文件处理。宿主不提供时
+   * 不认领。
+   */
+  claimPath?(sessionId: number, absPath: string): Promise<readonly LinkRoot[]>;
 
   /** 记忆卡片（见 `MemoryTranscriptPorts`）。宿主不提供时记忆写入按通用命令呈现。 */
   memory?: MemoryTranscriptPorts;

@@ -8,6 +8,7 @@ import { BoardEmptyState } from "./board-empty-state";
 import { BoardSkeleton } from "./board-skeleton";
 import { useBoardColumns } from "./use-board-columns";
 import { BOARD_STAGE_META } from "./stages";
+import { BOARD_STAGES } from "./types";
 import type {
   BoardDragBindings,
   BoardPorts,
@@ -28,6 +29,11 @@ export interface IssueBoardProps {
    * 满宽，不接拖拽（移动走卡片菜单）。不传（`columns`）时与桌面一致。
    */
   layout?: "columns" | "stage";
+  /**
+   * 点名定位一张卡（如 `?issue=<id>`）：折叠在「更多已完成」里的先展开，阶段档切到
+   * 它所在的阶段，卡片滚入视野并短暂高亮。找不到就什么都不做。
+   */
+  focusCardId?: number | null;
   /** 不在卡片上显示 `#N`（宿主的编号对用户没有意义时）。不传时与桌面一致。 */
   hideCardNumber?: boolean;
   /**
@@ -51,6 +57,7 @@ export function IssueBoard({
   nowMs,
   className,
   layout = "columns",
+  focusCardId,
   hideCardNumber,
   openCardMenuId,
   onCardMenuOpenChange,
@@ -62,6 +69,23 @@ export function IssueBoard({
   const [mountedNow] = React.useState(Date.now);
   const resolvedNow = nowMs ?? mountedNow;
   const { columns, isEmpty, expandDone } = useBoardColumns(viewModel);
+
+  const focusStage =
+    focusCardId == null
+      ? undefined
+      : BOARD_STAGES.find((stage) =>
+          viewModel.columns[stage]?.cards.some((c) => c.id === focusCardId),
+        );
+  const focusHidden =
+    focusStage !== undefined &&
+    !columns
+      .find((column) => column.stage === focusStage)
+      ?.cards.some((c) => c.id === focusCardId);
+  React.useEffect(() => {
+    if (focusStage === undefined) return;
+    if (focusHidden) expandDone();
+    setActiveStage(focusStage);
+  }, [focusStage, focusHidden, focusCardId, expandDone]);
 
   const stageLayout = layout === "stage";
   const shown = stageLayout
@@ -132,6 +156,7 @@ export function IssueBoard({
             cardDrag={stageLayout ? undefined : drag?.card}
             onExpand={expandDone}
             nowMs={resolvedNow}
+            focusCardId={focusCardId}
             hideCardNumber={hideCardNumber}
             openCardMenuId={openCardMenuId}
             onCardMenuOpenChange={onCardMenuOpenChange}

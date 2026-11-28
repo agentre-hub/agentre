@@ -318,3 +318,68 @@ func TestServeHookInbox(t *testing.T) {
 		assert.Empty(t, got2.Messages)
 	})
 }
+
+// TestServeHookInbox_RecordsToolLocation 钉死 hook 收件箱的位置上报(spec 识别信号:
+// PostToolUse hook 输入的 cwd 覆盖 Bash `cd`)。
+func TestServeHookInbox_RecordsToolLocation(t *testing.T) {
+	g := New("127.0.0.1", 0, newFakeLookup())
+	backend := &agent_backend_entity.AgentBackend{ID: 1, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "key-99"}
+	tok, err := g.tokens.Issue(backend, backend.LLMProviderKey, "", time.Minute)
+	assert.NoError(t, err)
+	get := func(query string) []string {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/hook/v1/inbox?"+query, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		g.serveHookInbox(rr, req)
+		assert.Equal(t, http.StatusOK, rr.Code)
+		var got struct {
+			Messages []string `json:"messages"`
+		}
+		assert.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+		return got.Messages
+	}
+
+	t.Run("Given a main-agent hook with cwd and tool_use_id, Then the location is recorded and steer still drains", func(t *testing.T) {
+		g.Steer().Push("abc", "qid-1", "first")
+		msgs := get("session_id=abc&tool_use_id=toolu_1&cwd=%2Frepo%2Fsub")
+		assert.Equal(t, []string{"first"}, msgs)
+		loc, ok := g.HookLocations().Take("toolu_1")
+		assert.True(t, ok)
+		assert.Equal(t, HookLocation{Cwd: "/repo/sub"}, loc)
+		_, again := g.HookLocations().Take("toolu_1")
+		assert.False(t, again, "Take consumes the record")
+	})
+
+	t.Run("Given a subagent hook (agent_id), Then the location is recorded with the agent id and the steer queue is NOT drained", func(t *testing.T) {
+		g.Steer().Push("abc", "qid-2", "held")
+		msgs := get("session_id=abc&tool_use_id=toolu_2&cwd=%2Frepo%2Fwt&agent_id=a1")
+		assert.Empty(t, msgs, "a subagent boundary must not receive the main conversation's steer")
+		loc, ok := g.HookLocations().Take("toolu_2")
+		assert.True(t, ok)
+		assert.Equal(t, HookLocation{Cwd: "/repo/wt", AgentID: "a1"}, loc)
+		assert.Equal(t, []string{"held"}, get("session_id=abc"), "the held steer waits for the next main boundary")
+	})
+
+	t.Run("Given an old hook without cwd, Then nothing is recorded and the inbox works as before", func(t *testing.T) {
+		g.Steer().Push("abc", "qid-3", "x")
+		assert.Equal(t, []string{"x"}, get("session_id=abc&tool_use_id=toolu_3"))
+		_, ok := g.HookLocations().Take("toolu_3")
+		assert.False(t, ok)
+	})
+}
+
+func TestHookLocations_ForgetDropsTheSessionsRecords(t *testing.T) {
+	h := NewHookLocations()
+	h.Record("s1", "t1", "/a", "")
+	h.Record("s2", "t2", "/b", "")
+	h.Record("s1", "", "/c", "") // no tool id → ignored
+	h.Record("s1", "t3", "", "") // no cwd → ignored
+	h.Forget("s1")
+	_, ok := h.Take("t1")
+	assert.False(t, ok)
+	loc, ok := h.Take("t2")
+	assert.True(t, ok)
+	assert.Equal(t, "/b", loc.Cwd)
+	_, ok = h.Take("t3")
+	assert.False(t, ok)
+}

@@ -112,6 +112,7 @@ func TestIssueDelete_NotifiesSyncOnce(t *testing.T) {
 	mi.EXPECT().Find(ctx, int64(9)).Return(&issue_entity.Issue{
 		ID: 9, SyncMeta: syncmeta_entity.SyncMeta{SyncID: "issue-sync-1", SyncVersion: 6},
 	}, nil)
+	registerLinkCleanup(t, ctx, 9)
 	mi.EXPECT().Delete(ctx, int64(9)).Return(nil)
 
 	require.NoError(t, svc.Delete(ctx, 9))

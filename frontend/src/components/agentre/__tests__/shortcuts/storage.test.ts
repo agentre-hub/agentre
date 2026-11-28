@@ -51,6 +51,29 @@ describe("loadShortcutsState", () => {
     });
   });
 
+  it("Given a saved primary-alt override next to an old primary one, Then both load", () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        version: 1,
+        bindings: {
+          "nav.chat": { mod: "primary", key: "K" },
+          "toolWindow.region.right": { mod: "primary-alt", key: "r" },
+        },
+      }),
+    );
+
+    const state = loadShortcutsState();
+    expect(state.bindings.get("nav.chat")).toEqual({
+      mod: "primary",
+      key: "K",
+    });
+    expect(state.bindings.get("toolWindow.region.right")).toEqual({
+      mod: "primary-alt",
+      key: "R",
+    });
+  });
+
   it("ignores legacy behavior fields silently", () => {
     localStorage.setItem(
       STORAGE_KEY,

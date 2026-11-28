@@ -112,8 +112,6 @@ function imageView(content: string, contentType: string) {
 beforeEach(() => {
   localStorage.clear();
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "changes",
     showIgnored: false,
   });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });

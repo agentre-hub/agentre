@@ -1,12 +1,19 @@
 import {
   fireEvent,
-  render,
+  render as rtlRender,
   screen,
   waitFor,
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// 页面读 `?issue=`，必须在路由里渲染。
+function render(ui: ReactElement, route = "/issues") {
+  return rtlRender(<MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>);
+}
 
 const appMocks = vi.hoisted(() => ({
   IssueList: vi.fn(),
@@ -15,6 +22,8 @@ const appMocks = vi.hoisted(() => ({
   IssueUpdate: vi.fn(),
   IssueDelete: vi.fn(),
   IssueMove: vi.fn(),
+  IssueSessionsOfIssues: vi.fn(),
+  IssueLinkSession: vi.fn(),
   IssueCreateLabel: vi.fn(),
   IssueUpdateLabel: vi.fn(),
   IssueDeleteLabel: vi.fn(),
@@ -35,6 +44,7 @@ vi.mock("../../../../wailsjs/runtime/runtime", () => ({
 
 import { useProjectListStore } from "@/stores/project-list-store";
 import { useChatAgentsStore } from "@/stores/chat-agents-store";
+import { useChatTabsStore } from "@/stores/chat-tabs-store";
 
 import { IssuesPage } from "../issues-page";
 
@@ -80,6 +90,9 @@ beforeEach(() => {
     },
   ]);
   appMocks.ListChatAgents.mockResolvedValue([]);
+  appMocks.IssueSessionsOfIssues.mockResolvedValue([]);
+  appMocks.IssueLinkSession.mockResolvedValue(undefined);
+  useChatTabsStore.setState({ tabs: [], activeTabId: null });
   appMocks.SyncStatus.mockResolvedValue({
     enabled: true,
     boardJoinNoticePending: false,
@@ -211,8 +224,9 @@ describe("IssuesPage", () => {
 
     await user.click(screen.getByTestId("board-card-menu-142"));
     // Radix 的子菜单在 jsdom 里不认合成的 hover，键盘那条路才是真的能走通的一条
-    // ——「卡片菜单的键盘可达」本来也是规格要求的验收点。
-    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
+    // ——「卡片菜单的键盘可达」本来也是规格要求的验收点。首项是「开始会话」，
+    // 所以到「移动到」要多按一次。
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}");
     await user.click(
       await screen.findByRole("menuitem", { name: "In progress" }),
     );
@@ -233,7 +247,7 @@ describe("IssuesPage", () => {
     await screen.findByTestId("board-card-142");
 
     await user.click(screen.getByTestId("board-card-menu-142"));
-    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}");
     await user.click(
       await screen.findByRole("menuitem", { name: "In progress" }),
     );
@@ -257,7 +271,7 @@ describe("IssuesPage", () => {
     await screen.findByTestId("board-card-142");
 
     await user.click(screen.getByTestId("board-card-menu-142"));
-    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}");
     await user.click(
       await screen.findByRole("menuitem", { name: "In progress" }),
     );
@@ -531,5 +545,154 @@ describe("IssuesPage", () => {
         expect.objectContaining({ name: "ui" }),
       ),
     );
+  });
+});
+
+describe("IssuesPage 开始会话与关联会话", () => {
+  const agents = [
+    { id: 3, name: "First", chattable: true, sessions: [] },
+    { id: 7, name: "Reviewer", chattable: true, sessions: [] },
+  ];
+
+  async function startSessionOf(cardId: number) {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    await user.click(await screen.findByTestId(`board-card-menu-${cardId}`));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Start session" }),
+    );
+  }
+
+  function newTabMeta() {
+    const tab = useChatTabsStore.getState().tabs.at(-1);
+    return tab?.meta;
+  }
+
+  it("Given a task with assigned agent, backend and model, When Start session is chosen, Then the new-session tab is pre-selected from the task and seeded with title and description", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({ agents });
+    appMocks.IssueList.mockResolvedValue(
+      boardResponse({
+        issues: [
+          {
+            ...card,
+            assigneeAgentID: 7,
+            agentBackendID: 9,
+            llmProviderKey: "acme",
+            llmModelKey: "m1",
+          },
+        ],
+      }),
+    );
+    render(<IssuesPage />);
+
+    await startSessionOf(142);
+
+    expect(newTabMeta()).toEqual({
+      kind: "new",
+      projectId: 4,
+      agentId: 7,
+      workMode: "",
+      seed: {
+        text: "fix OAuth state loss\n\nthe callback drops it",
+        issueId: 142,
+        backendId: 9,
+        providerKey: "acme",
+        modelKey: "m1",
+      },
+    });
+    // 只是打开草稿：没发消息之前不建立关联。
+    expect(appMocks.IssueLinkSession).not.toHaveBeenCalled();
+  });
+
+  it("Given a task with nothing assigned, When Start session is chosen, Then agent falls back to the first chattable one and no backend or model is named", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({ agents });
+    appMocks.IssueList.mockResolvedValue(
+      boardResponse({ issues: [{ ...card, body: "" }] }),
+    );
+    render(<IssuesPage />);
+
+    await startSessionOf(142);
+
+    const meta = newTabMeta();
+    expect(meta).toMatchObject({ kind: "new", projectId: 4, agentId: 3 });
+    const seed = (meta as { seed: Record<string, unknown> }).seed;
+    expect(seed.text).toBe("fix OAuth state loss");
+    expect(seed.backendId).toBeUndefined();
+    expect(seed.providerKey).toBeUndefined();
+  });
+
+  it("Given a task whose assigned agent no longer exists, When Start session is chosen, Then the default agent is used", async () => {
+    appMocks.ListChatAgents.mockResolvedValue({ agents });
+    appMocks.IssueList.mockResolvedValue(
+      boardResponse({ issues: [{ ...card, assigneeAgentID: 99 }] }),
+    );
+    render(<IssuesPage />);
+
+    await startSessionOf(142);
+
+    expect(newTabMeta()).toMatchObject({ agentId: 3 });
+  });
+
+  it("Given linked sessions, When the board renders, Then the card lists them with status, title and agent and clicking opens the session", async () => {
+    appMocks.IssueSessionsOfIssues.mockImplementation(async (ids: number[]) =>
+      ids.includes(142)
+        ? [
+            {
+              issueID: 142,
+              sessions: [
+                {
+                  sessionID: 31,
+                  title: "修 OAuth",
+                  agentID: 7,
+                  agentName: "Reviewer",
+                  agentStatus: "running",
+                },
+                {
+                  sessionID: 32,
+                  title: "补测试",
+                  agentID: 7,
+                  agentName: "Reviewer",
+                  agentStatus: "error",
+                },
+              ],
+            },
+          ]
+        : [],
+    );
+    render(<IssuesPage />);
+
+    const block = await screen.findByTestId("board-card-sessions-142");
+    const rows = within(block).getAllByRole("button");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getByLabelText("Running")).toBeInTheDocument();
+    expect(within(rows[1]).getByLabelText("Error")).toBeInTheDocument();
+    expect(rows[0]).toHaveTextContent("修 OAuth");
+    expect(rows[0]).toHaveTextContent("Reviewer");
+
+    await userEvent.setup({ pointerEventsCheck: 0 }).click(rows[1]);
+    expect(newTabMeta()).toEqual({ kind: "session", sessionId: 32 });
+  });
+
+  it("Given no linked sessions, When the board renders, Then the whole board is fetched in one call and no sessions block is shown", async () => {
+    render(<IssuesPage />);
+    await screen.findByTestId("board-card-142");
+    await waitFor(() =>
+      expect(appMocks.IssueSessionsOfIssues).toHaveBeenCalledWith(
+        expect.arrayContaining([142]),
+      ),
+    );
+    expect(appMocks.IssueSessionsOfIssues).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("board-card-sessions-142")).toBeNull();
+  });
+
+  it("Given /issues?issue=142, When the board renders, Then that card is focused", async () => {
+    render(<IssuesPage />, "/issues?issue=142");
+    const article = await screen.findByTestId("board-card-142");
+    expect(article).toHaveAttribute("data-focused", "true");
+  });
+
+  it("Given /issues without the parameter, When the board renders, Then nothing is focused", async () => {
+    render(<IssuesPage />);
+    const article = await screen.findByTestId("board-card-142");
+    expect(article).not.toHaveAttribute("data-focused");
   });
 });

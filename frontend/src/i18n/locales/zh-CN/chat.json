@@ -136,14 +136,17 @@
       "expand": "展开",
       "collapse": "收起"
     },
-    "sidebar": "对话上下文",
     "workRoots": {
       "mainRepo": "主仓库",
       "worktree": "worktree",
-      "pinned": "已固定",
-      "followed": "已切到 AI 正在改的 worktree：{{name}}",
-      "followedRepo": "已切到 AI 正在改的仓库：{{name}}",
-      "stayInMain": "留在主仓库"
+      "menuTitle": "工作根",
+      "aiHere": "AI 在这里",
+      "follow": "跟随 AI 切换",
+      "followed": "已跟随 AI 切到 worktree {{name}}",
+      "followedRepo": "已跟随 AI 切到主仓库 {{name}}",
+      "stay": "留在 {{name}}",
+      "removed": "worktree {{name}} 已被移除，回到 {{main}}",
+      "removedGroup": "{{name}}（已移除）"
     },
     "gitStatus": {
       "ahead": "领先上游 {{count}} 个提交",
@@ -350,6 +353,8 @@
       "noPort": "无监听端口",
       "openPort": "在浏览器打开",
       "openPortNumber": "在浏览器打开 :{{port}}",
+      "previewPort": "应用内预览",
+      "previewPortNumber": "应用内预览 :{{port}}",
       "killProcess": "结束进程",
       "killProcessConfirm": "结束？",
       "killedProcess": "已结束 {{command}}",
@@ -358,9 +363,6 @@
     },
     "toolbar": {
       "aria": "会话工具栏",
-      "contextSidebar": "上下文侧栏",
-      "hideContextSidebar": "隐藏上下文侧栏",
-      "showContextSidebar": "显示上下文侧栏",
       "stop": "停止",
       "stopActiveTitle": "停止当前回合"
     },
@@ -478,5 +480,140 @@
   "taskProgress": {
     "allCompleted": "全部完成",
     "title": "任务进度"
+  },
+  "toolWindows": {
+    "strip": "工具窗",
+    "rightArea": "右侧工具窗",
+    "bottomArea": "底部工具窗",
+    "hide": "隐藏",
+    "options": "{{name}}选项",
+    "slots": {
+      "rightTop": "右上",
+      "rightBottom": "右下",
+      "bottomLeft": "底部左",
+      "bottomRight": "底部右"
+    },
+    "modes": {
+      "pinned": "停靠 · 固定",
+      "autoHide": "停靠 · 失焦自动收起",
+      "float": "浮动"
+    },
+    "menu": {
+      "viewMode": "视图模式",
+      "moveTo": "移到",
+      "maximize": "最大化",
+      "restore": "还原",
+      "restoreDefaults": "恢复默认布局"
+    },
+    "dividers": {
+      "right": "调整右侧工具窗宽度",
+      "bottom": "调整底部工具窗高度",
+      "rightSplit": "调整右上与右下的分配",
+      "bottomSplit": "调整底部左与底部右的分配"
+    },
+    "dropTo": "放到{{slot}}",
+    "running": "运行中",
+    "alert": "有文件重叠"
+  },
+  "terminalToolWindow": {
+    "label": "终端",
+    "tabTitle": "终端 {{n}}",
+    "withRoot": "{{title}} · {{root}}",
+    "new": "新建终端",
+    "close": "关闭{{name}}"
+  },
+  "editorSplit": {
+    "divider": "调整对话与文件宽度",
+    "fill": "占满编辑区",
+    "restore": "还原",
+    "closeAll": "关闭全部文件",
+    "rail": {
+      "title": "对话"
+    }
+  },
+  "sessionInfoToolWindow": {
+    "label": "会话信息",
+    "rows": {
+      "agent": "Agent",
+      "backend": "后端",
+      "model": "模型与思考力度",
+      "permission": "权限模式",
+      "context": "上下文用量",
+      "usage": "累计用量",
+      "memory": "带入的记忆",
+      "location": "位置",
+      "created": "创建时间与轮数",
+      "cliSession": "CLI 会话 ID"
+    },
+    "usage": "输入 {{input}} · 输出 {{output}} · 缓存命中 {{cache}}",
+    "otherWorktrees_one": "另有 {{count}} 个 worktree",
+    "otherWorktrees_other": "另有 {{count}} 个 worktree",
+    "turns_one": "{{count}} 轮",
+    "turns_other": "{{count}} 轮",
+    "memory": {
+      "none": "无",
+      "count_one": "{{count}} 条",
+      "count_other": "{{count}} 条",
+      "view": "查看",
+      "title": "带入的记忆"
+    }
+  },
+  "relationsToolWindow": {
+    "label": "关联",
+    "empty": "暂无关联",
+    "groups": {
+      "tasks": "任务",
+      "dispatchedBy": "派发我的",
+      "dispatched": "我派发的",
+      "sharing": "同一份代码上在跑"
+    },
+    "otherSessions_one": "另有 {{count}} 个会话",
+    "otherSessions_other": "另有 {{count}} 个会话",
+    "openTask": "打开看板中的任务 #{{id}}",
+    "linkTask": "关联任务",
+    "newTask": "新建任务",
+    "searchTasks": "搜索任务",
+    "noMatch": "没有匹配的任务",
+    "createNamed": "新建任务「{{term}}」",
+    "failed": "操作失败",
+    "method": {
+      "agrctl_send": "agrctl send",
+      "agent_call": "agent 派发"
+    },
+    "isolated": "隔离",
+    "lastReply": "最后一条回复",
+    "noReply": "还没有回复",
+    "overlapOne": "也改了 {{file}}",
+    "overlapMany": "也改了 {{file}} 等 {{count}} 个文件"
+  },
+  "webPreviewToolWindow": {
+    "label": "网页预览",
+    "empty": "还没有监听中的端口。启动开发服务后会自动出现标签。",
+    "address": "地址",
+    "back": "后退",
+    "refresh": "刷新",
+    "openInBrowser": "在浏览器打开",
+    "fill": "占满编辑区",
+    "restore": "还原",
+    "closeTab": "关闭标签",
+    "loading": "加载中…",
+    "invalidUrl": "请输入 http 或 https 地址。",
+    "forwarded": "{{device}} · 经端口转发",
+    "portGone": "这个端口已不再监听",
+    "reload": "重新加载",
+    "openForwardSettings": "打开端口转发设置",
+    "reasons": {
+      "frameBlocked": "这个页面无法在应用内显示：目标站禁止被嵌入（{{detail}}）。",
+      "certificate": "证书校验失败：{{detail}}",
+      "forwardFailed": "端口转发没能完成：{{detail}}",
+      "unreachable": "无法访问这个页面：{{detail}}",
+      "noLoad": "页面没有加载出来，可能无法访问或响应太慢。"
+    },
+    "forwardFailures": {
+      "tlsVerification": "执行设备上 https 目标的证书没有通过校验，而这条端口转发不忽略证书错误",
+      "noListener": "执行设备上没有服务接受这个连接",
+      "nameResolution": "执行设备上解析不到目标主机名",
+      "deviceUnreachable": "此刻连不上执行设备"
+    }
   }
 }

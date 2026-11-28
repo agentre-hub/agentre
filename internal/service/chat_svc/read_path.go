@@ -84,19 +84,22 @@ func (s *chatSvc) LoadMessageBlocks(ctx context.Context, req *LoadMessageBlocksR
 
 // blockTypeSources 把前端点名的**投影后**块类型翻译成它在块表里的存储类型。
 //
-// 一张 tool_use 卡在库里可能由三种块拼出来(见 projection.go):
+// 一张 tool_use 卡在库里可能由四种块拼出来(见 projection.go):
 //   - tool_use 本身;
 //   - subagent_state —— 后台任务的累计态,预扫后合入对应 tool_use 卡的 .subagent。
 //     少取它,后台任务面板会把所有后台任务判成不存在;
 //   - nested_tool_use —— subagent 内层的工具调用,同样投影成 tool_use 卡。少取它,
-//     大纲那一轮的「编辑次数」会漏掉子代理改的文件。
+//     大纲那一轮的「编辑次数」会漏掉子代理改的文件;
+//   - tool_cwd —— 外层调用旁记下的「AI 当时所在目录」,预扫后合入卡的 .cwd。少取它,
+//     派生视图里每张卡都退回会话工作目录。
 //
-// 两处都是决策 6 说的「静默算错」:视图看着正常,数字是错的。
+// 这几处都是决策 6 说的「静默算错」:视图看着正常,数字是错的。
 var blockTypeSources = map[string][]string{
 	ChatBlockTypeToolUse: {
 		blocks.ToolUseBlock{}.Type(),
 		chat_entity.BlockTypeSubagentState,
 		chatblocks.NestedToolUseBlock{}.Type(),
+		chatblocks.ToolCwdBlock{}.Type(),
 	},
 }
 

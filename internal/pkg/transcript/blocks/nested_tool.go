@@ -11,6 +11,8 @@ type NestedToolUseBlock struct {
 	Input            map[string]any `json:"input,omitempty"`
 	ParentToolCallID string         `json:"parent_tool_call_id"`
 	SubagentRunID    string         `json:"subagent_run_id,omitempty"`
+	// Cwd 产生这次调用时 AI 所在的目录(agentruntime.ToolCall.Cwd);空 = 未知。
+	Cwd string `json:"cwd,omitempty"`
 }
 
 func (NestedToolUseBlock) Type() string                      { return "nested_tool_use" }
@@ -22,6 +24,8 @@ type NestedToolResultBlock struct {
 	IsError          bool   `json:"is_error,omitempty"`
 	ParentToolCallID string `json:"parent_tool_call_id"`
 	SubagentRunID    string `json:"subagent_run_id,omitempty"`
+	// Cwd 产生这条结果时 AI 所在的目录(agentruntime.ToolResult.Cwd);空 = 未知。
+	Cwd string `json:"cwd,omitempty"`
 }
 
 func (NestedToolResultBlock) Type() string                      { return "nested_tool_result" }

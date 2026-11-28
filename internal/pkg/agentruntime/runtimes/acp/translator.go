@@ -35,6 +35,8 @@ type usageSnapshot struct {
 type toolCallState struct {
 	name   string
 	status acpsdk.ToolCallStatus
+	// shell 标记 execute 类工具:命令文本参与 AI 当前位置识别(见 location.go)。
+	shell bool
 }
 
 // translate is the pure v1 session/update translator: one union in, 0/1/n
@@ -107,7 +109,7 @@ func translateToolCall(c *acpsdk.SessionUpdateToolCall) (agentruntime.ToolCall, 
 		Name:      name,
 		Input:     input,
 		Canonical: canonicalTool,
-	}, toolCallState{name: name, status: c.Status}
+	}, toolCallState{name: name, status: c.Status, shell: c.Kind == acpsdk.ToolKindExecute}
 }
 
 // translateToolCallAggregate 返回 (事件, 聚合态指针),供 drain 循环直接存表。
@@ -293,41 +295,30 @@ func recognizeToolCanonical(kind acpsdk.ToolKind, locations []acpsdk.ToolCallLoc
 	}
 	paths := locationPaths(locations)
 	if len(paths) == 0 && m != nil {
-		if p := inputPath(m); p != "" {
+		if p := canonical.ACPInputPath(m); p != "" {
 			paths = []string{p}
 		}
 	}
-	if len(paths) == 0 {
+	tool, ok := canonical.ACPEditFromCall(string(kind), paths, m)
+	if !ok {
 		return nil, input
 	}
-	if m != nil && !inputHasPathKey(m) {
-		m["path"] = paths[0]
-		if b, err := json.Marshal(m); err == nil {
-			input = b
+	// The persisted block only keeps title as the name, so the kind and every
+	// path ride in the input: canonical.FromToolUse reads them back on recompute.
+	if m == nil {
+		m = map[string]any{}
+	}
+	if _, hasPath := m["path"]; !hasPath {
+		if _, hasFilePath := m["file_path"]; !hasFilePath {
+			m["path"] = paths[0]
 		}
 	}
-	switch kind {
-	case acpsdk.ToolKindDelete:
-		files := make([]canonical.FileEditPatch, 0, len(paths))
-		for _, p := range paths {
-			files = append(files, canonical.FileEditPatch{Path: p, Kind: canonical.ChangeDeleted})
-		}
-		return canonical.FileEdit{Files: files}, input
-	default:
-		// edit / move: an explicit full-content payload is a whole-file write;
-		// everything else is an in-place modification with no diff data on the
-		// wire (ACP carries hunks in tool_call_update content, not here).
-		if m != nil {
-			if content, ok := m["content"].(string); ok && kind == acpsdk.ToolKindEdit {
-				return fileWriteCanonical(paths[0], content), input
-			}
-		}
-		files := make([]canonical.FileEditPatch, 0, len(paths))
-		for _, p := range paths {
-			files = append(files, canonical.FileEditPatch{Path: p, Kind: canonical.ChangeModified})
-		}
-		return canonical.FileEdit{Files: files}, input
+	m[canonical.ACPKindInputKey] = string(kind)
+	m[canonical.ACPPathsInputKey] = paths
+	if b, err := json.Marshal(m); err == nil {
+		input = b
 	}
+	return tool, input
 }
 
 // locationPaths collects the absolute paths of a tool call's locations.
@@ -339,58 +330,4 @@ func locationPaths(locations []acpsdk.ToolCallLocation) []string {
 		}
 	}
 	return out
-}
-
-// inputPath resolves the path from rawInput keys: `file_path`, `path`, or the
-// first entry of codex-style `changes[].path`.
-func inputPath(m map[string]any) string {
-	for _, key := range []string{"file_path", "path"} {
-		if s, ok := m[key].(string); ok && strings.TrimSpace(s) != "" {
-			return strings.TrimSpace(s)
-		}
-	}
-	if changes, ok := m["changes"].([]any); ok {
-		for _, raw := range changes {
-			c, ok := raw.(map[string]any)
-			if !ok {
-				continue
-			}
-			if s, ok := c["path"].(string); ok && strings.TrimSpace(s) != "" {
-				return strings.TrimSpace(s)
-			}
-		}
-	}
-	return ""
-}
-
-func inputHasPathKey(m map[string]any) bool {
-	_, hasPath := m["path"]
-	_, hasFilePath := m["file_path"]
-	return hasPath || hasFilePath
-}
-
-// fileWriteCanonical builds a capped canonical.FileWrite (the byte cap keeps
-// GB-scale writes from blowing up the event serialization, mirroring the
-// other runtimes).
-func fileWriteCanonical(path, content string) canonical.FileWrite {
-	bytes := len(content)
-	truncated := false
-	if bytes > canonical.WriteContentByteCap {
-		content = content[:canonical.WriteContentByteCap]
-		truncated = true
-	}
-	lines := 0
-	if content != "" {
-		lines = strings.Count(content, "\n")
-		if !strings.HasSuffix(content, "\n") {
-			lines++
-		}
-	}
-	return canonical.FileWrite{
-		Path:      path,
-		Content:   content,
-		Lines:     lines,
-		Bytes:     bytes,
-		Truncated: truncated,
-	}
 }

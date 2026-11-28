@@ -138,3 +138,105 @@ func TestOpenSessionProcessPortRemoteWithoutExecDeviceFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, pf.gotDeviceID, "没有执行设备时不该去确保转发")
 }
+
+// ── ResolveSessionURL(问题 14:远端会话的 localhost 链接打开的是桌面本机) ──
+
+func TestResolveSessionURL(t *testing.T) {
+	forwardHost := func(t *testing.T, address string) string {
+		t.Helper()
+		parsed, err := url.Parse(address)
+		require.NoError(t, err)
+		return parsed.Scheme + "://" + parsed.Host
+	}
+
+	t.Run("远端会话 http localhost 链接 → 经转发,路径与查询原样保留", func(t *testing.T) {
+		pf := &stubPortForwardSvc{mapping: &port_forward_svc.MappingView{ID: "11", Port: 3000, Enabled: true}}
+		a, _ := withRemoteSession(t, pf)
+
+		got, err := a.ResolveSessionURL(42, "http://localhost:3000/docs/a%20b?q=1&x=y#frag")
+		require.NoError(t, err)
+
+		assert.Equal(t, "7", pf.gotDeviceID)
+		assert.Equal(t, "http", pf.gotScheme)
+		assert.Equal(t, 3000, pf.gotPort)
+		base := forwardHost(t, got)
+		assert.Equal(t, base+"/docs/a%20b?q=1&x=y#frag", got)
+		assert.NotContains(t, got, "localhost:3000")
+		assert.True(t, listenerAlive(t, base))
+	})
+
+	t.Run("127.0.0.1、[::1] 与开发服务器常打印的 0.0.0.0 / [::] 同样改写", func(t *testing.T) {
+		for _, raw := range []string{"http://127.0.0.1:5173/x", "http://[::1]:5173/x", "http://0.0.0.0:5173/x", "http://[::]:5173/x"} {
+			pf := &stubPortForwardSvc{mapping: &port_forward_svc.MappingView{ID: "11", Port: 5173, Enabled: true}}
+			a, _ := withRemoteSession(t, pf)
+
+			got, err := a.ResolveSessionURL(42, raw)
+			require.NoError(t, err)
+			assert.Equal(t, 5173, pf.gotPort, raw)
+			assert.Equal(t, forwardHost(t, got)+"/x", got, raw)
+			assert.NotEqual(t, raw, got, raw)
+		}
+	})
+
+	t.Run("远端 https → 按 https 转发,不自动忽略证书", func(t *testing.T) {
+		pf := &stubPortForwardSvc{mapping: &port_forward_svc.MappingView{ID: "11", Port: 8443, Enabled: true}}
+		a, _ := withRemoteSession(t, pf)
+
+		got, err := a.ResolveSessionURL(42, "https://localhost:8443/p?q=1")
+		require.NoError(t, err)
+
+		assert.Equal(t, "https", pf.gotScheme)
+		assert.Equal(t, 8443, pf.gotPort)
+		assert.Empty(t, pf.gotTarget, "不经 Create 路径,更不带 insecure")
+		assert.False(t, pf.gotInsecure)
+		assert.Equal(t, forwardHost(t, got)+"/p?q=1", got)
+	})
+
+	t.Run("没写端口 → 按协议默认端口", func(t *testing.T) {
+		pf := &stubPortForwardSvc{mapping: &port_forward_svc.MappingView{ID: "11", Enabled: true}}
+		a, _ := withRemoteSession(t, pf)
+
+		_, err := a.ResolveSessionURL(42, "https://localhost/")
+		require.NoError(t, err)
+		assert.Equal(t, 443, pf.gotPort)
+		_, err = a.ResolveSessionURL(42, "http://localhost/")
+		require.NoError(t, err)
+		assert.Equal(t, 80, pf.gotPort)
+	})
+
+	t.Run("本机会话 → 原样交回,不碰转发", func(t *testing.T) {
+		pf := &stubPortForwardSvc{}
+		a, stub := withRemoteSession(t, pf)
+		stub.execDeviceID = 0
+
+		raw := "http://localhost:3000/a?b=1"
+		got, err := a.ResolveSessionURL(42, raw)
+		require.NoError(t, err)
+		assert.Equal(t, raw, got)
+		assert.Empty(t, pf.gotDeviceID)
+	})
+
+	t.Run("远端会话里非 localhost / 非 http(s) 的链接 → 原样交回", func(t *testing.T) {
+		for _, raw := range []string{
+			"https://example.com/a?b=1", "http://192.168.1.5:3000/", "mailto:a@b.c",
+			"ftp://localhost/x", "http://localhost.evil.com:3000/", "not a url", "",
+		} {
+			pf := &stubPortForwardSvc{}
+			a, _ := withRemoteSession(t, pf)
+			got, err := a.ResolveSessionURL(42, raw)
+			require.NoError(t, err, raw)
+			assert.Equal(t, raw, got)
+			assert.Empty(t, pf.gotDeviceID, raw)
+		}
+	})
+
+	t.Run("转发失败 → 业务码过桥,不退回改写前的本机地址", func(t *testing.T) {
+		pf := &stubPortForwardSvc{err: &httputils.Error{Code: code.PortForwardDeviceOffline, Msg: "离线"}}
+		a, _ := withRemoteSession(t, pf)
+
+		got, err := a.ResolveSessionURL(42, "http://localhost:3000/")
+		require.Error(t, err)
+		assert.Equal(t, "agentre-code:21000 离线", err.Error())
+		assert.Empty(t, got)
+	})
+}

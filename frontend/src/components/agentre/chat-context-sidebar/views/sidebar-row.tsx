@@ -17,6 +17,7 @@ import { resolveRowOpenAction } from "@/lib/file-open-action";
 import { cn } from "@agentre-hub/agentre-ui";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
+import { useSessionRootArg } from "@/stores/session-root-store";
 
 import type {
   FilePreviewTab,
@@ -43,6 +44,11 @@ type Props = {
   kind: "file" | "dir";
   /** 行的路径：相对当前工作根；没有工作根时是工具调用给的原始路径。 */
   path: string;
+  /**
+   * 预览标签绑定的工作根；缺省 = 会话当前工作根（useSessionRoot 的规范形，主根为
+   * 空串）。只有不属于当前根的行（已移除分组）才需要显式给出。
+   */
+  previewRoot?: string;
   /** 显示名（basename、目录名，或链压缩行的末段）。 */
   name: string;
   /**
@@ -108,6 +114,7 @@ export function SidebarRow({
   sourceMode,
   kind,
   path,
+  previewRoot: previewRootProp,
   name,
   nameChildren,
   nameClassName,
@@ -139,6 +146,13 @@ export function SidebarRow({
   const activePreviewPath = useFilePreviewTabsStore(
     (s) => s.previewTabsBySession[sessionId]?.activePath,
   );
+  const activePreviewRoot = useFilePreviewTabsStore(
+    (s) => s.previewTabsBySession[sessionId]?.activeRoot,
+  );
+  // 行的路径相对会话当前工作根（cwd 即它）：预览标签绑定打开时的这个根，之后
+  // 再切根也不改变它。主根以规范形（空串）绑定，与转录链接打开的是同一个标签。
+  const sessionRootArg = useSessionRootArg(sessionId);
+  const previewRoot = previewRootProp ?? sessionRootArg;
   const openAction = useFileSettingsStore((s) => s.settings.openAction);
   const openFile = useOpenFile(cwd);
   const revealFile = useRevealFile(cwd);
@@ -167,7 +181,10 @@ export function SidebarRow({
 
   const interactive = kind === "dir" || rowAction !== "none";
   // 选中态仍只表达「这一行正开在预览面板里」——外部打开不产生选中态。
-  const active = previewPath !== null && previewPath === activePreviewPath;
+  const active =
+    previewPath !== null &&
+    previewPath === activePreviewPath &&
+    previewRoot === activePreviewRoot;
 
   // openPreviewFromRow 打开预览，并按「这是手势里的第几次 click」维护
   // clobberedTempRef。clickCount 取 MouseEvent.detail —— 浏览器按系统双击间隔判定
@@ -180,7 +197,11 @@ export function SidebarRow({
   //     之后再双击同一行转常驻」会把它当成刚被这次双击吞掉的标签复活出来。
   const openPreviewFromRow = (clickCount: number) => {
     if (previewPath === null) return;
-    const clobbered = openPreview(sessionId, previewPath, sourceMode);
+    const clobbered = openPreview(
+      sessionId,
+      { root: previewRoot, path: previewPath },
+      sourceMode,
+    );
     if (clickCount < 2) clobberedTempRef.current = clobbered;
   };
 
@@ -203,7 +224,11 @@ export function SidebarRow({
     onPreview: () => openPreviewFromRow(1),
     onPreviewInNewTab: () => {
       if (previewPath !== null) {
-        openPreviewInNewTab(sessionId, previewPath, sourceMode);
+        openPreviewInNewTab(
+          sessionId,
+          { root: previewRoot, path: previewPath },
+          sourceMode,
+        );
       }
     },
     onJumpToTurn: onJumpToTurn ?? null,

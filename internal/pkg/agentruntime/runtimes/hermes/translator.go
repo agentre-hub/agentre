@@ -20,7 +20,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
-	"github.com/agentre-hub/agentre/internal/pkg/diff"
+	"github.com/agentre-hub/agentre/internal/pkg/shellloc"
 )
 
 // EventKind is one gateway event `params.type` (or a synthetic kind for unit
@@ -188,6 +188,7 @@ func translate(ev Event) (events []agentruntime.Event, usage *provider.Usage, st
 			Name:      strings.TrimSpace(p.Name),
 			Input:     cloneRaw(p.Args),
 			Canonical: recognizeCanonical(p.Name, p.Args),
+			Cwd:       terminalWorkdir(p.Name, p.Args),
 		}
 		return []agentruntime.Event{call}, nil, nil
 
@@ -205,6 +206,7 @@ func translate(ev Event) (events []agentruntime.Event, usage *provider.Usage, st
 			ToolCallID: strings.TrimSpace(p.ToolID),
 			Content:    toolResultContent(p.Result),
 			IsError:    toolResultIsError(p.Result),
+			Cwd:        terminalResultCwd(p),
 		}}, nil, nil
 
 	case EventTodoUpdated:
@@ -277,6 +279,38 @@ func translate(ev Event) (events []agentruntime.Event, usage *provider.Usage, st
 	// can never wedge the turn. Server requests and request.cancel are turn
 	// state and handled by the drain loop, never here.
 	return nil, nil, nil
+}
+
+// terminalWorkdir is the `workdir` a terminal call ran in; other tools, a missing
+// or non-absolute workdir → "" (unknown).
+func terminalWorkdir(name string, args json.RawMessage) string {
+	if strings.TrimSpace(name) != "terminal" {
+		return ""
+	}
+	var in struct {
+		Workdir string `json:"workdir"`
+	}
+	if json.Unmarshal(args, &in) != nil {
+		return ""
+	}
+	return shellloc.AbsDir(in.Workdir)
+}
+
+// terminalResultCwd prefers the `cwd` the terminal result reports, falling back
+// to the call's workdir.
+func terminalResultCwd(p toolCompletePayload) string {
+	if strings.TrimSpace(p.Name) != "terminal" {
+		return ""
+	}
+	var res struct {
+		Cwd string `json:"cwd"`
+	}
+	if json.Unmarshal(p.Result, &res) == nil {
+		if cwd := shellloc.AbsDir(res.Cwd); cwd != "" {
+			return cwd
+		}
+	}
+	return terminalWorkdir(p.Name, p.Args)
 }
 
 func cloneRaw(b json.RawMessage) json.RawMessage {
@@ -434,9 +468,10 @@ func normalizeTodoStatus(status string) canonical.PlanStepStatus {
 	}
 }
 
-// recognizeCanonical maps Hermes' file-mutating tools onto the shared canonical
-// shapes, then falls back to the cross-backend recognizer (agent/task spawn).
-// Everything else stays a raw tool card.
+// recognizeCanonical maps Hermes' tool calls onto the shared canonical shapes via
+// canonical.FromToolUse — the same rule set the end-of-turn recompute applies to
+// the persisted blocks (write_file / patch / agent spawn). Everything else stays
+// a raw tool card.
 func recognizeCanonical(name string, rawInput json.RawMessage) canonical.CanonicalTool {
 	if len(rawInput) == 0 {
 		return nil
@@ -445,72 +480,8 @@ func recognizeCanonical(name string, rawInput json.RawMessage) canonical.Canonic
 	if err := json.Unmarshal(rawInput, &m); err != nil {
 		return nil
 	}
-	switch name {
-	case "write_file":
-		return fileWriteCanonical(m)
-	case "patch":
-		return patchCanonical(m)
-	}
 	if c, ok := canonical.FromToolUse(name, m); ok {
 		return c
 	}
 	return nil
-}
-
-func fileWriteCanonical(m map[string]any) canonical.CanonicalTool {
-	path, _ := m["path"].(string)
-	content, ok := m["content"].(string)
-	if !ok {
-		return nil
-	}
-	bytes := len(content)
-	truncated := false
-	if bytes > canonical.WriteContentByteCap {
-		content = content[:canonical.WriteContentByteCap]
-		truncated = true
-	}
-	lines := 0
-	if content != "" {
-		lines = strings.Count(content, "\n")
-		if !strings.HasSuffix(content, "\n") {
-			lines++
-		}
-	}
-	return canonical.FileWrite{
-		Path:      path,
-		Content:   content,
-		Lines:     lines,
-		Bytes:     bytes,
-		Truncated: truncated,
-	}
-}
-
-// patchCanonical maps Hermes' `patch` tool (mode=replace) onto FileEdit. Other
-// modes (create/append/multi_replace) are left raw: their wire shape does not
-// map cleanly onto a single diff and a half-rendered DiffCard is worse than a
-// raw tool card.
-func patchCanonical(m map[string]any) canonical.CanonicalTool {
-	mode, _ := m["mode"].(string)
-	if mode != "replace" {
-		return nil
-	}
-	path, _ := m["path"].(string)
-	oldString, _ := m["old_string"].(string)
-	newString, _ := m["new_string"].(string)
-	if strings.TrimSpace(path) == "" || oldString == "" {
-		return nil
-	}
-	payload := diff.FromEdit(map[string]any{
-		"file_path":  path,
-		"old_string": oldString,
-		"new_string": newString,
-	})
-	totalHunks := 0
-	for _, f := range payload.Files {
-		totalHunks += len(f.Hunks)
-	}
-	if len(payload.Files) == 0 || totalHunks == 0 {
-		return nil
-	}
-	return canonical.FileEdit{Files: canonical.PatchesFromDiff(payload)}
 }

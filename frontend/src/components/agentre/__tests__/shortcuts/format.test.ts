@@ -20,6 +20,16 @@ describe("formatChord", () => {
     expect(formatChord({ mod: "primary", key: "D" }, "unknown")).toBe("Ctrl+D");
   });
 
+  it("renders primary-alt as ⌥⌘ on darwin and Ctrl+Alt+ elsewhere", () => {
+    expect(formatChord({ mod: "primary-alt", key: "B" }, "darwin")).toBe("⌥⌘B");
+    expect(formatChord({ mod: "primary-alt", key: "B" }, "windows")).toBe(
+      "Ctrl+Alt+B",
+    );
+    expect(formatChord({ mod: "primary-alt", key: "B" }, "linux")).toBe(
+      "Ctrl+Alt+B",
+    );
+  });
+
   it("adds shift glyph for primary-shift", () => {
     expect(formatChord({ mod: "primary-shift", key: "K" }, "darwin")).toBe(
       "⌘⇧K",
@@ -124,10 +134,67 @@ describe("chordFromEvent", () => {
     ).toEqual({ mod: "primary-shift", key: "K" });
   });
 
-  it("rejects alt and meta+ctrl combos (out of scope)", () => {
+  it("Given macOS, When ⌥⌘B is pressed (Option rewrites key to ∫), Then it captures primary-alt B from the physical key", () => {
     expect(
       chordFromEvent(
-        mkEvent({ key: "k", metaKey: true, altKey: true }),
+        mkEvent({ key: "∫", code: "KeyB", metaKey: true, altKey: true }),
+        "darwin",
+      ),
+    ).toEqual({ mod: "primary-alt", key: "B" });
+  });
+
+  it("Given Windows, When Ctrl+Alt+1 / Ctrl+Alt+, is pressed, Then it captures primary-alt from the physical key", () => {
+    expect(
+      chordFromEvent(
+        mkEvent({ key: "1", code: "Digit1", ctrlKey: true, altKey: true }),
+        "windows",
+      ),
+    ).toEqual({ mod: "primary-alt", key: "1" });
+    expect(
+      chordFromEvent(
+        mkEvent({ key: ",", code: "Comma", ctrlKey: true, altKey: true }),
+        "windows",
+      ),
+    ).toEqual({ mod: "primary-alt", key: "," });
+  });
+
+  it("Given Windows, When AltGr (reported as Ctrl+Alt) types a character such as { on a Hungarian layout, Then it is text, not a chord", () => {
+    expect(
+      chordFromEvent(
+        mkEvent({ key: "{", code: "KeyB", ctrlKey: true, altKey: true }),
+        "windows",
+      ),
+    ).toBeNull();
+    expect(
+      chordFromEvent(
+        mkEvent({ key: "@", code: "KeyQ", ctrlKey: true, altKey: true }),
+        "windows",
+      ),
+    ).toBeNull();
+    expect(
+      chordFromEvent(
+        mkEvent({ key: "b", code: "KeyB", ctrlKey: true, altKey: true }),
+        "windows",
+      ),
+    ).toEqual({ mod: "primary-alt", key: "B" });
+  });
+
+  it("rejects alt+shift, alt without the primary key, and meta+ctrl combos", () => {
+    expect(
+      chordFromEvent(
+        mkEvent({
+          key: "K",
+          code: "KeyK",
+          metaKey: true,
+          altKey: true,
+          shiftKey: true,
+        }),
+        "darwin",
+      ),
+    ).toBeNull();
+    expect(
+      chordFromEvent(
+        mkEvent({ key: "∫", code: "KeyB", altKey: true }),
         "darwin",
       ),
     ).toBeNull();

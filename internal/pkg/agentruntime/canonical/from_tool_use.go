@@ -16,7 +16,21 @@ const WriteContentByteCap = 64 * 1024
 //
 // 命中:返回 (CanonicalTool, true)。未命中(普通工具如 Bash / Read):(nil, false)。
 func FromToolUse(toolName string, input map[string]any) (CanonicalTool, bool) {
+	// ACP 落库的工具名是 title(任意文案),按名字认不出;translator 在入参里写了
+	// ACPKindInputKey 标记,编辑类调用靠它还原,与实时识别共用 ACPEditFromCall。
+	if kind, _ := input[ACPKindInputKey].(string); kind != "" {
+		if c, ok := ACPEditFromCall(kind, ACPPathsFromInput(input), input); ok {
+			return c, true
+		}
+	}
 	switch toolName {
+	case "write_file":
+		// Hermes 的 write_file:{path, content},与 pi write 同形。
+		if fw, ok := fileWriteFromWriteInput(input, "path"); ok {
+			return fw, true
+		}
+	case "patch":
+		return hermesPatchFromInput(input)
 	case "Write":
 		if fw, ok := fileWriteFromWriteInput(input, "file_path"); ok {
 			return fw, true
@@ -200,26 +214,7 @@ func fileWriteFromWriteInput(input map[string]any, pathKey string) (FileWrite, b
 	if !ok {
 		return FileWrite{}, false
 	}
-	bytes := len(content)
-	truncated := false
-	if bytes > WriteContentByteCap {
-		content = content[:WriteContentByteCap]
-		truncated = true
-	}
-	lines := 0
-	if content != "" {
-		lines = strings.Count(content, "\n")
-		if !strings.HasSuffix(content, "\n") {
-			lines++
-		}
-	}
-	return FileWrite{
-		Path:      path,
-		Content:   content,
-		Lines:     lines,
-		Bytes:     bytes,
-		Truncated: truncated,
-	}, true
+	return NewFileWrite(path, content), true
 }
 
 // PatchesFromDiff 把 diff.Payload 降级到 canonical.FileEditPatch 列表。

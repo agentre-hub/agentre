@@ -57,8 +57,14 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo/mock_chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_dispatch_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_dispatch_repo/mock_session_dispatch_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo/mock_session_issue_link_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo/mock_workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
@@ -76,6 +82,9 @@ type chatMocks struct {
 	message             *mock_transcript_repo.MockMessageRepo
 	frameSeq            *mock_transcript_repo.MockFrameSeqRepo
 	replacementRecovery *mock_chat_repo.MockReplacementRecoveryCleanupRepo
+	workRoots           *mock_workspace_fs_repo.MockWorkRootRepo
+	dispatches          *mock_session_dispatch_repo.MockSessionDispatchRepo
+	issueLinks          *mock_session_issue_link_repo.MockSessionIssueLinkRepo
 	execTarget          *mock_agent_repo.MockAgentExecTargetRepo
 	dbMock              sqlmock.Sqlmock
 	ctx                 context.Context
@@ -137,6 +146,9 @@ func setupChatTest(t *testing.T) *chatMocks {
 		message:             mock_transcript_repo.NewMockMessageRepo(ctrl),
 		frameSeq:            mock_transcript_repo.NewMockFrameSeqRepo(ctrl),
 		replacementRecovery: mock_chat_repo.NewMockReplacementRecoveryCleanupRepo(ctrl),
+		workRoots:           mock_workspace_fs_repo.NewMockWorkRootRepo(ctrl),
+		dispatches:          mock_session_dispatch_repo.NewMockSessionDispatchRepo(ctrl),
+		issueLinks:          mock_session_issue_link_repo.NewMockSessionIssueLinkRepo(ctrl),
 		execTarget:          mock_agent_repo.NewMockAgentExecTargetRepo(ctrl),
 		dbMock:              dbMock,
 		ctx:                 dbCtx,
@@ -148,6 +160,9 @@ func setupChatTest(t *testing.T) *chatMocks {
 	transcript_repo.RegisterMessage(m.message)
 	transcript_repo.RegisterFrameSeq(m.frameSeq)
 	chat_repo.RegisterReplacementRecoveryCleanup(m.replacementRecovery)
+	workspace_fs_repo.RegisterWorkRoot(m.workRoots)
+	session_dispatch_repo.RegisterSessionDispatch(m.dispatches)
+	session_issue_link_repo.RegisterSessionIssueLink(m.issueLinks)
 	// pi 恢复标记落在 app_settings,用真实现走同一份 sqlmock,标记 SQL 才进得了断言。
 	app_setting_repo.RegisterAppSetting(app_setting_repo.NewAppSetting())
 	agent_repo.RegisterAgentExecTarget(m.execTarget)
@@ -6750,6 +6765,9 @@ func TestRenameAndDelete(t *testing.T) {
 			m.frameSeq.EXPECT().DeleteBySession(ctx, int64(5)).Return(int64(3), nil)
 			m.message.EXPECT().DeleteFromSeq(ctx, int64(5), 0).Return(int64(2), nil)
 			m.replacementRecovery.EXPECT().DeleteReplacementRecovery(ctx, int64(5)).Return(int64(1), nil)
+			m.workRoots.EXPECT().DeleteBySession(ctx, int64(5)).Return(nil)
+			m.dispatches.EXPECT().DeleteBySession(ctx, int64(5)).Return(nil)
+			m.issueLinks.EXPECT().DeleteBySession(ctx, int64(5)).Return(nil)
 			_, err := m.svc.Delete(ctx, &chat_svc.DeleteRequest{SessionID: 5})
 			assert.NoError(t, err)
 		})
@@ -6933,6 +6951,9 @@ func expectSessionPurge(m *chatMocks) <-chan struct{} {
 		})
 	m.message.EXPECT().DeleteFromSeq(gomock.Any(), int64(100), 0).Return(int64(0), nil)
 	m.replacementRecovery.EXPECT().DeleteReplacementRecovery(gomock.Any(), int64(100)).Return(int64(0), nil)
+	m.workRoots.EXPECT().DeleteBySession(gomock.Any(), int64(100)).Return(nil)
+	m.dispatches.EXPECT().DeleteBySession(gomock.Any(), int64(100)).Return(nil)
+	m.issueLinks.EXPECT().DeleteBySession(gomock.Any(), int64(100)).Return(nil)
 	return purgeCalled
 }
 

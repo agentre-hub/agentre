@@ -2,9 +2,28 @@ import { create } from "zustand";
 import i18n from "@/i18n";
 import { writePersistedTabs, readPersistedTabs } from "./chat-tabs-persistence";
 
+/**
+ * 新建会话标签带的「种子」：看板任务「开始会话」把任务的内容与指定值放进来。
+ * 输入框预填 `text`（不自动发送）；`backendId` / `providerKey` / `modelKey` 只有点名
+ * 了才覆盖新建会话的默认；`issueId` 在首条消息发出、会话真正建立那一刻才建立关联。
+ */
+export type NewSessionSeed = {
+  text: string;
+  issueId?: number;
+  backendId?: number;
+  providerKey?: string;
+  modelKey?: string;
+};
+
 export type TabKind =
   | { kind: "session"; sessionId: number }
-  | { kind: "new"; projectId: number; agentId: number; workMode: string }
+  | {
+      kind: "new";
+      projectId: number;
+      agentId: number;
+      workMode: string;
+      seed?: NewSessionSeed;
+    }
   | {
       kind: "terminal";
       projectId: number;
@@ -43,6 +62,7 @@ type Actions = {
     projectId: number,
     agentId: number,
     workMode: string,
+    seed?: NewSessionSeed,
   ) => void;
   promoteCurrent: () => void;
   togglePin: (id: string) => void;
@@ -137,11 +157,17 @@ export const useChatTabsStore = create<State & Actions>((set, _get) => ({
       };
       return { tabs: [...state.tabs, newTab], activeTabId: newTab.id };
     }),
-  openNewSession: (projectId, agentId, workMode) =>
+  openNewSession: (projectId, agentId, workMode, seed) =>
     set((state) => {
       const newTab: ChatTab = {
         id: nextId(),
-        meta: { kind: "new", projectId, agentId, workMode },
+        meta: {
+          kind: "new",
+          projectId,
+          agentId,
+          workMode,
+          ...(seed ? { seed } : {}),
+        },
         isPreview: false,
         isPinned: false,
         pinAt: 0,

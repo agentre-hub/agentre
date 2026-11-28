@@ -4942,3 +4942,52 @@ func TestIntegration_DaemonBoot_WiresTheClaudecodeSteerInbox(t *testing.T) {
 	assert.True(t, claudecode.Default().SteerInboxConfigured(),
 		"agentred 起完必须把 gateway 的 SteerInbox 注入 claudecode runtime,否则这台宿主上的轮中插话一律失败")
 }
+
+// Given agentred 起完;
+// When  去问 claudecode runtime 拿没拿到 hook 位置簿;
+// Then  拿到了 —— 远端会话里 PostToolUse hook 的 cwd(Bash `cd` 之后的目录)只在这台
+//
+//	设备上可得(spec 决策 17),漏注入时 hook 照常上报、却没人把它盖到工具事件上,
+//	桌面端永远看不到远端会话的 `cd`。
+func TestIntegration_DaemonBoot_WiresTheClaudecodeHookLocations(t *testing.T) {
+	rig := bootRemoteRig(t, []agentruntime.Event{agentruntime.Done{}})
+	_ = rig
+
+	assert.True(t, claudecode.Default().HookLocationsConfigured(),
+		"agentred 起完必须把 gateway 的 hook 位置簿注入 claudecode runtime,否则远端会话的 hook cwd 到不了桌面")
+}
+
+// Given agentred 上的运行时产出带位置的工具事件(调用目录、结果目录、ExitWorktree 删除的
+//
+//	撤销标记);
+//
+// When  这一轮经真 WS 回到桌面端;
+// Then  桌面端收到的事件带着同样的目录与撤销标记 —— 远端会话的位置信号随事件到达。
+func TestIntegration_RemoteRuntime_ToolLocationSignalsReachTheDesktop(t *testing.T) {
+	meta := `{"action":"remove","worktreePath":"/srv/repo/.claude/worktrees/x","restoredCwd":"/srv/repo","` + agentruntime.RevokeRootMetaKey + `":"/srv/repo/.claude/worktrees/x"}`
+	rig := bootRemoteRig(t, []agentruntime.Event{
+		agentruntime.ToolCall{ID: "x1", Name: "ExitWorktree", Input: json.RawMessage(`{"action":"remove"}`), Cwd: "/srv/repo/.claude/worktrees/x"},
+		agentruntime.ToolResult{ToolCallID: "x1", Content: "Exited", Meta: json.RawMessage(meta), Cwd: "/srv/repo"},
+		agentruntime.Done{},
+	})
+	events, _ := rig.startRun(t, 790)
+	got := append(drainRuntimeEvents(t, events, 5*time.Second), rig.previews.events()...)
+
+	var call *agentruntime.ToolCall
+	var result *agentruntime.ToolResult
+	for _, ev := range got {
+		switch e := ev.(type) {
+		case agentruntime.ToolCall:
+			call = &e
+		case agentruntime.ToolResult:
+			result = &e
+		}
+	}
+	require.NotNil(t, call)
+	require.NotNil(t, result)
+	assert.Equal(t, "/srv/repo/.claude/worktrees/x", call.Cwd)
+	assert.Equal(t, "/srv/repo", result.Cwd)
+	var m map[string]any
+	require.NoError(t, json.Unmarshal(result.Meta, &m))
+	assert.Equal(t, "/srv/repo/.claude/worktrees/x", m[agentruntime.RevokeRootMetaKey])
+}

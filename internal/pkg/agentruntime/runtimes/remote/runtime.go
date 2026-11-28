@@ -42,6 +42,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 	"github.com/agentre-hub/agentre/internal/pkg/orderedpipe"
+	transcriptblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
@@ -107,6 +108,9 @@ type Runtime struct {
 	// 会话交给执行端的选择与执行端上报的模型，不是设备目录的默认解析。
 	cliModelMu sync.Mutex
 	cliModels  map[int64]agentruntime.CLIModelState
+
+	// legacy 给旧 agentred 没盖 Cwd 的工具事件补上位置(见 legacy_location.go)。
+	legacy legacyLocations
 
 	mu              sync.RWMutex
 	sessions        map[int64]*remoteSession
@@ -428,6 +432,7 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 	// constructing the real Pi RunRequest. This avoids a new wire field while
 	// letting delayed preparation/start requests fail closed against a retry.
 	params.PermissionMode = "remote-pi-generation-" + strconv.FormatUint(r.piGenerationSeq.Add(1), 10)
+	r.legacy.noteRun(req.SessionID, agent_backend_entity.TypePiAgent, req.Cwd)
 	generationCtx, cancel := context.WithCancel(ctx)
 	sess := &remoteSession{
 		id:               req.SessionID,
@@ -577,6 +582,7 @@ func (r *Runtime) runDirect(ctx context.Context, req agentruntime.RunRequest) (<
 	// 开轮前读一眼帧高水位(顺带完成 R18 的能力探测),把这一轮钉在 seq 时间线上:
 	// 不比它新的终态帧都属于已经结束的轮次。见 turnStartFloor。
 	floor := r.turnStartFloor(ctx, req.SessionID)
+	r.legacy.noteRun(req.SessionID, agent_backend_entity.BackendType(req.Backend.Type), req.Cwd)
 	sess := &remoteSession{
 		id:          req.SessionID,
 		backendType: agent_backend_entity.BackendType(req.Backend.Type),
@@ -753,13 +759,29 @@ func encodeHistory(in []agentruntime.HistoryMessage) ([]wire.HistoryMessageWire,
 	}
 	out := make([]wire.HistoryMessageWire, 0, len(in))
 	for _, m := range in {
-		sbs, err := blocks.EncodeAll(m.Blocks)
+		sbs, err := blocks.EncodeAll(withoutToolCwd(m.Blocks))
 		if err != nil {
 			return nil, fmt.Errorf("encode history blocks: %w", err)
 		}
 		out = append(out, wire.HistoryMessageWire{Role: m.Role, Blocks: sbs})
 	}
 	return out, nil
+}
+
+// withoutToolCwd 去掉历史里的目录记录(transcriptblocks.ToolCwdBlock)。它只给界面
+// 看,执行侧用不上;而早于它构建的 agentred 不认识这个块类型,blocks.DecodeAll 会让
+// 整轮拒跑(spec 2026-11-24-chat-right-toolwindows 决策 18:新字段对旧端无害)。
+// 这里是落库历史编给 agentred 的唯一出口,所以只在这里滤一次。
+func withoutToolCwd(in []blocks.ContentBlock) []blocks.ContentBlock {
+	out := make([]blocks.ContentBlock, 0, len(in))
+	for _, b := range in {
+		switch b.(type) {
+		case transcriptblocks.ToolCwdBlock, *transcriptblocks.ToolCwdBlock:
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 func usageFromWire(u *wire.UsageWire) *provider.Usage {
@@ -850,7 +872,7 @@ func (r *Runtime) handleEvent(ctx context.Context, params any) (any, error) {
 		logger.Ctx(ctx).Warn("remote.handleEvent: event for unknown session dropped", fields...)
 		return nil, nil
 	}
-	ev := frame.Event
+	ev := r.legacy.infer(sid, frame.Event)
 	if sess != nil && frame.Seq > 0 && frame.Seq <= sess.startSeq {
 		// 补齐回放上来的、属于**已结束轮次**的事件:它在开轮之前就落库了。放进当前
 		// 这一轮的 events,上一轮的 TextDelta 会一字不差地追加到用户刚发出的那条消息

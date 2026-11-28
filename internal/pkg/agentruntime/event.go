@@ -51,6 +51,9 @@ type ToolCall struct {
 	Canonical        canonical.CanonicalTool
 	ParentToolCallID string
 	SubagentRunID    string
+	// Cwd 是执行侧(本机进程或 agentred)产生这次调用时 AI 所在的目录;空 = 执行侧
+	// 没有这项信息(旧 agentred / 尚未产出它的后端),消费方回落到会话工作目录。
+	Cwd string
 }
 
 // ToolResult 工具调用结果。Meta 携带 backend 在 tool_result 旁吐的结构化元数据
@@ -68,6 +71,8 @@ type ToolResult struct {
 	ParentToolCallID string
 	SubagentRunID    string
 	Meta             json.RawMessage
+	// Cwd 同 ToolCall.Cwd:产生这条结果时 AI 所在的目录,空 = 未知。
+	Cwd string
 }
 
 // SteerConsumed mid-turn 用户消息被 backend 注入到当前 turn(claudecode user 块 /

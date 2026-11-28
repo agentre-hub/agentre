@@ -839,7 +839,7 @@ func drainForTestWithActive(t *testing.T, stream *scriptedStream, active *active
 	t.Helper()
 	out := make(chan agentruntime.Event, 32)
 	result := &agentruntime.RunResult{}
-	drainStream(context.Background(), agentruntime.RunRequest{}, "", stream, out, result, active)
+	drainStream(context.Background(), agentruntime.RunRequest{}, nil, stream, out, result, active)
 	close(out)
 	var got []agentruntime.Event
 	for event := range out {

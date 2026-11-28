@@ -880,7 +880,9 @@ func (s *Session) parseFrame(line []byte, f rawFrame) ([]Event, bool) {
 			}
 			if f.Model != "" {
 				s.model = f.Model
-				return []Event{{Kind: EventInit, SessionID: s.sessionID, Model: f.Model}}, false
+			}
+			if f.Model != "" || f.Cwd != "" {
+				return []Event{{Kind: EventInit, SessionID: s.sessionID, Model: f.Model, Cwd: f.Cwd}}, false
 			}
 		}
 		if ev, ok := parseSystemTask(f, s.sessionID); ok {

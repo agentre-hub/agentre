@@ -17,7 +17,11 @@ import { create } from "zustand";
 
 import { ListChatIndexSessions } from "../../wailsjs/go/app/App";
 import { hasSessionStream, useChatStreamsStore } from "./chat-streams-store";
-import { useSessionMetaStore, type SessionMeta } from "./session-meta-store";
+import {
+  metaPatchFromIndexRow,
+  useSessionMetaStore,
+  type SessionMeta,
+} from "./session-meta-store";
 import {
   normalizeSessionSnapshot,
   useSessionStatusStore,
@@ -160,19 +164,9 @@ function fanOutToStores(sessions: IndexSessionLite[]): void {
         hasSessionStream(streamsState, s.id),
       ),
     ]);
-    metaEntries.push([
-      s.id,
-      {
-        // agentId / projectId 是索引的两个分组维度，缺一不可：按一维分组时行首要
-        // 放另一维（决策 4/5）。projectId 为 0 即「随手对话」——这是个有意义的取值，
-        // 所以载荷**没提到**它时不写这个键，而不是补一个 0 把会话搬到别的组去。
-        ...(s.agentId === undefined ? {} : { agentId: s.agentId }),
-        ...(s.projectId === undefined ? {} : { projectId: s.projectId }),
-        title: s.title || "",
-        lastMessageAt: s.lastMessageAt ?? 0,
-        lastReadAt: s.lastReadAt ?? 0,
-      },
-    ]);
+    // agentId / projectId 是索引的两个分组维度，缺一不可：按一维分组时行首要放另一维
+    // （决策 4/5）。
+    metaEntries.push([s.id, metaPatchFromIndexRow(s)]);
   }
 
   useSessionStatusStore.getState().bulkUpsert(statusEntries);

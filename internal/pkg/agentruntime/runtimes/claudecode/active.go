@@ -87,6 +87,11 @@ type claudeActive struct {
 	// 快照流。drainStream 每帧调 observePreToolUse / observePostToolUse,变更时
 	// 合成 agentruntime.PlanUpdated 推 out。详见 task_aggregator.go 头注。
 	tasks *taskAggregator
+
+	// hookLocs 是 PostToolUse hook 报来的每个工具跑完之后的目录;location 是由它与
+	// init 帧 / worktree 工具结果推进的主 agent 当前位置。见 location.go。
+	hookLocs *httpgateway.HookLocations
+	location aiLocation
 }
 
 // permissionModeSnapshot 读当前 mode 快照。
@@ -238,6 +243,9 @@ func (a *claudeActive) Close(ctx context.Context) error {
 	}
 	if a.steer != nil && a.sessionUUID != "" {
 		a.steer.Forget(a.sessionUUID)
+	}
+	if a.hookLocs != nil && a.sessionUUID != "" {
+		a.hookLocs.Forget(a.sessionUUID)
 	}
 	a.askMu.Lock()
 	a.askWaiters = nil

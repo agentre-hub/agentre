@@ -442,6 +442,63 @@ func roundTripOverWire(t *testing.T, frames []wire.EventFrame) []agentruntime.Ev
 	return out
 }
 
+// Given agentred 落库的一条 assistant 消息:外层工具调用旁记着「AI 当时所在目录」
+// (tool_cwd 块),嵌套调用 / 结果自带 cwd;When 折成持久帧并过线格式(对端补齐);
+// Then 目录随 ToolCall / ToolResult 到达对端,tool_cwd 块自己不另成一帧
+// (它不是独立的转录内容,落成 UnrecognizedBlock 会被对端丢掉、目录随之丢失)。
+func TestProjectMessages_GivenToolCwd_ThenItTravelsOnTheToolEvents(t *testing.T) {
+	t.Parallel()
+
+	messages := []*transcript_entity.Message{{
+		SessionID: 43, Role: "assistant", Seq: 2,
+		BlocksJSON: `[` +
+			`{"type":"tool_use","data":{"id":"t1","name":"Bash","input":{"command":"ls"}}},` +
+			`{"type":"tool_cwd","data":{"tool_call_id":"t1","cwd":"/repo","result_cwd":"/repo/wt"}},` +
+			`{"type":"tool_result","data":{"tool_use_id":"t1","content":[{"type":"text","data":{"text":"ok"}}]}},` +
+			`{"type":"tool_use","data":{"id":"t2","name":"Read"}},` +
+			`{"type":"nested_tool_use","data":{"id":"n1","name":"Read","parent_tool_call_id":"t2","cwd":"/repo/n"}},` +
+			`{"type":"nested_tool_result","data":{"tool_call_id":"n1","content":"ok","parent_tool_call_id":"t2","cwd":"/repo/n2"}}]`,
+	}}
+
+	frames, _, err := transcript.ProjectMessages("conv-43", messages)
+	require.NoError(t, err)
+	events := roundTripOverWire(t, frames)
+
+	require.Len(t, events, 6, "五个转录块各一帧(tool_cwd 不成帧),外加消息收尾帧")
+	assert.Equal(t, "/repo", events[0].(agentruntime.ToolCall).Cwd)
+	assert.Equal(t, "/repo/wt", events[1].(agentruntime.ToolResult).Cwd)
+	assert.Empty(t, events[2].(agentruntime.ToolCall).Cwd, "没有记录的调用不带目录,消费方回落到会话工作目录")
+	assert.Equal(t, "/repo/n", events[3].(agentruntime.ToolCall).Cwd)
+	assert.Equal(t, "/repo/n2", events[4].(agentruntime.ToolResult).Cwd)
+	_, isDone := events[5].(agentruntime.Done)
+	assert.True(t, isDone)
+}
+
+// Given 同一条带目录记录的消息;When 按块逐个折成带位置的持久帧(对端发布 / agentred
+// 补齐读侧走的那条路,每个块单独投影);Then 工具调用 / 结果帧照样带上同一消息里那块
+// 记录的目录,记录块自己不产帧。
+func TestProjectKeyedMessage_GivenToolCwd_ThenTheToolFramesCarryIt(t *testing.T) {
+	t.Parallel()
+
+	message := &transcript_entity.Message{
+		ID: 7, SessionID: 43, Role: "assistant", Seq: 2,
+		BlocksJSON: `[` +
+			`{"type":"tool_use","data":{"id":"t1","name":"Bash"}},` +
+			`{"type":"tool_result","data":{"tool_use_id":"t1","content":[{"type":"text","data":{"text":"ok"}}]}},` +
+			`{"type":"tool_cwd","data":{"tool_call_id":"t1","cwd":"/repo","result_cwd":"/repo/wt"}}]`,
+	}
+
+	keyed, err := transcript.ProjectKeyedMessage("conv-43", message)
+	require.NoError(t, err)
+
+	require.Len(t, keyed, 3, "两个工具块各一帧,记录块不产帧,外加消息收尾帧")
+	assert.Equal(t, 0, keyed[0].Key.BlockIdx)
+	assert.Equal(t, "/repo", keyed[0].Frame.Event.(agentruntime.ToolCall).Cwd)
+	assert.Equal(t, 1, keyed[1].Key.BlockIdx)
+	assert.Equal(t, "/repo/wt", keyed[1].Frame.Event.(agentruntime.ToolResult).Cwd)
+	assert.Equal(t, transcript.MessageDerivedBlockIdx, keyed[2].Key.BlockIdx)
+}
+
 // Given 落库的一条 assistant 消息里,外层调用下挂着嵌套的 tool_use / tool_result,
 // When 折成持久帧并过线格式,Then 嵌套调用与结果带着 parent / run 归属原样到达对端,
 // 而不是落成对端丢弃的 UnrecognizedBlock。

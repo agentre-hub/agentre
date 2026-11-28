@@ -34,6 +34,8 @@ type SessionBackendRef struct {
 
 type SessionRepo interface {
 	Find(ctx context.Context, id int64) (*chat_entity.Session, error)
+	// FindByIDs 一条 IN 查询取一组仍在的会话(已软删的不返回);没有 ID 时不查库。
+	FindByIDs(ctx context.Context, ids []int64) ([]*chat_entity.Session, error)
 	// FindByConversationID 按对话的全局身份取本机这一行(spec 2026-08-31 决策 12 那
 	// 层「conversation_id ↔ 本地主键」翻译的唯一落点)。走 conversation_id 上的唯一
 	// 索引,一次查询;没有这一行时交回 (nil, nil) —— 「不是一条对话身份」由调用方
@@ -79,6 +81,9 @@ type SessionRepo interface {
 	CountRunningByAgents(ctx context.Context, agentIDs []int64) (map[int64]int, error)
 	CountActiveByProject(ctx context.Context, projectID int64, agentStatuses []string) (int64, error)
 	CountActive(ctx context.Context, agentStatuses []string) (int64, error)
+	// ListActive 列出 status=ACTIVE 且 agent_status 在指定集合内的顶层会话(与 CountActive
+	// 同一判据,排除子 agent 委派会话)。
+	ListActive(ctx context.Context, agentStatuses []string) ([]*chat_entity.Session, error)
 	Create(ctx context.Context, s *chat_entity.Session) error
 	Update(ctx context.Context, s *chat_entity.Session) error
 	UpdatePermissionMode(ctx context.Context, sessionID int64, mode string) error
@@ -214,6 +219,18 @@ func (r *sessionRepo) Find(ctx context.Context, id int64) (*chat_entity.Session,
 	}
 	out.ApplyDerivedFields()
 	return out, nil
+}
+
+func (r *sessionRepo) FindByIDs(ctx context.Context, ids []int64) ([]*chat_entity.Session, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var rows []*chat_entity.Session
+	if err := db.Ctx(ctx).Where("id IN ? AND status = ?", ids, consts.ACTIVE).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	applySessionDerivedFields(rows)
+	return rows, nil
 }
 
 func (r *sessionRepo) FindByConversationID(ctx context.Context, conversationID string) (*chat_entity.Session, error) {
@@ -581,6 +598,18 @@ func (r *sessionRepo) CountActive(ctx context.Context, agentStatuses []string) (
 		Scopes(nonSubagentScope).
 		Count(&n).Error
 	return n, err
+}
+
+// ListActive 列出 status=ACTIVE 且 agent_status 在指定集合内的顶层会话(跨所有 agent/项目)。
+// 与 CountActive 同一判据,给「同一份代码上在跑」找候选用。
+func (r *sessionRepo) ListActive(ctx context.Context, agentStatuses []string) ([]*chat_entity.Session, error) {
+	var rows []*chat_entity.Session
+	err := db.Ctx(ctx).
+		Where("status = ? AND agent_status IN ?", consts.ACTIVE, agentStatuses).
+		Scopes(nonSubagentScope).
+		Find(&rows).Error
+	applySessionDerivedFields(rows)
+	return rows, err
 }
 
 func (r *sessionRepo) Create(ctx context.Context, s *chat_entity.Session) error {

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
 
 type subagentSvc struct {
@@ -12,6 +13,8 @@ type subagentSvc struct {
 
 	agents AgentGateway
 	chat   ChatGateway
+	// dispatches 登记会话间的派发关系(nil = 不登记)。
+	dispatches chat_svc.DispatchRecorder
 
 	chainsMu sync.Mutex
 	chains   map[int64][]int64 // 一次性会话ID → 祖先 agentID 链(不含被调者)
@@ -32,6 +35,10 @@ func Default() *subagentSvc { return defaultSubagent }
 func (s *subagentSvc) RegisterDeps(agents AgentGateway, chat ChatGateway) {
 	s.agents, s.chat = agents, chat
 }
+
+// RegisterDispatchRecorder 装上派发关系登记端口(生产传 chat_svc.Dispatch());没装时 agent 派发
+// 照常执行,只是不登记派发关系。
+func (s *subagentSvc) RegisterDispatchRecorder(r chat_svc.DispatchRecorder) { s.dispatches = r }
 
 // resolveChain 按父会话取祖先链, 拼上父 agent, 做环检测。不设深度上限 —— 环检测已把链长
 // 天然封顶在「不同 agent 数」内(委派不能成环, 故不会无限递归)。ok=false 时 reason 是 MCP error 文本。

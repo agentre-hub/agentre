@@ -24,10 +24,9 @@ import { reloadSidebarSources } from "@/stores/sidebar-reload";
 
 import { FailureCallout } from "../failure-toast";
 
-import {
-  DeleteChatSession,
-  RenameChatSession,
-} from "../../../../wailsjs/go/app/App";
+import { RenameChatSession } from "../../../../wailsjs/go/app/App";
+
+import { deleteChatSession } from "./delete-chat-session";
 
 const RENAME_FORM_ID = "sidebar-rename-session-form";
 
@@ -121,7 +120,7 @@ export function useSessionActions(): SessionActions {
     setDeleteError(null);
     setDeleteBusy(true);
     try {
-      await DeleteChatSession({ sessionId: id } as never);
+      await deleteChatSession(id);
     } catch (e) {
       // 没删掉：标签页照留，窗里说清楚。
       setDeleteError(classifyAppError(e));

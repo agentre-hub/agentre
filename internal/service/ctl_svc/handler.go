@@ -35,6 +35,8 @@ type ctlHandler struct {
 	pollInterval time.Duration
 	// cards 把 send --wait 的子会话升级成调用方转录里的子代理卡(nil = 不升级)。
 	cards SubagentCards
+	// dispatches 登记会话间的派发关系(nil = 不登记),见 dispatch.go。
+	dispatches chat_svc.DispatchRecorder
 	// approvals 在会话里出审批卡；external 是桌面端弹窗的待审批队列（nil = 不可用）。
 	approvals       SessionApprovals
 	external        ExternalApprovals
@@ -411,20 +413,26 @@ func (h *ctlHandler) steer(w http.ResponseWriter, r *http.Request, req sendReque
 // dispatch 在 target 上起一轮,按 req.Wait 立即返回或等到结果。
 func (h *ctlHandler) dispatch(w http.ResponseWriter, r *http.Request, cred credential, req sendRequest, target *chat_svc.CtlConversation) {
 	sessionID := target.SessionID
-	// --wait：订阅必须在 Send 之前(快 turn 的回执会丢)。
+	// 派发关系:登记同样先于起轮;只有会话 token 才有派发方。
+	dispatch := h.beginDispatch(r.Context(), cred, req, sessionID)
+
+	// --wait 要等结果,要登记派发的也要知道这一轮何时收尾：订阅必须在 Send 之前(快 turn 的回执会丢)。
 	var (
 		turnCh        <-chan chat_svc.TurnResult
 		cancelObserve = func() {}
 	)
-	if req.Wait {
+	if req.Wait || dispatch.recorded() {
 		turnCh, cancelObserve = h.chat.ObserveTurn(sessionID)
 	}
 	// 子代理卡:登记同样必须在 Send 之前(子会话起轮第一时间的步骤要攒住)。
 	card := h.watchSubagentCard(r.Context(), cred, req, sessionID)
-	detached := false
+	// 交给后台 goroutine 的那一份由它释放:卡片与订阅各自记着是否已移交。
+	cardDetached, observeDetached := false, false
 	defer func() {
-		if !detached {
+		if !cardDetached {
 			card.Close()
+		}
+		if !observeDetached {
 			cancelObserve()
 		}
 	}()
@@ -441,6 +449,7 @@ func (h *ctlHandler) dispatch(w http.ResponseWriter, r *http.Request, cred crede
 		EmitTurnStartedBypass: req.Isolated, // 隔离会话不需要前端正常轮起始事件；可见会话要
 	})
 	if err != nil {
+		dispatch.finish(r.Context(), chat_svc.DispatchOutcome{Status: chat_svc.CtlSendFailed})
 		if isSessionRunningErr(err) {
 			writeErr(w, http.StatusConflict, errSessionRunning)
 			return
@@ -448,6 +457,7 @@ func (h *ctlHandler) dispatch(w http.ResponseWriter, r *http.Request, cred crede
 		writeErr(w, http.StatusInternalServerError, "start turn failed: "+err.Error())
 		return
 	}
+	dispatch.started(r.Context())
 	logger.Ctx(r.Context()).Info("ctl_svc.serveSend: dispatched",
 		zap.Int64("agentId", target.AgentID),
 		zap.Int64("sessionId", sessionID),
@@ -460,6 +470,11 @@ func (h *ctlHandler) dispatch(w http.ResponseWriter, r *http.Request, cred crede
 		outcomeDTO: outcomeDTO{Status: string(chat_svc.CtlStatusRunning)},
 	}
 	if !req.Wait {
+		if dispatch.recorded() {
+			// 响应不等收尾:后台盯着这一轮,收尾时把派发行落成终态。
+			observeDetached = true
+			go dispatch.track(context.WithoutCancel(r.Context()), turnCh, cancelObserve)
+		}
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
@@ -480,18 +495,23 @@ func (h *ctlHandler) dispatch(w http.ResponseWriter, r *http.Request, cred crede
 		if r.Context().Err() != nil {
 			// CLI 断开/取消 → 中止该轮，不留悬空 turn（用 Background：请求 ctx 已取消）。
 			_, _ = h.chat.Stop(context.Background(), &chat_svc.StopRequest{SessionID: sessionID})
+			dispatch.finish(context.WithoutCancel(r.Context()), chat_svc.DispatchOutcome{Status: chat_svc.CtlSendCanceled})
 			card.Finish(context.WithoutCancel(r.Context()), chat_svc.CtlSendOutcome{Status: chat_svc.CtlSendCanceled})
+		} else {
+			dispatch.finish(r.Context(), chat_svc.DispatchOutcome{Status: chat_svc.CtlSendFailed})
 		}
 		writeAwaitErr(w, err)
 		return
 	}
 	if res.settled() {
-		// 卡片的终态一律在写响应之前落定:前台 shell 调用拿到结果时,卡片已经收尾。
-		card.Finish(r.Context(), res.cardOutcome())
+		// 派发行与卡片的终态一律在写响应之前落定:前台 shell 调用拿到结果时,两者都已收尾。
+		outcome := res.cardOutcome()
+		dispatch.finish(r.Context(), chat_svc.DispatchOutcome{Status: outcome.Status, ReplyMessageID: outcome.AssistantMessageID})
+		card.Finish(r.Context(), outcome)
 	} else {
-		// 等待输入或超时返回时这一轮还在跑:卡片跟着它直到真正收口。
-		detached = true
-		go h.finishCardLater(context.WithoutCancel(r.Context()), card, turnCh, cancelObserve, sessionID)
+		// 等待输入或超时返回时这一轮还在跑:派发行与卡片跟着它直到真正收口。
+		cardDetached, observeDetached = true, true
+		go h.finishCardLater(context.WithoutCancel(r.Context()), card, dispatch, turnCh, cancelObserve, sessionID)
 	}
 	out.outcomeDTO, out.Done = res.dto, res.settled()
 	if res.assistantMessageID > 0 {
@@ -501,10 +521,11 @@ func (h *ctlHandler) dispatch(w http.ResponseWriter, r *http.Request, cred crede
 }
 
 // finishCardLater 在 send --wait 提前返回(等待输入 / 超时)之后,等子会话这一轮真正
-// 收口再把子代理卡落成终态。
+// 收口再把子代理卡与派发行落成终态。
 // ctx 不随请求结束而取消:响应已经写出,卡片还要跟着这一轮。
 func (h *ctlHandler) finishCardLater(
-	ctx context.Context, card chat_svc.CtlSendWatch, turnCh <-chan chat_svc.TurnResult, cancel func(), sessionID int64,
+	ctx context.Context, card chat_svc.CtlSendWatch, dispatch dispatchHandle,
+	turnCh <-chan chat_svc.TurnResult, cancel func(), sessionID int64,
 ) {
 	defer cancel()
 	defer card.Close()
@@ -512,6 +533,7 @@ func (h *ctlHandler) finishCardLater(
 	defer timer.Stop()
 	select {
 	case res := <-turnCh:
+		dispatch.finish(ctx, chat_svc.DispatchOutcomeOfTurn(res))
 		text, _ := h.chat.FinalAssistantText(ctx, res.AssistantMessageID)
 		status := chat_svc.CtlSendCompleted
 		switch {

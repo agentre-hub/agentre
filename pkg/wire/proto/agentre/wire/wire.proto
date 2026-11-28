@@ -1414,6 +1414,11 @@ message ToolCall {
   bytes canonical = 4;
   string parent_tool_call_id = 5;
   string subagent_run_id = 6;
+  // The directory the AI was in when the executing side (local process or
+  // agentred) produced this call. Empty means the producer did not know it
+  // (older agentred, or a backend that does not report it yet); consumers fall
+  // back to the session's working directory.
+  string cwd = 7;
 }
 message ToolResult {
   string tool_call_id = 1;
@@ -1422,6 +1427,8 @@ message ToolResult {
   string parent_tool_call_id = 4;
   string subagent_run_id = 5;
   bytes meta = 6;
+  // Same meaning as ToolCall.cwd, at the time this result was produced.
+  string cwd = 7;
 }
 message ConsumedSteer {
   string queued_id = 1;

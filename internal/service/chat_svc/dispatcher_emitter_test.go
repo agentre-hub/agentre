@@ -468,3 +468,14 @@ func TestDispatcherEmitter_AskUserQuestion_CarriesExpired(t *testing.T) {
 		So(em.events[0].Canonical.UserAsk.Expired, ShouldBeTrue)
 	})
 }
+
+func TestDispatcherEmitter_ToolEventsCarryCwd(t *testing.T) {
+	Convey("tool_use / tool_result 的 cwd → ChatStreamEvent.Cwd,与重新加载后的 ChatBlock.Cwd 同形", t, func() {
+		de, em := newTestDispatcherEmitter()
+		de.Emit(context.Background(), "s", map[string]any{"kind": "tool_use", "toolUseId": "t1", "toolName": "Bash", "cwd": "/repo"})
+		de.Emit(context.Background(), "s", map[string]any{"kind": "tool_result", "toolUseId": "t1", "toolResult": "ok", "cwd": "/repo/wt"})
+		So(em.events, ShouldHaveLength, 2)
+		So(em.events[0].Cwd, ShouldEqual, "/repo")
+		So(em.events[1].Cwd, ShouldEqual, "/repo/wt")
+	})
+}

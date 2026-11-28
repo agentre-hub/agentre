@@ -202,7 +202,9 @@
     "openExternalAria": "Open with the default system app",
     "openFailed": "Open failed: {{error}}",
     "openPreview": "Preview",
-    "openPreviewAria": "Open in the preview panel"
+    "openPreviewAria": "Open in the preview panel",
+    "previewInApp": "In-app preview",
+    "workRootTitle": "Work root: {{path}}"
   },
   "terminal": {
     "banner": {

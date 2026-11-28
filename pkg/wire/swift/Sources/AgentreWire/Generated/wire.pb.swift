@@ -5248,6 +5248,12 @@ public nonisolated struct Agentre_Wire_ToolCall: Sendable {
 
   public var subagentRunID: String = String()
 
+  /// The directory the AI was in when the executing side (local process or
+  /// agentred) produced this call. Empty means the producer did not know it
+  /// (older agentred, or a backend that does not report it yet); consumers fall
+  /// back to the session's working directory.
+  public var cwd: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -5269,6 +5275,9 @@ public nonisolated struct Agentre_Wire_ToolResult: Sendable {
   public var subagentRunID: String = String()
 
   public var meta: Data = Data()
+
+  /// Same meaning as ToolCall.cwd, at the time this result was produced.
+  public var cwd: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -16725,7 +16734,7 @@ nonisolated extension Agentre_Wire_TurnStartedNotification: SwiftProtobuf.Messag
 
 nonisolated extension Agentre_Wire_ToolCall: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ToolCall"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}input\0\u{1}canonical\0\u{3}parent_tool_call_id\0\u{3}subagent_run_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}input\0\u{1}canonical\0\u{3}parent_tool_call_id\0\u{3}subagent_run_id\0\u{1}cwd\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -16739,6 +16748,7 @@ nonisolated extension Agentre_Wire_ToolCall: SwiftProtobuf.Message, SwiftProtobu
       case 4: try { try decoder.decodeSingularBytesField(value: &self.canonical) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.parentToolCallID) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.subagentRunID) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.cwd) }()
       default: break
       }
     }
@@ -16763,6 +16773,9 @@ nonisolated extension Agentre_Wire_ToolCall: SwiftProtobuf.Message, SwiftProtobu
     if !self.subagentRunID.isEmpty {
       try visitor.visitSingularStringField(value: self.subagentRunID, fieldNumber: 6)
     }
+    if !self.cwd.isEmpty {
+      try visitor.visitSingularStringField(value: self.cwd, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -16773,6 +16786,7 @@ nonisolated extension Agentre_Wire_ToolCall: SwiftProtobuf.Message, SwiftProtobu
     if lhs.canonical != rhs.canonical {return false}
     if lhs.parentToolCallID != rhs.parentToolCallID {return false}
     if lhs.subagentRunID != rhs.subagentRunID {return false}
+    if lhs.cwd != rhs.cwd {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -16780,7 +16794,7 @@ nonisolated extension Agentre_Wire_ToolCall: SwiftProtobuf.Message, SwiftProtobu
 
 nonisolated extension Agentre_Wire_ToolResult: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ToolResult"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}tool_call_id\0\u{1}content\0\u{3}is_error\0\u{3}parent_tool_call_id\0\u{3}subagent_run_id\0\u{1}meta\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}tool_call_id\0\u{1}content\0\u{3}is_error\0\u{3}parent_tool_call_id\0\u{3}subagent_run_id\0\u{1}meta\0\u{1}cwd\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -16794,6 +16808,7 @@ nonisolated extension Agentre_Wire_ToolResult: SwiftProtobuf.Message, SwiftProto
       case 4: try { try decoder.decodeSingularStringField(value: &self.parentToolCallID) }()
       case 5: try { try decoder.decodeSingularStringField(value: &self.subagentRunID) }()
       case 6: try { try decoder.decodeSingularBytesField(value: &self.meta) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.cwd) }()
       default: break
       }
     }
@@ -16818,6 +16833,9 @@ nonisolated extension Agentre_Wire_ToolResult: SwiftProtobuf.Message, SwiftProto
     if !self.meta.isEmpty {
       try visitor.visitSingularBytesField(value: self.meta, fieldNumber: 6)
     }
+    if !self.cwd.isEmpty {
+      try visitor.visitSingularStringField(value: self.cwd, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -16828,6 +16846,7 @@ nonisolated extension Agentre_Wire_ToolResult: SwiftProtobuf.Message, SwiftProto
     if lhs.parentToolCallID != rhs.parentToolCallID {return false}
     if lhs.subagentRunID != rhs.subagentRunID {return false}
     if lhs.meta != rhs.meta {return false}
+    if lhs.cwd != rhs.cwd {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

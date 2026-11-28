@@ -40,13 +40,17 @@ import {
   useSessionLiveBlocks,
   type LiveStream,
 } from "@/stores/chat-streams-store";
-import { useChatTabsStore } from "@/stores/chat-tabs-store";
+import {
+  useChatTabsStore,
+  type NewSessionSeed,
+} from "@/stores/chat-tabs-store";
 import {
   useQueuedMessagesStore,
   type QueuedMessage,
 } from "@/stores/queued-messages-store";
 import { useSessionConnectionState } from "@/stores/session-conn-store";
 import { useSessionReadStore } from "@/stores/session-read-store";
+import { useSessionRoot } from "@/stores/session-root-store";
 
 import {
   useBackendCapabilities,
@@ -59,13 +63,14 @@ import {
   type ChatComposerHandle,
   type ChatTranscriptHandle,
 } from "./chat";
-import { ChatContextSidebar } from "./chat-context-sidebar";
+import { ChatContextToolWindows } from "./chat-context-sidebar";
 import { ChatPanelHeader } from "./chat-panel/chat-panel-header";
 import { ChatPanelConfirmDialogs } from "./chat-panel/confirm-dialogs";
 import { NewSessionChatGuard } from "./chat-panel/new-session-chat-guard";
 import type { ChatPanelNotice } from "./chat-panel/notice";
 import { ChatPanelNoticeAlert } from "./chat-panel/notice-alert";
 import { SessionLoadError } from "./chat-panel/session-load-error";
+import { toLinkRoots } from "./transcript-ports-desktop";
 import { liveContentByMessageId } from "./chat-panel/stream-view";
 import { useAutonomousTurnEvents } from "./chat-panel/use-autonomous-turn-events";
 import { useChatActions } from "./chat-panel/use-chat-actions";
@@ -74,6 +79,12 @@ import { useTranscriptCatchUp } from "./chat-panel/use-transcript-catchup";
 import { usePlanActionStarted } from "./chat-panel/use-plan-action-started";
 import { useTurnSettledCleanup } from "./chat-panel/use-turn-settled-cleanup";
 import { useMessageActions } from "./chat-panel/use-message-actions";
+import { ChatRailSummary } from "./editor-split/chat-rail";
+import {
+  EditorSplit,
+  EditorSplitFileActions,
+} from "./editor-split/editor-split";
+import { useEditorSplit } from "./editor-split/use-editor-split";
 import { FilePreviewPanel } from "./file-preview/file-preview-panel";
 import { computeComposerContextUsage } from "./chat-panel-context-usage";
 import { deriveComposerCapabilities } from "./chat-panel/composer-capabilities";
@@ -85,10 +96,10 @@ import {
   useReasoningEffortPill,
 } from "./reasoning-effort";
 import { NewSessionExecTargetLine } from "./session-exec-target";
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { deriveBackgroundTasks } from "./background-tasks/derive";
 import type { SessionProcess } from "./background-tasks/types";
 import { useSessionProcesses } from "./background-tasks/use-session-processes";
+import { openWebPreview } from "./tool-windows/web-preview-store";
 import { usePanelShown } from "./chat-panel/panel-shown";
 import { deriveTaskProgress } from "./task-progress/derive";
 import { TaskProgressBar } from "./task-progress/task-progress-bar";
@@ -190,6 +201,8 @@ type ChatPanelProps = {
   newSessionAgent?: ChatAgentItem | null;
   /** 新建会话时附加的项目上下文。仅 sessionId=0 路径生效。*/
   newSessionContext?: NewSessionContext;
+  /** 新建会话的预填 / 预选（看板任务「开始会话」）；缺省 = 全部走新建会话的默认。*/
+  newSessionSeed?: NewSessionSeed;
   /** 新会话首发成功后回调，父级用来同步 selectedSessionId/agentId。*/
   onSessionCreated?: (sessionId: number, agentId: number) => void;
   /** 新建会话派到一台远端桌面端（R18）成功后回调，父级关掉新建 Tab 并打开 Peer Tab。*/
@@ -218,6 +231,7 @@ function ChatPanel({
   sessionId,
   newSessionAgent,
   newSessionContext,
+  newSessionSeed,
   onSessionCreated,
   onPeerSessionCreated,
   onSessionDeleted,
@@ -260,7 +274,14 @@ function ChatPanel({
   // 按 agent/session 手动重置。
   const [execTargetOverride, setExecTargetOverride] = React.useState<
     number | null
-  >(null);
+  >(
+    // 种子点名的执行后端；与 Agent 自己的后端相同就不算覆盖。不可用时由
+    // NewSessionExecTargetLine 照常回落到自动挑选。
+    newSessionSeed?.backendId &&
+      newSessionSeed.backendId !== newSessionAgent?.agentBackendId
+      ? newSessionSeed.backendId
+      : null,
+  );
   // 改选后生效档的 backend type（由 NewSessionExecTargetLine 报上来）。新建会话且
   // 手动指定了执行目标时，permission mode 的 allowed 集合/默认值是 runtime 维度的，
   // 必须跟随实际后端而不是 agent 主后端 —— 否则从 claudecode 主后端改到 codex 后端
@@ -290,6 +311,13 @@ function ChatPanel({
     loadingEarlierBlocks,
     loadEarlierBlocks,
   } = useChatSession(sessionId);
+  // 编辑区分屏（spec「编辑区与文件」）：会话开着文件时对话 | 文件 两栏；文件占满时
+  // 内容页缩成左侧窄栏——头部让位、转录收起（不卸载），换成「最后一条用户消息 +
+  // 正在执行的动作」，输入框还是原来那一个（同一个实例，草稿不丢）。
+  const fileFull = useEditorSplit(session?.id ?? 0).layout === "file-full";
+  // 转录收起期间按「不在前台」处理（与隐藏 tab、路由收起同一条路）：虚拟器冻住、
+  // 贴底跟随跳过，还原时由 active 翻回 true 的那一跳恢复滚动位置。
+  const transcriptShown = active && !fileFull;
   // ChatComposer 命令式句柄:doSend 失败时用它恢复草稿（restoreDraft）/ 丢弃草稿
   // （clearDraft）。ChatComposer 内部已清空输入框,不恢复用户刚打的内容会永久丢失。
   const composerRef = React.useRef<ChatComposerHandle>(null);
@@ -353,8 +381,6 @@ function ChatPanel({
   // 住在共享包的 useTranscriptScroll 里 —— 那是纯 DOM 工作,不认 Wails 也不认 store。
   // 这里只留转录渲染器的句柄;接线在下面 liveByMessageId 备好之后。
   const transcriptHandleRef = React.useRef<ChatTranscriptHandle>(null);
-  const sidebarOpen = useChatSidebarStore((s) => s.open);
-  const setSidebarOpen = useChatSidebarStore((s) => s.setOpen);
 
   // ── 当前选中会话的派生视图 ──
   // 没有 LiveStream entry 表示该会话当前不在生成中；UI 的 typing indicator /
@@ -380,7 +406,7 @@ function ChatPanel({
     showBackToBottom,
     turnsBelow,
   } = useTranscriptScroll({
-    active,
+    active: transcriptShown,
     liveRevision: liveByMessageId,
     messages,
     scrollToAnchor: (anchorId, anchorOffset, anchorRowKey) =>
@@ -562,8 +588,11 @@ function ChatPanel({
   );
   // 会话进程:面板真摆在眼前且有会话时才轮询;弹层打开立刻补拉,结束后立刻刷新。
   const panelShown = usePanelShown();
-  const { processes: sessionProcesses, refresh: refreshProcesses } =
-    useSessionProcesses(sessionId > 0 ? sessionId : undefined, panelShown);
+  const {
+    processes: sessionProcesses,
+    known: sessionProcessesKnown,
+    refresh: refreshProcesses,
+  } = useSessionProcesses(sessionId > 0 ? sessionId : undefined, panelShown);
   const handleProcessesOpenChange = React.useCallback(
     (open: boolean) => {
       if (open) void refreshProcesses();
@@ -835,6 +864,45 @@ function ChatPanel({
     if (draft) composerRef.current?.appendDraft(draft);
   });
   const composerEditing = activeEditing !== null;
+  // 看板「开始会话」的种子：输入框预填一次（不发送），模型目标在生效后端落定后预选
+  // 一次——后端落定前预选会被 pill 随后端类型变化的重置抹掉。
+  const seedTextAppliedRef = React.useRef<NewSessionSeed | null>(null);
+  const seedModelAppliedRef = React.useRef<NewSessionSeed | null>(null);
+  const setProviderTarget = providerPill.setTarget;
+  React.useEffect(() => {
+    if (!newSessionSeed || sessionId > 0) return;
+    if (seedTextAppliedRef.current !== newSessionSeed) {
+      seedTextAppliedRef.current = newSessionSeed;
+      if (newSessionSeed.text)
+        composerRef.current?.appendDraft(newSessionSeed.text);
+    }
+    if (seedModelAppliedRef.current === newSessionSeed) return;
+    if (!newSessionSeed.providerKey) {
+      seedModelAppliedRef.current = newSessionSeed;
+      return;
+    }
+    if (!effectiveTarget) return;
+    seedModelAppliedRef.current = newSessionSeed;
+    // 点名的执行后端不可用而被回落时，模型属于那个后端，不再套到默认后端上。
+    if (
+      newSessionSeed.backendId &&
+      newSessionSeed.backendId !== newSessionAgent?.agentBackendId &&
+      !execTargetOverride
+    ) {
+      return;
+    }
+    setProviderTarget({
+      providerKey: newSessionSeed.providerKey,
+      modelKey: newSessionSeed.modelKey ?? "",
+    });
+  }, [
+    newSessionSeed,
+    sessionId,
+    effectiveTarget,
+    execTargetOverride,
+    newSessionAgent?.agentBackendId,
+    setProviderTarget,
+  ]);
   const stableProviderPill = useShallowStable(providerPill);
   const stableReasoningEffortPill = useShallowStable(reasoningEffortPill);
   const queuedItems = currentQueued ?? EMPTY_QUEUED;
@@ -912,6 +980,37 @@ function ChatPanel({
       supportsReasoningEffort,
     ],
   );
+  // 「会话信息」工具窗的输入：输入框旁那几颗控件的同一份状态（所以标签逐字一致），
+  // 控件不显示时对应项为 undefined，窗口据此不画那一行。
+  const sessionInfoInput = React.useMemo(
+    () => ({
+      session,
+      permissionMode: isModeSwitchable ? permissionModeValue : undefined,
+      modelLabel:
+        activeBackendType && activeBackendType !== "hermes"
+          ? providerPill.resolvedModelLabel
+          : undefined,
+      reasoningEffort: supportsReasoningEffort
+        ? reasoningEffortPill.value || reasoningEffortPill.backendValue
+        : undefined,
+      contextUsage: composerContextUsage,
+      onCopyLaunchCommand: session
+        ? () => void handleCopyLaunchCommand(session.id)
+        : undefined,
+    }),
+    [
+      session,
+      isModeSwitchable,
+      permissionModeValue,
+      activeBackendType,
+      providerPill.resolvedModelLabel,
+      supportsReasoningEffort,
+      reasoningEffortPill.value,
+      reasoningEffortPill.backendValue,
+      composerContextUsage,
+      handleCopyLaunchCommand,
+    ],
+  );
   const composerTopSlot = React.useMemo(
     () => (
       <>
@@ -939,7 +1038,7 @@ function ChatPanel({
       taskProgress,
     ],
   );
-  // 侧栏是 memo 的:跳转与「指定路径后重载」的回调同样要身份稳定。
+  // 工具窗共享的会话事实是 memo 的:跳转与「指定路径后重载」的回调同样要身份稳定。
   const handleJumpToMessage = React.useCallback((mid: number) => {
     transcriptHandleRef.current?.scrollToMessage(mid);
   }, []);
@@ -1022,8 +1121,8 @@ function ChatPanel({
       ? newSessionAgent.name
       : "";
   // 输入带的边界只在真的有转录可滚时才有话说：新建会话未首发时没有转录，
-  // 上一条会话残留的滚动位置不该在这里画一条线。
-  const showBandEdge = showBackToBottom && !showNewSessionPrompt;
+  // 上一条会话残留的滚动位置不该在这里画一条线；窄栏里也没有转录。
+  const showBandEdge = showBackToBottom && !showNewSessionPrompt && !fileFull;
   // 还没有任何转录可看：加载中且既无会话也无消息。骨架与滚动带的 busy 语义共用
   // 这一个判定，两者因此不会各说各话。
   const awaitingTranscript =
@@ -1044,154 +1143,203 @@ function ChatPanel({
       ) : (
         // 关键：showNewSessionPrompt → 已有会话 切换时，<ChatComposer> 必须保持挂载，
         // 否则 TipTap editor 实例随子树卸载重建，用户刚发完首条消息焦点就跑了。
-        // 布局：一行分三块，都落在外框上 ——
+        // 布局：工具窗骨架（ChatContextToolWindows → ToolWindowLayout）把编辑区摆在
+        //   左边，右侧是工具窗槽位与最右的图标条，都落在外框上 ——
         //   <main> 是内容页（content-sheet）：头部铺顶（四种会话情形都在），下面
         //     transcript（或新会话占位）+ notice + ChatComposer；
-        //   右侧栏 ChatContextSidebar 与文件预览在内容页之外，从 Tab 条下沿一直到底，
-        //     与内容页之间只隔一道外框缝，不画线。
+        //   编辑区分屏（EditorSplit）把内容页放在左栏，会话开着文件时右栏是文件
+        //     预览；文件占满时内容页缩成窄栏（头部与转录换成窄栏摘要）。
+        //   新建会话提示页不显示图标条与工具窗，但编辑区在树里的位置不变——
         //   ChatComposer 固定在 <main> 的最后一个 child 位置，跨分支保持同一 React 实例。
-        <div className="flex min-h-0 min-w-0 flex-1">
-          <main className="content-sheet flex min-h-0 min-w-0 flex-1 flex-col">
-            <ChatPanelHeader
-              session={session}
-              newSessionAgent={newSessionAgent}
-              showNewSessionPrompt={Boolean(showNewSessionPrompt)}
-              title={headerTitle}
-              status={headerStatus}
-              topline={headerToplineNode}
-              agentName={headerAgentName}
-              metaTail={headerMetaTail}
-              backgroundTasks={backgroundTasks}
-              processes={sessionProcesses}
-              onOpenProcess={(_process, port) => void handleOpenProcess(port)}
-              onKillProcess={handleKillProcess}
-              onProcessesOpenChange={handleProcessesOpenChange}
-              onClearCompletedTasks={handleClearCompleted}
-              onStopTask={
-                canStopBackgroundTask
-                  ? (task) => stopSubagent(task.toolUseId)
-                  : undefined
-              }
-              onLocateTask={(task) => {
-                if (task.messageId != null) {
-                  transcriptHandleRef.current?.scrollToMessage(task.messageId);
+        <ChatContextToolWindows
+          sessionId={session?.id ?? 0}
+          messages={messages}
+          activeMessageId={activeMessageId}
+          cwd={session?.cwd ?? ""}
+          remote={Boolean(session?.deviceID)}
+          cwdUnavailableReason={session?.cwdUnavailableReason}
+          projectId={session?.projectId}
+          onCwdSpecified={reloadAfterChange}
+          onJumpToMessage={handleJumpToMessage}
+          sessionInfo={sessionInfoInput}
+          processes={sessionProcessesKnown ? sessionProcesses : undefined}
+          onRefreshProcesses={refreshProcesses}
+          hidden={Boolean(showNewSessionPrompt)}
+        >
+          <EditorSplit
+            sessionId={session?.id ?? 0}
+            file={
+              <FilePreviewPanel
+                sessionId={session?.id ?? 0}
+                messages={messages}
+                cwd={session?.cwd ?? ""}
+                actions={
+                  <EditorSplitFileActions sessionId={session?.id ?? 0} />
                 }
-              }}
-              canStop={canStop}
-              stopping={stopping}
-              onStop={(id) => void doStop(id)}
-              sidebarOpen={sidebarOpen}
-              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-              onRename={(target) =>
-                setPendingRename({ id: target.id, draft: target.title })
-              }
-              onCopyLaunchCommand={(id) => void handleCopyLaunchCommand(id)}
-              onDelete={(id) => handleDelete(id)}
-            />
-
-            {/* ── Body: chat ── 输入框宽度 = transcript 宽度,与对话流同列。 */}
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {showNewSessionPrompt ? (
-                <div className="flex flex-1 items-center justify-center">
-                  <div className="flex flex-col items-center gap-2 text-center">
-                    <div className="text-sm font-semibold">
-                      {newSessionProjectName
-                        ? t("chatPanel.newProjectSession.title", {
-                            agentName: newSessionAgent.name,
-                            projectName: newSessionProjectName,
-                          })
-                        : t("chatPanel.newSession.title", {
-                            name: newSessionAgent.name,
-                          })}
-                    </div>
-                    {newSessionAgent ? (
-                      <NewSessionExecTargetLine
-                        agentId={newSessionAgent.id}
-                        agentName={newSessionAgent.name}
-                        projectId={newSessionContext?.projectId ?? 0}
-                        overrideBackendId={execTargetOverride}
-                        onOverride={setExecTargetOverride}
-                        onOverrideBackendType={setOverrideBackendType}
-                        onEffectiveTarget={setEffectiveTarget}
-                      />
-                    ) : null}
-                  </div>
-                </div>
-              ) : (
-                <section
-                  ref={setTranscriptNode}
-                  data-testid="chat-transcript-scroll"
-                  onScroll={handleTranscriptScroll}
-                  // 「下面还会变」由这一条 busy 说，骨架自己对读屏隐身（决策 9）。
-                  aria-busy={awaitingTranscript}
-                  className="transcript-fade-top min-h-0 flex-1 overflow-auto px-7 pt-6"
-                >
-                  {sessionError ? (
-                    <SessionLoadError
-                      error={sessionError}
-                      onRetry={() => void reloadSession()}
-                      onClose={() => onSessionDeleted?.()}
-                    />
-                  ) : awaitingTranscript ? (
-                    <TranscriptSkeleton className="ml-10 max-w-measure py-2" />
-                  ) : (
-                    <>
-                      <ChatTranscript
-                        ref={transcriptHandleRef}
-                        agentName={session?.agentName ?? "Agent"}
-                        agentColor={
-                          (session?.agentColor as AgentColor) || "agent-1"
-                        }
-                        cwd={session?.cwd}
-                        sessionId={session?.id ?? 0}
-                        scrollElement={transcriptElement}
-                        virtualize
-                        active={active}
-                        messages={messages}
-                        hasEarlierMessages={hasEarlierBlocks}
-                        loadingEarlier={loadingEarlierBlocks}
-                        onLoadEarlier={() => void loadEarlierBlocks()}
-                        liveByMessageId={liveByMessageId}
-                        fallbackModel={providerPill.resolvedModelId}
-                        streaming={streaming}
-                        liveCompacting={liveCompacting}
-                        reconnecting={reconnecting}
-                        onContinue={() => {
-                          if (!session) return;
-                          void doSend(session.id, session.agentId, {
-                            text: t("chatPanel.errorCard.continueMessage"),
-                          });
-                        }}
-                        onRetryTurn={(messageId) => handleRetryTurn(messageId)}
-                        backendType={session?.backendType}
-                        onRerun={(messageId) => handleRegenerate(messageId)}
-                        onEdit={(messageId) => handleEdit(messageId)}
-                        onPlanActionStarted={handlePlanActionStarted}
-                        onStopSubagent={
-                          canStopBackgroundTask ? stopSubagent : undefined
-                        }
-                        onStopLocalCommand={handleStopLocalCommand}
-                        tabStateKey={scrollStateKey}
-                      />
-                      {showBackToBottom ? (
-                        <TranscriptJumpControl
-                          catchUp={catchUp}
-                          turnsBelow={turnsBelow}
-                          pendingBelow={pendingBelow}
-                          onJump={handleBackToBottom}
-                          // 这一端的转录列靠左（滚动容器是整面板宽的 px-7，列本身
-                          // 让出 40px 头像 gutter 再封顶 max-w-measure，没有
-                          // mx-auto）。药丸要与消息正文、输入框共用一条中线，就得
-                          // 按这条列算 —— 与 chat-composer-column 同一组类名。
-                          className="ml-10 max-w-measure"
-                        />
-                      ) : null}
-                    </>
-                  )}
-                </section>
+              />
+            }
+          >
+            <main
+              aria-label={fileFull ? t("editorSplit.rail.title") : undefined}
+              className="content-sheet flex min-h-0 min-w-0 flex-1 flex-col"
+            >
+              {fileFull ? null : (
+                <ChatPanelHeader
+                  session={session}
+                  newSessionAgent={newSessionAgent}
+                  showNewSessionPrompt={Boolean(showNewSessionPrompt)}
+                  title={headerTitle}
+                  status={headerStatus}
+                  topline={headerToplineNode}
+                  agentName={headerAgentName}
+                  metaTail={headerMetaTail}
+                  backgroundTasks={backgroundTasks}
+                  processes={sessionProcesses}
+                  onOpenProcess={(_process, port) =>
+                    void handleOpenProcess(port)
+                  }
+                  onPreviewProcess={(_process, port) =>
+                    openWebPreview(sessionId, `http://localhost:${port}/`)
+                  }
+                  onKillProcess={handleKillProcess}
+                  onProcessesOpenChange={handleProcessesOpenChange}
+                  onClearCompletedTasks={handleClearCompleted}
+                  onStopTask={
+                    canStopBackgroundTask
+                      ? (task) => stopSubagent(task.toolUseId)
+                      : undefined
+                  }
+                  onLocateTask={(task) => {
+                    if (task.messageId != null) {
+                      transcriptHandleRef.current?.scrollToMessage(
+                        task.messageId,
+                      );
+                    }
+                  }}
+                  canStop={canStop}
+                  stopping={stopping}
+                  onStop={(id) => void doStop(id)}
+                  onRename={(target) =>
+                    setPendingRename({ id: target.id, draft: target.title })
+                  }
+                  onCopyLaunchCommand={(id) => void handleCopyLaunchCommand(id)}
+                  onDelete={(id) => handleDelete(id)}
+                />
               )}
 
-              {/* ── 输入带 ──
+              {/* ── Body: chat ── 输入框宽度 = transcript 宽度,与对话流同列。 */}
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                {fileFull ? (
+                  <ChatRailSummary
+                    messages={messages}
+                    stream={currentStream}
+                    cwd={session?.cwd ?? ""}
+                  />
+                ) : null}
+                {showNewSessionPrompt ? (
+                  <div className="flex flex-1 items-center justify-center">
+                    <div className="flex flex-col items-center gap-2 text-center">
+                      <div className="text-sm font-semibold">
+                        {newSessionProjectName
+                          ? t("chatPanel.newProjectSession.title", {
+                              agentName: newSessionAgent.name,
+                              projectName: newSessionProjectName,
+                            })
+                          : t("chatPanel.newSession.title", {
+                              name: newSessionAgent.name,
+                            })}
+                      </div>
+                      {newSessionAgent ? (
+                        <NewSessionExecTargetLine
+                          agentId={newSessionAgent.id}
+                          agentName={newSessionAgent.name}
+                          projectId={newSessionContext?.projectId ?? 0}
+                          overrideBackendId={execTargetOverride}
+                          onOverride={setExecTargetOverride}
+                          onOverrideBackendType={setOverrideBackendType}
+                          onEffectiveTarget={setEffectiveTarget}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                ) : (
+                  <section
+                    ref={setTranscriptNode}
+                    data-testid="chat-transcript-scroll"
+                    hidden={fileFull}
+                    onScroll={handleTranscriptScroll}
+                    // 「下面还会变」由这一条 busy 说，骨架自己对读屏隐身（决策 9）。
+                    aria-busy={awaitingTranscript}
+                    className="transcript-fade-top min-h-0 flex-1 overflow-auto px-7 pt-6"
+                  >
+                    {sessionError ? (
+                      <SessionLoadError
+                        error={sessionError}
+                        onRetry={() => void reloadSession()}
+                        onClose={() => onSessionDeleted?.()}
+                      />
+                    ) : awaitingTranscript ? (
+                      <TranscriptSkeleton className="ml-10 max-w-measure py-2" />
+                    ) : (
+                      <>
+                        <ChatTranscript
+                          ref={transcriptHandleRef}
+                          agentName={session?.agentName ?? "Agent"}
+                          agentColor={
+                            (session?.agentColor as AgentColor) || "agent-1"
+                          }
+                          cwd={session?.cwd}
+                          sessionId={session?.id ?? 0}
+                          scrollElement={transcriptElement}
+                          virtualize
+                          active={transcriptShown}
+                          messages={messages}
+                          hasEarlierMessages={hasEarlierBlocks}
+                          loadingEarlier={loadingEarlierBlocks}
+                          onLoadEarlier={() => void loadEarlierBlocks()}
+                          liveByMessageId={liveByMessageId}
+                          fallbackModel={providerPill.resolvedModelId}
+                          streaming={streaming}
+                          liveCompacting={liveCompacting}
+                          reconnecting={reconnecting}
+                          onContinue={() => {
+                            if (!session) return;
+                            void doSend(session.id, session.agentId, {
+                              text: t("chatPanel.errorCard.continueMessage"),
+                            });
+                          }}
+                          onRetryTurn={(messageId) =>
+                            handleRetryTurn(messageId)
+                          }
+                          backendType={session?.backendType}
+                          onRerun={(messageId) => handleRegenerate(messageId)}
+                          onEdit={(messageId) => handleEdit(messageId)}
+                          onPlanActionStarted={handlePlanActionStarted}
+                          onStopSubagent={
+                            canStopBackgroundTask ? stopSubagent : undefined
+                          }
+                          onStopLocalCommand={handleStopLocalCommand}
+                          tabStateKey={scrollStateKey}
+                        />
+                        {showBackToBottom ? (
+                          <TranscriptJumpControl
+                            catchUp={catchUp}
+                            turnsBelow={turnsBelow}
+                            pendingBelow={pendingBelow}
+                            onJump={handleBackToBottom}
+                            // 这一端的转录列靠左（滚动容器是整面板宽的 px-7，列本身
+                            // 让出 40px 头像 gutter 再封顶 max-w-measure，没有
+                            // mx-auto）。药丸要与消息正文、输入框共用一条中线，就得
+                            // 按这条列算 —— 与 chat-composer-column 同一组类名。
+                            className="ml-10 max-w-measure"
+                          />
+                        ) : null}
+                      </>
+                    )}
+                  </section>
+                )}
+
+                {/* ── 输入带 ──
                     转录、通知、离线横幅、守卫、输入框共用同一条列（决策 5）：左右
                     内边距与转录同值，内容让出 28px 头像列 + gap-3 再封顶
                     --container-measure —— 输入框的第一个字符与消息正文的第一个字符
@@ -1199,113 +1347,107 @@ function ChatPanel({
                     边界跟随贴底（决策 6）：贴底 = 一整片，没有渐隐；未贴底 = 一段向上
                     渐隐把末行压掉一半，读作"下面还有"——不画分隔线（无边框改版）。
                     信号复用 showBackToBottom（与「回到底部」浮层同条件），零新状态。 */}
-              <div
-                data-testid="chat-composer-band"
-                data-scrolled={showBandEdge ? "true" : "false"}
-                className="relative shrink-0 px-7 pt-2 pb-4"
-              >
-                {showBandEdge ? (
-                  <div
-                    data-testid="chat-composer-band-fade"
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-x-0 -top-3.5 h-3.5 bg-gradient-to-t from-sheet to-transparent"
-                  />
-                ) : null}
                 <div
-                  data-testid="chat-composer-column"
-                  className="ml-10 flex max-w-measure flex-col gap-2"
+                  data-testid="chat-composer-band"
+                  data-scrolled={showBandEdge ? "true" : "false"}
+                  className={cn(
+                    "relative shrink-0",
+                    fileFull ? "px-3 pt-2 pb-3" : "px-7 pt-2 pb-4",
+                  )}
                 >
-                  {notice ? (
-                    <ChatPanelNoticeAlert
-                      notice={notice}
-                      onDismiss={() => setNotice(null)}
+                  {showBandEdge ? (
+                    <div
+                      data-testid="chat-composer-band-fade"
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-0 -top-3.5 h-3.5 bg-gradient-to-t from-sheet to-transparent"
                     />
                   ) : null}
+                  <div
+                    data-testid="chat-composer-column"
+                    className={cn(
+                      "flex flex-col gap-2",
+                      !fileFull && "ml-10 max-w-measure",
+                    )}
+                  >
+                    {notice ? (
+                      <ChatPanelNoticeAlert
+                        notice={notice}
+                        onDismiss={() => setNotice(null)}
+                      />
+                    ) : null}
 
-                  {/* 会话所在机器离线（R15b）：钉住的档在远端且当前离线，续轮不会改派——
+                    {/* 会话所在机器离线（R15b）：钉住的档在远端且当前离线，续轮不会改派——
                   给一条走得通的路，而不是让用户对着卡死的输入框干等。 */}
-                  {session && session.deviceID && session.online === false ? (
-                    <MachineOfflineBanner
-                      machineName={session.deviceName || session.deviceID}
-                      onStartNew={() =>
-                        useChatTabsStore
-                          .getState()
-                          .openNewSession(
-                            session.projectId ?? 0,
-                            session.agentId,
-                            "",
-                          )
-                      }
-                    />
-                  ) : null}
+                    {session && session.deviceID && session.online === false ? (
+                      <MachineOfflineBanner
+                        machineName={session.deviceName || session.deviceID}
+                        onStartNew={() =>
+                          useChatTabsStore
+                            .getState()
+                            .openNewSession(
+                              session.projectId ?? 0,
+                              session.agentId,
+                              "",
+                            )
+                        }
+                      />
+                    ) : null}
 
-                  {/* ── Composer ── */}
-                  {showNewSessionGuard && newSessionAgent ? (
-                    <NewSessionChatGuard agent={newSessionAgent} />
-                  ) : null}
-                  <ChatComposer
-                    ref={composerRef}
-                    sending={sendInFlight}
-                    // 已有会话的这一轮在跑时提交位让给停止键,Esc 也能停(C2)。
-                    running={!!session && canStop}
-                    onStop={session ? handleComposerStop : undefined}
-                    stopping={stopping}
-                    editing={activeEditing !== null}
-                    editDraft={activeEditing?.text}
-                    onCancelEdit={handleCancelEdit}
-                    // 新建会话场景下，ChatPanel 的 key 变化让 Composer 重新挂载 → 自动抓焦点，
-                    // 用户一进来就能直接打字。续聊已有会话不抢焦点，避免打断侧栏切换的鼠标交互。
-                    // 不可对话 Agent 的输入框已禁用，不再抢焦点。
-                    autoFocusOnMount={!!newSessionAgent && !showNewSessionGuard}
-                    disabled={showNewSessionGuard}
-                    placeholder={
-                      showNewSessionGuard
-                        ? t("chatPanel.newSession.guard.placeholder")
-                        : undefined
-                    }
-                    leadingControls={composerLeadingControls}
-                    trailingControls={composerTrailingControls}
-                    onShiftTab={
-                      isModeSwitchable && !modeSwitchingDisabled
-                        ? cyclePermissionMode
-                        : undefined
-                    }
-                    topSlot={composerTopSlot}
-                    onSubmit={handleComposerSubmitStable}
-                    backendType={activeBackendType}
-                    agentId={session?.agentId ?? newSessionAgent?.id ?? 0}
-                    cwd={composerCwd}
-                    localCommandHistoryScope={localCommandHistoryScope}
-                    onCommandModeChange={handleLocalCommandModeChange}
-                    supportsImageInput={supportsImageInput}
-                    onCommandSubmit={handleCommandSubmit}
-                    onSlashRpc={handleSlashRpc}
-                  />
+                    {/* ── Composer ── */}
+                    {showNewSessionGuard && newSessionAgent ? (
+                      <NewSessionChatGuard agent={newSessionAgent} />
+                    ) : null}
+                    <ChatComposer
+                      ref={composerRef}
+                      sending={sendInFlight}
+                      // 已有会话的这一轮在跑时提交位让给停止键,Esc 也能停(C2)。
+                      running={!!session && canStop}
+                      onStop={session ? handleComposerStop : undefined}
+                      stopping={stopping}
+                      editing={activeEditing !== null}
+                      editDraft={activeEditing?.text}
+                      onCancelEdit={handleCancelEdit}
+                      // 新建会话场景下，ChatPanel 的 key 变化让 Composer 重新挂载 → 自动抓焦点，
+                      // 用户一进来就能直接打字。续聊已有会话不抢焦点，避免打断侧栏切换的鼠标交互。
+                      // 不可对话 Agent 的输入框已禁用，不再抢焦点。
+                      autoFocusOnMount={
+                        !!newSessionAgent && !showNewSessionGuard
+                      }
+                      disabled={showNewSessionGuard}
+                      placeholder={
+                        showNewSessionGuard
+                          ? t("chatPanel.newSession.guard.placeholder")
+                          : undefined
+                      }
+                      // 窄栏放不下底栏那排设置与计量，只留输入与发送。
+                      leadingControls={
+                        fileFull ? undefined : composerLeadingControls
+                      }
+                      trailingControls={
+                        fileFull ? undefined : composerTrailingControls
+                      }
+                      onShiftTab={
+                        isModeSwitchable && !modeSwitchingDisabled
+                          ? cyclePermissionMode
+                          : undefined
+                      }
+                      topSlot={composerTopSlot}
+                      onSubmit={handleComposerSubmitStable}
+                      backendType={activeBackendType}
+                      agentId={session?.agentId ?? newSessionAgent?.id ?? 0}
+                      cwd={composerCwd}
+                      localCommandHistoryScope={localCommandHistoryScope}
+                      onCommandModeChange={handleLocalCommandModeChange}
+                      supportsImageInput={supportsImageInput}
+                      onCommandSubmit={handleCommandSubmit}
+                      onSlashRpc={handleSlashRpc}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          </main>
-          {!showNewSessionPrompt && sidebarOpen ? (
-            <ChatContextSidebar
-              sessionId={session?.id ?? 0}
-              messages={messages}
-              activeMessageId={activeMessageId}
-              cwd={session?.cwd ?? ""}
-              remote={Boolean(session?.deviceID)}
-              cwdUnavailableReason={session?.cwdUnavailableReason}
-              projectId={session?.projectId}
-              onCwdSpecified={reloadAfterChange}
-              onJumpToMessage={handleJumpToMessage}
-            />
-          ) : null}
-          {/* 最右一栏:文件预览面板。仅在选中了可预览文件时渲染(内部自行返回
-                null),打开占位、关闭释放宽度;宽高记忆独立 persistenceKey。 */}
-          <FilePreviewPanel
-            sessionId={session?.id ?? 0}
-            messages={messages}
-            cwd={session?.cwd ?? ""}
-          />
-        </div>
+            </main>
+          </EditorSplit>
+        </ChatContextToolWindows>
       )}
       <ChatPanelConfirmDialogs
         pendingRegenId={pendingRegenId}
@@ -1329,9 +1471,16 @@ function ChatPanel({
       ? "remote"
       : "local"
     : undefined;
+  // 转录链接按会话已认领的工作根归属(spec「文件链接」),与标题栏胶囊同一份集合。
+  const claimedRoots = useSessionRoot(session?.id ?? 0).roots;
+  const sessionCwd = session?.cwd ?? "";
+  const linkRoots = React.useMemo(
+    () => (sessionCwd ? toLinkRoots(claimedRoots, sessionCwd) : undefined),
+    [claimedRoots, sessionCwd],
+  );
 
   return (
-    <SessionLocationProvider location={sessionLocation}>
+    <SessionLocationProvider location={sessionLocation} roots={linkRoots}>
       {panel}
     </SessionLocationProvider>
   );

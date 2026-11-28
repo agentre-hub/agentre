@@ -20,23 +20,42 @@ import (
 // 集合之外仍然一律拒绝——边界只是变宽了一格,没有放松。
 //
 // 认领两个条件缺一不可:
-//  1. AI 的写入路径落在当前已认领的根之外(否则它本来就在集合里,不是新根);
+//  1. 候选路径(AI 当前位置、写入目标、`git worktree add` 的路径、用户点击的路径,
+//     见 Claim;写入路径另由取工作根时补喂)属于一个尚未认领的工作树(否则它本来
+//     就在集合里,不是新根);
 //  2. 该路径解析出的 git 公共目录(GitState.CommonDir)与会话 cwd 的相同,
 //     即它指回同一个主仓库。
 //
 // 只满足条件 1 的 /tmp/patch.diff 不是工作根 —— 少了条件 2,任何被 AI 写过的
 // 路径都会变成一个假的工作根,那等于取消了边界本身。
 //
+// 条件 1 按**工作树身份**判,不按路径字符串前缀判。同一主仓库下,(CommonDir,
+// worktree 短名)唯一确定一个工作树:CommonDir 由叶子包在执行设备上解析成真实
+// 路径,短名由 git 在同一 CommonDir 内保证唯一。于是
+//   - 建在主 checkout 目录树里的 worktree(<repo>/.claude/worktrees/x、
+//     <repo>/.worktrees/x)字符串上落在主根之内,身份却是另一个工作树 → 认领;
+//   - 同一个目录换一种符号链接写法(/tmp 与 /private/tmp)身份不变 → 不重复认领。
+// git 判定失败(远端掉线、git 报错)的候选不认领、也不让整个取数失败。
+//
 // 判定所需的 git 事实一律经 gitStateAt 取,本机走叶子包、远端走
 // workspacefs.gitState RPC(daemon 侧是同一份叶子实现),因此本地会话与远端
-// agentred 会话认领出的集合形状一致(硬不变量 5)。
+// agentred 会话认领出的集合形状一致(硬不变量 5)。认领结果持久化、git 判定按
+// 会话缓存,见 claim.go。
+
+// WrittenPath 是 AI 的一次写入:Path 是工具调用里的原始路径(可能是相对路径),
+// Dir 是该调用执行时 AI 所在的目录(没有记录时为空串)。相对路径按 Dir 补全,
+// Dir 为空时回落会话 cwd。
+type WrittenPath struct {
+	Path string
+	Dir  string
+}
 
 // SessionWrittenPathsResolver 返回本会话 AI 写过的文件路径(按首次出现顺序)。
 //
 // 这是本服务**自己**声明的第二个窄接口(ISP + DIP),实现方同样是 chat_svc ——
 // "哪些路径被写过"只有持有会话消息的那一侧答得出;本服务因此不必跨域读 chat
 // 表,单测也只注入一个闭包。注入模式与 SessionWorkspaceResolver 一致。
-type SessionWrittenPathsResolver func(ctx context.Context, sessionID int64) ([]string, error)
+type SessionWrittenPathsResolver func(ctx context.Context, sessionID int64) ([]WrittenPath, error)
 
 var resolveWrittenPathsFn SessionWrittenPathsResolver
 
@@ -63,6 +82,44 @@ type WorkRootView struct {
 	Name       string `json:"name"`
 	IsWorktree bool   `json:"isWorktree"`
 	IsPrimary  bool   `json:"isPrimary"`
+	// AIHere 标记 AI 当前位置所在的那个根(最多一个;位置不在任何根内时一个都不标)。
+	AIHere bool `json:"aiHere"`
+	// Removed 只出现在 RemovedWorkRoots 交回的项上:这个根已从认领集合中消失。
+	Removed bool `json:"removed,omitempty"`
+}
+
+// SessionAILocationResolver 返回本会话的 AI 当前位置:执行设备上的一个绝对目录,空串 =
+// 没有位置记录(即会话 cwd)。实现方是 chat_svc —— 位置由工具事件随到随更,只有持有
+// 事件流的那一侧知道。注入模式与 SessionWrittenPathsResolver 一致。
+type SessionAILocationResolver func(ctx context.Context, sessionID int64) (string, error)
+
+var resolveAILocationFn SessionAILocationResolver
+
+// RegisterSessionAILocation 由 bootstrap 注入 chat_svc 的实现。未注入时按「没有位置
+// 记录」处理:AI 在主根。
+func RegisterSessionAILocation(fn SessionAILocationResolver) { resolveAILocationFn = fn }
+
+// AIRootIndex 给出目录 dir 属于 roots 里的哪个根:包含它的**最深**的根(嵌在主 checkout
+// 里的 worktree 优先于主根),按路径段比较;dir 为空串(没有位置记录)即主根。不属于任何
+// 根时返回 -1。WorkRoots 据它标 AIHere,chat_svc 据它判「AI 的根变没变」—— 两处同一口径。
+func AIRootIndex(roots []WorkRootView, dir string) int {
+	if dir == "" {
+		for i, r := range roots {
+			if r.IsPrimary {
+				return i
+			}
+		}
+		return -1
+	}
+	dir = cleanPath(dir)
+	best, bestLen := -1, -1
+	for i, r := range roots {
+		root := cleanPath(r.Path)
+		if isWithin(root, dir) && len(root) > bestLen {
+			best, bestLen = i, len(root)
+		}
+	}
+	return best
 }
 
 // WorkRoots 返回本会话已认领的工作根集合,第一项恒是会话 cwd 对应的根。
@@ -71,7 +128,43 @@ func (s *workspaceFsImpl) WorkRoots(ctx context.Context, sessionID int64) ([]Wor
 	if err != nil {
 		return nil, err
 	}
-	return s.claimedRoots(ctx, sessionID, deviceID, cwd)
+	roots, err := s.claimedRoots(ctx, sessionID, deviceID, cwd)
+	if err != nil {
+		return nil, err
+	}
+	s.markAIHere(ctx, sessionID, roots)
+	return roots, nil
+}
+
+func (s *workspaceFsImpl) RefreshWorkRoots(ctx context.Context, sessionID int64) ([]WorkRootView, error) {
+	deviceID, cwd, err := s.workspace(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	s.stateFor(sessionID, deviceID, cwd).markClaimedUnverified()
+	return s.WorkRoots(ctx, sessionID)
+}
+
+// markAIHere 在 roots(已是副本)上标出 AI 当前所在的根。位置取不到时一个都不标:
+// 标错一个根会让前端的「跟随 AI」切到错的 checkout,不标只是少一个提示。
+func (s *workspaceFsImpl) markAIHere(ctx context.Context, sessionID int64, roots []WorkRootView) {
+	fn := s.aiLocation
+	if fn == nil {
+		fn = resolveAILocationFn
+	}
+	dir := ""
+	if fn != nil {
+		d, err := fn(ctx, sessionID)
+		if err != nil {
+			logger.Ctx(ctx).Warn("workspace_fs_svc.WorkRoots: ai location unavailable, no root marked",
+				zap.Int64("sessionID", sessionID), zap.Error(err))
+			return
+		}
+		dir = d
+	}
+	if i := AIRootIndex(roots, dir); i >= 0 {
+		roots[i].AIHere = true
+	}
 }
 
 // rootFor 解析出这次调用实际使用的 {deviceID, root}:root 为空串即会话 cwd;
@@ -94,14 +187,21 @@ func (s *workspaceFsImpl) rootFor(ctx context.Context, sessionID int64, root str
 	if cleaned == cleanPath(cwd) {
 		return deviceID, cwd, nil
 	}
-	roots, err := s.claimedRoots(ctx, sessionID, deviceID, cwd)
+	// 先按已知集合放行:读文件 / 列目录不该每次都重扫会话写过的全部路径。不在已知集合里
+	// 时才补喂一遍写入路径再判(刚写进一个尚未认领的 worktree)。
+	roots, err := s.knownRoots(ctx, sessionID, deviceID, cwd)
 	if err != nil {
 		return 0, "", err
 	}
-	for _, r := range roots {
-		if cleanPath(r.Path) == cleaned {
-			return deviceID, r.Path, nil
-		}
+	if p, ok := matchRoot(roots, cleaned); ok {
+		return deviceID, p, nil
+	}
+	roots, err = s.claimedRoots(ctx, sessionID, deviceID, cwd)
+	if err != nil {
+		return 0, "", err
+	}
+	if p, ok := matchRoot(roots, cleaned); ok {
+		return deviceID, p, nil
 	}
 	// 越界是可见的:被拒的具体路径不进日志(与 ErrPathRefused 不回显原因同一
 	// 取舍,避免成为路径探测信道),只记会话与已认领根的个数。
@@ -111,85 +211,85 @@ func (s *workspaceFsImpl) rootFor(ctx context.Context, sessionID int64, root str
 	return 0, "", i18n.NewError(ctx, code.WorkspaceFsPathRefused)
 }
 
-// claimedRoots 从会话 cwd 出发算出完整的工作根集合。
-func (s *workspaceFsImpl) claimedRoots(ctx context.Context, sessionID, deviceID int64, cwd string) ([]WorkRootView, error) {
-	primary, err := s.gitStateAt(ctx, deviceID, cwd)
-	if err != nil {
-		return nil, err
-	}
-	roots := []WorkRootView{{
-		Path: cwd, Name: baseOf(cwd), IsWorktree: primary.Worktree != "", IsPrimary: true,
-	}}
-	if primary.NotARepo || primary.CommonDir == "" {
-		// 会话 cwd 不在任何 git 工作树内:没有"同一个主仓库"可指回,认领条件 2
-		// 永远不成立。直接单根返回,顺带省掉一次会话消息扫描。
-		return roots, nil
-	}
-
-	written, err := s.writtenPathsOf(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	for _, p := range written {
-		if !isAbsPath(p) {
-			// 相对路径的锚点就是会话 cwd,它天然落在已认领的根里,认不出新根。
-			continue
+// matchRoot 在集合里找与 cleaned(已 cleanPath)相同的根,交回集合里的写法。
+func matchRoot(roots []WorkRootView, cleaned string) (string, bool) {
+	for _, r := range roots {
+		if cleanPath(r.Path) == cleaned {
+			return r.Path, true
 		}
-		dir := dirOf(cleanPath(p))
-		if withinAnyRoot(roots, dir) {
-			continue // 条件 1 不成立
-		}
-		root, st, ok, cerr := s.claimRoot(ctx, deviceID, dir, primary.CommonDir)
-		if cerr != nil {
-			return nil, cerr
-		}
-		if !ok || withinAnyRoot(roots, root) {
-			continue // 条件 2 不成立,或向上找到的根已经在集合里
-		}
-		roots = append(roots, WorkRootView{Path: root, Name: baseOf(root), IsWorktree: st.Worktree != ""})
-		logger.Ctx(ctx).Info("workspace_fs_svc.claimedRoots: claimed work root",
-			zap.Int64("sessionID", sessionID), zap.Int64("deviceID", deviceID),
-			zap.String("rootName", baseOf(root)), zap.Bool("isWorktree", st.Worktree != ""))
 	}
-	return roots, nil
+	return "", false
 }
 
-// claimRoot 判定 dir 是否指回 commonDir 那个主仓库,并给出它所属工作树的根。
-//
-// 认领的是**工作树的根**而不是被写文件所在的那一层子目录:根的名字与内容都要
-// 能当侧栏的一个根用。GitState 只给 CommonDir 不给工作树根,所以这里靠"同一
-// 工作树内 CommonDir 与 worktree 短名都不变"向上走:一旦上一层换了主仓库、
-// 换了 worktree、或根本不在工作树内,就说明刚才那层就是根。这样 worktree 嵌在
-// 主 checkout 里(两者 CommonDir 相同)时也不会一路爬到主仓库去。
-func (s *workspaceFsImpl) claimRoot(ctx context.Context, deviceID int64, dir, commonDir string) (string, *GitStateView, bool, error) {
-	st, err := s.gitStateAt(ctx, deviceID, dir)
-	if err != nil {
-		return "", nil, false, err
+// anchorWrittenPath 把一次写入补全成绝对路径:绝对路径原样(清理后)返回;相对
+// 路径按该调用所在目录 Dir 补全,Dir 缺失(或本身不是绝对路径)时回落会话 cwd。
+// 路径为空时 ok=false。
+func anchorWrittenPath(w WrittenPath, cwd string) (string, bool) {
+	if w.Path == "" {
+		return "", false
 	}
-	if st.NotARepo || st.CommonDir != commonDir {
-		return "", nil, false, nil
+	if isAbsPath(w.Path) {
+		return cleanPath(w.Path), true
 	}
-	root := dir
-	for i := 0; i < maxRootAscent; i++ {
-		parent := dirOf(root)
-		if parent == root {
-			break
-		}
-		pst, perr := s.gitStateAt(ctx, deviceID, parent)
-		if perr != nil {
-			return "", nil, false, perr
-		}
-		if pst.NotARepo || pst.CommonDir != commonDir || pst.Worktree != st.Worktree {
-			break
-		}
-		root, st = parent, pst
+	base := w.Dir
+	if !isAbsPath(base) {
+		base = cwd
 	}
-	return root, st, true, nil
+	return joinPath(base, w.Path), true
+}
+
+// WrittenFile 给出一次写入的文件的绝对路径:按 anchorWrittenPath 的规则补全(相对路径按
+// w.Dir,缺失时按 fallback)。补全不出绝对路径时 ok=false。
+func WrittenFile(w WrittenPath, fallback string) (string, bool) {
+	p, ok := anchorWrittenPath(w, fallback)
+	if !ok || !isAbsPath(p) {
+		return "", false
+	}
+	return p, true
+}
+
+// WrittenDir 给出一次写入所在的目录(认领候选):WrittenFile 的上一级。取工作根时补喂写入
+// 路径与 chat_svc 实时认领写入目标走这同一个口径。
+func WrittenDir(w WrittenPath, fallback string) (string, bool) {
+	p, ok := WrittenFile(w, fallback)
+	if !ok {
+		return "", false
+	}
+	return dirOf(p), true
+}
+
+// SamePath 报告两条执行设备上的路径清理后是否相同。
+func SamePath(a, b string) bool { return cleanPath(a) == cleanPath(b) }
+
+// RelativeTo 把 p 显示成相对 root 的路径;p 不在 root 之内时原样交回。
+func RelativeTo(root, p string) string {
+	r, c := cleanPath(root), cleanPath(p)
+	if r == c || !isWithin(r, c) {
+		return p
+	}
+	return strings.TrimLeft(c[len(strings.TrimRight(r, `/\`)):], `/\`)
+}
+
+// CleanLocation 把一条位置信号(执行设备上的目录)清理成规范写法;不是绝对路径时
+// ok=false —— 没有锚点的位置不可信,不参与位置更新与认领。远端路径按那台机器的规则
+// 切(见下方「路径工具」)。
+func CleanLocation(p string) (string, bool) {
+	if !isAbsPath(p) {
+		return "", false
+	}
+	return cleanPath(p), true
+}
+
+// logClaimGitFailure 记录一次被跳过的认领判定。具体路径不进日志(与 rootFor 越界
+// 不回显路径同一取舍)。
+func logClaimGitFailure(ctx context.Context, deviceID int64, err error) {
+	logger.Ctx(ctx).Warn("workspace_fs_svc.claimRoot: git state failed, candidate not claimed",
+		zap.Int64("deviceID", deviceID), zap.Error(err))
 }
 
 // writtenPathsOf 取本会话 AI 写过的路径;端口未注入时按"没写过"处理(集合退化
 // 成只有 cwd,是安全方向的降级)。
-func (s *workspaceFsImpl) writtenPathsOf(ctx context.Context, sessionID int64) ([]string, error) {
+func (s *workspaceFsImpl) writtenPathsOf(ctx context.Context, sessionID int64) ([]WrittenPath, error) {
 	fn := s.writtenPaths
 	if fn == nil {
 		fn = resolveWrittenPathsFn
@@ -198,17 +298,6 @@ func (s *workspaceFsImpl) writtenPathsOf(ctx context.Context, sessionID int64) (
 		return nil, nil
 	}
 	return fn(ctx, sessionID)
-}
-
-// withinAnyRoot 判定 p 是否已经落在某个已认领的根(含根本身)之内。
-func withinAnyRoot(roots []WorkRootView, p string) bool {
-	for _, r := range roots {
-		root := cleanPath(r.Path)
-		if p == root || strings.HasPrefix(p, root+sepOf(root)) {
-			return true
-		}
-	}
-	return false
 }
 
 // ── 路径工具 ────────────────────────────────────────────────────────────────
@@ -229,6 +318,13 @@ func cleanPath(p string) string {
 	return filepath.Clean(p)
 }
 
+func joinPath(base, rel string) string {
+	if isSlashPath(base) {
+		return path.Join(base, filepath.ToSlash(rel))
+	}
+	return filepath.Join(base, rel)
+}
+
 func dirOf(p string) string {
 	if isSlashPath(p) {
 		return path.Dir(p)
@@ -241,11 +337,4 @@ func baseOf(p string) string {
 		return path.Base(p)
 	}
 	return filepath.Base(p)
-}
-
-func sepOf(p string) string {
-	if isSlashPath(p) {
-		return "/"
-	}
-	return string(filepath.Separator)
 }

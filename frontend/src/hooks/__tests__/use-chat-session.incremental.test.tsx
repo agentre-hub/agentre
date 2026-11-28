@@ -447,6 +447,36 @@ describe("useChatSession incremental reload (spec 2026-11-05 decision 4)", () =>
     expect(got.progress.tasks.map((t) => t.status)).toEqual(["completed"]);
   });
 
+  // spec 2026-11-24 问题 15:Codex 的计划是独立的 plan 块;整会话补取不点名它,
+  // 窗口(最后 WINDOW 条)之外的计划就拿不到,任务进度条漏掉长会话里的计划。
+  it("Given a Codex plan block older than the message window, When the session opens, Then task progress follows that plan", async () => {
+    const codexPlan = {
+      type: "plan",
+      toolUseId: "tu-cp",
+      canonical: {
+        kind: "plan.update",
+        planUpdate: {
+          steps: [
+            { id: "s1", step: "read", status: "completed" },
+            { id: "s2", step: "write", status: "in_progress" },
+          ],
+        },
+      },
+    };
+    const rows: Row[] = [
+      { id: 1, seq: 1, role: "user", blocks: [text("go")] },
+      { id: 2, seq: 2, role: "assistant", blocks: [codexPlan] },
+      { id: 3, seq: 3, role: "user", blocks: [text("more")] },
+      { id: 4, seq: 4, role: "assistant", blocks: [text("ok")] },
+      { id: 5, seq: 5, role: "user", blocks: [text("again")] },
+      { id: 6, seq: 6, role: "assistant", blocks: [text("done")] },
+    ];
+    const messages = await runScenario(true, async () => {}, rows);
+    expect(deriveTaskProgress(messages, []).tasks.map((t) => t.status)).toEqual(
+      ["completed", "queued"],
+    );
+  });
+
   it("Given an incremental reload, When the derived-view blocks are fetched, Then the per-type query carries the same cursor", async () => {
     await runScenario(true, async (db, reload) => {
       finishTurn(db);
@@ -455,8 +485,8 @@ describe("useChatSession incremental reload (spec 2026-11-05 decision 4)", () =>
       });
     });
     expect(loadBlocksByType.mock.calls.map((c) => c[0])).toEqual([
-      { sessionId: 9, types: ["text", "tool_use"] },
-      { sessionId: 9, types: ["text", "tool_use"], sinceVersion: 4 },
+      { sessionId: 9, types: ["text", "tool_use", "plan"] },
+      { sessionId: 9, types: ["text", "tool_use", "plan"], sinceVersion: 4 },
     ]);
   });
 

@@ -1,12 +1,16 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"testing"
 
+	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/issue_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/service/issue_svc"
 )
 
@@ -126,4 +130,150 @@ func TestToUpdateIssueRequest_CarriesStageAndExecution(t *testing.T) {
 	})
 	assert.Equal(t, issue_entity.StageDone, req.Stage)
 	assert.Equal(t, int64(11), req.Execution.AgentBackendID)
+}
+
+// fakeLinkIssues 只实现会话 ↔ 任务关联这几个方法并记下入参(其余方法由内嵌的 nil 接口承接,
+// 一旦被误调用就 panic,正好证明绑定没有越界)。
+type fakeLinkIssues struct {
+	sessionsOfArgs []int64
+	issue_svc.IssueSvc
+	err error
+
+	linked, unlinked [][2]int64
+	createReq        *issue_svc.CreateLinkedRequest
+	searchArgs       []any
+}
+
+func (f *fakeLinkIssues) LinkSession(_ context.Context, sessionID, issueID int64) error {
+	f.linked = append(f.linked, [2]int64{sessionID, issueID})
+	return f.err
+}
+
+func (f *fakeLinkIssues) UnlinkSession(_ context.Context, sessionID, issueID int64) error {
+	f.unlinked = append(f.unlinked, [2]int64{sessionID, issueID})
+	return f.err
+}
+
+func (f *fakeLinkIssues) CreateLinked(_ context.Context, req *issue_svc.CreateLinkedRequest) (*issue_svc.IssueDetail, error) {
+	f.createReq = req
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &issue_svc.IssueDetail{Issue: &issue_entity.Issue{ID: 21, ProjectID: 5, Title: req.Title, Stage: issue_entity.StageTodo}}, nil
+}
+
+func (f *fakeLinkIssues) ListBySession(_ context.Context, sessionID int64) ([]*issue_svc.LinkedIssueView, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []*issue_svc.LinkedIssueView{
+		{Issue: &issue_entity.Issue{ID: 8, Title: "登录", Stage: issue_entity.StageDoing}, OtherSessionCount: 2},
+	}, nil
+}
+
+func (f *fakeLinkIssues) SessionsOfIssues(_ context.Context, issueIDs []int64) (map[int64][]*issue_svc.LinkedSessionView, error) {
+	f.sessionsOfArgs = issueIDs
+	if f.err != nil {
+		return nil, f.err
+	}
+	return map[int64][]*issue_svc.LinkedSessionView{
+		8: {{SessionID: 3, Title: "A", AgentID: 1, AgentName: "Alice", AgentStatus: "running"}},
+	}, nil
+}
+
+func (f *fakeLinkIssues) SearchForSession(_ context.Context, sessionID int64, keyword string) ([]*issue_svc.LinkCandidate, error) {
+	f.searchArgs = []any{sessionID, keyword}
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []*issue_svc.LinkCandidate{
+		{Issue: &issue_entity.Issue{ID: 8, Title: "登录", Stage: issue_entity.StageTodo}, Linked: true},
+		{Issue: &issue_entity.Issue{ID: 9, Title: "注册", Stage: issue_entity.StageDone}},
+	}, nil
+}
+
+func useFakeLinkIssues(t *testing.T, f *fakeLinkIssues) *App {
+	t.Helper()
+	prev := issue_svc.Default()
+	issue_svc.SetDefault(f)
+	t.Cleanup(func() { issue_svc.SetDefault(prev) })
+	return &App{ctx: context.Background()}
+}
+
+func TestIssueLinkBindings_LinkAndUnlinkForwardTheIds(t *testing.T) {
+	f := &fakeLinkIssues{}
+	a := useFakeLinkIssues(t, f)
+
+	require.NoError(t, a.IssueLinkSession(3, 8))
+	require.NoError(t, a.IssueUnlinkSession(3, 8))
+	assert.Equal(t, [][2]int64{{3, 8}}, f.linked)
+	assert.Equal(t, [][2]int64{{3, 8}}, f.unlinked)
+}
+
+func TestIssueLinkBindings_FailuresCarryTheBusinessCode(t *testing.T) {
+	f := &fakeLinkIssues{err: &httputils.Error{Code: code.IssueNotFound, Msg: "任务不存在"}}
+	a := useFakeLinkIssues(t, f)
+
+	want := "agentre-code:18200 任务不存在"
+	assert.EqualError(t, a.IssueLinkSession(3, 8), want)
+	assert.EqualError(t, a.IssueUnlinkSession(3, 8), want)
+	_, err := a.IssueCreateLinked(&IssueCreateLinkedRequest{SessionID: 3})
+	assert.EqualError(t, err, want)
+	_, err = a.IssueListBySession(3)
+	assert.Error(t, err)
+	_, err = a.IssueSessionsOfIssues([]int64{8})
+	assert.Error(t, err)
+	_, err = a.IssueSearchForSession(3, "x")
+	assert.Error(t, err)
+
+	plain := &fakeLinkIssues{err: errors.New("boom")}
+	b := useFakeLinkIssues(t, plain)
+	assert.EqualError(t, b.IssueLinkSession(3, 8), "boom")
+}
+
+func TestIssueCreateLinked_ReturnsATodoCardInTheSessionsProject(t *testing.T) {
+	f := &fakeLinkIssues{}
+	a := useFakeLinkIssues(t, f)
+
+	item, err := a.IssueCreateLinked(&IssueCreateLinkedRequest{SessionID: 3, Title: "搜索词"})
+	require.NoError(t, err)
+	assert.Equal(t, &issue_svc.CreateLinkedRequest{SessionID: 3, Title: "搜索词"}, f.createReq)
+	assert.EqualValues(t, 21, item.ID)
+	assert.EqualValues(t, 5, item.ProjectID)
+	assert.Equal(t, issue_entity.StageTodo, item.Stage)
+}
+
+func TestIssueListBySession_MapsNumberTitleStageAndOtherSessionCount(t *testing.T) {
+	a := useFakeLinkIssues(t, &fakeLinkIssues{})
+
+	got, err := a.IssueListBySession(3)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, &SessionLinkedIssue{ID: 8, Title: "登录", Stage: issue_entity.StageDoing, OtherSessionCount: 2}, got[0])
+}
+
+// 看板一次调用取全部卡片:每张有关联的卡一组(标题 / Agent / 运行状态),没有关联的卡不出现。
+func TestIssueSessionsOfIssues_OneCallForTheWholeBoard(t *testing.T) {
+	f := &fakeLinkIssues{}
+	a := useFakeLinkIssues(t, f)
+
+	got, err := a.IssueSessionsOfIssues([]int64{8, 9})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{8, 9}, f.sessionsOfArgs)
+	assert.Equal(t, []*IssueSessionsGroup{{
+		IssueID:  8,
+		Sessions: []*IssueLinkedSession{{SessionID: 3, Title: "A", AgentID: 1, AgentName: "Alice", AgentStatus: "running"}},
+	}}, got)
+}
+
+func TestIssueSearchForSession_MapsStageAndLinkedFlag(t *testing.T) {
+	f := &fakeLinkIssues{}
+	a := useFakeLinkIssues(t, f)
+
+	got, err := a.IssueSearchForSession(3, "登")
+	require.NoError(t, err)
+	assert.Equal(t, []any{int64(3), "登"}, f.searchArgs)
+	require.Len(t, got, 2)
+	assert.Equal(t, &IssueLinkCandidate{ID: 8, Title: "登录", Stage: issue_entity.StageTodo, Linked: true}, got[0])
+	assert.Equal(t, &IssueLinkCandidate{ID: 9, Title: "注册", Stage: issue_entity.StageDone}, got[1])
 }

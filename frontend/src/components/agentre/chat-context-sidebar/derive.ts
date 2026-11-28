@@ -1,5 +1,4 @@
 import {
-  classifyLink,
   mentionsToDisplayText,
   resolveToolPathInRoot,
 } from "@agentre-hub/agentre-ui";
@@ -195,12 +194,21 @@ function canonicalTouches(block: ChangeSourceBlock): Touch[] {
  * 一个文件一行，状态取**最后一次**调用（file.edit 取它的 kind，file.write 取
  * 「写入」），`±N` 累计本会话的调用、并在每一次全量写入处重新起算（见
  * ChangeRow.plus），行按变动规模降序、同规模按路径排序。
+ *
+ * `nested` 是会话的其它工作根；其中落在 root 之内的（嵌在主 checkout 里的 worktree）
+ * 里面的文件归包含它的最深的根，不在 root 的行里再出现一次。不在 root 之内的根被忽略。
  */
 export function deriveSessionChanges(
   messages: Msg[],
   root: string,
   liveBlocks: readonly ChangeSourceBlock[] = [],
+  nested: readonly string[] = [],
 ): ChangeRow[] {
+  const nestedRels = nested
+    .map((r) => resolveToolPathInRoot(r, root))
+    .filter((rel): rel is string => rel !== null && rel !== "");
+  const inNested = (rel: string) =>
+    nestedRels.some((n) => rel === n || rel.startsWith(`${n}/`));
   const rows = new Map<string, ChangeRow>();
   const seenToolCalls = new Set<string>();
   let turn = 0;
@@ -212,7 +220,7 @@ export function deriveSessionChanges(
     }
     for (const touch of canonicalTouches(block)) {
       const path = resolveToolPathInRoot(touch.path, root);
-      if (path === null) continue;
+      if (path === null || inNested(path)) continue;
       const cut = path.lastIndexOf("/");
       const row = rows.get(path) ?? {
         path,
@@ -298,50 +306,4 @@ export function collapseDirChain<C>(
     names.push(children[0].name);
     cursor = children[0].cursor;
   }
-}
-
-/**
- * rootOfPath 把一条工具路径归到某个已认领的工作根下：与 resolveToolPathInRoot 同一套
- * 判定（classifyLink），但先不带 cwd 分类一次，把**相对路径挡在外面**——多根
- * 会话里 `internal/turn.go` 落在哪个根上无从消歧，硬拼到某一个根上会让侧栏跟
- * 着一条猜出来的归属乱切。嵌套的两个根都包住同一条路径时取最深的那个。
- */
-function rootOfPath(raw: string, roots: readonly string[]): string | null {
-  const anchored = classifyLink(raw);
-  if (
-    anchored.kind !== "local-internal" &&
-    anchored.kind !== "local-external"
-  ) {
-    return null;
-  }
-  let best: string | null = null;
-  for (const root of roots) {
-    if (root === "") continue;
-    const link = classifyLink(anchored.fullPath, root);
-    if (link.kind !== "local-internal" || link.relPath === "") continue;
-    if (best === null || root.length > best.length) best = root;
-  }
-  return best;
-}
-
-/**
- * deriveLatestWriteRoot 回答「AI 最后一次写文件写在哪个工作根里」（spec
- * 「切换与跟随」）：按消息顺序扫 canonical 的写入块，返回最后一次能归属到某个
- * 已认领工作根的那个根；一次都归属不上（全落在根集合之外、或全是相对路径）时
- * 返回 null —— 调用方据此保持当前工作根不动，而不是切到一个猜出来的根。
- */
-export function deriveLatestWriteRoot(
-  messages: Msg[],
-  roots: readonly string[],
-): string | null {
-  let latest: string | null = null;
-  for (const m of messages) {
-    for (const block of m.blocks ?? []) {
-      for (const touch of canonicalTouches(block)) {
-        const root = rootOfPath(touch.path, roots);
-        if (root !== null) latest = root;
-      }
-    }
-  }
-  return latest;
 }

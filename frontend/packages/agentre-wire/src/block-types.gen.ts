@@ -60,6 +60,8 @@ export const BlockTypeThinking = "thinking";
 
 export const BlockTypeToolApproval = "tool_approval";
 
+export const BlockTypeToolCwd = "tool_cwd";
+
 export const BlockTypeToolPermission = "tool_permission";
 
 export const BlockTypeToolResult = "tool_result";
@@ -91,6 +93,7 @@ export type BlockType =
   | typeof BlockTypeText
   | typeof BlockTypeThinking
   | typeof BlockTypeToolApproval
+  | typeof BlockTypeToolCwd
   | typeof BlockTypeToolPermission
   | typeof BlockTypeToolResult
   | typeof BlockTypeToolUse

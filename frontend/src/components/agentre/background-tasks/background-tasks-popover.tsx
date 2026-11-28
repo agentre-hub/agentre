@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ExternalLink,
   LoaderCircle,
+  PanelRight,
   Square,
   X,
 } from "lucide-react";
@@ -49,6 +50,8 @@ type BackgroundTasksPopoverContentProps = {
   processes?: SessionProcess[];
   // port 是被点的那个端口:多端口时每个端口各有一颗按钮。
   onOpenProcess?: (process: SessionProcess, port: number) => void;
+  // 在应用内「网页预览」工具窗里打开被点的端口；宿主不提供时不渲染这些按钮。
+  onPreviewProcess?: (process: SessionProcess, port: number) => void;
   onKillProcess?: PendingAction<SessionProcess>;
 };
 
@@ -79,6 +82,7 @@ export function BackgroundTasksPopoverContent({
   onLocateTask,
   processes,
   onOpenProcess,
+  onPreviewProcess,
   onKillProcess,
 }: BackgroundTasksPopoverContentProps) {
   const { t } = useTranslation();
@@ -188,6 +192,7 @@ export function BackgroundTasksPopoverContent({
                 process={process}
                 now={now}
                 onOpenProcess={onOpenProcess}
+                onPreviewProcess={onPreviewProcess}
                 onKillProcess={onKillProcess}
               />
             ))}
@@ -392,11 +397,13 @@ function ProcessRow({
   process,
   now,
   onOpenProcess,
+  onPreviewProcess,
   onKillProcess,
 }: {
   process: SessionProcess;
   now: number;
   onOpenProcess?: (process: SessionProcess, port: number) => void;
+  onPreviewProcess?: (process: SessionProcess, port: number) => void;
   onKillProcess?: PendingAction<SessionProcess>;
 }) {
   const { t } = useTranslation();
@@ -407,17 +414,35 @@ function ProcessRow({
     portButtons ? (
       <span className="inline-flex items-center gap-1">
         {process.ports.map((port) => (
-          <button
-            key={port}
-            type="button"
-            onClick={() => onOpenProcess(process, port)}
-            aria-label={t("chatPanel.backgroundTasks.openPortNumber", { port })}
-            title={t("chatPanel.backgroundTasks.openPortNumber", { port })}
-            className="inline-flex cursor-pointer items-center gap-0.5 rounded bg-button-fill px-1 text-foreground transition-colors hover:bg-button-fill-hover outline-none focus-visible:focus-outline"
-          >
-            {`:${port}`}
-            <ExternalLink className="size-2.5" aria-hidden="true" />
-          </button>
+          <React.Fragment key={port}>
+            <button
+              type="button"
+              onClick={() => onOpenProcess(process, port)}
+              aria-label={t("chatPanel.backgroundTasks.openPortNumber", {
+                port,
+              })}
+              title={t("chatPanel.backgroundTasks.openPortNumber", { port })}
+              className="inline-flex cursor-pointer items-center gap-0.5 rounded bg-button-fill px-1 text-foreground transition-colors hover:bg-button-fill-hover outline-none focus-visible:focus-outline"
+            >
+              {`:${port}`}
+              <ExternalLink className="size-2.5" aria-hidden="true" />
+            </button>
+            {onPreviewProcess ? (
+              <button
+                type="button"
+                onClick={() => onPreviewProcess(process, port)}
+                aria-label={t("chatPanel.backgroundTasks.previewPortNumber", {
+                  port,
+                })}
+                title={t("chatPanel.backgroundTasks.previewPortNumber", {
+                  port,
+                })}
+                className="inline-flex size-4 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground outline-none focus-visible:focus-outline"
+              >
+                <PanelRight className="size-2.5" aria-hidden="true" />
+              </button>
+            ) : null}
+          </React.Fragment>
         ))}
       </span>
     ) : hasPorts ? (
@@ -478,6 +503,17 @@ function ProcessRow({
           </span>
         </span>
       </div>
+      {process.ports.length === 1 && onPreviewProcess && (
+        <button
+          type="button"
+          onClick={() => onPreviewProcess(process, process.ports[0])}
+          aria-label={t("chatPanel.backgroundTasks.previewPort")}
+          title={t("chatPanel.backgroundTasks.previewPort")}
+          className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground outline-none focus-visible:focus-outline"
+        >
+          <PanelRight className="size-3" aria-hidden="true" />
+        </button>
+      )}
       {process.ports.length === 1 && onOpenProcess && (
         <button
           type="button"

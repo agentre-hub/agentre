@@ -9,13 +9,20 @@ import type {
 import { useChatTabsStore } from "@/stores/chat-tabs-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
+import {
+  type WorkRoot,
+  useSessionRootStore,
+} from "@/stores/session-root-store";
+import { useSessionTerminalsStore } from "@/stores/session-terminals-store";
 import { openSettings } from "@/stores/settings-dialog-store";
+import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
 
 import {
   memoryWriteFailure,
   runMemoryWrite,
 } from "./memory-page/memory-errors";
 import { toEntryView } from "./memory-page/to-entry-view";
+import { openWebPreview } from "./tool-windows/web-preview-store";
 
 import {
   AnswerToolApproval,
@@ -27,10 +34,36 @@ import {
   OpenPath,
   ResolveExecApproval,
   ResolvePlanAction,
+  ResolveSessionURL,
+  WorkspaceFsClaimPath,
   WorkspaceFsReadFile,
 } from "../../../wailsjs/go/app/App";
 import { chat_svc, type memory_svc } from "../../../wailsjs/go/models";
 import { BrowserOpenURL } from "../../../wailsjs/runtime/runtime";
+
+/**
+ * 会话的认领集合交给转录做链接归属的形状（`SessionLocationProvider` 的 `roots`）。
+ * 集合还没取回时会话工作目录就是唯一的根——今天的口径。
+ */
+export function toLinkRoots(roots: readonly WorkRoot[], cwd: string) {
+  if (roots.length === 0) return cwd ? [{ path: cwd, primary: true }] : [];
+  return roots.map((r) => ({
+    path: r.path,
+    name: r.name,
+    primary: r.isPrimary,
+  }));
+}
+
+/**
+ * 预览标签上的根只有一种表示（`FilePreviewTab.root`：主根恒为空串）。转录给的是根的
+ * 绝对路径，在这个边界上把主根换成空串——否则侧栏与转录会为同一个文件开出两个标签。
+ */
+function canonicalPreviewRoot(sessionId: number, root: string): string {
+  const entry = useSessionRootStore.getState().bySession[sessionId];
+  const primary = entry?.roots.find((r) => r.isPrimary)?.path ?? entry?.cwd;
+  const trim = (p: string) => p.replace(/[\\/]+$/, "");
+  return primary !== undefined && trim(root) === trim(primary) ? "" : root;
+}
 
 /**
  * 桌面端的对话流端口实现 —— 共享包与 Wails 绑定之间唯一的接缝。
@@ -97,8 +130,21 @@ export const desktopTranscriptPorts = {
     return useFileSettingsStore.getState().settings.openAction;
   },
 
-  openExternalURL(url) {
-    BrowserOpenURL(url);
+  // 远端会话里的 localhost 链接指向执行设备上的服务，直接交给本机浏览器会打开桌面
+  // 本机的同端口。带会话号时先让后端换成经端口转发的本机地址（本机会话与非
+  // localhost 链接后端原样交回）；解析失败照实抛出，不退回打开原始链接。
+  async openExternalURL(url, opts) {
+    const target =
+      opts?.sessionId === undefined
+        ? url
+        : await ResolveSessionURL(opts.sessionId, url);
+    BrowserOpenURL(target);
+  },
+
+  // 悬浮卡的「应用内预览」：在「网页预览」工具窗里打开这条 localhost 链接并显示该窗。
+  // 远端会话的端口转发由窗口自己经 ProbeSessionWebPreview 解析，这里只递地址。
+  previewURL(sessionId, url) {
+    openWebPreview(sessionId, url);
   },
 
   async readWorkspaceFile(sessionId, path) {
@@ -121,8 +167,18 @@ export const desktopTranscriptPorts = {
     };
   },
 
+  // 接入进程是在转录卡片上点的，而端口不带会话号：落在此刻最前面的会话标签上——
+  // 作为那个会话终端工具窗里的新标签打开并显示该窗。前面不是会话标签（没有终端
+  // 工具窗可依附）时退回独立的终端对话标签页。
   attachTerminal(input) {
-    useChatTabsStore.getState().attachTerminal(input);
+    const { tabs, activeTabId } = useChatTabsStore.getState();
+    const active = tabs.find((t) => t.id === activeTabId);
+    if (active?.meta.kind !== "session") {
+      useChatTabsStore.getState().attachTerminal(input);
+      return;
+    }
+    useSessionTerminalsStore.getState().attach(active.meta.sessionId, input);
+    useToolWindowLayout.getState().show("terminal");
   },
 
   // 设置读取留在这里(ports.ts 已经写明这是宿主的产品决策,包内不知道也不该知道
@@ -137,13 +193,30 @@ export const desktopTranscriptPorts = {
   // ——那是侧栏「本次会话」档的工具 diff,一次取数都不打。
   //
   // `force`:用户在浮窗 / 失败提示里明确选了「预览」,设置不拦它。
+  //
+  // `{ root, path }`：链接归属的工作根（转录据会话的认领集合判出）。主根在这里归一成
+  // 预览标签的规范表示。
   previewFile(sessionId, path, anchor?, opts?) {
     const { openAction } = useFileSettingsStore.getState().settings;
     if (openAction === "external" && !opts?.force) return false;
+    const target =
+      typeof path === "string"
+        ? path
+        : { root: canonicalPreviewRoot(sessionId, path.root), path: path.path };
     useFilePreviewTabsStore
       .getState()
-      .openPreview(sessionId, path, "directory", anchor);
+      .openPreview(sessionId, target, "directory", anchor);
     return true;
+  },
+
+  // 点了一条不在已认领根内的绝对路径（spec 决策 20）：后端按自动认领的规则当场认领，
+  // 回完整集合。集合同时落到会话的工作根状态上，标题栏胶囊与转录的根归属随之更新。
+  async claimPath(sessionId, absPath) {
+    const roots = await WorkspaceFsClaimPath(sessionId, absPath);
+    const store = useSessionRootStore.getState();
+    const entry = store.bySession[sessionId];
+    if (entry) store.applyRoots(sessionId, entry.cwd, roots);
+    return toLinkRoots(roots, entry?.cwd ?? "");
   },
 
   // 对话里的记忆卡片。创建者在这里不需要可点：卡片只用摘要与详情，所以会话标题查询与

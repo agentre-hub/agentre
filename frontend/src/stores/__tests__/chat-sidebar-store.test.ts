@@ -1,88 +1,28 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  useChatSidebarStore,
-  type ChangesScope,
-  type ChatSidebarTab,
-} from "../chat-sidebar-store";
+import { useChatSidebarStore, type ChangesScope } from "../chat-sidebar-store";
 
 describe("chat-sidebar-store", () => {
   beforeEach(() => {
     localStorage.clear();
     useChatSidebarStore.setState({
-      open: true,
-      activeTab: "outline",
       changesScope: "session",
       showIgnored: false,
     });
   });
 
-  it("toggles open and persists to localStorage", () => {
-    useChatSidebarStore.getState().setOpen(false);
-    expect(useChatSidebarStore.getState().open).toBe(false);
-    const raw = localStorage.getItem("chat-sidebar-state");
-    expect(raw).toContain('"open":false');
-  });
-
-  it("switches activeTab between outline, changes and directory", () => {
-    useChatSidebarStore.getState().setActiveTab("changes");
-    expect(useChatSidebarStore.getState().activeTab).toBe("changes");
-    useChatSidebarStore.getState().setActiveTab("directory");
-    expect(useChatSidebarStore.getState().activeTab).toBe("directory");
-  });
-
-  it("rejects unknown tab values at runtime by no-op", () => {
-    useChatSidebarStore.getState().setActiveTab("bogus" as ChatSidebarTab);
-    expect(useChatSidebarStore.getState().activeTab).toBe("outline");
-  });
-
-  it("falls back to outline when the persisted active tab is invalid", async () => {
+  it("no longer carries the sidebar open flag or top-level tab (moved to the tool-window layout)", async () => {
     localStorage.setItem(
       "chat-sidebar-state",
       JSON.stringify({
-        state: { open: true, activeTab: "bogus" },
+        state: { open: false, activeTab: "changes" },
         version: 0,
       }),
     );
     await useChatSidebarStore.persist.rehydrate();
-    expect(useChatSidebarStore.getState().activeTab).toBe("outline");
-  });
-
-  it("falls back to outline when the persisted state has no active tab", async () => {
-    localStorage.setItem(
-      "chat-sidebar-state",
-      JSON.stringify({ state: { open: true }, version: 0 }),
-    );
-    await useChatSidebarStore.persist.rehydrate();
-    expect(useChatSidebarStore.getState().activeTab).toBe("outline");
-  });
-
-  it("keeps a valid persisted active tab of changes", async () => {
-    localStorage.setItem(
-      "chat-sidebar-state",
-      JSON.stringify({
-        state: { open: true, activeTab: "changes" },
-        version: 0,
-      }),
-    );
-    await useChatSidebarStore.persist.rehydrate();
-    expect(useChatSidebarStore.getState().activeTab).toBe("changes");
-  });
-
-  it("falls back to outline for the removed top-level tab values git and files", async () => {
-    // 一级三段改为 大纲 / 变更 / 目录（本轮决策 1），旧值 "git" 与 "files" 都
-    // 成了非法值；决策 13 明确它们直接丢弃并回落，不写兼容层。
-    for (const stale of ["git", "files"]) {
-      localStorage.setItem(
-        "chat-sidebar-state",
-        JSON.stringify({
-          state: { open: true, activeTab: stale },
-          version: 0,
-        }),
-      );
-      await useChatSidebarStore.persist.rehydrate();
-      expect(useChatSidebarStore.getState().activeTab).toBe("outline");
-    }
+    const state = useChatSidebarStore.getState() as Record<string, unknown>;
+    expect(state.open).toBeUndefined();
+    expect(state.activeTab).toBeUndefined();
   });
 
   it("defaults the changes scope to this session and persists a switch", () => {

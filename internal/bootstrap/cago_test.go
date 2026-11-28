@@ -16,9 +16,15 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/session_dispatch_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/workspace_fs_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_dispatch_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo"
+	"github.com/agentre-hub/agentre/internal/repository/workspace_fs_repo"
 	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	"github.com/agentre-hub/agentre/migrations"
 )
@@ -124,6 +130,8 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"labels":       {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
 		"issue_labels": {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
 		"memories":     {"owner_kind", "owner_id", "summary", "prev_summary", "state", "changed_at", "sync_id", "sync_origin_fingerprint"},
+		// 工作根认领集合(spec 2026-11-24「识别信号 · 认领」):重启后仍在。
+		"session_work_roots": {"session_id", "path", "worktree"},
 	} {
 		if !gormDB.Migrator().HasTable(table) {
 			t.Errorf("current table %q was not created", table)
@@ -500,6 +508,117 @@ func TestInitRegistersProjectLocationRepo(t *testing.T) {
 	}
 }
 
+// TestInitLetsAWorkRootBeClaimed 证明全新库上工作根认领集合真能落库、重复认领幂等、
+// 能撤销:repo 层 sqlmock 只验 SQL 拼写(那边是 MySQL 方言),碰不到 SQLite 上
+// ON CONFLICT DO NOTHING 与唯一索引的真实行为。
+func TestInitLetsAWorkRootBeClaimed(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	ctx := context.Background()
+	repo := workspace_fs_repo.WorkRoot()
+	if repo == nil {
+		t.Fatal("workspace_fs_repo.WorkRoot() = nil after Init; bootstrap forgot to RegisterWorkRoot")
+	}
+	for i := 0; i < 2; i++ {
+		if err := repo.Create(ctx, &workspace_fs_entity.WorkRoot{SessionID: 42, Path: "/repo/.worktrees/x", Worktree: "x"}); err != nil {
+			t.Fatalf("Create() #%d error = %v; 重复认领必须幂等", i+1, err)
+		}
+	}
+	if err := repo.Create(ctx, &workspace_fs_entity.WorkRoot{SessionID: 43, Path: "/repo/.worktrees/x", Worktree: "x"}); err != nil {
+		t.Fatalf("Create() other session error = %v", err)
+	}
+	rows, err := repo.ListBySession(ctx, 42)
+	if err != nil || len(rows) != 1 || rows[0].Worktree != "x" {
+		t.Fatalf("ListBySession(42) = %+v, %v; want one row with worktree x", rows, err)
+	}
+	if err := repo.Delete(ctx, 42, "/repo/.worktrees/x"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if rows, _ := repo.ListBySession(ctx, 42); len(rows) != 0 {
+		t.Fatalf("ListBySession(42) after Delete = %+v, want empty", rows)
+	}
+	if err := repo.DeleteBySession(ctx, 43); err != nil {
+		t.Fatalf("DeleteBySession() error = %v", err)
+	}
+	if rows, _ := repo.ListBySession(ctx, 43); len(rows) != 0 {
+		t.Fatalf("ListBySession(43) after DeleteBySession = %+v, want empty", rows)
+	}
+}
+
+// TestInitLetsADispatchBeRecorded 证明全新库上派发关系表真能落库、状态能推进、终态不被
+// 迟到写入改回、会话删除时两个方向都清得掉(repo 层 sqlmock 只验 SQL 拼写)。
+func TestInitLetsADispatchBeRecorded(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	ctx := context.Background()
+	repo := session_dispatch_repo.SessionDispatch()
+	if repo == nil {
+		t.Fatal("session_dispatch_repo.SessionDispatch() = nil after Init; bootstrap forgot to RegisterSessionDispatch")
+	}
+	row := &session_dispatch_entity.SessionDispatch{
+		DispatcherSessionID: 1, DispatchedSessionID: 2, Method: session_dispatch_entity.MethodAgrctlSend,
+		Task: "t", Isolated: true, Status: session_dispatch_entity.StatusQueued,
+	}
+	if err := repo.Create(ctx, row); err != nil || row.ID == 0 {
+		t.Fatalf("Create() = id %d, %v", row.ID, err)
+	}
+	if err := repo.UpdateState(ctx, row.ID, session_dispatch_repo.StateChange{Status: "completed", Finishtime: 9, ReplyMessageID: 5}); err != nil {
+		t.Fatalf("UpdateState(completed) error = %v", err)
+	}
+	if err := repo.UpdateState(ctx, row.ID, session_dispatch_repo.StateChange{Status: "running"}); err != nil {
+		t.Fatalf("UpdateState(running) error = %v", err)
+	}
+	rows, err := repo.ListByDispatcher(ctx, 1)
+	if err != nil || len(rows) != 1 || rows[0].Status != "completed" || rows[0].ReplyMessageID != 5 || !rows[0].Isolated {
+		t.Fatalf("ListByDispatcher(1) = %+v, %v; want one completed isolated row with reply 5", rows, err)
+	}
+	if rows, _ := repo.ListByDispatched(ctx, 2); len(rows) != 1 {
+		t.Fatalf("ListByDispatched(2) = %+v, want one row", rows)
+	}
+	if err := repo.DeleteBySession(ctx, 2); err != nil {
+		t.Fatalf("DeleteBySession() error = %v", err)
+	}
+	if rows, _ := repo.ListByDispatcher(ctx, 1); len(rows) != 0 {
+		t.Fatalf("ListByDispatcher(1) after deleting the dispatched session = %+v, want empty", rows)
+	}
+}
+
+// TestInitWiresTheClaudecodeHookLocations 钉死桌面端的 hook 位置簿接线:漏了它,本机
+// Claude Code 会话的 PostToolUse hook 照常上报 cwd,却没人把它盖到工具事件上(agentred
+// 那一侧由 internal/daemon 的同名回归盯着)。
+func TestInitWiresTheClaudecodeHookLocations(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+	t.Setenv("AGENTRE_PROXY_PORT", "0")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	if !claudecode.Default().HookLocationsConfigured() {
+		t.Fatal("claudecode runtime has no hook location book after Init; bootstrap forgot SetHookLocations")
+	}
+}
+
 // TestInitPublishesSessionCtlEndpoint 钉死 spec「会话级 token」的接线：bootstrap 拿到
 // gateway 实际 URL 后，CLI 子进程的会话凭证来源就位，按 (agent, session) 签出端点与 token。
 func TestInitPublishesSessionCtlEndpoint(t *testing.T) {
@@ -797,5 +916,61 @@ WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'migrations'`).Sca
 				t.Errorf("primary key is not AUTOINCREMENT; DDL:\n%s", table.SQL)
 			}
 		})
+	}
+}
+
+// TestInitLetsASessionBeLinkedToAnIssue 证明全新库上会话 ↔ 任务关联表真能落库:重复关联幂等
+// (唯一索引 + 冲突忽略的真实 SQL)、按会话 / 按任务 / 计数互通、取消关联、按任务与按会话
+// 清理(repo 层 sqlmock 只验 SQL 拼写)。
+func TestInitLetsASessionBeLinkedToAnIssue(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	ctx := context.Background()
+	repo := session_issue_link_repo.SessionIssueLink()
+	if repo == nil {
+		t.Fatal("session_issue_link_repo.SessionIssueLink() = nil after Init; bootstrap forgot to RegisterSessionIssueLink")
+	}
+	for _, pair := range [][2]int64{{1, 10}, {1, 10}, {1, 11}, {2, 10}} {
+		if err := repo.Link(ctx, pair[0], pair[1]); err != nil {
+			t.Fatalf("Link(%v) error = %v", pair, err)
+		}
+	}
+	if rows, err := repo.ListBySession(ctx, 1); err != nil || len(rows) != 2 {
+		t.Fatalf("ListBySession(1) = %+v, %v; want two rows (duplicate link ignored)", rows, err)
+	}
+	if rows, err := repo.ListByIssues(ctx, []int64{10}); err != nil || len(rows) != 2 {
+		t.Fatalf("ListByIssues(10) = %+v, %v; want two rows", rows, err)
+	}
+	if counts, err := repo.CountByIssues(ctx, []int64{10, 11, 12}); err != nil || counts[10] != 2 || counts[11] != 1 || len(counts) != 2 {
+		t.Fatalf("CountByIssues = %v, %v; want {10:2, 11:1}", counts, err)
+	}
+	if err := repo.Unlink(ctx, 1, 11); err != nil {
+		t.Fatalf("Unlink() error = %v", err)
+	}
+	if err := repo.Unlink(ctx, 1, 11); err != nil {
+		t.Fatalf("second Unlink() error = %v, want idempotent", err)
+	}
+	if err := repo.DeleteByIssue(ctx, 10); err != nil {
+		t.Fatalf("DeleteByIssue() error = %v", err)
+	}
+	if rows, _ := repo.ListBySession(ctx, 1); len(rows) != 0 {
+		t.Fatalf("ListBySession(1) after DeleteByIssue(10) = %+v, want empty", rows)
+	}
+	if err := repo.Link(ctx, 3, 20); err != nil {
+		t.Fatalf("Link() error = %v", err)
+	}
+	if err := repo.DeleteBySession(ctx, 3); err != nil {
+		t.Fatalf("DeleteBySession() error = %v", err)
+	}
+	if rows, _ := repo.ListByIssues(ctx, []int64{20}); len(rows) != 0 {
+		t.Fatalf("ListByIssues(20) after DeleteBySession(3) = %+v, want empty", rows)
 	}
 }

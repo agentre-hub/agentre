@@ -188,6 +188,64 @@
       "tabChip": {
         "hint": "Uses TabStrip order (pinned + normal + preview)",
         "label": "Switch to Tab {{index}}"
+      },
+      "toolWindows": {
+        "bottomRegion": {
+          "hint": "Same as the bottom layout toggle in the title bar",
+          "label": "Show / Hide Bottom Tool Windows"
+        },
+        "changes": {
+          "hint": "Same as clicking its icon on the tool window strip",
+          "label": "Show / Hide Changes"
+        },
+        "directory": {
+          "hint": "Same as clicking its icon on the tool window strip",
+          "label": "Show / Hide Directory"
+        },
+        "hideAll": {
+          "hint": "Focus mode: the strip stays; press again to restore what was shown",
+          "label": "Hide All Tool Windows"
+        },
+        "hideFocused": {
+          "hint": "Hides the tool window that has focus",
+          "label": "Hide Focused Tool Window"
+        },
+        "maximize": {
+          "hint": "Maximizes the focused tool window; press again to restore",
+          "label": "Maximize Focused Area"
+        },
+        "outline": {
+          "hint": "Same as clicking its icon on the tool window strip",
+          "label": "Show / Hide Outline"
+        },
+        "relations": {
+          "hint": "Same as clicking its icon on the tool window strip",
+          "label": "Show / Hide Relations"
+        },
+        "returnFocus": {
+          "hint": "Moves focus from a tool window back to the input box",
+          "label": "Back to Input Box"
+        },
+        "rightRegion": {
+          "hint": "Same as the right layout toggle in the title bar",
+          "label": "Show / Hide Right Tool Windows"
+        },
+        "sessionInfo": {
+          "hint": "Same as clicking its icon on the tool window strip",
+          "label": "Show / Hide Session Info"
+        },
+        "sessionList": {
+          "hint": "Same as clicking Chat in the left rail again",
+          "label": "Collapse / Expand Session List"
+        },
+        "terminal": {
+          "hint": "Same as clicking its icon on the tool window strip",
+          "label": "Show / Hide Terminal"
+        },
+        "webPreview": {
+          "hint": "Same as clicking its icon on the tool window strip",
+          "label": "Show / Hide Web Preview"
+        }
       }
     },
     "resetAll": "Reset All to Defaults",
@@ -199,7 +257,8 @@
     },
     "sections": {
       "chat": "Chat Page",
-      "global": "Global Navigation"
+      "global": "Global Navigation",
+      "toolWindows": "Tool Windows"
     },
     "title": "Keyboard Shortcuts",
     "unbound": "Unbound"

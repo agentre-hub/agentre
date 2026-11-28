@@ -173,6 +173,8 @@ function CommandPaletteTrigger({
 type AppTopBarProps = React.ComponentProps<"header"> & {
   appName?: string;
   breadcrumb?: string;
+  /** 标题栏右端的布局开关（仅对话页传入），排在命令面板之后、Windows 窗口控件之前。 */
+  layoutToggles?: React.ReactNode;
   platform?: DesktopPlatform;
 };
 
@@ -180,6 +182,7 @@ function AppTopBar({
   appName = "Agentre",
   breadcrumb,
   className,
+  layoutToggles,
   onDoubleClick,
   platform = "unknown",
   ...props
@@ -237,6 +240,7 @@ function AppTopBar({
       <div className="min-w-0 flex-1" />
 
       <div className="flex h-full shrink-0 items-center gap-2">
+        {layoutToggles}
         {platform === "windows" ? <WindowsWindowControls /> : null}
       </div>
     </header>

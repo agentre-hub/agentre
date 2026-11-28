@@ -232,6 +232,7 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 		arrange func(d *scriptedDevice)
 		status  int
 		body    string
+		token   string
 	}{
 		{
 			name: "映射不存在",
@@ -242,6 +243,7 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 			},
 			status: http.StatusNotFound,
 			body:   "这台设备上已经没有这条映射了。回到 agentre 里重新打开它。\n",
+			token:  "not-declared",
 		},
 		{
 			name: "映射已停用",
@@ -252,6 +254,7 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 			},
 			status: http.StatusForbidden,
 			body:   "这条端口映射已经停用。到 agentre 里把它启用之后再打开。\n",
+			token:  "disabled",
 		},
 		{
 			name: "目标拒绝连接",
@@ -262,6 +265,7 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 			},
 			status: http.StatusBadGateway,
 			body:   "设备连不上这条映射的目标,连接被拒绝了。确认目标上的服务已经起来,再刷新这一页。\n",
+			token:  "no-listener",
 		},
 		{
 			name: "目标主机名解析不出来",
@@ -272,6 +276,7 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 			},
 			status: http.StatusBadGateway,
 			body:   "设备解析不出这条映射的目标主机名。检查主机名有没有写错、那台设备的网络能不能解析它,再刷新这一页。\n",
+			token:  "name-resolution",
 		},
 		{
 			name: "目标证书没通过校验",
@@ -282,6 +287,7 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 			},
 			status: http.StatusBadGateway,
 			body:   "这条映射的目标证书没有通过校验。若那是内网的自签证书,到 agentre 里为这条映射勾选「忽略证书错误」。\n",
+			token:  "tls-verification",
 		},
 		{
 			name: "设备够不着",
@@ -292,6 +298,7 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 			},
 			status: http.StatusBadGateway,
 			body:   "这台设备此刻够不着。等它回来之后刷新这一页。\n",
+			token:  "device-unreachable",
 		},
 		{
 			name: "上游把请求断了",
@@ -303,6 +310,7 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 			},
 			status: http.StatusBadGateway,
 			body:   "这条映射的目标把这次请求断开了。刷新这一页重试。\n",
+			token:  "upstream-gone",
 		},
 		{
 			name: "转发没完成",
@@ -314,6 +322,7 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 			},
 			status: http.StatusBadGateway,
 			body:   "这次转发没能完成。刷新这一页重试。\n",
+			token:  "forward-incomplete",
 		},
 	}
 
@@ -333,6 +342,8 @@ func TestFailure_GivenNoRenderer_ThenTheDefaultAnswersAreByteIdentical(t *testin
 			assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
 			assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
 			assert.Equal(t, tc.body, string(body))
+			// 宿主之外的读方(桌面的网页预览预检)按种类分支,不去匹配正文。
+			assert.Equal(t, tc.token, resp.Header.Get(portforwardhost.FailureKindHeader))
 		})
 	}
 }

@@ -43,6 +43,9 @@ type activeTurn struct {
 	// 只在广播时才调。
 	sessionDescribe bool
 
+	// toolCwds 记下每次 exec 调用的 workdir(call id → dir),结果事件据此带上同一位置。
+	toolCwds sync.Map
+
 	// runMu 守 runID / awaitingFollowUp / yieldedRuns:consume 在让出后换当前 run,
 	// Abort 从别的 goroutine 读它决定 chat.abort 打哪个 run。
 	runMu sync.Mutex

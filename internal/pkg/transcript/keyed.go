@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sort"
 
+	cagoblocks "github.com/cago-frame/agents/agent/blocks"
+
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
 )
@@ -62,6 +64,16 @@ func ProjectKeyedMessage(conversationID string, msg *transcript_entity.Message) 
 	if err := json.Unmarshal([]byte(blocksJSON), &raw); err != nil {
 		return nil, fmt.Errorf("message %d blocks: %w", msg.ID, err)
 	}
+	// 目录记录与它所属的工具块是同一条消息里的两块,而下面每个块是单独投影的 ——
+	// 先扫整条消息,再把目录补到单块投影出的工具帧上。
+	var stored []cagoblocks.StoredBlock
+	if err := json.Unmarshal([]byte(blocksJSON), &stored); err != nil {
+		return nil, fmt.Errorf("message %d blocks: %w", msg.ID, err)
+	}
+	toolCwds, err := toolCwdsOf(msg, stored)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]KeyedFrame, 0, len(raw)+1)
 	for idx, block := range raw {
 		var head struct {
@@ -80,6 +92,7 @@ func ProjectKeyedMessage(conversationID string, msg *transcript_entity.Message) 
 		// 清空派生那几格之后,单块消息的尾巴是固定的:assistant 恒剩一帧 Done,user 没有。
 		frames = frames[:len(frames)-messageDerivedFrameCount(&single)]
 		for ordinal := range frames {
+			frames[ordinal].Event = withToolCwd(frames[ordinal].Event, toolCwds)
 			out = append(out, KeyedFrame{
 				Key:         FrameKey{MessageID: msg.ID, BlockIdx: idx, Ordinal: ordinal},
 				Frame:       frames[ordinal],

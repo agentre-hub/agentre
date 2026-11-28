@@ -55,12 +55,14 @@ import { useOptionalShortcutsContext } from "@/components/agentre/shortcuts/shor
 import { ThemeProvider, useTheme } from "@agentre-hub/agentre-ui";
 import { lazyView } from "@/components/agentre/lazy-boundary";
 import { TabStrip } from "@/components/agentre/chat-tabs/tab-strip";
+import { LayoutToggles } from "@/components/agentre/tool-windows/layout-toggles";
 import { desktopLocalCommandHistoryAccess } from "@/components/agentre/local-command-history-access-desktop";
 import { desktopLocalCommandsAccess } from "@/components/agentre/local-commands-access-desktop";
 import { desktopTranscriptLiveState } from "@/components/agentre/transcript-live-state-desktop";
 import { useDesktopTranscriptPorts } from "@/components/agentre/transcript-ports-desktop";
 import { desktopTerminalTransport } from "@/components/agentre/terminal/terminal-transport-desktop";
 import { ChatPanelHost } from "@/components/agentre/chat-tabs/chat-panel-host";
+import { useChatRailClick } from "@/components/agentre/session-index/use-chat-rail-click";
 import { useChatAgents } from "@/hooks/use-chat-agents";
 import {
   deriveAppStatusBarState,
@@ -172,6 +174,8 @@ function AppLayout() {
   const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>("unknown");
   const location = useLocation();
   const navigate = useNavigate();
+  // 「对话」图标：在别的页面时回到对话页，已在对话页时收起 / 展开会话列表。
+  const onChatRailClick = useChatRailClick();
   // 主题三态、存储与系统跟随都在共享包里（浏览器宿主同用一份）；这里只消费。
   const { effectiveTheme, setThemePreference, themePreference } = useTheme();
 
@@ -300,6 +304,7 @@ function AppLayout() {
                   <AppTopBar
                     appName="Agentre"
                     breadcrumb={breadcrumb}
+                    layoutToggles={hasChat ? <LayoutToggles /> : undefined}
                     platform={platform}
                   />
 
@@ -331,7 +336,11 @@ function AppLayout() {
                               isNavItemActive(location.pathname, item.path)
                             }
                             onClick={
-                              item.path ? () => navigate(item.path!) : undefined
+                              item.path === "/chat"
+                                ? onChatRailClick
+                                : item.path
+                                  ? () => navigate(item.path!)
+                                  : undefined
                             }
                           />
                         );

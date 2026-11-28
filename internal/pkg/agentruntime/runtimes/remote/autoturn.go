@@ -223,7 +223,7 @@ func (r *Runtime) handleAutonomousTurnEvent(ctx context.Context, params any) (an
 	if a == nil {
 		return nil, nil
 	}
-	ev := frame.Event
+	ev := r.legacy.infer(sid, frame.Event)
 	// 投递走 orderedpipe.Push:永不阻塞,且 Close 之后再 Push 只是丢弃 —— 断连
 	// (watchClose 独立 goroutine)与投递并发既不 panic 也不需要靠锁排开。
 	//

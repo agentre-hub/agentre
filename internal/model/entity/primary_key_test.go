@@ -24,6 +24,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/sync_account_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncqueue_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/workspace_fs_entity"
 )
 
 // allEntities 是每一个绑定了表名的实体。新增实体时在这里登记 —— 表侧的同一条约定由
@@ -59,6 +60,7 @@ func allEntities() []any {
 		&syncqueue_entity.OutboundQueueItem{},
 		&transcript_entity.Message{},
 		&transcript_entity.MessageBlock{},
+		&workspace_fs_entity.WorkRoot{},
 	}
 }
 

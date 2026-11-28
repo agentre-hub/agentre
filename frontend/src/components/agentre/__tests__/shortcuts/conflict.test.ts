@@ -20,6 +20,10 @@ describe("sameChord", () => {
     expect(
       sameChord({ mod: "primary", key: "D" }, { mod: "primary", key: "J" }),
     ).toBe(false);
+    // ⌥⌘B（右侧工具窗）与 ⌘B（看板）是两个组合。
+    expect(
+      sameChord({ mod: "primary", key: "B" }, { mod: "primary-alt", key: "B" }),
+    ).toBe(false);
   });
 });
 

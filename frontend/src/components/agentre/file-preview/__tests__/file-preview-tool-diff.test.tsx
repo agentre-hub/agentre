@@ -10,6 +10,7 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
   WorkspaceFsReadFile: (...args: unknown[]) => readFileMock(...args),
   WorkspaceFsGitFileContent: (...args: unknown[]) =>
     gitFileContentMock(...args),
+  WorkspaceFsWorkRoots: () => Promise.resolve([]),
 }));
 
 // Monaco 在 happy-dom 里跑不起来。「本次会话」档不该走到它 —— 下面有一条用例
@@ -31,6 +32,7 @@ vi.mock("@/lib/file-preview/monaco-loader", () => loaderMocks);
 import type { chat_svc } from "@/../wailsjs/go/models";
 import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
+import { useSessionRootStore } from "@/stores/session-root-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { FilePreviewPanel } from "../file-preview-panel";
@@ -113,14 +115,12 @@ beforeEach(() => {
   nextId = 1;
   localStorage.clear();
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "changes",
     changesScope: "session",
     showIgnored: false,
-    // 工作根是每会话一条的运行期状态:不在这里清掉,上一个用例设过的根会跟着
-    // 进下一个用例,把它的重放归属判到别的根上。
-    workRootBySession: {},
   });
+  // 工作根是每会话一条的运行期状态:不在这里清掉,上一个用例设过的根会跟着
+  // 进下一个用例,把它的重放归属判到别的根上。
+  useSessionRootStore.setState({ bySession: {} });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   // 给两个后端读取一个可用的默认返回:「本次会话」档本就不该调它们,失败要落在
@@ -137,8 +137,8 @@ beforeEach(() => {
   loaderMocks.loadMonaco.mockReset();
 });
 
-function renderToolDiff(messages: Msg[], path = "app/x.ts") {
-  useFilePreviewTabsStore.getState().openPreview(7, path, "session");
+function renderToolDiff(messages: Msg[], path = "app/x.ts", root = "") {
+  useFilePreviewTabsStore.getState().openPreview(7, { root, path }, "session");
   return render(
     <FilePreviewPanel sessionId={7} messages={messages} cwd={CWD} />,
   );
@@ -182,23 +182,43 @@ describe("FilePreviewPanel · 「本次会话」的工具 diff", () => {
   });
 
   // Given 多工作根会话:同一条相对路径在会话 cwd 与 worktree 里各有一个文件,
-  // When 侧栏当前的工作根是那个 worktree,
+  // When 标签绑定的工作根是那个 worktree（侧栏当前选的是别的根也一样）,
   // Then 重放收的是 worktree 那个文件的调用 —— 与「变更」行的归属判定同源,
   //      而不是退回会话 cwd 去收另一个文件的调用。
-  it("collects the calls of the current work root, not of the session cwd", async () => {
+  it("collects the calls of the tab's own work root, not of the session cwd", async () => {
     const WT = "/w-ia";
-    useChatSidebarStore.getState().setWorkRoot(7, WT);
-
-    renderToolDiff([
-      editCall(`${CWD}/app/x.ts`, [
-        ctx(" ", "keep"),
-        { op: "+", new: 2, text: "in-session-cwd" },
-      ]),
-      editCall(`${WT}/app/x.ts`, [
-        ctx(" ", "keep"),
-        { op: "+", new: 2, text: "in-worktree" },
-      ]),
+    useSessionRootStore.getState().applyRoots(7, CWD, [
+      {
+        path: CWD,
+        name: "w",
+        isPrimary: true,
+        isWorktree: false,
+        aiHere: false,
+      },
+      {
+        path: "/w-other",
+        name: "w-other",
+        isPrimary: false,
+        isWorktree: true,
+        aiHere: false,
+      },
     ]);
+    useSessionRootStore.getState().select(7, "/w-other");
+
+    renderToolDiff(
+      [
+        editCall(`${CWD}/app/x.ts`, [
+          ctx(" ", "keep"),
+          { op: "+", new: 2, text: "in-session-cwd" },
+        ]),
+        editCall(`${WT}/app/x.ts`, [
+          ctx(" ", "keep"),
+          { op: "+", new: 2, text: "in-worktree" },
+        ]),
+      ],
+      "app/x.ts",
+      WT,
+    );
 
     const diff = await screen.findByTestId("replayed-file-diff");
     expect(within(diff).getByText("in-worktree")).toBeInTheDocument();

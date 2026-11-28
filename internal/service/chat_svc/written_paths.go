@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/workspace_fs_svc"
 )
 
 // SessionWrittenPaths 列出本会话里 AI 写过的文件路径,按首次出现顺序去重。
@@ -29,15 +30,18 @@ import (
 // 路径。三家后端(claudecode / codex / pi)的工具名差异已经在那一层收敛,这里
 // 不再各认一套名字。subagent 的嵌套调用同样计入 —— 那也是 AI 的写入。
 //
-// 返回的是工具调用里的原始路径:多数后端给绝对路径,少数给相对路径。这里不做
-// 归一,因为"相对谁"要由持有 cwd 的调用方决定(相对路径天然落在会话 cwd 内,
-// 认领不到新的工作根)。
+// 返回的是工具调用里的原始路径:多数后端给绝对路径,少数(pi / builtin 常写
+// ../wt/x.go)给相对路径。这里不做归一,"相对谁"由认领方按 WrittenPath.Dir(该
+// 调用所在目录)补全,Dir 为空时回落会话 cwd。Dir 取这次调用记下的所在目录:外层
+// 调用取它旁边那块 tool_cwd(调用目录优先,没有时用结果目录),子代理的嵌套调用取
+// 嵌套块自己的 Cwd;没有记录(旧消息 / 旧 agentred)时为空。去重按 (Path, Dir) 整对
+// 比较,同一相对路径在不同目录下是不同文件。
 //
 // 增量维护(spec 2026-11-05 决策 4):WorkRoots 每次轮末都要这份清单,而会话的工具历史
 // 绝大多数自上一轮起没变过。这里只取每条消息的 (id, 版本),按会话缓存每条消息写过的
 // 路径;只有版本变了的(新增 / 被改写)消息重读工具调用块,不在列的(被删 / 截断)直接
 // 丢掉。版本由仓储在每次写入时于写锁内签发,所以「版本没变」就是「块没变」。
-func SessionWrittenPaths(ctx context.Context, sessionID int64) ([]string, error) {
+func SessionWrittenPaths(ctx context.Context, sessionID int64) ([]workspace_fs_svc.WrittenPath, error) {
 	if sessionID <= 0 {
 		return nil, i18n.NewError(ctx, code.InvalidParameter)
 	}
@@ -57,9 +61,9 @@ func SessionWrittenPaths(ctx context.Context, sessionID int64) ([]string, error)
 		stale = append(stale, &chat_entity.Message{ID: v.ID, SessionID: sessionID})
 	}
 	// 写入路径只会出现在工具调用块里:按类型点查,其余正文不进内存。
-	fresh := make(map[int64][]string, len(stale))
+	fresh := make(map[int64][]workspace_fs_svc.WrittenPath, len(stale))
 	if len(stale) > 0 {
-		if err := repo.FillBlocksByType(ctx, stale, toolUseBlockTypes); err != nil {
+		if err := repo.FillBlocksByType(ctx, stale, writtenPathBlockTypes); err != nil {
 			return nil, operationFailedWithCause(ctx, err)
 		}
 		for _, m := range stale {
@@ -68,8 +72,8 @@ func SessionWrittenPaths(ctx context.Context, sessionID int64) ([]string, error)
 	}
 
 	next := make(map[int64]messageWrittenPaths, len(versions))
-	seen := make(map[string]struct{})
-	paths := make([]string, 0, 8)
+	seen := make(map[workspace_fs_svc.WrittenPath]struct{})
+	paths := make([]workspace_fs_svc.WrittenPath, 0, 8)
 	for _, v := range versions {
 		ps, ok := fresh[v.ID]
 		if !ok {
@@ -89,7 +93,7 @@ func SessionWrittenPaths(ctx context.Context, sessionID int64) ([]string, error)
 }
 
 // writtenPathsOfMessage 取一条(已按工具调用类型补过块的)消息里写到的路径,保序、不去重。
-func writtenPathsOfMessage(ctx context.Context, sessionID int64, m *chat_entity.Message) []string {
+func writtenPathsOfMessage(ctx context.Context, sessionID int64, m *chat_entity.Message) []workspace_fs_svc.WrittenPath {
 	bs, err := m.GetBlocks()
 	if err != nil {
 		// 单条消息解码失败不致命:少认一条写入路径,顶多少认领一个工作根
@@ -98,7 +102,14 @@ func writtenPathsOfMessage(ctx context.Context, sessionID int64, m *chat_entity.
 			zap.Int64("sessionID", sessionID), zap.Int64("messageID", m.ID), zap.Error(err))
 		return nil
 	}
-	var out []string
+	// 所在目录记录可能落在调用之后(结果目录在结果到达时才补上),先扫完再配对。
+	cwdByCall := make(map[string]*chatblocks.ToolCwdBlock)
+	for _, b := range bs {
+		if rec := toolCwdOfBlock(b); rec != nil {
+			cwdByCall[rec.ToolCallID] = rec
+		}
+	}
+	var out []workspace_fs_svc.WrittenPath
 	for _, b := range bs {
 		name, input, ok := toolUseOfBlock(b)
 		if !ok {
@@ -108,19 +119,46 @@ func writtenPathsOfMessage(ctx context.Context, sessionID int64, m *chat_entity.
 		if !ok {
 			continue
 		}
+		dir := callDirOfBlock(b, cwdByCall)
 		for _, p := range writtenPathsOfCanonical(c) {
 			if p != "" {
-				out = append(out, p)
+				out = append(out, workspace_fs_svc.WrittenPath{Path: p, Dir: dir})
 			}
 		}
 	}
 	return out
 }
 
+// callDirOfBlock 取一个工具调用块执行时 AI 所在的目录:嵌套块自带 Cwd,外层块查它旁边
+// 那块 tool_cwd(调用目录优先,没有时用结果目录)。没有记录时为空串。
+func callDirOfBlock(b blocks.ContentBlock, cwdByCall map[string]*chatblocks.ToolCwdBlock) string {
+	switch tb := b.(type) {
+	case chatblocks.NestedToolUseBlock:
+		return tb.Cwd
+	case *chatblocks.NestedToolUseBlock:
+		return tb.Cwd
+	case blocks.ToolUseBlock:
+		return recordedCallDir(cwdByCall[tb.ID])
+	case *blocks.ToolUseBlock:
+		return recordedCallDir(cwdByCall[tb.ID])
+	}
+	return ""
+}
+
+func recordedCallDir(rec *chatblocks.ToolCwdBlock) string {
+	if rec == nil {
+		return ""
+	}
+	if rec.Cwd != "" {
+		return rec.Cwd
+	}
+	return rec.ResultCwd
+}
+
 // messageWrittenPaths 是一条消息在某个版本下写过的路径。
 type messageWrittenPaths struct {
 	version int64
-	paths   []string
+	paths   []workspace_fs_svc.WrittenPath
 }
 
 // writtenPathsCacheSessions 是写过路径缓存最多记住几条会话。缓存的是「侧栏正开着的
@@ -160,6 +198,10 @@ func (c *sessionWrittenPathsCache) put(sessionID int64, entry map[int64]messageW
 
 // toolUseBlockTypes 是 toolUseOfBlock 认得的两类块的存储类型,两处须同步。
 var toolUseBlockTypes = []string{blocks.ToolUseBlock{}.Type(), chatblocks.NestedToolUseBlock{}.Type()}
+
+// writtenPathBlockTypes 是 SessionWrittenPaths 要补的块:工具调用本身,加上外层调用旁记下
+// 所在目录的 tool_cwd(相对写入路径据它补全)。
+var writtenPathBlockTypes = append(append([]string(nil), toolUseBlockTypes...), chatblocks.ToolCwdBlock{}.Type())
 
 // toolUseOfBlock 把一个持久化块还原成 (工具名, 入参)。外层 tool_use 与
 // subagent 的 nested_tool_use 都算 —— 值/指针两种形态都要认,持久化解码出来

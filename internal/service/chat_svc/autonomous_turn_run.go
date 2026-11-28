@@ -431,6 +431,7 @@ func (t *autonomousTurnRun) consumeEvents(ctx context.Context) {
 		case t.previews != nil:
 			t.applyDurable(ctx, t.first)
 		case !t.consumeSteer(ctx, t.first, false):
+			t.svc.observeToolEvent(ctx, t.sessionID, t.first)
 			if err := t.svc.dispatcher.Apply(ctx, t.first, t.acc, t.dispEmit, t.turnCtx); err != nil {
 				logger.Ctx(ctx).Warn("chat_svc: autonomous dispatcher Apply failed",
 					zap.String("eventType", fmt.Sprintf("%T", t.first)), zap.Error(err))
@@ -521,6 +522,7 @@ func (t *autonomousTurnRun) applyDurable(ctx context.Context, ev agentruntime.Ev
 	if t.cards == nil {
 		t.cards = t.svc.newDurableCards(t.sessionID, t.stream, nil)
 	}
+	t.svc.observeToolEvent(ctx, t.sessionID, ev)
 	if t.cards.restore(ctx, t.acc, ev) {
 		return
 	}
@@ -547,6 +549,9 @@ func (t *autonomousTurnRun) applyLive(ctx context.Context, ev agentruntime.Event
 		return
 	}
 	t.svc.publishPeerEvent(t.sessionID, ev)
+	if !preview {
+		t.svc.observeToolEvent(ctx, t.sessionID, ev)
+	}
 	if t.consumeSteer(ctx, ev, preview) {
 		return
 	}

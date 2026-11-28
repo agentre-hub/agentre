@@ -3,6 +3,7 @@ package sync_svc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/cago-frame/cago/pkg/consts"
@@ -23,6 +24,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/issue_repo/mock_issue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo/mock_session_issue_link_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo/mock_syncstate_repo"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
@@ -310,10 +313,50 @@ func TestIssueAdapter_RemoveSoftDeletes(t *testing.T) {
 	issues := mock_issue_repo.NewMockIssueRepo(ctrl)
 	issues.EXPECT().Delete(gomock.Any(), int64(3)).Return(nil)
 	issue_repo.RegisterIssue(issues)
+	links := mock_session_issue_link_repo.NewMockSessionIssueLinkRepo(ctrl)
+	links.EXPECT().DeleteByIssue(gomock.Any(), int64(3)).Return(nil)
+	session_issue_link_repo.RegisterSessionIssueLink(links)
 
 	require.NoError(t, issueAdapter{}.remove(context.Background(), &inbound{
 		Kind: syncwire.KindIssue, SyncID: "issue-1", DeletedAt: 1700,
 	}))
+}
+
+// TestIssueAdapter_RemoveCleansTheIssuesSessionLinks 同步下行的任务墓碑与本地删除一样:
+// 会话 ↔ 任务关联只存本机,任务一旦在本机消失,指向它的关联行必须随之清掉,否则会话的
+// 关联窗里留下指向不存在任务的行。先清关联再删任务:清理失败时任务还在,重放能走完。
+func TestIssueAdapter_RemoveCleansTheIssuesSessionLinks(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	syncstate_repo.RegisterSyncState(state)
+	issues := mock_issue_repo.NewMockIssueRepo(ctrl)
+	issue_repo.RegisterIssue(issues)
+	links := mock_session_issue_link_repo.NewMockSessionIssueLinkRepo(ctrl)
+	session_issue_link_repo.RegisterSessionIssueLink(links)
+
+	t.Run("links first then the issue", func(t *testing.T) {
+		gomock.InOrder(
+			links.EXPECT().DeleteByIssue(gomock.Any(), int64(3)).Return(nil),
+			issues.EXPECT().Delete(gomock.Any(), int64(3)).Return(nil),
+		)
+		state.EXPECT().FindLocalID(gomock.Any(), syncwire.KindIssue, "issue-1").Return(int64(3), nil)
+		require.NoError(t, issueAdapter{}.remove(context.Background(), &inbound{
+			Kind: syncwire.KindIssue, SyncID: "issue-1", DeletedAt: 1700,
+		}))
+	})
+	t.Run("cleanup failure keeps the issue and reports", func(t *testing.T) {
+		links.EXPECT().DeleteByIssue(gomock.Any(), int64(3)).Return(errors.New("locked"))
+		state.EXPECT().FindLocalID(gomock.Any(), syncwire.KindIssue, "issue-1").Return(int64(3), nil)
+		assert.Error(t, issueAdapter{}.remove(context.Background(), &inbound{
+			Kind: syncwire.KindIssue, SyncID: "issue-1", DeletedAt: 1700,
+		}))
+	})
+	t.Run("unknown issue touches nothing", func(t *testing.T) {
+		state.EXPECT().FindLocalID(gomock.Any(), syncwire.KindIssue, "issue-1").Return(int64(0), nil)
+		require.NoError(t, issueAdapter{}.remove(context.Background(), &inbound{
+			Kind: syncwire.KindIssue, SyncID: "issue-1", DeletedAt: 1700,
+		}))
+	})
 }
 
 // ── 任务 ↔ 标签 ─────────────────────────────────────────────────────────────

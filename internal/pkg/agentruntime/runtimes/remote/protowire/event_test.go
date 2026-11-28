@@ -9,9 +9,11 @@ import (
 	"github.com/cago-frame/agents/provider"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
+	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 func TestEventNotificationRoundTrip(t *testing.T) {
@@ -126,8 +128,8 @@ func TestEventNotificationPreservesEveryField(t *testing.T) {
 		agentruntime.TextDelta{Text: "hi"},
 		agentruntime.ThinkingDelta{Text: "think"},
 		agentruntime.OutputActivity{},
-		agentruntime.ToolCall{ID: "t1", Name: "Read", Input: json.RawMessage(`{"a":1}`), ParentToolCallID: "p1", SubagentRunID: "r1"},
-		agentruntime.ToolResult{ToolCallID: "t1", Content: "out", IsError: true, ParentToolCallID: "p1", SubagentRunID: "r1", Meta: json.RawMessage(`{"m":2}`)},
+		agentruntime.ToolCall{ID: "t1", Name: "Read", Input: json.RawMessage(`{"a":1}`), ParentToolCallID: "p1", SubagentRunID: "r1", Cwd: "/repo/wt"},
+		agentruntime.ToolResult{ToolCallID: "t1", Content: "out", IsError: true, ParentToolCallID: "p1", SubagentRunID: "r1", Meta: json.RawMessage(`{"m":2}`), Cwd: "/repo/wt"},
 		agentruntime.SteerConsumed{Steers: []agentruntime.ConsumedSteer{{QueuedID: "q", Text: "x", SourcePeer: "pe", SourceName: "na"}}},
 		agentruntime.UserAskRequest{RequestID: "rq", ToolCallID: "tc", ParentToolCallID: "pt", Questions: []agentruntime.AskQuestion{{
 			ID: "q1", Question: "去哪", Header: "路线", MultiSelect: true, IsOther: true, IsSecret: true, DisallowOther: true,
@@ -183,4 +185,32 @@ func TestEventNotificationPreservesEveryField(t *testing.T) {
 // 互不并轨",一个可读、可复现的映射比随机 uuid 更好读。
 func convID(n int64) string {
 	return fmt.Sprintf("00000000-0000-7000-8000-%012d", n)
+}
+
+// Given 旧 agentred 发来的工具调用 / 结果帧(它不认识 cwd,线上就没有这一格);
+// When 桌面端解码;Then Cwd 为空 —— 消费方据此回落到会话工作目录 —— 其余字段照常。
+func TestEventNotification_ToolEventsFromAnOldPeerDecodeWithEmptyCwd(t *testing.T) {
+	for _, frame := range []*agentrewire.RuntimeEventNotification{
+		{ConversationId: convID(1), Seq: 1, Event: &agentrewire.RuntimeEventNotification_ToolCall{
+			ToolCall: &agentrewire.ToolCall{Id: "t1", Name: "Bash"},
+		}},
+		{ConversationId: convID(1), Seq: 2, Event: &agentrewire.RuntimeEventNotification_ToolResult{
+			ToolResult: &agentrewire.ToolResult{ToolCallId: "t1", Content: "ok"},
+		}},
+	} {
+		encoded, err := proto.Marshal(&agentrewire.RpcFrame{Body: &agentrewire.RpcFrame_Notification{Notification: &agentrewire.RpcNotification{
+			Payload: &agentrewire.RpcNotification_RuntimeEvent{RuntimeEvent: frame},
+		}}})
+		require.NoError(t, err)
+		decoded, _, err := UnmarshalEventNotification(encoded)
+		require.NoError(t, err)
+		switch ev := decoded.Event.(type) {
+		case agentruntime.ToolCall:
+			require.Equal(t, agentruntime.ToolCall{ID: "t1", Name: "Bash"}, ev)
+		case agentruntime.ToolResult:
+			require.Equal(t, agentruntime.ToolResult{ToolCallID: "t1", Content: "ok"}, ev)
+		default:
+			t.Fatalf("unexpected event %T", ev)
+		}
+	}
 }

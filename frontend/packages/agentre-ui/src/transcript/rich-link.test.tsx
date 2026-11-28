@@ -1,4 +1,5 @@
 import {
+  cleanup,
   fireEvent,
   render as rtlRender,
   screen,
@@ -891,6 +892,96 @@ describe("RichLink", () => {
       fireEvent.click(screen.getByRole("link", { name: /foo\.go/ }));
 
       expect(previewFileMock).toHaveBeenCalledWith(SESSION_ID, "src/foo.go");
+    });
+  });
+  // 「应用内预览」：只有宿主给了 previewURL 端口、链接指向 localhost 且带会话号时才出现；
+  // 不给端口（agentre-server）浮窗与今天一字不差。
+  describe("Popover · in-app preview of localhost links", () => {
+    const previewURLMock = vi.fn<(sessionId: number, url: string) => void>();
+    beforeEach(() => previewURLMock.mockReset());
+
+    async function openPopover(name: RegExp) {
+      fireEvent.focus(screen.getByRole("link", { name }));
+      return screen.findByTestId("rich-link-popover");
+    }
+
+    it("Given previewURL and a localhost link in a session, When the popover opens and the button is pressed, Then the port gets the session and URL and the default click is unchanged", async () => {
+      renderWithPorts(
+        <RichLink href="http://localhost:3000/docs?x=1" sessionId={7}>
+          dev
+        </RichLink>,
+        { ...testPorts, previewURL: previewURLMock },
+      );
+      const popover = await openPopover(/dev/);
+
+      fireEvent.click(
+        within(popover).getByRole("button", { name: "In-app preview" }),
+      );
+
+      expect(previewURLMock).toHaveBeenCalledExactlyOnceWith(
+        7,
+        "http://localhost:3000/docs?x=1",
+      );
+      expect(openExternalURLMock).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("link", { name: /dev/ }));
+      expect(openExternalURLMock).toHaveBeenCalledWith(
+        "http://localhost:3000/docs?x=1",
+        { sessionId: 7 },
+      );
+    });
+
+    // 开发服务器常打印 0.0.0.0：它同样指向执行设备上的端口，也给「应用内预览」。
+    it("Given previewURL and a 0.0.0.0 link in a session, Then the popover offers in-app preview", async () => {
+      renderWithPorts(
+        <RichLink href="http://0.0.0.0:8000/" sessionId={7}>
+          dev
+        </RichLink>,
+        { ...testPorts, previewURL: previewURLMock },
+      );
+      const popover = await openPopover(/dev/);
+      fireEvent.click(
+        within(popover).getByRole("button", { name: "In-app preview" }),
+      );
+      expect(previewURLMock).toHaveBeenCalledExactlyOnceWith(
+        7,
+        "http://0.0.0.0:8000/",
+      );
+    });
+
+    it("Given the host has no previewURL port, Then the popover has no in-app preview button", async () => {
+      render(
+        <RichLink href="http://localhost:3000/" sessionId={7}>
+          dev
+        </RichLink>,
+      );
+      const popover = await openPopover(/dev/);
+      expect(
+        within(popover).queryByRole("button", { name: "In-app preview" }),
+      ).toBeNull();
+    });
+
+    it("Given previewURL but a non-localhost URL or no session, Then there is no button", async () => {
+      renderWithPorts(
+        <RichLink href="https://example.com/" sessionId={7}>
+          ex
+        </RichLink>,
+        { ...testPorts, previewURL: previewURLMock },
+      );
+      let popover = await openPopover(/ex/);
+      expect(
+        within(popover).queryByRole("button", { name: "In-app preview" }),
+      ).toBeNull();
+      cleanup();
+
+      renderWithPorts(<RichLink href="http://127.0.0.1:5173/">dev</RichLink>, {
+        ...testPorts,
+        previewURL: previewURLMock,
+      });
+      popover = await openPopover(/dev/);
+      expect(
+        within(popover).queryByRole("button", { name: "In-app preview" }),
+      ).toBeNull();
     });
   });
 });

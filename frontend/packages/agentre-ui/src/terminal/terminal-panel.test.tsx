@@ -258,6 +258,38 @@ describe("TerminalPanel", () => {
     expect(theme.selectionForeground).toBeTruthy();
   });
 
+  it("Given the host marks a key as its own, When it fires in the terminal, Then xterm does not consume it (it reaches the host) and other keys still go to xterm", () => {
+    const passThroughKey = vi.fn(
+      (ev: KeyboardEvent) => ev.ctrlKey && ev.key === "3",
+    );
+    render(
+      <TerminalPanel
+        terminalID="t1"
+        projectId={42}
+        deviceId=""
+        onClose={vi.fn()}
+        passThroughKey={passThroughKey}
+      />,
+    );
+    const key = (init: Partial<KeyboardEvent>) =>
+      ({
+        type: "keydown",
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        keyCode: 0,
+        isComposing: false,
+        ...init,
+      }) as unknown as KeyboardEvent;
+    expect(capturedKeyHandler?.(key({ ctrlKey: true, key: "3" }))).toBe(false);
+    expect(capturedKeyHandler?.(key({ key: "Escape" }))).toBe(true);
+    // keyup of the same chord is left alone: the host only listens for keydown.
+    expect(
+      capturedKeyHandler?.(key({ type: "keyup", ctrlKey: true, key: "3" })),
+    ).toBe(true);
+  });
+
   it("Given IME composition is active, When a Cmd/Ctrl+C combo fires, Then the custom key handler does not swallow it (lets the IME/xterm path run)", () => {
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -641,5 +673,77 @@ describe("TerminalPanel", () => {
     });
     // No assertion on theme value — jsdom limitation. Just confirm no throw.
     expect(true).toBe(true);
+  });
+
+  it("Given surface=sheet, When it mounts and the theme toggles, Then xterm and the container use --sheet; default stays on --background", async () => {
+    const root = document.documentElement;
+    root.style.setProperty("--background", "#bbbbbb");
+    root.style.setProperty("--sheet", "#fefefe");
+    try {
+      const sheet = render(
+        <TerminalPanel
+          terminalID="t1"
+          projectId={42}
+          deviceId=""
+          onClose={vi.fn()}
+          surface="sheet"
+        />,
+      );
+      const term = vi.mocked(Terminal).mock.results[0].value;
+      expect(term.options.theme.background).toBe("#fefefe");
+      expect(sheet.getByTestId("terminal-panel")).toHaveClass("bg-sheet");
+      expect(sheet.getByTestId("terminal-panel")).not.toHaveClass(
+        "bg-background",
+      );
+      root.style.setProperty("--sheet", "#1b1c1f");
+      await act(async () => {
+        root.classList.add("dark");
+      });
+      expect(term.options.theme.background).toBe("#1b1c1f");
+      sheet.unmount();
+      root.classList.remove("dark");
+
+      vi.mocked(Terminal).mockClear();
+      const plain = render(
+        <TerminalPanel
+          terminalID="t2"
+          projectId={42}
+          deviceId=""
+          onClose={vi.fn()}
+        />,
+      );
+      const term2 = vi.mocked(Terminal).mock.results[0].value;
+      expect(term2.options.theme.background).toBe("#bbbbbb");
+      expect(plain.getByTestId("terminal-panel")).toHaveClass("bg-background");
+    } finally {
+      root.classList.remove("dark");
+      root.style.removeProperty("--background");
+      root.style.removeProperty("--sheet");
+    }
+  });
+
+  it("Given a mounted terminal on the default surface, When surface changes to sheet, Then xterm is re-themed to --sheet without being rebuilt", () => {
+    const root = document.documentElement;
+    root.style.setProperty("--background", "#bbbbbb");
+    root.style.setProperty("--sheet", "#fefefe");
+    try {
+      const props = {
+        terminalID: "t1",
+        projectId: 42,
+        deviceId: "",
+        onClose: vi.fn(),
+      };
+      const view = render(<TerminalPanel {...props} />);
+      const term = vi.mocked(Terminal).mock.results[0].value;
+      expect(term.options.theme.background).toBe("#bbbbbb");
+
+      view.rerender(<TerminalPanel {...props} surface="sheet" />);
+      expect(vi.mocked(Terminal)).toHaveBeenCalledTimes(1);
+      expect(term.options.theme.background).toBe("#fefefe");
+      expect(view.getByTestId("terminal-panel")).toHaveClass("bg-sheet");
+    } finally {
+      root.style.removeProperty("--background");
+      root.style.removeProperty("--sheet");
+    }
   });
 });

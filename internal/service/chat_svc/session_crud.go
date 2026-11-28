@@ -4,6 +4,7 @@ import (
 	"context"
 	"html"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -20,6 +21,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_dispatch_repo"
+	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
 )
@@ -79,10 +82,40 @@ var sessionDeletedHook SessionDeletedHook
 // RegisterSessionDeletedHook 由 bootstrap 注入;传 nil 清除。
 func RegisterSessionDeletedHook(h SessionDeletedHook) { sessionDeletedHook = h }
 
-// fireSessionDeleted 异步触发钩子:不阻塞 Delete,钩子的 panic/错误都吞掉并记日志。
+// SessionDeletedCleanup 是宿主持有的、属于某条会话的资源的善后(如这条会话开的终端):
+// 会话被删除后以它的 ID 调用,跑在 fireSessionDeleted 的 goroutine 里。
+type SessionDeletedCleanup func(ctx context.Context, sessionID int64)
+
+var (
+	sessionCleanupsMu  sync.Mutex
+	sessionCleanups    = map[int]SessionDeletedCleanup{}
+	sessionCleanupNext int
+)
+
+// RegisterSessionDeletedCleanup 登记一份会话删除后的善后,交回注销函数。
+func RegisterSessionDeletedCleanup(fn SessionDeletedCleanup) (unregister func()) {
+	sessionCleanupsMu.Lock()
+	defer sessionCleanupsMu.Unlock()
+	id := sessionCleanupNext
+	sessionCleanupNext++
+	sessionCleanups[id] = fn
+	return func() {
+		sessionCleanupsMu.Lock()
+		defer sessionCleanupsMu.Unlock()
+		delete(sessionCleanups, id)
+	}
+}
+
+// fireSessionDeleted 异步跑会话的善后与钩子:不阻塞 Delete,panic/错误都吞掉并记日志。
 func fireSessionDeleted(ctx context.Context, sessionID int64) {
+	sessionCleanupsMu.Lock()
+	cleanups := make([]SessionDeletedCleanup, 0, len(sessionCleanups))
+	for _, fn := range sessionCleanups {
+		cleanups = append(cleanups, fn)
+	}
+	sessionCleanupsMu.Unlock()
 	h := sessionDeletedHook
-	if h == nil {
+	if h == nil && len(cleanups) == 0 {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
@@ -92,13 +125,19 @@ func fireSessionDeleted(ctx context.Context, sessionID int64) {
 				logger.Ctx(ctx).Warn("chat_svc.fireSessionDeleted: hook panicked", zap.Int64("sessionId", sessionID), zap.Any("panic", r))
 			}
 		}()
+		for _, fn := range cleanups {
+			fn(ctx, sessionID)
+		}
+		if h == nil {
+			return
+		}
 		if err := h(ctx); err != nil {
 			logger.Ctx(ctx).Warn("chat_svc.fireSessionDeleted: hook failed", zap.Int64("sessionId", sessionID), zap.Error(err))
 		}
 	}()
 }
 
-// Delete 软删会话行，并物理清除它的转录（消息/块）、帧编号台账与替换恢复状态
+// Delete 软删会话行，并物理清除它的转录（消息/块）、帧编号台账、替换恢复状态、认领的工作根、派发关系与任务关联
 // （规格「可观察的要求」6）：会话删除后不留可恢复的转录残余，只有 chat_sessions 行
 // 本身保持软删（不回填历史上已软删的会话，见决策 6）。任一清理步骤失败都直接把错误
 // 返回给调用方，不吞掉——调用方（含 server 侧的删除重试）据此重放。
@@ -106,6 +145,9 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 	if err := chat_repo.Session().SoftDelete(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
+	// 软删即退出「在跑」集合;没有轮次在飞时(库里停在 running 的遗孤、只剩后台活动)
+	// 没有轮次收尾替它发 RunStateEvent,在这里发。
+	s.emitRunStateChanged(req.SessionID)
 	// DB 已删，释放该 session 的常驻 CLI 子进程（best-effort，cache miss 时 no-op）。
 	// 按 runtime 注册表广播而不是逐个后端点名：点名的写法每加一个有常驻子进程的
 	// 后端就会静默漏一处，漏掉的表现是机器上多一个永不退出的 CLI。
@@ -124,6 +166,20 @@ func (s *chatSvc) Delete(ctx context.Context, req *DeleteRequest) (*DeleteRespon
 		return nil, operationFailedWithCause(ctx, err)
 	}
 	if _, err := chat_repo.ReplacementRecoveryCleanup().DeleteReplacementRecovery(ctx, req.SessionID); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	// 会话认领的工作根集合(spec 2026-11-24「会话删除时关联清理」):库里的行与认领方、
+	// 本服务在本进程里为它记着的认领 / 位置状态。
+	if err := s.workRootsPort().ForgetSession(ctx, req.SessionID); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	s.aiLocations.forget(req.SessionID)
+	// 派发关系(本会话派发出去的与派发了本会话的,spec 2026-11-24 决策 21)。
+	if err := session_dispatch_repo.SessionDispatch().DeleteBySession(ctx, req.SessionID); err != nil {
+		return nil, operationFailedWithCause(ctx, err)
+	}
+	// 会话 ↔ 看板任务关联(只存本机,spec 2026-11-24 决策 23)。
+	if err := session_issue_link_repo.SessionIssueLink().DeleteBySession(ctx, req.SessionID); err != nil {
 		return nil, operationFailedWithCause(ctx, err)
 	}
 	fireSessionDeleted(ctx, req.SessionID)

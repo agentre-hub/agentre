@@ -45,6 +45,10 @@ func TestEvent_RoundTrip(t *testing.T) {
 			ID: "tu_3", Name: "Read",
 			ParentToolCallID: "tu_parent", SubagentRunID: "run-0",
 		}},
+		// Cwd:执行侧记下的「AI 当时所在目录」随工具调用往返
+		{"tool_call_with_cwd", ToolCall{
+			ID: "tu_4", Name: "Bash", Cwd: "/repo/.claude/worktrees/feat",
+		}},
 
 		// ToolResult
 		{"tool_result_success", ToolResult{
@@ -54,6 +58,9 @@ func TestEvent_RoundTrip(t *testing.T) {
 			ToolCallID: "tu_1", Content: "oops", IsError: true,
 			ParentToolCallID: "tu_parent", SubagentRunID: "run-0",
 			Meta: json.RawMessage(`{"exitCode":1}`),
+		}},
+		{"tool_result_with_cwd", ToolResult{
+			ToolCallID: "tu_4", Content: "ok", Cwd: "/repo/.claude/worktrees/feat",
 		}},
 
 		// SteerConsumed
@@ -513,4 +520,26 @@ func TestEvent_InterfaceFieldDispatch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(b), `"kind":"text_delta"`)
 	assert.Contains(t, string(b), `"text":"hi"`)
+}
+
+// Given 带「AI 当时所在目录」的工具调用 / 结果;When 编成 JSON 事件;Then 目录以
+// lowerCamel 的 cwd 键出现,且解回原值。没有目录的事件不写这个键(旧消费方看到的
+// 形态不变)。
+func TestToolEvents_CwdUsesLowerCamelWireFieldAndIsOmittedWhenEmpty(t *testing.T) {
+	for _, event := range []Event{
+		ToolCall{ID: "c1", Name: "Bash", Cwd: "/repo/wt"},
+		ToolResult{ToolCallID: "c1", Content: "ok", Cwd: "/repo/wt"},
+	} {
+		wire, err := json.Marshal(event)
+		require.NoError(t, err)
+		assert.Contains(t, string(wire), `"cwd":"/repo/wt"`)
+		roundTrip, err := UnmarshalEvent(wire)
+		require.NoError(t, err)
+		assert.Equal(t, event, roundTrip)
+	}
+	for _, event := range []Event{ToolCall{ID: "c1"}, ToolResult{ToolCallID: "c1"}} {
+		wire, err := json.Marshal(event)
+		require.NoError(t, err)
+		assert.NotContains(t, string(wire), `"cwd"`)
+	}
 }

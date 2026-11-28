@@ -25,7 +25,9 @@
       "writeFailed": "That change was not saved",
       "offline": "Can't reach the service, so the change was not saved. Try again later",
       "notFound": "This task no longer exists. Refresh to bring the board up to date",
-      "refresh": "Refresh board"
+      "refresh": "Refresh board",
+      "noAgent": "No Agent can chat yet. Create or configure one on the Agents page first",
+      "linkFailed": "The session was created but could not be linked to this task"
     },
     "deleted": "Deleted \"{{title}}\"",
     "undo": "Undo"

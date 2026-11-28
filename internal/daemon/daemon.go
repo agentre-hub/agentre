@@ -1062,6 +1062,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 检查会提醒。回归锚在 integration_test.go 的
 	// TestIntegration_DaemonBoot_WiresTheClaudecodeSteerInbox。
 	claudecode.Default().SetSteerInbox(d.gateway.Steer())
+	// 同理注入 hook 位置簿:远端会话的 hook cwd 只在这台设备上可得,由这里的 runtime
+	// 盖到工具事件上随 wire 回桌面(spec 2026-11-24-chat-right-toolwindows 决策 17)。
+	// 回归锚 TestIntegration_DaemonBoot_WiresTheClaudecodeHookLocations。
+	claudecode.Default().SetHookLocations(d.gateway.HookLocations())
 	if d.gateway.URL() == "" {
 		// Gateway bind failed; keep going — CLI-login backends can still
 		// operate without a gateway token. Structured logging is not wired

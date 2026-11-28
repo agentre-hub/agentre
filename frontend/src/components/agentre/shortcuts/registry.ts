@@ -1,4 +1,8 @@
 import i18n from "@/i18n";
+import type {
+  ToolWindowId,
+  ToolWindowRegion,
+} from "@/stores/tool-window-layout-store";
 
 import type { KeyChord, ShortcutDef } from "./types";
 
@@ -135,11 +139,144 @@ const PALETTE_REGISTRY: ShortcutDef[] = [
   },
 ];
 
+// 工具窗快捷键（spec 决策 10、「快捷键」）：除下面的区域开关外不可改绑。⌃数字（Windows / Linux 为
+// Alt+数字）切换工具窗，因为 ⌘1–9 已被标签页切换占用；终端两边都是 ⌃`。
+// ⇧Esc / Esc / ⇧⌘' 只在焦点落在工具窗里时生效，由工具窗自己处理；其余由
+// ShortcutsProvider 全局派发。
+export const TOOL_WINDOW_TOGGLE_IDS: Readonly<Record<ToolWindowId, string>> = {
+  outline: "toolWindow.toggle.outline",
+  changes: "toolWindow.toggle.changes",
+  directory: "toolWindow.toggle.directory",
+  relations: "toolWindow.toggle.relations",
+  sessionInfo: "toolWindow.toggle.sessionInfo",
+  webPreview: "toolWindow.toggle.webPreview",
+  terminal: "toolWindow.toggle.terminal",
+};
+export const TOOL_WINDOWS_HIDE_ALL_ID = "toolWindow.hideAll";
+export const TOOL_WINDOW_HIDE_FOCUSED_ID = "toolWindow.hideFocused";
+export const TOOL_WINDOW_RETURN_FOCUS_ID = "toolWindow.returnFocus";
+export const TOOL_WINDOW_MAXIMIZE_ID = "toolWindow.maximize";
+export const SESSION_LIST_TOGGLE_ID = "sessionList.toggle";
+// 区域开关（2026-11-27 spec 决策 6）：与标题栏的布局开关同一动作，可改绑。⌥⌘B 与
+// ⌘B（nav.issues）是两个组合。
+export const TOOL_WINDOW_REGION_TOGGLE_IDS: Readonly<
+  Record<ToolWindowRegion, string>
+> = {
+  bottom: "toolWindow.region.bottom",
+  right: "toolWindow.region.right",
+};
+
+const fixedToolWindowDef = (
+  id: string,
+  label: string,
+  hint: string,
+  defaultBinding: KeyChord,
+): ShortcutDef => ({
+  id,
+  label,
+  hint,
+  scope: "toolWindows",
+  defaultBinding,
+  rebindable: false,
+});
+
+const TOOL_WINDOW_REGISTRY: ShortcutDef[] = [
+  fixedToolWindowDef(
+    TOOL_WINDOW_TOGGLE_IDS.outline,
+    i18n.t("shortcuts.registry.toolWindows.outline.label"),
+    i18n.t("shortcuts.registry.toolWindows.outline.hint"),
+    { mod: "secondary", key: "1" },
+  ),
+  fixedToolWindowDef(
+    TOOL_WINDOW_TOGGLE_IDS.changes,
+    i18n.t("shortcuts.registry.toolWindows.changes.label"),
+    i18n.t("shortcuts.registry.toolWindows.changes.hint"),
+    { mod: "secondary", key: "2" },
+  ),
+  fixedToolWindowDef(
+    TOOL_WINDOW_TOGGLE_IDS.directory,
+    i18n.t("shortcuts.registry.toolWindows.directory.label"),
+    i18n.t("shortcuts.registry.toolWindows.directory.hint"),
+    { mod: "secondary", key: "3" },
+  ),
+  fixedToolWindowDef(
+    TOOL_WINDOW_TOGGLE_IDS.relations,
+    i18n.t("shortcuts.registry.toolWindows.relations.label"),
+    i18n.t("shortcuts.registry.toolWindows.relations.hint"),
+    { mod: "secondary", key: "4" },
+  ),
+  fixedToolWindowDef(
+    TOOL_WINDOW_TOGGLE_IDS.sessionInfo,
+    i18n.t("shortcuts.registry.toolWindows.sessionInfo.label"),
+    i18n.t("shortcuts.registry.toolWindows.sessionInfo.hint"),
+    { mod: "secondary", key: "5" },
+  ),
+  fixedToolWindowDef(
+    TOOL_WINDOW_TOGGLE_IDS.webPreview,
+    i18n.t("shortcuts.registry.toolWindows.webPreview.label"),
+    i18n.t("shortcuts.registry.toolWindows.webPreview.hint"),
+    { mod: "secondary", key: "6" },
+  ),
+  fixedToolWindowDef(
+    TOOL_WINDOW_TOGGLE_IDS.terminal,
+    i18n.t("shortcuts.registry.toolWindows.terminal.label"),
+    i18n.t("shortcuts.registry.toolWindows.terminal.hint"),
+    { mod: "control", key: "`" },
+  ),
+  fixedToolWindowDef(
+    TOOL_WINDOWS_HIDE_ALL_ID,
+    i18n.t("shortcuts.registry.toolWindows.hideAll.label"),
+    i18n.t("shortcuts.registry.toolWindows.hideAll.hint"),
+    { mod: "primary-shift", key: "\\" },
+  ),
+  fixedToolWindowDef(
+    TOOL_WINDOW_HIDE_FOCUSED_ID,
+    i18n.t("shortcuts.registry.toolWindows.hideFocused.label"),
+    i18n.t("shortcuts.registry.toolWindows.hideFocused.hint"),
+    { mod: "shift", key: "Escape" },
+  ),
+  fixedToolWindowDef(
+    TOOL_WINDOW_RETURN_FOCUS_ID,
+    i18n.t("shortcuts.registry.toolWindows.returnFocus.label"),
+    i18n.t("shortcuts.registry.toolWindows.returnFocus.hint"),
+    { mod: "none", key: "Escape" },
+  ),
+  fixedToolWindowDef(
+    TOOL_WINDOW_MAXIMIZE_ID,
+    i18n.t("shortcuts.registry.toolWindows.maximize.label"),
+    i18n.t("shortcuts.registry.toolWindows.maximize.hint"),
+    { mod: "primary-shift", key: "'" },
+  ),
+  fixedToolWindowDef(
+    SESSION_LIST_TOGGLE_ID,
+    i18n.t("shortcuts.registry.toolWindows.sessionList.label"),
+    i18n.t("shortcuts.registry.toolWindows.sessionList.hint"),
+    { mod: "primary", key: "0" },
+  ),
+  {
+    id: TOOL_WINDOW_REGION_TOGGLE_IDS.bottom,
+    label: i18n.t("shortcuts.registry.toolWindows.bottomRegion.label"),
+    hint: i18n.t("shortcuts.registry.toolWindows.bottomRegion.hint"),
+    scope: "toolWindows",
+    defaultBinding: { mod: "primary", key: "J" },
+    rebindable: true,
+  },
+  {
+    id: TOOL_WINDOW_REGION_TOGGLE_IDS.right,
+    label: i18n.t("shortcuts.registry.toolWindows.rightRegion.label"),
+    hint: i18n.t("shortcuts.registry.toolWindows.rightRegion.hint"),
+    scope: "toolWindows",
+    defaultBinding: { mod: "primary-alt", key: "B" },
+    rebindable: true,
+  },
+];
+
 export const REGISTRY: ShortcutDef[] = [
   ...NAV_REGISTRY,
   ...PALETTE_REGISTRY,
   ...SESSION_CHIP_REGISTRY,
   ...TABS_CHIP_REGISTRY,
+  ...TOOL_WINDOW_REGISTRY,
 ];
 
 const REGISTRY_BY_ID: Map<string, ShortcutDef> = new Map(

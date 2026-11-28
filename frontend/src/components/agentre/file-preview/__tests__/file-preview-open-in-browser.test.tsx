@@ -18,6 +18,7 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
   WorkspaceFsReadFile: (...args: unknown[]) => appMocks.readFile(...args),
   WorkspaceFsGitFileContent: (...args: unknown[]) =>
     appMocks.gitFileContent(...args),
+  WorkspaceFsWorkRoots: () => Promise.resolve([]),
   OpenPath: (...args: unknown[]) => appMocks.openPath(...args),
   RevealPath: vi.fn(),
 }));
@@ -34,8 +35,8 @@ const loaderMocks = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/file-preview/monaco-loader", () => loaderMocks);
 
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
+import { useSessionRootStore } from "@/stores/session-root-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 import { FilePreviewPanel } from "../file-preview-panel";
@@ -44,7 +45,7 @@ const CWD = "/w";
 
 beforeEach(() => {
   localStorage.clear();
-  useChatSidebarStore.setState({ workRootBySession: {} });
+  useSessionRootStore.setState({ bySession: {} });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   appMocks.readFile.mockReset();

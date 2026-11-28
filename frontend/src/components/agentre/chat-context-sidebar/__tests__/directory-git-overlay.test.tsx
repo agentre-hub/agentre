@@ -12,6 +12,13 @@ vi.mock("sonner", () => sonnerMocks);
 const openPathMock = vi.fn();
 const listDirMock = vi.fn();
 const gitChangesMock = vi.fn();
+// 工具窗骨架订阅会话的 chat:workroots 推送（useSessionRootSync）；happy-dom 下没有
+// window.runtime，事件订阅桩成 no-op，其余 runtime 函数照旧。
+vi.mock("@/../wailsjs/runtime/runtime", async () => ({
+  ...(await vi.importActual("@/../wailsjs/runtime/runtime")),
+  EventsOn: vi.fn(() => () => {}),
+}));
+
 vi.mock("@/../wailsjs/go/app/App", () => ({
   // 多工作根：本组用例都是单根会话，认领集合恒为空 → 根切换器不渲染，
   // 分支状态条整条收起，chrome 与本轮之前一致。
@@ -47,7 +54,9 @@ import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { ChatContextSidebar } from "../index";
+import { ChatContextToolWindows } from "../index";
+
+import { showOnly, stripButton } from "./tool-window-helpers";
 import { DirectoryPanel } from "../views/directory-panel";
 
 import type { workspace_fs_svc } from "@/../wailsjs/go/models";
@@ -110,7 +119,7 @@ function renderPanelWithChanges(gitChanges: Change[] | null) {
 
 function renderSidebar() {
   return render(
-    <ChatContextSidebar
+    <ChatContextToolWindows
       sessionId={7}
       messages={[]}
       activeMessageId={null}
@@ -123,9 +132,8 @@ function renderSidebar() {
 
 beforeEach(() => {
   localStorage.clear();
+  showOnly("directory");
   useChatSidebarStore.setState({
-    open: true,
-    activeTab: "directory",
     changesScope: "session",
     showIgnored: false,
   });
@@ -290,7 +298,7 @@ describe("目录页的 git 状态叠加：无叠加降级", () => {
   });
 });
 
-describe("目录页的 git 状态叠加：取数与去重（ChatContextSidebar 全链路）", () => {
+describe("目录页的 git 状态叠加：取数与去重（ChatContextToolWindows 全链路）", () => {
   it("fetches the uncommitted scope once for the directory overlay and colours the matching row", async () => {
     listDirMock.mockResolvedValue(listing([entry("turn.go")]));
     gitChangesMock.mockResolvedValue(
@@ -310,7 +318,7 @@ describe("目录页的 git 状态叠加：取数与去重（ChatContextSidebar �
 
   it("drops an in-flight overlay response when the session switches to one without a working directory", async () => {
     // 换到一个没有工作目录的会话时不再取数，但上一个仓库那次请求还在途：它回来
-    // 若还能落盘，Git tab 的角标就会在新会话上显示旧仓库的变动数。
+    // 若还能落盘，「变更」图标的角标就会在新会话上显示旧仓库的变动数。
     listDirMock.mockResolvedValue(listing([entry("turn.go")]));
     let resolveChanges: ((v: unknown) => void) | null = null;
     gitChangesMock.mockImplementation(
@@ -323,7 +331,7 @@ describe("目录页的 git 状态叠加：取数与去重（ChatContextSidebar �
     await waitFor(() => expect(gitChangesMock).toHaveBeenCalledTimes(1));
 
     rerender(
-      <ChatContextSidebar
+      <ChatContextToolWindows
         sessionId={7}
         messages={[]}
         activeMessageId={null}
@@ -332,8 +340,7 @@ describe("目录页的 git 状态叠加：取数与去重（ChatContextSidebar �
         remote={false}
       />,
     );
-    const changesTab = screen.getByRole("tab", { name: /^Changes/ });
-    expect(changesTab).not.toHaveTextContent("3");
+    expect(stripButton("Changes")).not.toHaveTextContent("3");
 
     await act(async () => {
       resolveChanges!(
@@ -344,9 +351,7 @@ describe("目录页的 git 状态叠加：取数与去重（ChatContextSidebar �
         ]),
       );
     });
-    expect(screen.getByRole("tab", { name: /^Changes/ })).not.toHaveTextContent(
-      "3",
-    );
+    expect(stripButton("Changes")).not.toHaveTextContent("3");
   });
 
   it("does not fetch again when the 未提交 scope is opened afterwards: both pages share one snapshot", async () => {
@@ -359,9 +364,10 @@ describe("目录页的 git 状态叠加：取数与去重（ChatContextSidebar �
     await screen.findByText("turn.go");
     await waitFor(() => expect(gitChangesMock).toHaveBeenCalledTimes(1));
 
-    await userEvent.click(screen.getByRole("tab", { name: /^Changes/ }));
+    await userEvent.click(stripButton("Changes"));
     await userEvent.click(screen.getByRole("tab", { name: "Uncommitted" }));
-    await screen.findByText("turn.go");
+    // 目录与「变更」两个工具窗此刻都显示着这个文件。
+    await waitFor(() => expect(screen.getAllByText("turn.go")).toHaveLength(2));
     expect(gitChangesMock).toHaveBeenCalledTimes(1);
   });
 

@@ -14,10 +14,21 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/canonical"
 	chatblocks "github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo/mock_transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/workspace_fs_svc"
 )
+
+// writes 造期望值:这些 fixture 都没有逐调用的所在目录记录,Dir 为空。
+func writes(paths ...string) []workspace_fs_svc.WrittenPath {
+	out := make([]workspace_fs_svc.WrittenPath, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, workspace_fs_svc.WrittenPath{Path: p})
+	}
+	return out
+}
 
 // msgWithBlocks 造一条持久化形态的消息:blocks 经注册表编码进 BlocksJSON,
 // 与真实读回路径(Message.GetBlocks)走同一份解码。
@@ -132,7 +143,7 @@ func TestSessionWrittenPaths(t *testing.T) {
 
 			paths, err := SessionWrittenPaths(context.Background(), 7)
 			require.NoError(t, err)
-			assert.Equal(t, []string{"/wt/a.go", "/wt/b.go"}, paths)
+			assert.Equal(t, writes("/wt/a.go", "/wt/b.go"), paths)
 		})
 
 		convey.Convey("subagent 的嵌套工具调用同样计入(它也是 AI 的写入)", func() {
@@ -145,7 +156,20 @@ func TestSessionWrittenPaths(t *testing.T) {
 
 			paths, err := SessionWrittenPaths(context.Background(), 7)
 			require.NoError(t, err)
-			assert.Equal(t, []string{"/wt/nested.go"}, paths)
+			assert.Equal(t, writes("/wt/nested.go"), paths)
+		})
+
+		convey.Convey("相对路径原样返回(由持有 cwd 的认领方补全),不被丢弃", func() {
+			stubMessages(t, []*chat_entity.Message{
+				msgWithBlocks(t, 1, blocks.ToolUseBlock{
+					ID: "t1", Name: "Write",
+					Input: map[string]any{"file_path": "../wt/x.go", "content": "x"},
+				}),
+			}, nil)
+
+			paths, err := SessionWrittenPaths(context.Background(), 7)
+			require.NoError(t, err)
+			assert.Equal(t, writes("../wt/x.go"), paths)
 		})
 
 		convey.Convey("只读工具与文本块不产生任何路径", func() {
@@ -162,7 +186,7 @@ func TestSessionWrittenPaths(t *testing.T) {
 			assert.Empty(t, paths)
 		})
 
-		convey.Convey("只按 tool_use / nested_tool_use 两类块补正文,不读回整条转录", func() {
+		convey.Convey("只按 tool_use / nested_tool_use / tool_cwd 三类块补正文,不读回整条转录", func() {
 			msgs := []*chat_entity.Message{
 				msgWithBlocks(t, 1,
 					blocks.TextBlock{Text: "long answer"},
@@ -177,12 +201,12 @@ func TestSessionWrittenPaths(t *testing.T) {
 			repo := registerMessageMock(t)
 			repo.EXPECT().ListVersions(gomock.Any(), int64(7)).Return(versionsOf(msgs), nil).Times(1)
 			repo.EXPECT().FillBlocksByType(gomock.Any(), gomock.Len(2),
-				gomock.InAnyOrder([]string{"tool_use", "nested_tool_use"})).
+				gomock.InAnyOrder([]string{"tool_use", "nested_tool_use", "tool_cwd"})).
 				DoAndReturn(fillBlocksByTypeFrom(t, msgs)).Times(1)
 
 			paths, err := SessionWrittenPaths(context.Background(), 7)
 			require.NoError(t, err)
-			assert.Equal(t, []string{"/wt/a.go", "/wt/nested.go"}, paths)
+			assert.Equal(t, writes("/wt/a.go", "/wt/nested.go"), paths)
 		})
 
 		convey.Convey("仓储报错原样冒泡,不静默降级成空清单", func() {
@@ -207,6 +231,46 @@ func writeMsg(t *testing.T, id, version int64, path string) *chat_entity.Message
 	})
 	m.Updatetime = version
 	return m
+}
+
+// Hermes 的写入只在实时路径被识别过(spec 问题 6):落库后的 write_file / patch 块
+// 必须经 canonical.FromToolUse 重算出路径,否则永远触发不了工作根认领。
+func TestSessionWrittenPaths_HermesWrites(t *testing.T) {
+	stubMessages(t, []*chat_entity.Message{
+		msgWithBlocks(t, 9101,
+			blocks.ToolUseBlock{ID: "h1", Name: "write_file", Input: map[string]any{"path": "/wt/h.go", "content": "x\n"}},
+			blocks.ToolUseBlock{ID: "h2", Name: "patch", Input: map[string]any{
+				"mode": "replace", "path": "/wt/p.go", "old_string": "a", "new_string": "b",
+			}},
+		),
+	}, nil)
+
+	paths, err := SessionWrittenPaths(context.Background(), 7)
+	require.NoError(t, err)
+	assert.Equal(t, writes("/wt/h.go", "/wt/p.go"), paths)
+}
+
+// ACP 落库名是 title:写入信号是 translator 写进入参的 acp_kind / acp_paths。
+// 只读 kind 的调用即使带路径也不算写入。
+func TestSessionWrittenPaths_ACPWrites(t *testing.T) {
+	stubMessages(t, []*chat_entity.Message{
+		msgWithBlocks(t, 9102,
+			blocks.ToolUseBlock{ID: "a1", Name: "Editing main.go", Input: map[string]any{
+				canonical.ACPKindInputKey:  "edit",
+				canonical.ACPPathsInputKey: []any{"/wt/a.go", "/wt/b.go"},
+			}},
+			blocks.ToolUseBlock{ID: "a2", Name: "Deleting", Input: map[string]any{
+				canonical.ACPKindInputKey: "delete", "path": "/wt/gone.go",
+			}},
+			blocks.ToolUseBlock{ID: "a3", Name: "Reading", Input: map[string]any{
+				canonical.ACPKindInputKey: "read", "path": "/wt/r.go",
+			}},
+		),
+	}, nil)
+
+	paths, err := SessionWrittenPaths(context.Background(), 7)
+	require.NoError(t, err)
+	assert.Equal(t, writes("/wt/a.go", "/wt/b.go", "/wt/gone.go"), paths)
 }
 
 // TestSessionWrittenPaths_IncrementalByVersion 钉住决策 4 的后半句:工作根的「写过的
@@ -235,7 +299,7 @@ func TestSessionWrittenPaths_IncrementalByVersion(t *testing.T) {
 
 		first, err := SessionWrittenPaths(ctx, 7)
 		require.NoError(t, err)
-		assert.Equal(t, []string{"/wt/a.go", "/wt/b.go"}, first)
+		assert.Equal(t, writes("/wt/a.go", "/wt/b.go"), first)
 		require.Len(t, refilled, 1)
 
 		convey.Convey("转录没变 → 第二次不再读任何块", func() {
@@ -249,7 +313,7 @@ func TestSessionWrittenPaths_IncrementalByVersion(t *testing.T) {
 			current = append(current, writeMsg(t, 3, 300, "/wt/c.go"))
 			got, err := SessionWrittenPaths(ctx, 7)
 			require.NoError(t, err)
-			assert.Equal(t, []string{"/wt/a.go", "/wt/b.go", "/wt/c.go"}, got)
+			assert.Equal(t, writes("/wt/a.go", "/wt/b.go", "/wt/c.go"), got)
 			assert.Equal(t, []int64{3}, refilled[len(refilled)-1])
 		})
 
@@ -257,7 +321,7 @@ func TestSessionWrittenPaths_IncrementalByVersion(t *testing.T) {
 			current[0] = writeMsg(t, 1, 400, "/wt/a2.go")
 			got, err := SessionWrittenPaths(ctx, 7)
 			require.NoError(t, err)
-			assert.Equal(t, []string{"/wt/a2.go", "/wt/b.go"}, got)
+			assert.Equal(t, writes("/wt/a2.go", "/wt/b.go"), got)
 			assert.Equal(t, []int64{1}, refilled[len(refilled)-1])
 		})
 
@@ -265,7 +329,7 @@ func TestSessionWrittenPaths_IncrementalByVersion(t *testing.T) {
 			current = current[:1]
 			got, err := SessionWrittenPaths(ctx, 7)
 			require.NoError(t, err)
-			assert.Equal(t, []string{"/wt/a.go"}, got)
+			assert.Equal(t, writes("/wt/a.go"), got)
 			assert.Len(t, refilled, 1)
 		})
 	})

@@ -26,6 +26,12 @@ export type PreviewSourceMode = "directory" | "git" | "session";
  * 上限淘汰）。activatedAt 是最近一次被激活的时刻，上限淘汰与会话淘汰都按它排序。
  */
 export type FilePreviewTab = {
+  /**
+   * 标签所属的工作根：`""` = 会话主根（会话 cwd，后端把空串解释成它），否则是某个
+   * 非主根（如 worktree）的绝对路径。标签一旦建立就绑定这个根，会话「当前工作根」
+   * 之后怎么切都不改变它——取数、路径行与 Diff 归属全部按这个根走。
+   */
+  root: string;
   path: string;
   segment: FilePreviewSegment | null;
   sourceMode: PreviewSourceMode;
@@ -65,10 +71,32 @@ function initialSegment(
   return (anchor && anchoredOpenSegment(path)) ?? inherited;
 }
 
-/** 一个会话打开的整组预览标签与当前活动标签。 */
+/**
+ * 一个预览标签的身份：工作根 + 相对路径。同一相对路径在两个根下是两个标签。
+ * `root` 缺省 = 会话主根（`""`）：尚未显式传根的调用方（侧栏行、转录链接）回落到
+ * 这个口径，由后续任务逐个改成显式传入。
+ */
+export type PreviewTarget = { root?: string; path: string };
+/** 兼容入参：裸字符串 = 主根下的相对路径。 */
+export type PreviewTargetInput = string | PreviewTarget;
+
+type TabRef = { root: string; path: string };
+
+function toRef(target: PreviewTargetInput): TabRef {
+  return typeof target === "string"
+    ? { root: "", path: target }
+    : { root: target.root ?? "", path: target.path };
+}
+
+function isTab(tab: TabRef, ref: TabRef): boolean {
+  return tab.root === ref.root && tab.path === ref.path;
+}
+
+/** 一个会话打开的整组预览标签与当前活动标签（activeRoot + activePath 合起来是活动标签的身份）。 */
 export type SessionPreviewTabs = {
   tabs: FilePreviewTab[];
   activePath: string | null;
+  activeRoot: string;
 };
 
 /** 每会话最多 8 个标签；再开就淘汰最久未被激活的未固定标签（spec「上限与淘汰」）。 */
@@ -86,14 +114,14 @@ type FilePreviewTabsState = {
    */
   openPreview: (
     sessionId: number,
-    path: string,
+    target: PreviewTargetInput,
     sourceMode: PreviewSourceMode,
     anchor?: PreviewAnchor,
   ) => FilePreviewTab | null;
   /** 双击 / 右键「在新标签页预览」：直接开常驻标签；文件已打开则激活并转常驻。 */
   openPreviewInNewTab: (
     sessionId: number,
-    path: string,
+    target: PreviewTargetInput,
     sourceMode: PreviewSourceMode,
   ) => void;
   /**
@@ -104,21 +132,30 @@ type FilePreviewTabsState = {
   /** 双击当前标签：把活动的临时标签转成常驻标签。 */
   promoteActivePreviewTab: (sessionId: number) => void;
   /** 切换到某个已打开的标签。 */
-  activatePreviewTab: (sessionId: number, path: string) => void;
+  activatePreviewTab: (sessionId: number, target: PreviewTargetInput) => void;
   /** 更新活动标签的视图档位；档位是标签自身的状态，切换标签时各自保留。 */
   setPreviewSegment: (sessionId: number, segment: FilePreviewSegment) => void;
   /** 固定 / 取消固定；固定同时把临时标签转常驻（与 chat-tabs 的 togglePin 一致）。 */
-  togglePreviewTabPin: (sessionId: number, path: string) => void;
+  togglePreviewTabPin: (sessionId: number, target: PreviewTargetInput) => void;
   /** 关闭一个标签：关掉活动标签后激活右邻居，没有右邻居则激活左邻居。 */
-  closePreviewTab: (sessionId: number, path: string) => void;
+  closePreviewTab: (sessionId: number, target: PreviewTargetInput) => void;
   /** 关闭其他标签（固定的留下）。 */
-  closeOtherPreviewTabs: (sessionId: number, path: string) => void;
+  closeOtherPreviewTabs: (
+    sessionId: number,
+    target: PreviewTargetInput,
+  ) => void;
   /**
    * 全部关闭：整组关掉，固定标签也不例外——「要留下某几个」的语义已经由「关闭
    * 其他」承担，菜单项就叫「全部关闭」。关光之后整条会话条目消失，预览面板收起。
    */
   closeAllPreviewTabs: (sessionId: number) => void;
 };
+
+function activeIndex(entry: SessionPreviewTabs): number {
+  return entry.tabs.findIndex(
+    (tab) => tab.path === entry.activePath && tab.root === entry.activeRoot,
+  );
+}
 
 /** 取某会话的活动标签；没有打开任何标签时返回 null（预览面板据此收起）。 */
 export function selectActivePreviewTab(
@@ -127,7 +164,11 @@ export function selectActivePreviewTab(
 ): FilePreviewTab | null {
   const entry = state.previewTabsBySession[sessionId];
   if (!entry) return null;
-  return entry.tabs.find((tab) => tab.path === entry.activePath) ?? null;
+  return (
+    entry.tabs.find(
+      (tab) => tab.path === entry.activePath && tab.root === entry.activeRoot,
+    ) ?? null
+  );
 }
 
 const VALID_PREVIEW_SEGMENTS: ReadonlySet<FilePreviewSegment> = new Set([
@@ -149,6 +190,8 @@ function sanitizeTab(value: unknown): FilePreviewTab | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const tab = value as Record<string, unknown>;
   if (typeof tab.path !== "string" || tab.path === "") return null;
+  // 没有 root 字段的持久化标签来自绑定工作根之前的版本：不为旧形态写兼容层，整条丢弃。
+  if (typeof tab.root !== "string") return null;
   const sourceMode =
     typeof tab.sourceMode === "string"
       ? (tab.sourceMode as PreviewSourceMode)
@@ -170,6 +213,7 @@ function sanitizeTab(value: unknown): FilePreviewTab | null {
     return null;
   }
   return {
+    root: tab.root,
     path: tab.path,
     segment: tab.segment as FilePreviewSegment | null,
     sourceMode,
@@ -194,13 +238,15 @@ function sanitizeSessionTabs(value: unknown): SessionPreviewTabs | null {
   for (const raw of entry.tabs) {
     const tab = sanitizeTab(raw);
     if (!tab) return null;
-    if (tabs.some((kept) => kept.path === tab.path)) return null;
+    if (tabs.some((kept) => isTab(kept, tab))) return null;
     tabs.push(tab);
   }
   if (tabs.filter((tab) => tab.isPreview).length > 1) return null;
   if (typeof entry.activePath !== "string") return null;
-  if (!tabs.some((tab) => tab.path === entry.activePath)) return null;
-  return { tabs, activePath: entry.activePath };
+  if (typeof entry.activeRoot !== "string") return null;
+  const active: TabRef = { root: entry.activeRoot, path: entry.activePath };
+  if (!tabs.some((tab) => isTab(tab, active))) return null;
+  return { tabs, activePath: active.path, activeRoot: active.root };
 }
 
 // sanitizePreviewTabs 只保留「正整数会话 id → 合法标签组」的条目，并把会话数压到全局
@@ -296,7 +342,7 @@ function activate(
 ): SessionPreviewTabs {
   const tabs = [...entry.tabs];
   tabs[index] = { ...tabs[index], activatedAt: stamp() };
-  return { tabs, activePath: tabs[index].path };
+  return { tabs, activePath: tabs[index].path, activeRoot: tabs[index].root };
 }
 
 // insertTab 在标签集合末尾追加一个新标签。已达上限时先淘汰最久未被激活的未固定
@@ -317,10 +363,14 @@ function insertTab(
     if (victim < 0) return null;
     tabs = tabs.filter((_, i) => i !== victim);
   }
-  return { tabs: [...tabs, tab], activePath: tab.path };
+  return { tabs: [...tabs, tab], activePath: tab.path, activeRoot: tab.root };
 }
 
-const EMPTY_ENTRY: SessionPreviewTabs = { tabs: [], activePath: null };
+const EMPTY_ENTRY: SessionPreviewTabs = {
+  tabs: [],
+  activePath: null,
+  activeRoot: "",
+};
 
 /** 打开预览的入参门槛：会话 id 必须是正整数、路径非空、入口模式合法。 */
 function isOpenable(
@@ -369,49 +419,59 @@ function commitOrWarn(
 function closeMany(
   state: FilePreviewTabsState,
   sessionId: number,
-  path: string,
+  target: TabRef,
   keep: (tab: FilePreviewTab) => boolean,
 ): Partial<FilePreviewTabsState> {
   const entry = state.previewTabsBySession[sessionId];
   if (!entry) return state;
-  if (!entry.tabs.some((tab) => tab.path === path)) return state;
+  if (!entry.tabs.some((tab) => isTab(tab, target))) return state;
   const tabs = entry.tabs.filter((tab) => keep(tab) || tab.isPinned);
   if (tabs.length === entry.tabs.length) return state;
-  const activePath =
-    entry.activePath !== null &&
-    tabs.some((tab) => tab.path === entry.activePath)
-      ? entry.activePath
-      : path;
-  return commit(state, sessionId, { tabs, activePath });
+  const active: TabRef = {
+    root: entry.activeRoot,
+    path: entry.activePath ?? "",
+  };
+  const next =
+    entry.activePath !== null && tabs.some((tab) => isTab(tab, active))
+      ? active
+      : target;
+  return commit(state, sessionId, {
+    tabs,
+    activePath: next.path,
+    activeRoot: next.root,
+  });
 }
 
 /** 关闭若干标签后重新挑活动标签：右邻居优先，没有右邻居取左邻居。 */
 function reselectActive(
   tabs: FilePreviewTab[],
   previousTabs: FilePreviewTab[],
-  activePath: string | null,
-): string | null {
+  active: TabRef | null,
+): TabRef | null {
   if (tabs.length === 0) return null;
-  if (activePath !== null && tabs.some((tab) => tab.path === activePath)) {
-    return activePath;
-  }
-  const removedAt = previousTabs.findIndex((tab) => tab.path === activePath);
-  if (removedAt < 0) return tabs[tabs.length - 1].path;
-  return removedAt < tabs.length
-    ? tabs[removedAt].path
-    : tabs[tabs.length - 1].path;
+  if (active !== null && tabs.some((tab) => isTab(tab, active))) return active;
+  const removedAt =
+    active === null ? -1 : previousTabs.findIndex((tab) => isTab(tab, active));
+  const picked =
+    removedAt >= 0 && removedAt < tabs.length
+      ? tabs[removedAt]
+      : tabs[tabs.length - 1];
+  return { root: picked.root, path: picked.path };
 }
 
 export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
   persist(
     (set) => ({
       previewTabsBySession: {},
-      openPreview: (sessionId, path, sourceMode, anchor) => {
+      openPreview: (sessionId, target, sourceMode, anchor) => {
+        const { root, path } = toRef(target);
         if (!isOpenable(sessionId, path, sourceMode)) return null;
         let clobbered: FilePreviewTab | null = null;
         set((state) => {
           const entry = state.previewTabsBySession[sessionId] ?? EMPTY_ENTRY;
-          const existing = entry.tabs.findIndex((tab) => tab.path === path);
+          const existing = entry.tabs.findIndex((tab) =>
+            isTab(tab, { root, path }),
+          );
           if (existing >= 0) {
             // 已打开的文件被再次单击：激活既有标签，不新建、也不降级成临时标签；
             // 但入口模式仍决定首视图（决策 9），从另一个模式点进来要重设。什么也
@@ -430,6 +490,7 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
           const replaced = previewIdx >= 0 ? entry.tabs[previewIdx] : null;
           clobbered = replaced;
           const tab: FilePreviewTab = {
+            root,
             path,
             // 入口模式决定首视图：临时标签被同模式的下一个文件原地替换时保留
             // markdown 档位，换模式则回默认档（spec 决策 9 / 12）。
@@ -449,17 +510,24 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
           if (replaced) {
             const tabs = [...entry.tabs];
             tabs[previewIdx] = tab;
-            return commit(state, sessionId, { tabs, activePath: path });
+            return commit(state, sessionId, {
+              tabs,
+              activePath: path,
+              activeRoot: root,
+            });
           }
           return commitOrWarn(state, sessionId, insertTab(entry, tab));
         });
         return clobbered;
       },
-      openPreviewInNewTab: (sessionId, path, sourceMode) => {
+      openPreviewInNewTab: (sessionId, target, sourceMode) => {
+        const { root, path } = toRef(target);
         if (!isOpenable(sessionId, path, sourceMode)) return;
         set((state) => {
           const entry = state.previewTabsBySession[sessionId] ?? EMPTY_ENTRY;
-          const existing = entry.tabs.findIndex((tab) => tab.path === path);
+          const existing = entry.tabs.findIndex((tab) =>
+            isTab(tab, { root, path }),
+          );
           if (existing >= 0) {
             // 已经开着的文件：激活它，并且转成常驻——否则「在新标签页预览」对当前
             // 临时标签等于什么都没做，下一次单击又会把它替换掉。
@@ -473,6 +541,7 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
             return commit(state, sessionId, { ...activated, tabs });
           }
           const tab: FilePreviewTab = {
+            root,
             path,
             segment: null,
             sourceMode,
@@ -490,7 +559,7 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
           if (!entry) return state;
           // 双击自己已经把这个路径建立成了某种标签（比如恰好把它双击回来）：不
           // 覆盖双击刚建立的状态。
-          if (entry.tabs.some((t) => t.path === tab.path)) return state;
+          if (entry.tabs.some((t) => isTab(t, tab))) return state;
           // 补回是尽力而为：标签组已经满了就放弃。此时 insertTab 会淘汰「最久未被
           // 激活的未固定标签」，而那恰恰是双击刚刚转常驻的那一个（它是这一刻唯一
           // 可能未固定的标签，却也是用户明确要留下的）——顶掉它还会让下面强行写回
@@ -503,25 +572,25 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
           return commit(state, sessionId, {
             ...inserted,
             activePath: entry.activePath,
+            activeRoot: entry.activeRoot,
           });
         }),
       promoteActivePreviewTab: (sessionId) =>
         set((state) => {
           const entry = state.previewTabsBySession[sessionId];
           if (!entry) return state;
-          const idx = entry.tabs.findIndex(
-            (tab) => tab.path === entry.activePath,
-          );
+          const idx = activeIndex(entry);
           if (idx < 0 || !entry.tabs[idx].isPreview) return state;
           const tabs = [...entry.tabs];
           tabs[idx] = { ...tabs[idx], isPreview: false };
           return commit(state, sessionId, { ...entry, tabs });
         }),
-      activatePreviewTab: (sessionId, path) =>
+      activatePreviewTab: (sessionId, target) =>
         set((state) => {
           const entry = state.previewTabsBySession[sessionId];
           if (!entry) return state;
-          const idx = entry.tabs.findIndex((tab) => tab.path === path);
+          const ref = toRef(target);
+          const idx = entry.tabs.findIndex((tab) => isTab(tab, ref));
           if (idx < 0) return state;
           return commit(state, sessionId, activate(entry, idx));
         }),
@@ -530,20 +599,19 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
         set((state) => {
           const entry = state.previewTabsBySession[sessionId];
           if (!entry) return state;
-          const idx = entry.tabs.findIndex(
-            (tab) => tab.path === entry.activePath,
-          );
+          const idx = activeIndex(entry);
           if (idx < 0) return state;
           const tabs = [...entry.tabs];
           tabs[idx] = { ...tabs[idx], segment };
           return commit(state, sessionId, { ...entry, tabs });
         });
       },
-      togglePreviewTabPin: (sessionId, path) =>
+      togglePreviewTabPin: (sessionId, target) =>
         set((state) => {
           const entry = state.previewTabsBySession[sessionId];
           if (!entry) return state;
-          const idx = entry.tabs.findIndex((tab) => tab.path === path);
+          const ref = toRef(target);
+          const idx = entry.tabs.findIndex((tab) => isTab(tab, ref));
           if (idx < 0) return state;
           const cur = entry.tabs[idx];
           const tabs = [...entry.tabs];
@@ -553,22 +621,32 @@ export const useFilePreviewTabsStore = create<FilePreviewTabsState>()(
             : { ...cur, isPinned: true, isPreview: false };
           return commit(state, sessionId, { ...entry, tabs });
         }),
-      closePreviewTab: (sessionId, path) =>
+      closePreviewTab: (sessionId, target) =>
         set((state) => {
           const entry = state.previewTabsBySession[sessionId];
           if (!entry) return state;
-          if (!entry.tabs.some((tab) => tab.path === path)) return state;
-          const tabs = entry.tabs.filter((tab) => tab.path !== path);
+          const ref = toRef(target);
+          if (!entry.tabs.some((tab) => isTab(tab, ref))) return state;
+          const tabs = entry.tabs.filter((tab) => !isTab(tab, ref));
           if (tabs.length === 0) return commit(state, sessionId, null);
+          const next = reselectActive(
+            tabs,
+            entry.tabs,
+            entry.activePath === null
+              ? null
+              : { root: entry.activeRoot, path: entry.activePath },
+          );
           return commit(state, sessionId, {
             tabs,
-            activePath: reselectActive(tabs, entry.tabs, entry.activePath),
+            activePath: next?.path ?? null,
+            activeRoot: next?.root ?? "",
           });
         }),
-      closeOtherPreviewTabs: (sessionId, path) =>
-        set((state) =>
-          closeMany(state, sessionId, path, (tab) => tab.path === path),
-        ),
+      closeOtherPreviewTabs: (sessionId, target) =>
+        set((state) => {
+          const ref = toRef(target);
+          return closeMany(state, sessionId, ref, (tab) => isTab(tab, ref));
+        }),
       closeAllPreviewTabs: (sessionId) =>
         set((state) => {
           if (!state.previewTabsBySession[sessionId]) return state;

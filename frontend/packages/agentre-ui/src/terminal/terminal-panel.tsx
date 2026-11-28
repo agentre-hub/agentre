@@ -14,11 +14,13 @@ import { toast } from "sonner";
 
 import { useUiTranslation } from "../i18n";
 import { copyTextToClipboard } from "../lib/clipboard-toast";
+import { cn } from "../lib/utils";
 
 import {
   TERMINAL_FONT_FAMILY,
   TERMINAL_MIN_CONTRAST_RATIO,
   readTerminalTheme,
+  type TerminalSurface,
 } from "./terminal-theme";
 import { useTerminal } from "./use-terminal";
 import { useAttachedTerminal } from "./use-attached-terminal";
@@ -37,6 +39,12 @@ export interface TerminalPanelProps {
   // 设备)。原会话不可恢复(transport 不支持重连),本标签保留旧输出直到用户关闭。
   // 不传时红条只有「关闭」。
   onNewTerminal?: () => void;
+  // 宿主自己的快捷键:返回 true 的 keydown 不交给 xterm(它不处理、不拦冒泡),照常
+  // 冒到宿主的键盘监听上。不传时所有按键都归终端。
+  passThroughKey?: (ev: KeyboardEvent) => boolean;
+  // 终端正文底色取自哪个令牌:默认 "background"(应用背景,独立终端标签等);
+  // "sheet" 取窗口表面 --sheet,供浮在外框上的工具窗使用。
+  surface?: TerminalSurface;
 }
 
 export function TerminalPanel({
@@ -47,12 +55,25 @@ export function TerminalPanel({
   attach = false,
   onClose,
   onNewTerminal,
+  passThroughKey,
+  surface = "background",
 }: TerminalPanelProps) {
   const { t } = useUiTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [connectionLost, setConnectionLost] = useState(false);
+  // xterm 只在挂载时建一次,按键判定读最新的宿主回调。
+  const passThroughRef = useRef(passThroughKey);
+  useEffect(() => {
+    passThroughRef.current = passThroughKey;
+  }, [passThroughKey]);
+  // 建 xterm 时按当时的 surface 取色;之后它变了由下面的换肤 effect 重新取色,
+  // 不因它重建 xterm。
+  const surfaceRef = useRef(surface);
+  useEffect(() => {
+    surfaceRef.current = surface;
+  }, [surface]);
 
   // Stable dismiss for the banner — calls onClose, which unmounts us.
   const dismissAndClose = useCallback(() => {
@@ -123,7 +144,7 @@ export function TerminalPanel({
     const term = new Terminal({
       fontFamily: TERMINAL_FONT_FAMILY,
       fontSize: 13,
-      theme: readTerminalTheme(),
+      theme: readTerminalTheme(surfaceRef.current),
       minimumContrastRatio: TERMINAL_MIN_CONTRAST_RATIO,
       scrollback: 500,
       cursorBlink: true,
@@ -139,6 +160,7 @@ export function TerminalPanel({
       // 处理的按键，否则可能导致字符丢失 (W3C UI Events §5.4.3)。
       if (ev.isComposing || ev.keyCode === 229) return true;
       if (ev.type !== "keydown") return true;
+      if (passThroughRef.current?.(ev)) return false;
       const isCopyCombo =
         (ev.ctrlKey || ev.metaKey) &&
         !ev.shiftKey &&
@@ -181,10 +203,10 @@ export function TerminalPanel({
     const applyTheme = () => {
       const term = xtermRef.current;
       if (!term) return;
-      term.options.theme = readTerminalTheme();
+      term.options.theme = readTerminalTheme(surface);
     };
-    // Apply once on mount. App toggles the `.dark` class in its own layout
-    // effect; on a same-commit mount (a restored terminal tab on app startup)
+    // Apply once on mount and whenever `surface` changes. App toggles the
+    // `.dark` class in its own layout effect; on a same-commit mount (a restored terminal tab on app startup)
     // that runs AFTER this terminal's xterm was constructed but BEFORE this
     // observer registers, so the MutationObserver never sees that initial class
     // and the terminal would stay light. This passive effect runs after all
@@ -196,7 +218,7 @@ export function TerminalPanel({
       attributeFilter: ["class"],
     });
     return () => observer.disconnect();
-  }, []);
+  }, [surface]);
 
   useEffect(() => {
     const term = xtermRef.current;
@@ -224,7 +246,10 @@ export function TerminalPanel({
 
   return (
     <div
-      className="flex flex-1 min-h-0 flex-col bg-background"
+      className={cn(
+        "flex flex-1 min-h-0 flex-col",
+        surface === "sheet" ? "bg-sheet" : "bg-background",
+      )}
       data-testid="terminal-panel"
     >
       {connectionLost ? (

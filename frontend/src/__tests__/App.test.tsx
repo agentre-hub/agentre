@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "../App";
 import { useSettingsDialogStore } from "@/stores/settings-dialog-store";
+import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
 
 // App 渲染 <TurnCompleteNotifier/>，它在 mount 时通过 wailsjs runtime 订阅
 // "notification:click"。这些 App 用例不关心该订阅、也不一定设置 window.runtime，
@@ -566,6 +567,9 @@ function mockWailsRuntime({
 beforeEach(async () => {
   // 设置对话框记住「本次运行」最后打开的子页：模块级状态，用例之间要清回初始。
   useSettingsDialogStore.setState({ open: false, page: "appearance" });
+  // 工具窗布局（含会话列表收起）也是模块级状态：在对话页再点「对话」会收起会话列表，
+  // 不清回初始就会带进后面的用例。
+  useToolWindowLayout.setState(useToolWindowLayout.getInitialState(), true);
   const info = vi.mocked((await import("../../wailsjs/go/app/App")).Info);
   info.mockReset();
   info.mockResolvedValue({
@@ -674,6 +678,31 @@ describe("App", () => {
     expect(
       within(dialog).getByRole("combobox", { name: "Theme Mode" }),
     ).toBeInTheDocument();
+  });
+
+  it("Given the chat page, When the title bar renders, Then the three layout toggles sit in it, and on another page they are absent", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    const banner = screen.getByRole("banner");
+    expect(
+      within(banner).getByTestId("layout-toggle-sessionList"),
+    ).toBeInTheDocument();
+    expect(
+      within(banner).getByTestId("layout-toggle-bottom"),
+    ).toBeInTheDocument();
+    expect(
+      within(banner).getByTestId("layout-toggle-right"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Board" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("layout-toggle-right"),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("restores the last opened page from localStorage on startup", async () => {
