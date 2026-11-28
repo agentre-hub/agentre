@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	project_entity "github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+	devicefp "github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -185,6 +186,20 @@ func (m *MockProjectRepo) ReorderSiblings(ctx context.Context, parentID int64, o
 func (mr *MockProjectRepoMockRecorder) ReorderSiblings(ctx, parentID, orderedIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReorderSiblings", reflect.TypeOf((*MockProjectRepo)(nil).ReorderSiblings), ctx, parentID, orderedIDs)
+}
+
+// SetDefaultDevice mocks base method.
+func (m *MockProjectRepo) SetDefaultDevice(ctx context.Context, id int64, fingerprint devicefp.Carrier) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetDefaultDevice", ctx, id, fingerprint)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetDefaultDevice indicates an expected call of SetDefaultDevice.
+func (mr *MockProjectRepoMockRecorder) SetDefaultDevice(ctx, id, fingerprint any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDefaultDevice", reflect.TypeOf((*MockProjectRepo)(nil).SetDefaultDevice), ctx, id, fingerprint)
 }
 
 // Update mocks base method.

@@ -3,6 +3,7 @@ package llm_provider_repo_test
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"testing"
 	"time"
@@ -963,4 +964,50 @@ func TestLLMProviderRepo_CountModelReferences(t *testing.T) {
 			assert.NoError(t, mock.ExpectationsWereMet())
 		})
 	})
+}
+
+// Given 一份读得早 / 下行出来的供应商实体 When Update 或 UpsertFromSync 回写整行 Then 「谁能连到」
+// 两列不在 UPDATE 里——它们只由 UpdateReach 写，整行回写不得把它们拍回旧值。
+// 参数个数是证据：10 个业务列 + 6 个同步元数据 + WHERE id = 17，没有 reach 两列。
+func TestLLMProviderRepo_WholeRowWritesLeaveReachAlone(t *testing.T) {
+	args := make([]driver.Value, 17)
+	for i := range args {
+		args[i] = sqlmock.AnyArg()
+	}
+	convey.Convey("whole-row writes", t, func() {
+		ctx, mock, repo := setupLLMProviderRepoTest(t)
+
+		convey.Convey("Update", func() {
+			mock.ExpectBegin()
+			mock.ExpectExec("UPDATE `llm_providers` SET").WithArgs(args...).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectCommit()
+			require.NoError(t, repo.Update(ctx, &llm_provider_entity.LLMProvider{ID: 8, ProviderKey: "k", Type: "anthropic", Name: "n", ReachMode: "devices", ReachDevicesJSON: `["sha256:a"]`, Status: consts.ACTIVE}))
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+
+		convey.Convey("UpsertFromSync over an existing row", func() {
+			mock.ExpectBegin()
+			mock.ExpectQuery("SELECT \\* FROM `llm_providers` WHERE provider_key = \\?").
+				WillReturnRows(providerRowsWithSyncMeta().AddRow(
+					int64(5), "k", "anthropic", "old", "", "", llm_provider_entity.EnabledOn, "", consts.ACTIVE,
+					int64(1), int64(1), "k", int64(7), int64(42), int64(2), "d", int64(0)))
+			mock.ExpectExec("UPDATE `llm_providers` SET").WithArgs(args...).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec("UPDATE `llm_provider_models` SET").WillReturnResult(sqlmock.NewResult(0, 0))
+			mock.ExpectCommit()
+			require.NoError(t, repo.UpsertFromSync(ctx, &llm_provider_entity.LLMProvider{ProviderKey: "k", Type: "anthropic", Name: "n", Status: consts.ACTIVE}, nil))
+			assert.NoError(t, mock.ExpectationsWereMet())
+		})
+	})
+}
+
+func TestLLMProviderRepo_UpdateReach(t *testing.T) {
+	ctx, mock, repo := setupLLMProviderRepoTest(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `llm_providers` SET `reach_devices_json`=\\?,`reach_mode`=\\?,`updatetime`=\\? WHERE id = \\?").
+		WithArgs(`["sha256:a"]`, "devices", sqlmock.AnyArg(), int64(8)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.UpdateReach(ctx, 8, "devices", `["sha256:a"]`))
+	assert.NoError(t, mock.ExpectationsWereMet())
 }

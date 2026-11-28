@@ -112,15 +112,17 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 
 	gormDB := db.Default()
 	for table, columns := range map[string][]string{
-		"llm_providers":              {"default_model_key", "sync_id", "sync_origin_fingerprint"},
+		"llm_providers":              {"default_model_key", "sync_id", "sync_origin_fingerprint", "reach_mode", "reach_devices_json"},
 		"llm_provider_models":        {"model_key", "model_id"},
 		"agent_backends":             {"model_key", "sync_id", "device_fingerprint", "sync_origin_fingerprint"},
 		"agent_backend_cli_overlays": {"backend_sync_id", "agentred_fingerprint", "cli_path", "sync_origin_fingerprint"},
 		"engine_profiles":            {"type", "name", "llm_provider_key", "model_key", "env_json", "reasoning_effort", "config_json", "is_account_default", "status", "sync_id", "sync_origin_fingerprint"},
+		"device_prefs":               {"device_fingerprint", "labels_json", "sort_order", "status", "sync_id", "sync_origin_fingerprint"},
+		"device_cli_paths":           {"runtime_type", "device_fingerprint", "cli_path", "status", "sync_id", "sync_origin_fingerprint"},
 		"agents":                     {"sync_origin_fingerprint", "memory_enabled", "engine_profile_id", "exec_constraint_json", "skill_grants_runtime", "skill_grants_json"},
 		"agent_exec_targets":         {"sync_origin_fingerprint"},
 		"departments":                {"sync_origin_fingerprint", "default_engine_profile_id"},
-		"projects":                   {"sync_origin_fingerprint"},
+		"projects":                   {"sync_origin_fingerprint", "default_device_fingerprint"},
 		"project_agents":             {"sync_origin_fingerprint"},
 		// device_id 是由指纹解析出的本地缓存(实体包注释),写入路径显式带这一列——
 		// 它一旦缺席,整张表就只读不可写。

@@ -336,6 +336,20 @@ func (mr *MockLLMProviderRepoMockRecorder) UpdateModel(ctx, m any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateModel", reflect.TypeOf((*MockLLMProviderRepo)(nil).UpdateModel), ctx, m)
 }
 
+// UpdateReach mocks base method.
+func (m *MockLLMProviderRepo) UpdateReach(ctx context.Context, id int64, mode, devicesJSON string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateReach", ctx, id, mode, devicesJSON)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateReach indicates an expected call of UpdateReach.
+func (mr *MockLLMProviderRepoMockRecorder) UpdateReach(ctx, id, mode, devicesJSON any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateReach", reflect.TypeOf((*MockLLMProviderRepo)(nil).UpdateReach), ctx, id, mode, devicesJSON)
+}
+
 // UpsertFromSync mocks base method.
 func (m *MockLLMProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_entity.LLMProvider, models []*llm_provider_model_entity.LLMProviderModel) error {
 	m.ctrl.T.Helper()

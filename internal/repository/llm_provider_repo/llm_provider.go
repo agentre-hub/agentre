@@ -42,6 +42,9 @@ type ModelRefCounts = RefCounts
 type LLMProviderRepo interface {
 	// ── Provider CRUD ──
 	Update(ctx context.Context, p *llm_provider_entity.LLMProvider) error
+	// UpdateReach 只写「谁能连到」两列。它们不走 Update / UpsertFromSync：整行回写一份读得早
+	// 或同步下行出来的实体，会把它们拍回旧值 / 默认。
+	UpdateReach(ctx context.Context, id int64, mode, devicesJSON string) error
 	Find(ctx context.Context, id int64) (*llm_provider_entity.LLMProvider, error)
 	FindByKey(ctx context.Context, key string) (*llm_provider_entity.LLMProvider, error)
 	BatchFindByKey(ctx context.Context, keys []string) (map[string]*llm_provider_entity.LLMProvider, error)
@@ -102,7 +105,16 @@ func NewLLMProvider() LLMProviderRepo { return &llmProviderRepo{} }
 
 func (r *llmProviderRepo) Update(ctx context.Context, p *llm_provider_entity.LLMProvider) error {
 	p.SyncID = p.ProviderKey
-	return db.Ctx(ctx).Save(p).Error
+	return db.Ctx(ctx).Omit(reachColumns...).Save(p).Error
+}
+
+// reachColumns 是只由 UpdateReach 写的列。
+var reachColumns = []string{"reach_mode", "reach_devices_json"}
+
+func (r *llmProviderRepo) UpdateReach(ctx context.Context, id int64, mode, devicesJSON string) error {
+	return db.Ctx(ctx).Model(&llm_provider_entity.LLMProvider{}).Where("id = ?", id).Updates(map[string]any{
+		"reach_mode": mode, "reach_devices_json": devicesJSON, "updatetime": time.Now().UnixMilli(),
+	}).Error
 }
 
 func (r *llmProviderRepo) Find(ctx context.Context, id int64) (*llm_provider_entity.LLMProvider, error) {
@@ -241,7 +253,7 @@ func (r *llmProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_en
 			// 相等，这里重新赋值只是不把这份不变式的成立与否交给「这一行的历史是否
 			// 干净」去赌。
 			p.SyncID = p.ProviderKey
-			if err := tx.Save(p).Error; err != nil {
+			if err := tx.Omit(reachColumns...).Save(p).Error; err != nil {
 				return err
 			}
 		}

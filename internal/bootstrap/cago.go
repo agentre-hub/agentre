@@ -31,6 +31,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/repository/device_pref_repo"
 	"github.com/agentre-hub/agentre/internal/repository/hook_repo"
 	"github.com/agentre-hub/agentre/internal/repository/issue_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
@@ -133,6 +134,8 @@ func Init(ctx context.Context) (*Runtime, error) {
 	agent_backend_repo.RegisterAgentBackend(agent_backend_repo.NewAgentBackend())
 	agent_backend_repo.RegisterEngineProfile(agent_backend_repo.NewEngineProfile())
 	app_setting_repo.RegisterAppSetting(app_setting_repo.NewAppSetting())
+	device_pref_repo.RegisterDevicePref(device_pref_repo.NewDevicePref())
+	device_pref_repo.RegisterCLIPath(device_pref_repo.NewCLIPath())
 	department_repo.RegisterDepartment(department_repo.NewDepartment())
 	agent_repo.RegisterAgent(agent_repo.NewAgent())
 	agent_repo.RegisterAgentExecTarget(agent_repo.NewAgentExecTarget())

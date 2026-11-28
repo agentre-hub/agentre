@@ -33,6 +33,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // httpDoer 抽象 http.Client，方便在单测里替换实现。
@@ -51,6 +52,10 @@ type LLMProviderSvc interface {
 	Delete(ctx context.Context, req *DeleteProviderRequest) (*DeleteProviderResponse, error)
 	SetProviderEnabled(ctx context.Context, req *SetProviderEnabledRequest) (*SetProviderEnabledResponse, error)
 	ProviderRefCounts(ctx context.Context, req *ProviderRefCountsRequest) (*ProviderRefCountsResponse, error)
+	// GetProviderReach / SetProviderReach 供应商「谁能连到」：任何设备（默认）/ 只有这些设备
+	// （spec 决策 14）。派发与供应商测试遵守它由后续任务接上。
+	GetProviderReach(ctx context.Context, req *GetProviderReachRequest) (*ProviderReachResponse, error)
+	SetProviderReach(ctx context.Context, req *SetProviderReachRequest) (*ProviderReachResponse, error)
 
 	ListModels(ctx context.Context, req *ListModelsRequest) (*ListModelsResponse, error)
 	ImportModels(ctx context.Context, req *ImportModelsRequest) (*ImportModelsResponse, error)
@@ -924,4 +929,46 @@ func toStrings(ms []models.Modality) []string {
 		out = append(out, string(m))
 	}
 	return out
+}
+
+func (s *llmProviderSvc) GetProviderReach(ctx context.Context, req *GetProviderReachRequest) (*ProviderReachResponse, error) {
+	p, err := s.findActive(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	return reachResponse(p), nil
+}
+
+func (s *llmProviderSvc) SetProviderReach(ctx context.Context, req *SetProviderReachRequest) (*ProviderReachResponse, error) {
+	p, err := s.findActive(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := p.SetReach(ctx, req.Mode, req.Devices); err != nil {
+		return nil, err
+	}
+	if err := llm_provider_repo.LLMProvider().UpdateReach(ctx, p.ID, p.ReachMode, p.ReachDevicesJSON); err != nil {
+		return nil, err
+	}
+	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
+	return reachResponse(p), nil
+}
+
+func (s *llmProviderSvc) findActive(ctx context.Context, id int64) (*llm_provider_entity.LLMProvider, error) {
+	p, err := llm_provider_repo.LLMProvider().Find(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, i18n.NewError(ctx, code.LLMProviderNotFound)
+	}
+	return p, nil
+}
+
+func reachResponse(p *llm_provider_entity.LLMProvider) *ProviderReachResponse {
+	mode, devices := p.Reach()
+	if devices == nil {
+		devices = []devicefp.Carrier{}
+	}
+	return &ProviderReachResponse{Mode: mode, Devices: devices}
 }

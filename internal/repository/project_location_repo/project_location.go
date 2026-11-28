@@ -3,11 +3,14 @@ package project_location_repo
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/cago-frame/cago/database/db"
 	"github.com/cago-frame/cago/pkg/consts"
+	"gorm.io/gorm"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -140,9 +143,28 @@ func (r *projectLocationRepo) UpdateDeviceID(ctx context.Context, id int64, devi
 	}).Error
 }
 
+// Delete 软删一条路径记录，并在同一事务里把「这台设备是该项目的默认设备」的设置清掉：
+// 默认设备只能是有路径的设备（spec 2026-11-25「项目」），去掉路径时一并清除。
+// 所有去路径的入口（用户移除、同步下行）都走这里，所以规则只在这一处。
 func (r *projectLocationRepo) Delete(ctx context.Context, id int64) error {
-	return db.Ctx(ctx).Model(&project_location_entity.ProjectLocation{}).Where("id = ?", id).Updates(map[string]any{
-		"status":     consts.DELETE,
-		"updatetime": time.Now().UnixMilli(),
-	}).Error
+	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+		var row project_location_entity.ProjectLocation
+		err := tx.Where("id = ?", id).First(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		now := time.Now().UnixMilli()
+		if err := tx.Model(&project_location_entity.ProjectLocation{}).Where("id = ?", id).Updates(map[string]any{
+			"status":     consts.DELETE,
+			"updatetime": now,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&project_entity.Project{}).
+			Where("id = ? AND default_device_fingerprint = ?", row.ProjectID, row.DeviceFingerprint).
+			Updates(map[string]any{"default_device_fingerprint": "", "updatetime": now}).Error
+	})
 }

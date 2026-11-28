@@ -14,6 +14,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // Project 一条项目记录。
@@ -29,11 +31,16 @@ type Project struct {
 	// 落地(名称/图标/颜色/层级/排序都在)，只是本机这一档目前没有可用的 cwd。
 	// 判据是这个显式状态位，不是 Path 是否为空 —— Path 只应在这个位为 true
 	// 时才是空串，绝不存在"Path 为空却被当成已配置项目"的情形。
-	LocalPathMissing bool  `gorm:"column:local_path_missing;type:boolean;not null;default:0"`
-	SortOrder        int   `gorm:"column:sort_order;type:int;not null;default:0"`
-	Status           int   `gorm:"column:status;type:int;not null;default:1"`
-	Createtime       int64 `gorm:"column:createtime;type:bigint;not null;default:0"`
-	Updatetime       int64 `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	LocalPathMissing bool `gorm:"column:local_path_missing;type:boolean;not null;default:0"`
+	// DefaultDeviceFingerprint 项目的默认设备（spec 2026-11-25「项目」）：派发优先级里排在
+	// 设备顺序之前。空 = 没设。只能是在这个项目里有路径的设备——本机看 Path /
+	// LocalPathMissing，其它设备看 project_locations；去掉那条路径时一并清掉。承载方角色，
+	// 所以叫 device_fingerprint。
+	DefaultDeviceFingerprint devicefp.Carrier `gorm:"column:default_device_fingerprint;type:text;not null;default:''"`
+	SortOrder                int              `gorm:"column:sort_order;type:int;not null;default:0"`
+	Status                   int              `gorm:"column:status;type:int;not null;default:1"`
+	Createtime               int64            `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime               int64            `gorm:"column:updatetime;type:bigint;not null;default:0"`
 	// SyncMeta 账号级同步元数据（R1，366 行）。注意 Path 本身不加同步元数据、不
 	// 参与同步载荷（决策 6）——这一份是整行（名称/图标/颜色/层级/排序等）的。
 	syncmeta_entity.SyncMeta `gorm:"embedded"`

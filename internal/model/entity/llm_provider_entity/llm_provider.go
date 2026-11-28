@@ -11,6 +11,8 @@ package llm_provider_entity
 
 import (
 	"context"
+	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/consts"
@@ -18,6 +20,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ProviderType 供应商实现类型。值与 cago agents/provider.Provider.Name() 对齐。
@@ -58,9 +62,14 @@ type LLMProvider struct {
 	BaseURL         string `gorm:"column:base_url;type:text;not null;default:''"`
 	Enabled         int    `gorm:"column:enabled;type:int;not null;default:1"`
 	DefaultModelKey string `gorm:"column:default_model_key;type:text;not null;default:''"`
-	Status          int    `gorm:"column:status;type:int;not null;default:1"`
-	Createtime      int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
-	Updatetime      int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	// ReachMode / ReachDevicesJSON 是「谁能连到」（spec 2026-11-25 决策 14）：任何设备
+	// （默认）或只有这些设备（本地端点只在特定机器上可达）。这两列只由 SetReach 经窄写口
+	// 改，整行回写不碰它们。
+	ReachMode        string `gorm:"column:reach_mode;type:text;not null;default:'any'"`
+	ReachDevicesJSON string `gorm:"column:reach_devices_json;type:text;not null;default:'[]'"`
+	Status           int    `gorm:"column:status;type:int;not null;default:1"`
+	Createtime       int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
+	Updatetime       int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
 	// SyncMeta uses ProviderKey as the account-sync identity. Models travel nested
 	// in the provider payload, so their local rows deliberately have no separate
 	// sync identity.
@@ -126,4 +135,53 @@ func (p *LLMProvider) MaskedAPIKey() string {
 		return strings.Repeat("•", len(key))
 	}
 	return key[:4] + strings.Repeat("•", 6) + key[len(key)-4:]
+}
+
+// 「谁能连到」的取值。
+const (
+	ReachAny     = "any"     // 任何设备（默认）
+	ReachDevices = "devices" // 只有 ReachDevicesJSON 里列出的设备
+)
+
+// Reach 解出「谁能连到」；没设过（空串）与读不出列表都按任何设备。
+func (p *LLMProvider) Reach() (mode string, devices []devicefp.Carrier) {
+	if p == nil || p.ReachMode != ReachDevices {
+		return ReachAny, nil
+	}
+	if err := json.Unmarshal([]byte(p.ReachDevicesJSON), &devices); err != nil {
+		return ReachAny, nil
+	}
+	return ReachDevices, devices
+}
+
+// SetReach 写入「谁能连到」：设备列表去空白、去重、保持首次出现顺序；任何设备时清空列表；
+// 只有这些设备却没有任何设备是不合法的（等于谁都连不到）。
+func (p *LLMProvider) SetReach(ctx context.Context, mode string, devices []devicefp.Carrier) error {
+	switch mode {
+	case ReachAny:
+		p.ReachMode, p.ReachDevicesJSON = ReachAny, "[]"
+		return nil
+	case ReachDevices:
+		clean := make([]devicefp.Carrier, 0, len(devices))
+		for _, d := range devices {
+			d = devicefp.Carrier(strings.TrimSpace(string(d)))
+			if d != "" && !slices.Contains(clean, d) {
+				clean = append(clean, d)
+			}
+		}
+		if len(clean) == 0 {
+			return i18n.NewError(ctx, code.LLMProviderReachInvalid)
+		}
+		raw, _ := json.Marshal(clean)
+		p.ReachMode, p.ReachDevicesJSON = ReachDevices, string(raw)
+		return nil
+	default:
+		return i18n.NewError(ctx, code.LLMProviderReachInvalid)
+	}
+}
+
+// ReachableFrom 报告供应商从这台设备上连不连得到。
+func (p *LLMProvider) ReachableFrom(device devicefp.Carrier) bool {
+	mode, devices := p.Reach()
+	return mode == ReachAny || slices.Contains(devices, device)
 }

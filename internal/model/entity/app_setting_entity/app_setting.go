@@ -27,6 +27,10 @@ const (
 	// 只压制到达提示与设置入口红点，不影响状态栏常驻的「有新版本」陈述。
 	KeySkippedUpdateVersion = "update.skipped_version"
 
+	// KeyDeviceLocalFirst 「在这台电脑上，本机始终排第一」（"true"/"false"）；缺省开启。
+	// 只存在这台桌面端上，不随账号同步（spec 2026-11-25 决策 5）。
+	KeyDeviceLocalFirst = "device.local_first"
+
 	// KeyDebugLogging 是否开启 debug 级别日志（"true"/"false"）；缺省关闭。
 	// 由「设置 → 版本 & 更新」开关写入。
 	KeyDebugLogging = "logger.debug_enabled"

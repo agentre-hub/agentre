@@ -127,13 +127,32 @@ func TestProjectLocationRepo_UpdatePath(t *testing.T) {
 func TestProjectLocationRepo_Delete(t *testing.T) {
 	ctx, mock, repo := setupProjectLocationRepo(t)
 	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT \\* FROM `project_locations` WHERE id = \\?").
+		WithArgs(int64(42), 1).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "project_id", "device_fingerprint"}).AddRow(42, 7, "sha256:box"))
 	mock.ExpectExec("UPDATE `project_locations` SET").
 		WithArgs(consts.DELETE, sqlmock.AnyArg(), int64(42)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	// 去掉那台设备的路径时，把它作为项目默认设备的设置一并清掉（项目「默认设备只能是有路径的设备」）。
+	mock.ExpectExec("UPDATE `projects` SET `default_device_fingerprint`=\\?,`updatetime`=\\? WHERE id = \\? AND default_device_fingerprint = \\?").
+		WithArgs("", sqlmock.AnyArg(), int64(7), "sha256:box").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	err := repo.Delete(ctx, 42)
 	require.NoError(t, err)
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Given 已不存在的路径记录 When Delete Then 不报错也不碰项目（幂等）。
+func TestProjectLocationRepo_Delete_GivenMissingRow_IsNoop(t *testing.T) {
+	ctx, mock, repo := setupProjectLocationRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery("SELECT \\* FROM `project_locations` WHERE id = \\?").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "project_id", "device_fingerprint"}))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.Delete(ctx, 99))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 

@@ -2,6 +2,7 @@ package project_repo_test
 
 import (
 	"context"
+	"database/sql/driver"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -47,7 +48,7 @@ func TestProjectCreate_GivenNoLogin_ProducesNoObservableDifference(t *testing.T)
 	mock.ExpectBegin()
 	mock.ExpectExec("INSERT INTO `projects`").
 		WithArgs(
-			int64(0), "Agentre", "", "", "", "/Users/foo/Code/agentre", false, 1, consts.ACTIVE,
+			int64(0), "Agentre", "", "", "", "/Users/foo/Code/agentre", false, "", 1, consts.ACTIVE, // default_device_fingerprint 默认为空
 			sqlmock.AnyArg(), sqlmock.AnyArg(), // createtime/updatetime: 本地写入时间,与登录态无关
 			sqlmock.AnyArg(), int64(0), int64(0), int64(0), "", int64(0), // sync_id 生成,其余五项原样零值
 		).
@@ -201,5 +202,34 @@ func TestProjectReassignParent(t *testing.T) {
 	mock.ExpectCommit()
 
 	require.NoError(t, repo.ReassignParent(ctx, 4, 9))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Given 一份读得早的项目实体（同步下行或任何整行回写）When Update Then 默认设备列不在
+// UPDATE 里——它只由 SetDefaultDevice 写，整行回写不得把它拍回旧值。
+// 参数个数是证据：17 个整行列（含 6 个同步元数据）+ WHERE id，没有默认设备那一列。
+func TestProjectUpdate_DoesNotWriteDefaultDevice(t *testing.T) {
+	ctx, mock, repo := setupProjectRepo(t)
+	args := make([]driver.Value, 18)
+	for i := range args {
+		args[i] = sqlmock.AnyArg()
+	}
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `projects` SET").WithArgs(args...).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.Update(ctx, &project_entity.Project{ID: 42, Name: "x", Path: "/p", DefaultDeviceFingerprint: "sha256:stale", Status: consts.ACTIVE}))
+	assert.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestProjectSetDefaultDevice(t *testing.T) {
+	ctx, mock, repo := setupProjectRepo(t)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `projects` SET `default_device_fingerprint`=\\?,`updatetime`=\\? WHERE id = \\?").
+		WithArgs("sha256:box", sqlmock.AnyArg(), int64(42)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.SetDefaultDevice(ctx, 42, "sha256:box"))
 	assert.NoError(t, mock.ExpectationsWereMet())
 }

@@ -8,6 +8,8 @@
 // 中，而 ResolveTarget 是 Go 内部解析口，不通过 Wails 绑定暴露给前端。
 package llm_provider_svc
 
+import "github.com/agentre-hub/agentre/pkg/wire/devicefp"
+
 // ModelTarget 是跨实体持久化的稳定目标身份（Backend / Session / Route 引用）。
 //
 // 只持久化 providerKey / modelKey：
@@ -303,4 +305,22 @@ type TestConnectionResponse struct {
 	OK         bool   `json:"ok"`
 	Message    string `json:"message"`
 	ModelCount int    `json:"modelCount"`
+}
+
+// GetProviderReachRequest 读供应商「谁能连到」。
+type GetProviderReachRequest struct {
+	ID int64 `json:"id" binding:"required"`
+}
+
+// SetProviderReachRequest 写供应商「谁能连到」；Mode = any | devices，devices 时 Devices 必须非空。
+type SetProviderReachRequest struct {
+	ID      int64              `json:"id" binding:"required"`
+	Mode    string             `json:"mode"`
+	Devices []devicefp.Carrier `json:"devices"`
+}
+
+// ProviderReachResponse 当前的「谁能连到」。
+type ProviderReachResponse struct {
+	Mode    string             `json:"mode"`
+	Devices []devicefp.Carrier `json:"devices"`
 }

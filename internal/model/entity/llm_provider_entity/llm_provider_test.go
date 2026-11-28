@@ -4,7 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/agentre-hub/agentre/internal/pkg/code"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 func TestCheck(t *testing.T) {
@@ -101,4 +107,50 @@ func TestMaskedAPIKey(t *testing.T) {
 		p := &LLMProvider{APIKey: tc.in}
 		assert.Equal(t, tc.want, p.MaskedAPIKey(), "key=%q", tc.in)
 	}
+}
+
+// 「谁能连到」（spec 决策 14）：任何设备（默认）/ 只有这些设备。
+func TestReach_DefaultsToAnyDevice(t *testing.T) {
+	p := &LLMProvider{}
+	mode, devices := p.Reach()
+	assert.Equal(t, ReachAny, mode)
+	assert.Empty(t, devices)
+	assert.True(t, p.ReachableFrom("sha256:whatever"))
+}
+
+func TestSetReach(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("only these devices normalizes the list once", func(t *testing.T) {
+		p := &LLMProvider{}
+		require.NoError(t, p.SetReach(ctx, ReachDevices, []devicefp.Carrier{" sha256:a ", "", "sha256:b", "sha256:a"}))
+		mode, devices := p.Reach()
+		assert.Equal(t, ReachDevices, mode)
+		assert.Equal(t, []devicefp.Carrier{"sha256:a", "sha256:b"}, devices)
+		assert.True(t, p.ReachableFrom("sha256:b"))
+		assert.False(t, p.ReachableFrom("sha256:c"))
+	})
+
+	t.Run("any device drops a previous list", func(t *testing.T) {
+		p := &LLMProvider{}
+		require.NoError(t, p.SetReach(ctx, ReachDevices, []devicefp.Carrier{"sha256:a"}))
+		require.NoError(t, p.SetReach(ctx, ReachAny, []devicefp.Carrier{"sha256:a"}))
+		mode, devices := p.Reach()
+		assert.Equal(t, ReachAny, mode)
+		assert.Empty(t, devices)
+		assert.JSONEq(t, `[]`, p.ReachDevicesJSON)
+	})
+
+	t.Run("only these devices with no device is refused", func(t *testing.T) {
+		p := &LLMProvider{}
+		err := p.SetReach(ctx, ReachDevices, []devicefp.Carrier{" ", ""})
+		var httpErr *httputils.Error
+		require.ErrorAs(t, err, &httpErr)
+		assert.Equal(t, code.LLMProviderReachInvalid, httpErr.Code)
+	})
+
+	t.Run("unknown mode is refused", func(t *testing.T) {
+		p := &LLMProvider{}
+		assert.Error(t, p.SetReach(ctx, "nobody", nil))
+	})
 }

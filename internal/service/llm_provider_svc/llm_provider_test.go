@@ -20,6 +20,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo/mock_llm_provider_repo"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 type fakeDoer struct {
@@ -663,6 +665,40 @@ func TestDeleteModel(t *testing.T) {
 			}, nil)
 			_, err := svc.DeleteModel(ctx, &DeleteModelRequest{ID: 1, ConfirmReference: true})
 			assertCode(t, err, code.LLMProviderModelIsDefault)
+		})
+	})
+}
+
+func TestProviderReach(t *testing.T) {
+	convey.Convey("供应商「谁能连到」", t, func() {
+		ctx, mockRepo, _, svc := setupSvcTest(t)
+
+		convey.Convey("没设过：读出来是任何设备", func() {
+			mockRepo.EXPECT().Find(gomock.Any(), int64(3)).Return(&llm_provider_entity.LLMProvider{ID: 3, Status: consts.ACTIVE}, nil)
+			res, err := svc.GetProviderReach(ctx, &GetProviderReachRequest{ID: 3})
+			assert.NoError(t, err)
+			assert.Equal(t, llm_provider_entity.ReachAny, res.Mode)
+			assert.Empty(t, res.Devices)
+		})
+
+		convey.Convey("设成只有这些设备：归一后只写 reach 两列", func() {
+			mockRepo.EXPECT().Find(gomock.Any(), int64(3)).Return(&llm_provider_entity.LLMProvider{ID: 3, Status: consts.ACTIVE}, nil)
+			mockRepo.EXPECT().UpdateReach(gomock.Any(), int64(3), llm_provider_entity.ReachDevices, `["sha256:a"]`).Return(nil)
+			res, err := svc.SetProviderReach(ctx, &SetProviderReachRequest{ID: 3, Mode: llm_provider_entity.ReachDevices, Devices: []devicefp.Carrier{"sha256:a", " sha256:a"}})
+			assert.NoError(t, err)
+			assert.Equal(t, []devicefp.Carrier{"sha256:a"}, res.Devices)
+		})
+
+		convey.Convey("只有这些设备却一台都没选：拒绝且不写库", func() {
+			mockRepo.EXPECT().Find(gomock.Any(), int64(3)).Return(&llm_provider_entity.LLMProvider{ID: 3, Status: consts.ACTIVE}, nil)
+			_, err := svc.SetProviderReach(ctx, &SetProviderReachRequest{ID: 3, Mode: llm_provider_entity.ReachDevices})
+			assertCode(t, err, code.LLMProviderReachInvalid)
+		})
+
+		convey.Convey("供应商不存在", func() {
+			mockRepo.EXPECT().Find(gomock.Any(), int64(9)).Return(nil, nil)
+			_, err := svc.SetProviderReach(ctx, &SetProviderReachRequest{ID: 9, Mode: llm_provider_entity.ReachAny})
+			assertCode(t, err, code.LLMProviderNotFound)
 		})
 	})
 }

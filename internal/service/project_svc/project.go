@@ -23,6 +23,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/memory_svc"
 	"github.com/agentre-hub/agentre/internal/service/sync_svc"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ProjectSvc Project 模块的应用服务。
@@ -48,6 +49,10 @@ type ProjectSvc interface {
 	// 清掉本机路径并置上该状态。**机器上的目录一个字节都不动**，去掉的只是
 	// 「这个项目在本机落在哪」这条记录。已经是该状态时是幂等的。
 	ClearLocalPath(ctx context.Context, id int64) (*project_entity.Project, error)
+	// SetDefaultDevice 设项目默认设备（派发优先级里排在设备顺序之前）；空串清除。只能是在
+	// 这个项目里有路径的设备——本机看项目本机路径，其它设备看 project_locations。
+	SetDefaultDevice(ctx context.Context, id int64, fingerprint devicefp.Carrier) error
+	GetDefaultDevice(ctx context.Context, id int64) (devicefp.Carrier, error)
 	// Merge 把 sourceID / targetID 两个本地项目行合并成一个（R11a）：沿用账号侧的
 	// 同步标识（两边都没有时沿用先创建的那个的），保留本机项目的本机路径；
 	// chat_sessions / project_agents / projects.parent_id / issues /
@@ -71,6 +76,7 @@ type projectSvc struct {
 	sessions SessionPort
 	agents   AgentPort
 	tx       TxRunner
+	self     func() (devicefp.Carrier, error)
 }
 
 var defaultProject ProjectSvc = New()
@@ -93,6 +99,11 @@ func WithAgentPort(p AgentPort) Option { return func(s *projectSvc) { s.agents =
 // WithTxRunner 供测试注入不连库的事务假实现。
 func WithTxRunner(r TxRunner) Option { return func(s *projectSvc) { s.tx = r } }
 
+// WithSelfDevice 供测试注入本机设备指纹来源；默认读 remote_device_svc（钥匙串里的设备身份）。
+func WithSelfDevice(f func() (devicefp.Carrier, error)) Option {
+	return func(s *projectSvc) { s.self = f }
+}
+
 // New 构造默认实现。
 func New(opts ...Option) ProjectSvc {
 	s := &projectSvc{
@@ -100,6 +111,7 @@ func New(opts ...Option) ProjectSvc {
 		sessions: sessionRepoDelegate{},
 		agents:   agentRepoDelegate{},
 		tx:       dbTxRunner{},
+		self:     selfDeviceFingerprint,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -361,6 +373,19 @@ func (s *projectSvc) ClearLocalPath(ctx context.Context, id int64) (*project_ent
 	existing.LocalPathMissing = true
 	if err := project_repo.Project().Update(ctx, existing); err != nil {
 		return nil, err
+	}
+	// 默认设备只能是有路径的设备：本机是默认设备时，去掉本机路径一并清除。
+	if existing.DefaultDeviceFingerprint != "" {
+		self, err := s.self()
+		if err != nil {
+			return nil, err
+		}
+		if existing.DefaultDeviceFingerprint == self {
+			if err := project_repo.Project().SetDefaultDevice(ctx, id, ""); err != nil {
+				return nil, err
+			}
+			existing.DefaultDeviceFingerprint = ""
+		}
 	}
 	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return existing, nil

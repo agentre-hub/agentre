@@ -66,6 +66,12 @@ var enUS = map[int]string{
 	EngineProfileRequired:                  "This member has no engine profile: choose one, or set a department or account default",
 	EngineExecConstraintInvalid:            "Invalid \"where it runs\" setting: pick any device, at least one label, or at least one device",
 
+	DevicePrefInvalidDevice:    "The device is missing or does not take part in dispatch",
+	DevicePrefInvalidOrder:     "The device order has an empty or duplicated entry",
+	DeviceCLIRuntimeInvalid:    "This runtime has no CLI executable, so its path cannot be overridden",
+	ProjectDefaultDeviceNoPath: "The default device must be a device that has a path in this project",
+	LLMProviderReachInvalid:    "Invalid \"who can reach\" setting: pick any device, or at least one device",
+
 	AppSettingNotFound:      "App setting not found",
 	AppSettingInvalidPort:   "Port must be an integer between 0 and 65535",
 	AppSettingInvalidHost:   "Listen host is not a valid IP",

@@ -12,6 +12,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/project_entity"
+
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 //go:generate mockgen -source project.go -destination mock_project_repo/mock_project.go
@@ -31,6 +33,9 @@ type ProjectRepo interface {
 	// 指向已消失项目的引用，软删的子项目也算。
 	ReassignParent(ctx context.Context, fromParentID, toParentID int64) error
 	HasActiveChildren(ctx context.Context, id int64) (bool, error)
+	// SetDefaultDevice 只写项目默认设备（空串 = 清除）。这一列不走 Update：整行回写一份
+	// 读得早的实体或同步下行出来的实体，会把它拍回旧值 / 空。
+	SetDefaultDevice(ctx context.Context, id int64, fingerprint devicefp.Carrier) error
 	Delete(ctx context.Context, id int64) error
 }
 
@@ -63,7 +68,13 @@ func (r *projectRepo) Update(ctx context.Context, p *project_entity.Project) err
 	// 迁移前已存在、还没有标识的历史行在下一次落库时补齐（JIT），已有标识的行
 	// 原样保留（R1：终身不变）。
 	p.EnsureSyncID()
-	return db.Ctx(ctx).Save(p).Error
+	// 默认设备只由 SetDefaultDevice 改（见接口注释）。
+	return db.Ctx(ctx).Omit("default_device_fingerprint").Save(p).Error
+}
+
+func (r *projectRepo) SetDefaultDevice(ctx context.Context, id int64, fingerprint devicefp.Carrier) error {
+	return db.Ctx(ctx).Model(&project_entity.Project{}).Where("id = ?", id).
+		Updates(map[string]any{"default_device_fingerprint": fingerprint, "updatetime": time.Now().UnixMilli()}).Error
 }
 
 func (r *projectRepo) Find(ctx context.Context, id int64) (*project_entity.Project, error) {
