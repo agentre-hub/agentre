@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/devicefacts"
 	"github.com/agentre-hub/agentre/internal/pkg/backendcred"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/httpgateway"
@@ -652,6 +653,8 @@ func (s *agentBackendSvc) testOpenClaw(
 		Model:   backend.OpenClawDefaultModel,
 	})
 	latency := time.Since(start).Milliseconds()
+	// 设备情况报「上次连接是否成功」(spec 2026-11-25「上报的内容」):真连出去了才记。
+	devicefacts.DefaultConnections().Record(string(agent_backend_entity.TypeOpenClaw), backend.OpenClawGatewayURL, err == nil)
 	if err != nil {
 		// Gateway 客户端自己已经抹过一遍;这里再抹一次,让「凭据不出现在任何应答里」
 		// 不依赖每一个产出方都自觉 —— 这条结果也会经设备操作发给控制台。

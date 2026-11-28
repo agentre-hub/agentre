@@ -13,6 +13,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/devicefacts"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes"
 	"github.com/agentre-hub/agentre/internal/pkg/backendcred"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
@@ -523,6 +524,7 @@ func (p *LocalBackendCredentials) testHermes(
 		URL: base, AuthProvider: request.GetHermesAuthProvider(), Credentials: p.svc.credentialStore(),
 	})
 	latency := time.Since(start).Milliseconds()
+	devicefacts.DefaultConnections().Record(string(agent_backend_entity.TypeHermes), base, err == nil)
 	if err != nil {
 		response := &agentrewire.BackendConnectionTestResponse{LatencyMs: latency}
 		if _, resultCode, ok := hermesAuthCode(err); ok {

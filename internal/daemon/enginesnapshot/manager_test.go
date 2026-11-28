@@ -372,7 +372,7 @@ func TestManager_GivenBackendsInSnapshot_WhenListingEngines_ThenServiceAndACPEng
 	assert.Equal(t, []devicefacts.Engine{
 		{SyncID: "acp-1", Runtime: "acp", ACPCommand: "gemini"},
 		{SyncID: "hermes-1", Runtime: "hermes", HermesURL: "http://hermes.local:8642"},
-		{SyncID: "openclaw-1", Runtime: "openclaw"},
+		{SyncID: "openclaw-1", Runtime: "openclaw", OpenClawGatewayURL: "ws://gw.local"},
 	}, manager.Engines())
 }
 

@@ -72,7 +72,20 @@ type ServiceEngineFact struct {
 	Runtime string `json:"runtime"`
 	// CredentialPresent 这台设备上存着这份配置要用的凭据。只说有没有,从不带值。
 	CredentialPresent bool `json:"credential_present"`
+	// LastConnection 这台设备最近一次连这份配置的端点的结果:Connection* 之一。设备
+	// 只在内存里记它,重启后回到 never。
+	LastConnection string `json:"last_connection"`
+	// LastConnectionAt 那次连接的时刻(Unix 毫秒);never 时为 0。
+	LastConnectionAt int64 `json:"last_connection_at,omitempty"`
 }
+
+// 服务型引擎上次连接的结果。
+const (
+	ConnectionSucceeded = "succeeded"
+	ConnectionFailed    = "failed"
+	// ConnectionNever 是这台设备(自上次启动以来)没连过这个端点。
+	ConnectionNever = "never"
+)
 
 // RuntimeSkillPacks 是一种运行时在这台设备上已装的技能包 ID。技能包 ID 按运行时区分
 // (Claude 插件与 Codex 对不上),所以按运行时分组。

@@ -20,10 +20,11 @@ func TestWire_GivenAReport_WhenSentOverDeviceFacts_ThenTheDesktopReadsTheSameFac
 			{Runtime: "codex", Found: true, Version: "0.46.0", Path: "/bin/codex", NativeLogin: syncwire.NativeLoginLoggedOut},
 			{Runtime: "antigravity", Found: true, Version: "1.4", MinimumVersion: "1.5", BelowMinimum: true},
 		},
-		ACPEngines:     []syncwire.ACPEngineFact{{EngineSyncID: "a", Resolvable: true}},
-		ServiceEngines: []syncwire.ServiceEngineFact{{EngineSyncID: "o", Runtime: "openclaw", CredentialPresent: true}},
-		SkillPacks:     []syncwire.RuntimeSkillPacks{{Runtime: "claudecode", PackIDs: []string{"x@y"}}},
-		LocalPaths:     []syncwire.LocalPathItem{},
+		ACPEngines: []syncwire.ACPEngineFact{{EngineSyncID: "a", Resolvable: true}},
+		ServiceEngines: []syncwire.ServiceEngineFact{{EngineSyncID: "o", Runtime: "openclaw", CredentialPresent: true,
+			LastConnection: syncwire.ConnectionSucceeded, LastConnectionAt: 1699999999000}},
+		SkillPacks: []syncwire.RuntimeSkillPacks{{Runtime: "claudecode", PackIDs: []string{"x@y"}}},
+		LocalPaths: []syncwire.LocalPathItem{},
 	}
 
 	raw, err := proto.Marshal(devicefacts.ToWire(report))

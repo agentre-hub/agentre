@@ -278,7 +278,7 @@ func (m *Manager) Engines() []devicefacts.Engine {
 		case strings.TrimSpace(b.HermesURL) != "":
 			out = append(out, devicefacts.Engine{SyncID: syncID, Runtime: "hermes", HermesURL: b.HermesURL})
 		case strings.TrimSpace(b.OpenClawGatewayURL) != "":
-			out = append(out, devicefacts.Engine{SyncID: syncID, Runtime: "openclaw"})
+			out = append(out, devicefacts.Engine{SyncID: syncID, Runtime: "openclaw", OpenClawGatewayURL: b.OpenClawGatewayURL})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SyncID < out[j].SyncID })

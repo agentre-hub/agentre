@@ -31,7 +31,9 @@ func (d *Daemon) newDeviceFactsReporter() *devicefacts.Reporter {
 			_, ok := d.state.BackendCredential(slot)
 			return ok
 		},
-		SkillPacks: devicefacts.DiscoverSkillPacks,
+		// 与 BackendCredentialHandlers 的连接测试记在同一份进程级记录里。
+		LastConnection: devicefacts.DefaultConnections().Last,
+		SkillPacks:     devicefacts.DiscoverSkillPacks,
 	}
 	uploader := devicefactsreport.Uploader{
 		LoggedIn:    d.state.IsLoggedIn,

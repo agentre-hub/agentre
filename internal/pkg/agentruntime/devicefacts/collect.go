@@ -38,6 +38,8 @@ type Engine struct {
 	ACPCommand string
 	// HermesURL 只对 hermes 有意义:Hermes 凭据按 serve 地址存放。
 	HermesURL string
+	// OpenClawGatewayURL 只对 openclaw 有意义:上次连接按网关地址记。
+	OpenClawGatewayURL string
 }
 
 // Sources 是一台设备的事实来源。Runtimes 与 Engines 必填;其余为 nil 表示这个宿主
@@ -51,6 +53,8 @@ type Sources struct {
 	ResolveCommand func(command string) bool
 	// HasCredential 判这台设备上存没存这份 Hermes / OpenClaw 配置的凭据。
 	HasCredential func(ctx context.Context, e Engine) bool
+	// LastConnection 这台设备最近一次连这份配置端点的结果与时刻(ConnectionLog.Last)。
+	LastConnection func(e Engine) (status string, at int64)
 	// SkillPacks 列出某个运行时(用找到的那个可执行文件)已装的技能包 ID。
 	SkillPacks func(ctx context.Context, runtime, cliPath string) ([]string, error)
 	// LocalPaths 列出这台设备上配了本机路径的项目。
@@ -97,8 +101,13 @@ func Collect(ctx context.Context, src Sources) (syncwire.DeviceFactsReport, erro
 			report.ACPEngines = append(report.ACPEngines, syncwire.ACPEngineFact{EngineSyncID: e.SyncID, Resolvable: resolvable})
 		case runtimeHermes, runtimeOpenClaw:
 			present := src.HasCredential != nil && src.HasCredential(ctx, e)
+			status, at := syncwire.ConnectionNever, int64(0)
+			if src.LastConnection != nil {
+				status, at = src.LastConnection(e)
+			}
 			report.ServiceEngines = append(report.ServiceEngines, syncwire.ServiceEngineFact{
 				EngineSyncID: e.SyncID, Runtime: e.Runtime, CredentialPresent: present,
+				LastConnection: status, LastConnectionAt: at,
 			})
 		}
 	}

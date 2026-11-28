@@ -44,6 +44,8 @@ func NewSelfReporter(deps SelfDeps) *devicefacts.Reporter {
 		Engines:        selfEngines,
 		ResolveCommand: devicefacts.ResolveCommand,
 		HasCredential:  hasLocalCredential,
+		// 与 agent_backend_svc 的连接测试记在同一份进程级记录里。
+		LastConnection: devicefacts.DefaultConnections().Last,
 		SkillPacks:     devicefacts.DiscoverSkillPacks,
 		LocalPaths:     deps.LocalPaths,
 	}
@@ -68,7 +70,10 @@ func selfEngines(ctx context.Context) ([]devicefacts.Engine, error) {
 		if p == nil || p.SyncID == "" {
 			continue
 		}
-		out = append(out, devicefacts.Engine{SyncID: p.SyncID, Runtime: p.Type, ACPCommand: p.ACPCommand, HermesURL: p.HermesURL})
+		out = append(out, devicefacts.Engine{
+			SyncID: p.SyncID, Runtime: p.Type, ACPCommand: p.ACPCommand,
+			HermesURL: p.HermesURL, OpenClawGatewayURL: p.OpenClawGatewayURL,
+		})
 	}
 	return out, nil
 }

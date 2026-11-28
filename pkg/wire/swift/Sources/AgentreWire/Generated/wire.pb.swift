@@ -1774,6 +1774,13 @@ public nonisolated struct Agentre_Wire_DeviceServiceEngineFact: Sendable {
   /// Whether this machine holds the credential; never the value.
   public var credentialPresent: Bool = false
 
+  /// This machine's most recent connection to the engine's endpoint:
+  /// "succeeded" / "failed" / "never" (kept in memory, "never" after a restart).
+  public var lastConnection: String = String()
+
+  /// When that connection happened, unix milliseconds; 0 for "never".
+  public var lastConnectionAtMs: Int64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -9881,7 +9888,7 @@ nonisolated extension Agentre_Wire_DeviceACPEngineFact: SwiftProtobuf.Message, S
 
 nonisolated extension Agentre_Wire_DeviceServiceEngineFact: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DeviceServiceEngineFact"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}engine_sync_id\0\u{1}runtime\0\u{3}credential_present\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}engine_sync_id\0\u{1}runtime\0\u{3}credential_present\0\u{3}last_connection\0\u{3}last_connection_at_ms\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -9892,6 +9899,8 @@ nonisolated extension Agentre_Wire_DeviceServiceEngineFact: SwiftProtobuf.Messag
       case 1: try { try decoder.decodeSingularStringField(value: &self.engineSyncID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.runtime) }()
       case 3: try { try decoder.decodeSingularBoolField(value: &self.credentialPresent) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.lastConnection) }()
+      case 5: try { try decoder.decodeSingularInt64Field(value: &self.lastConnectionAtMs) }()
       default: break
       }
     }
@@ -9907,6 +9916,12 @@ nonisolated extension Agentre_Wire_DeviceServiceEngineFact: SwiftProtobuf.Messag
     if self.credentialPresent != false {
       try visitor.visitSingularBoolField(value: self.credentialPresent, fieldNumber: 3)
     }
+    if !self.lastConnection.isEmpty {
+      try visitor.visitSingularStringField(value: self.lastConnection, fieldNumber: 4)
+    }
+    if self.lastConnectionAtMs != 0 {
+      try visitor.visitSingularInt64Field(value: self.lastConnectionAtMs, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -9914,6 +9929,8 @@ nonisolated extension Agentre_Wire_DeviceServiceEngineFact: SwiftProtobuf.Messag
     if lhs.engineSyncID != rhs.engineSyncID {return false}
     if lhs.runtime != rhs.runtime {return false}
     if lhs.credentialPresent != rhs.credentialPresent {return false}
+    if lhs.lastConnection != rhs.lastConnection {return false}
+    if lhs.lastConnectionAtMs != rhs.lastConnectionAtMs {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

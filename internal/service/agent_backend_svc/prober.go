@@ -15,6 +15,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentprovider"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/devicefacts"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/piagent"
 	"github.com/agentre-hub/agentre/internal/pkg/cliprober"
@@ -120,11 +121,14 @@ func (p hermesProber) Run(ctx context.Context, b *agent_backend_entity.AgentBack
 	if creds == nil {
 		creds = hermes.DefaultCredentialSource()
 	}
-	return hermesProbe(ctx, hermes.ProbeRequest{
+	reply, err := hermesProbe(ctx, hermes.ProbeRequest{
 		URL:          b.HermesURL,
 		AuthProvider: b.HermesAuthProvider,
 		Credentials:  creds,
 	})
+	// 设备情况报「上次连接是否成功」:这台桌面端连这个 serve 的最近一次结果。
+	devicefacts.DefaultConnections().Record(string(agent_backend_entity.TypeHermes), b.HermesURL, err == nil)
+	return reply, err
 }
 
 // cliProber 通过 cliprober fork 对应 CLI 子进程跑固定 ping。

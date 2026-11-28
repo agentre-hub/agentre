@@ -3968,8 +3968,13 @@ type DeviceServiceEngineFact struct {
 	Runtime string `protobuf:"bytes,2,opt,name=runtime,proto3" json:"runtime,omitempty"`
 	// Whether this machine holds the credential; never the value.
 	CredentialPresent bool `protobuf:"varint,3,opt,name=credential_present,json=credentialPresent,proto3" json:"credential_present,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// This machine's most recent connection to the engine's endpoint:
+	// "succeeded" / "failed" / "never" (kept in memory, "never" after a restart).
+	LastConnection string `protobuf:"bytes,4,opt,name=last_connection,json=lastConnection,proto3" json:"last_connection,omitempty"`
+	// When that connection happened, unix milliseconds; 0 for "never".
+	LastConnectionAtMs int64 `protobuf:"varint,5,opt,name=last_connection_at_ms,json=lastConnectionAtMs,proto3" json:"last_connection_at_ms,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *DeviceServiceEngineFact) Reset() {
@@ -4021,6 +4026,20 @@ func (x *DeviceServiceEngineFact) GetCredentialPresent() bool {
 		return x.CredentialPresent
 	}
 	return false
+}
+
+func (x *DeviceServiceEngineFact) GetLastConnection() string {
+	if x != nil {
+		return x.LastConnection
+	}
+	return ""
+}
+
+func (x *DeviceServiceEngineFact) GetLastConnectionAtMs() int64 {
+	if x != nil {
+		return x.LastConnectionAtMs
+	}
+	return 0
 }
 
 type DeviceSkillPacks struct {
@@ -20941,11 +20960,13 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x0eengine_sync_id\x18\x01 \x01(\tR\fengineSyncId\x12\x1e\n" +
 	"\n" +
 	"resolvable\x18\x02 \x01(\bR\n" +
-	"resolvable\"\x88\x01\n" +
+	"resolvable\"\xe4\x01\n" +
 	"\x17DeviceServiceEngineFact\x12$\n" +
 	"\x0eengine_sync_id\x18\x01 \x01(\tR\fengineSyncId\x12\x18\n" +
 	"\aruntime\x18\x02 \x01(\tR\aruntime\x12-\n" +
-	"\x12credential_present\x18\x03 \x01(\bR\x11credentialPresent\"G\n" +
+	"\x12credential_present\x18\x03 \x01(\bR\x11credentialPresent\x12'\n" +
+	"\x0flast_connection\x18\x04 \x01(\tR\x0elastConnection\x121\n" +
+	"\x15last_connection_at_ms\x18\x05 \x01(\x03R\x12lastConnectionAtMs\"G\n" +
 	"\x10DeviceSkillPacks\x12\x18\n" +
 	"\aruntime\x18\x01 \x01(\tR\aruntime\x12\x19\n" +
 	"\bpack_ids\x18\x02 \x03(\tR\apackIds\"K\n" +

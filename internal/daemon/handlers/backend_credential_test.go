@@ -22,10 +22,12 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/devicefacts"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes/hermesauth"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes/hermesgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/backendcred"
 	"github.com/agentre-hub/agentre/internal/pkg/openclawgateway"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 )
@@ -99,6 +101,8 @@ type credentialFixture struct {
 	ctx      context.Context
 	hermes   *hermesProbeRecorder
 	openclaw *openClawProbeRecorder
+	// connections 是这一个用例自己的连接记录,不碰进程级的那一份。
+	connections *devicefacts.ConnectionLog
 }
 
 type hermesProbeRecorder struct {
@@ -122,12 +126,14 @@ func newCredentialFixture(t *testing.T) *credentialFixture {
 	core, logs := observer.New(zapcore.DebugLevel)
 	f := &credentialFixture{
 		dir: dir, st: st, logs: logs,
-		ctx:      logger.WithContextLogger(context.Background(), zap.New(core)),
-		hermes:   &hermesProbeRecorder{},
-		openclaw: &openClawProbeRecorder{result: &openclawgateway.ProbeResult{}},
+		ctx:         logger.WithContextLogger(context.Background(), zap.New(core)),
+		hermes:      &hermesProbeRecorder{},
+		openclaw:    &openClawProbeRecorder{result: &openclawgateway.ProbeResult{}},
+		connections: devicefacts.NewConnectionLog(nil),
 	}
 	f.h = handlers.NewBackendCredentialHandlers(handlers.BackendCredentialDeps{
-		State: st,
+		State:       st,
+		Connections: f.connections,
 		ProbeHermes: func(ctx context.Context, req hermesgateway.ProbeRequest) (string, error) {
 			f.hermes.request = req
 			if f.hermes.err != nil {
@@ -505,4 +511,29 @@ func TestBackendCredential_TestConnection_GivenAnUnknownBackendType_ThenInvalidP
 	_, err := f.h.TestConnection(f.ctx, &agentrewire.BackendConnectionTestRequest{BackendType: "codex"})
 
 	requireInvalidParams(t, err)
+}
+
+// Given 一次连接测试真的连了出去,Then 这台设备记下这个端点上次连接成没成与时刻,
+// 设备情况据此报「上次连接是否成功」;地址不合法根本没连,不记。
+func TestBackendCredential_TestConnection_RecordsTheLastConnectionOutcomePerEndpoint(t *testing.T) {
+	f := newCredentialFixture(t)
+	hermes := devicefacts.Engine{Runtime: "hermes", HermesURL: "http://127.0.0.1:9119"}
+	openclaw := devicefacts.Engine{Runtime: "openclaw", OpenClawGatewayURL: credTestOpenClawURL}
+
+	f.hermes.err = hermesgateway.ErrGatewayUnreachable
+	_, err := f.h.TestConnection(f.ctx, &agentrewire.BackendConnectionTestRequest{BackendType: "hermes", HermesUrl: "http://127.0.0.1:9119/"})
+	require.NoError(t, err)
+	status, at := f.connections.Last(hermes)
+	assert.Equal(t, syncwire.ConnectionFailed, status)
+	assert.NotZero(t, at)
+
+	_, err = f.h.TestConnection(f.ctx, &agentrewire.BackendConnectionTestRequest{BackendType: "openclaw", OpenclawGatewayUrl: credTestOpenClawURL, OpenclawToken: credTestDraftToken})
+	require.NoError(t, err)
+	status, _ = f.connections.Last(openclaw)
+	assert.Equal(t, syncwire.ConnectionSucceeded, status)
+
+	_, err = f.h.TestConnection(f.ctx, &agentrewire.BackendConnectionTestRequest{BackendType: "openclaw", OpenclawGatewayUrl: "http://not-a-gateway"})
+	require.NoError(t, err)
+	status, _ = f.connections.Last(devicefacts.Engine{Runtime: "openclaw", OpenClawGatewayURL: "http://not-a-gateway"})
+	assert.Equal(t, syncwire.ConnectionNever, status)
 }

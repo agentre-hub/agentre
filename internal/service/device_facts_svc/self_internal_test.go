@@ -38,6 +38,7 @@ func TestSelfEngines(t *testing.T) {
 			repo.EXPECT().List(gomock.Any()).Return([]*agent_backend_entity.EngineProfile{
 				profile("acp-1", "acp", func(p *agent_backend_entity.EngineProfile) { p.ACPCommand = "gemini" }),
 				profile("hermes-1", "hermes", func(p *agent_backend_entity.EngineProfile) { p.HermesURL = "http://h:8642" }),
+				profile("openclaw-1", "openclaw", func(p *agent_backend_entity.EngineProfile) { p.OpenClawGatewayURL = "wss://gw:18789" }),
 				profile("claude-1", "claudecode", nil),
 				profile("", "acp", nil), // 还没有同步标识的配置无从对应,不报
 			}, nil)
@@ -46,6 +47,7 @@ func TestSelfEngines(t *testing.T) {
 			So(engines, ShouldResemble, []devicefacts.Engine{
 				{SyncID: "acp-1", Runtime: "acp", ACPCommand: "gemini"},
 				{SyncID: "hermes-1", Runtime: "hermes", HermesURL: "http://h:8642"},
+				{SyncID: "openclaw-1", Runtime: "openclaw", OpenClawGatewayURL: "wss://gw:18789"},
 				{SyncID: "claude-1", Runtime: "claudecode"},
 			})
 		})

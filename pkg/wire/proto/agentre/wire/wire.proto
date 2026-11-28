@@ -477,6 +477,11 @@ message DeviceServiceEngineFact {
   string runtime = 2;
   // Whether this machine holds the credential; never the value.
   bool credential_present = 3;
+  // This machine's most recent connection to the engine's endpoint:
+  // "succeeded" / "failed" / "never" (kept in memory, "never" after a restart).
+  string last_connection = 4;
+  // When that connection happened, unix milliseconds; 0 for "never".
+  int64 last_connection_at_ms = 5;
 }
 message DeviceSkillPacks {
   string runtime = 1;

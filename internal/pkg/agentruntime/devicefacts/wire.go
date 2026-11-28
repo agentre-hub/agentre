@@ -21,6 +21,7 @@ func ToWire(report syncwire.DeviceFactsReport) *agentrewire.DeviceFactsResponse 
 	for _, e := range report.ServiceEngines {
 		out.ServiceEngines = append(out.ServiceEngines, &agentrewire.DeviceServiceEngineFact{
 			EngineSyncId: e.EngineSyncID, Runtime: e.Runtime, CredentialPresent: e.CredentialPresent,
+			LastConnection: e.LastConnection, LastConnectionAtMs: e.LastConnectionAt,
 		})
 	}
 	for _, s := range report.SkillPacks {
@@ -51,6 +52,7 @@ func FromWire(resp *agentrewire.DeviceFactsResponse) syncwire.DeviceFactsReport 
 	for _, e := range resp.GetServiceEngines() {
 		out.ServiceEngines = append(out.ServiceEngines, syncwire.ServiceEngineFact{
 			EngineSyncID: e.GetEngineSyncId(), Runtime: e.GetRuntime(), CredentialPresent: e.GetCredentialPresent(),
+			LastConnection: e.GetLastConnection(), LastConnectionAt: e.GetLastConnectionAtMs(),
 		})
 	}
 	for _, s := range resp.GetSkillPacks() {

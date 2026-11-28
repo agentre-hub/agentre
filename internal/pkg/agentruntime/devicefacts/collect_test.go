@@ -27,12 +27,18 @@ func baseSources() devicefacts.Sources {
 				{SyncID: "eng-acp-ok", Runtime: "acp", ACPCommand: "gemini"},
 				{SyncID: "eng-acp-missing", Runtime: "acp", ACPCommand: "no-such-agent"},
 				{SyncID: "eng-hermes", Runtime: "hermes", HermesURL: "http://hermes.local"},
-				{SyncID: "eng-openclaw", Runtime: "openclaw"},
+				{SyncID: "eng-openclaw", Runtime: "openclaw", OpenClawGatewayURL: "ws://gw.local"},
 				{SyncID: "eng-claude", Runtime: "claudecode"},
 			}, nil
 		},
 		ResolveCommand: func(command string) bool { return command == "gemini" },
 		HasCredential:  func(_ context.Context, e devicefacts.Engine) bool { return e.Runtime == "hermes" },
+		LastConnection: func(e devicefacts.Engine) (string, int64) {
+			if e.Runtime == "openclaw" {
+				return syncwire.ConnectionFailed, 1699999999000
+			}
+			return syncwire.ConnectionNever, 0
+		},
 		SkillPacks: func(_ context.Context, runtime, cliPath string) ([]string, error) {
 			if runtime == "claudecode" && cliPath == "/bin/claude" {
 				return []string{"superpowers@claude-plugins-official"}, nil
@@ -61,8 +67,9 @@ func TestCollect(t *testing.T) {
 			})
 			// Claude Code 那份引擎配置没有设备事实:它的情况已经在运行时那一项里。
 			So(report.ServiceEngines, ShouldResemble, []syncwire.ServiceEngineFact{
-				{EngineSyncID: "eng-hermes", Runtime: "hermes", CredentialPresent: true},
-				{EngineSyncID: "eng-openclaw", Runtime: "openclaw", CredentialPresent: false},
+				{EngineSyncID: "eng-hermes", Runtime: "hermes", CredentialPresent: true, LastConnection: syncwire.ConnectionNever},
+				{EngineSyncID: "eng-openclaw", Runtime: "openclaw", CredentialPresent: false,
+					LastConnection: syncwire.ConnectionFailed, LastConnectionAt: 1699999999000},
 			})
 			// 技能包只问找到了的运行时,并且用找到的那个可执行文件去问。
 			So(report.SkillPacks, ShouldResemble, []syncwire.RuntimeSkillPacks{
@@ -92,6 +99,16 @@ func TestCollect(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(report.SkillPacks, ShouldBeEmpty)
 			So(report.ACPEngines, ShouldHaveLength, 2)
+		})
+
+		Convey("Given 宿主不记连接结果, When 采集, Then 服务型引擎的上次连接是 never", func() {
+			src := baseSources()
+			src.LastConnection = nil
+			report, err := devicefacts.Collect(ctx, src)
+			So(err, ShouldBeNil)
+			for _, e := range report.ServiceEngines {
+				So(e.LastConnection, ShouldEqual, syncwire.ConnectionNever)
+			}
 		})
 
 		Convey("Given 宿主没有本机路径与技能包来源(agentred), When 采集, Then 两组为空而不是报错", func() {

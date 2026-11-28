@@ -23,10 +23,13 @@ func TestDeviceFactsReport_GivenAFullReport_WhenEncoded_ThenItRoundTripsWithCont
 			{Runtime: "antigravity", Found: true, Version: "1.4.0", MinimumVersion: "1.5", BelowMinimum: true},
 			{Runtime: "piagent"},
 		},
-		ACPEngines:     []syncwire.ACPEngineFact{{EngineSyncID: "eng-acp", Resolvable: true}},
-		ServiceEngines: []syncwire.ServiceEngineFact{{EngineSyncID: "eng-hermes", Runtime: "hermes", CredentialPresent: true}},
-		SkillPacks:     []syncwire.RuntimeSkillPacks{{Runtime: "claudecode", PackIDs: []string{"superpowers@claude-plugins-official"}}},
-		LocalPaths:     []syncwire.LocalPathItem{{ProjectSyncID: "p-1", Path: "/work/p1"}},
+		ACPEngines: []syncwire.ACPEngineFact{{EngineSyncID: "eng-acp", Resolvable: true}},
+		ServiceEngines: []syncwire.ServiceEngineFact{
+			{EngineSyncID: "eng-hermes", Runtime: "hermes", CredentialPresent: true, LastConnection: syncwire.ConnectionFailed, LastConnectionAt: 1699999999000},
+			{EngineSyncID: "eng-openclaw", Runtime: "openclaw", LastConnection: syncwire.ConnectionNever},
+		},
+		SkillPacks: []syncwire.RuntimeSkillPacks{{Runtime: "claudecode", PackIDs: []string{"superpowers@claude-plugins-official"}}},
+		LocalPaths: []syncwire.LocalPathItem{{ProjectSyncID: "p-1", Path: "/work/p1"}},
 	}
 
 	raw, err := json.Marshal(report)
@@ -40,6 +43,8 @@ func TestDeviceFactsReport_GivenAFullReport_WhenEncoded_ThenItRoundTripsWithCont
 	assert.Contains(t, string(raw), `"native_login":"loggedIn"`)
 	assert.Contains(t, string(raw), `"below_minimum":true`)
 	assert.Contains(t, string(raw), `"credential_present":true`)
+	assert.Contains(t, string(raw), `"last_connection":"failed","last_connection_at":1699999999000`)
+	assert.Contains(t, string(raw), `"last_connection":"never"`)
 
 	var back syncwire.DeviceFactsReport
 	require.NoError(t, json.Unmarshal(raw, &back))
@@ -49,6 +54,13 @@ func TestDeviceFactsReport_GivenAFullReport_WhenEncoded_ThenItRoundTripsWithCont
 // 上报的去处是一个固定路径:server 那一侧照这个常量挂路由,两边不各写一份字面量。
 func TestDeviceFactsReport_EndpointIsAVersionedServerPath(t *testing.T) {
 	assert.Equal(t, "/v1/devices/facts", syncwire.PathDeviceFacts)
+}
+
+// 上次连接的三个取值是契约里的字面量:server 与控制台按它们显示。
+func TestDeviceFactsReport_LastConnectionVocabulary(t *testing.T) {
+	assert.Equal(t, "succeeded", syncwire.ConnectionSucceeded)
+	assert.Equal(t, "failed", syncwire.ConnectionFailed)
+	assert.Equal(t, "never", syncwire.ConnectionNever)
 }
 
 // 登录态的三个取值与共享派发函数读的是同一套词:设备报上来的值原样交给 dispatch,

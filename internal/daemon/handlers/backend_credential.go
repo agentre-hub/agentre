@@ -12,6 +12,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/devicefacts"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes/hermesauth"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/hermes/hermesgateway"
 	"github.com/agentre-hub/agentre/internal/pkg/backendcred"
@@ -41,6 +42,9 @@ type BackendCredentialDeps struct {
 	State         BackendCredentialState
 	ProbeHermes   func(ctx context.Context, req hermesgateway.ProbeRequest) (string, error)
 	ProbeOpenClaw func(ctx context.Context, config openclawgateway.Config, selection openclawgateway.ProbeSelection) (*openclawgateway.ProbeResult, error)
+	// Connections records each connection test's outcome for the device facts
+	// ("上次连接是否成功"); nil uses the process-wide devicefacts.DefaultConnections.
+	Connections *devicefacts.ConnectionLog
 }
 
 // BackendCredentialHandlers answers the device-local backend credential
@@ -56,6 +60,7 @@ type BackendCredentialHandlers struct {
 	hermes        *backendcred.HermesCredentials
 	probeHermes   func(ctx context.Context, req hermesgateway.ProbeRequest) (string, error)
 	probeOpenClaw func(ctx context.Context, config openclawgateway.Config, selection openclawgateway.ProbeSelection) (*openclawgateway.ProbeResult, error)
+	connections   *devicefacts.ConnectionLog
 }
 
 // NewBackendCredentialHandlers constructs the handlers. One instance must serve
@@ -68,6 +73,10 @@ func NewBackendCredentialHandlers(deps BackendCredentialDeps) *BackendCredential
 		hermes:        backendcred.NewHermesCredentials(func() backendcred.Store { return store }),
 		probeHermes:   deps.ProbeHermes,
 		probeOpenClaw: deps.ProbeOpenClaw,
+		connections:   deps.Connections,
+	}
+	if h.connections == nil {
+		h.connections = devicefacts.DefaultConnections()
 	}
 	if h.probeHermes == nil {
 		h.probeHermes = hermesgateway.Probe
@@ -260,6 +269,7 @@ func (h *BackendCredentialHandlers) testHermes(ctx context.Context, request *age
 		URL: base, AuthProvider: request.GetHermesAuthProvider(), Credentials: h.hermes,
 	})
 	latency := time.Since(start).Milliseconds()
+	h.connections.Record(string(agent_backend_entity.TypeHermes), base, err == nil)
 	if err != nil {
 		response := &agentrewire.BackendConnectionTestResponse{Code: backendcred.HermesResultCode(err), LatencyMs: latency}
 		if response.Code == "" {
@@ -294,6 +304,7 @@ func (h *BackendCredentialHandlers) testOpenClaw(ctx context.Context, request *a
 		URL: gatewayURL, Token: token, Identity: identity, ClientVersion: configs.Version, Platform: runtime.GOOS,
 	}, openclawgateway.ProbeSelection{AgentID: request.GetOpenclawAgentId(), Model: request.GetOpenclawDefaultModel()})
 	latency := time.Since(start).Milliseconds()
+	h.connections.Record(string(agent_backend_entity.TypeOpenClaw), gatewayURL, err == nil)
 	if err != nil {
 		return &agentrewire.BackendConnectionTestResponse{
 			Code: backendcred.OpenClawResultCode(err), Message: backendcred.RedactSecret(err.Error(), token), LatencyMs: latency,
