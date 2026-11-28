@@ -60,6 +60,9 @@ func TestKinds_GivenTheVocabulary_ThenMembershipIsStatedOnce(t *testing.T) {
 	t.Parallel()
 
 	require.Equal(t, []string{
+		syncwire.KindEngineProfile,
+		syncwire.KindDevicePref,
+		syncwire.KindDeviceCLIPath,
 		syncwire.KindProject,
 		syncwire.KindDepartment,
 		syncwire.KindAgent,
@@ -104,6 +107,8 @@ func TestKinds_GivenTheOrder_ThenReferencedKindsComeFirst(t *testing.T) {
 		{syncwire.KindDepartment, syncwire.KindMemory},
 		{syncwire.KindAgent, syncwire.KindMemory},
 		{syncwire.KindProject, syncwire.KindMemory},
+		{syncwire.KindEngineProfile, syncwire.KindDepartment},
+		{syncwire.KindEngineProfile, syncwire.KindAgent},
 	} {
 		require.Less(t, index[pair[0]], index[pair[1]], "%s 必须排在 %s 之前", pair[0], pair[1])
 	}

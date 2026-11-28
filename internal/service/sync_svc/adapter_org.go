@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/syncstate_repo"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // ── 部门 ────────────────────────────────────────────────────────────────────
@@ -46,14 +47,19 @@ func (departmentAdapter) load(ctx context.Context, syncID string) (*outbound, er
 	if err != nil {
 		return nil, err
 	}
+	engineSyncID, err := engineProfileSyncIDOf(ctx, row.DefaultEngineProfileID)
+	if err != nil {
+		return nil, err
+	}
 	payload, err := json.Marshal(syncwire.DepartmentPayload{
-		Name:            row.Name,
-		Description:     row.Description,
-		Icon:            row.Icon,
-		AccentColor:     row.AccentColor,
-		ParentSyncID:    parentSyncID,
-		LeadAgentSyncID: leadSyncID,
-		SortOrder:       row.SortOrder,
+		Name:                       row.Name,
+		Description:                row.Description,
+		Icon:                       row.Icon,
+		AccentColor:                row.AccentColor,
+		ParentSyncID:               parentSyncID,
+		LeadAgentSyncID:            leadSyncID,
+		SortOrder:                  row.SortOrder,
+		DefaultEngineProfileSyncID: &engineSyncID,
 	})
 	if err != nil {
 		return nil, err
@@ -78,9 +84,11 @@ func (departmentAdapter) load(ctx context.Context, syncID string) (*outbound, er
 func (departmentAdapter) refs(in *inbound) []ref {
 	var p syncwire.DepartmentPayload
 	_ = json.Unmarshal(in.Payload, &p)
-	return []ref{
-		{Kind: syncwire.KindDepartment, SyncID: p.ParentSyncID},
+	refs := []ref{{Kind: syncwire.KindDepartment, SyncID: p.ParentSyncID}}
+	if p.DefaultEngineProfileSyncID != nil {
+		refs = append(refs, ref{Kind: syncwire.KindEngineProfile, SyncID: *p.DefaultEngineProfileSyncID})
 	}
+	return refs
 }
 
 func (departmentAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
@@ -112,6 +120,13 @@ func (departmentAdapter) apply(ctx context.Context, in *inbound, resolved map[st
 		}
 	} else if err := department_repo.Department().Update(ctx, row); err != nil {
 		return err
+	}
+	// 成员默认引擎不在整行写口里：经窄写口落地。键不在 = 旧版本对端，保持本机现状。
+	if p.DefaultEngineProfileSyncID != nil {
+		engineID := resolvedID(resolved, ref{Kind: syncwire.KindEngineProfile, SyncID: *p.DefaultEngineProfileSyncID})
+		if err := department_repo.Department().UpdateDefaultEngineProfile(ctx, row.ID, engineID); err != nil {
+			return err
+		}
 	}
 	if p.LeadAgentSyncID != "" && leadID == 0 {
 		// 部门已经落地（环就此打破，负责人那一行这一轮即可落地），但 lead_agent_id
@@ -168,6 +183,10 @@ func (a *agentAdapter) load(ctx context.Context, syncID string) (*outbound, erro
 	if hash != "" {
 		a.putAvatarBestEffort(ctx, syncID, hash, row.AvatarDataURL)
 	}
+	engine, err := agentEnginePayload(ctx, row)
+	if err != nil {
+		return nil, err
+	}
 	payload, err := json.Marshal(syncwire.AgentPayload{
 		Name:              row.Name,
 		Description:       row.Description,
@@ -182,6 +201,7 @@ func (a *agentAdapter) load(ctx context.Context, syncID string) (*outbound, erro
 		ToolsJSON:         row.ToolsJSON,
 		Pinned:            row.Pinned,
 		MemoryEnabled:     &row.MemoryEnabled,
+		Engine:            engine,
 	})
 	if err != nil {
 		return nil, err
@@ -215,10 +235,14 @@ func (a *agentAdapter) putAvatarBestEffort(ctx context.Context, syncID, hash, da
 func (*agentAdapter) refs(in *inbound) []ref {
 	var p syncwire.AgentPayload
 	_ = json.Unmarshal(in.Payload, &p)
-	return []ref{
+	refs := []ref{
 		{Kind: syncwire.KindDepartment, SyncID: p.DepartmentSyncID},
 		{Kind: syncwire.KindAgent, SyncID: p.ParentAgentSyncID},
 	}
+	if p.Engine != nil {
+		refs = append(refs, ref{Kind: syncwire.KindEngineProfile, SyncID: p.Engine.EngineProfileSyncID})
+	}
+	return refs
 }
 
 func (a *agentAdapter) apply(ctx context.Context, in *inbound, resolved map[string]int64) error {
@@ -242,6 +266,13 @@ func (a *agentAdapter) apply(ctx context.Context, in *inbound, resolved map[stri
 	if p.MemoryEnabled != nil {
 		row.MemoryEnabled = *p.MemoryEnabled
 	}
+	// 执行设置先在内存里校验、落进行实体，真正的写在下面经窄写口：整行写口跳过这四列。
+	// 键不在 = 旧版本对端，保持本机现状。
+	if p.Engine != nil {
+		if err := applyAgentEngine(ctx, row, p.Engine, resolved); err != nil {
+			return err
+		}
+	}
 	if !found {
 		// 技能授权不在载荷里：它住在执行目标行上，作为独立的同步对象落地。
 		row.SyncID = in.SyncID
@@ -252,13 +283,63 @@ func (a *agentAdapter) apply(ctx context.Context, in *inbound, resolved map[stri
 		// MemoryEnabled 列带 default:1，gorm 建行时会把 false 当「没填」写成默认的开；
 		// 对端关着记忆的 agent 要在这里再落一次开关。
 		if p.MemoryEnabled != nil && !*p.MemoryEnabled {
-			return agent_repo.Agent().SetMemoryEnabled(ctx, row.ID, false)
+			if err := agent_repo.Agent().SetMemoryEnabled(ctx, row.ID, false); err != nil {
+				return err
+			}
 		}
-		return nil
+	} else if err := agent_repo.Agent().UpdateRow(ctx, row); err != nil {
+		// UpdateRow 只写 Agent 这一行：执行目标是独立的同步对象，不能被 Agent 行的
+		// 派生字段重写掉（agent_repo.Update 会那么做）。
+		return err
 	}
-	// UpdateRow 只写 Agent 这一行：执行目标是独立的同步对象，不能被 Agent 行的
-	// 派生字段重写掉（agent_repo.Update 会那么做）。
-	return agent_repo.Agent().UpdateRow(ctx, row)
+	if p.Engine != nil {
+		return agent_repo.Agent().UpdateEngineSettings(ctx, row)
+	}
+	return nil
+}
+
+// agentEnginePayload 把成员的执行设置翻成载荷：引擎配置按同步标识引用，约束里的
+// 设备是指纹字符串，技能授权正文原样搬运。
+func agentEnginePayload(ctx context.Context, row *agent_entity.Agent) (*syncwire.AgentEnginePayload, error) {
+	profileSyncID, err := engineProfileSyncIDOf(ctx, row.EngineProfileID)
+	if err != nil {
+		return nil, err
+	}
+	c := row.GetExecConstraint()
+	devices := make([]string, 0, len(c.Devices))
+	for _, d := range c.Devices {
+		devices = append(devices, string(d))
+	}
+	if len(devices) == 0 {
+		devices = nil
+	}
+	return &syncwire.AgentEnginePayload{
+		EngineProfileSyncID: profileSyncID,
+		ExecConstraint:      syncwire.ExecConstraintPayload{Mode: c.Mode, Labels: c.Labels, Devices: devices},
+		SkillGrantsRuntime:  row.SkillGrantsRuntime,
+		SkillGrantsJSON:     row.SkillGrantsJSON,
+	}, nil
+}
+
+// applyAgentEngine 把下行的执行设置落进行实体（不写库）。约束过不了实体校验的载荷
+// 不落地，本地原值不变。
+func applyAgentEngine(ctx context.Context, row *agent_entity.Agent, e *syncwire.AgentEnginePayload, resolved map[string]int64) error {
+	devices := make([]devicefp.Carrier, 0, len(e.ExecConstraint.Devices))
+	for _, d := range e.ExecConstraint.Devices {
+		devices = append(devices, devicefp.Carrier(d))
+	}
+	if err := row.SetExecConstraint(ctx, agent_entity.ExecConstraint{
+		Mode: e.ExecConstraint.Mode, Labels: e.ExecConstraint.Labels, Devices: devices,
+	}); err != nil {
+		return err
+	}
+	row.EngineProfileID = resolvedID(resolved, ref{Kind: syncwire.KindEngineProfile, SyncID: e.EngineProfileSyncID})
+	row.SkillGrantsRuntime = e.SkillGrantsRuntime
+	row.SkillGrantsJSON = e.SkillGrantsJSON
+	if row.SkillGrantsJSON == "" {
+		row.SkillGrantsJSON = "[]"
+	}
+	return nil
 }
 
 // resolveAvatarDataURL 落实 R16a 的下行一侧：

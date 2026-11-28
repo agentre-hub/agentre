@@ -1,6 +1,9 @@
 package data_svc
 
-import "github.com/agentre-hub/agentre/pkg/wire/devicefp"
+import (
+	"github.com/agentre-hub/agentre/pkg/syncwire"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+)
 
 // BundleFormat 是 bundle JSON 的固定标识。
 const BundleFormat = "agentre-data-bundle"
@@ -32,6 +35,11 @@ type BundleItems struct {
 	Departments   []BundleDepartment   `json:"departments,omitempty"`
 	Agents        []BundleAgent        `json:"agents,omitempty"`
 	RemoteDevices []BundleRemoteDevice `json:"remoteDevices,omitempty"`
+	// EngineProfiles / DevicePrefs / DeviceCLIPaths 是引擎配置与设备相关配置的新结构，
+	// 与旧的 AgentBackends 并存（旧结构随后续任务一起退场）。
+	EngineProfiles []BundleEngineProfile `json:"engineProfiles,omitempty"`
+	DevicePrefs    []BundleDevicePref    `json:"devicePrefs,omitempty"`
+	DeviceCLIPaths []BundleDeviceCLIPath `json:"deviceCLIPaths,omitempty"`
 }
 
 // BundleLLMProvider 一条 LLM 供应商记录（新 1→N 形状）。
@@ -48,6 +56,50 @@ type BundleLLMProvider struct {
 	DefaultModelKey string                   `json:"defaultModelKey"`
 	APIKey          string                   `json:"apiKey"`
 	Models          []BundleLLMProviderModel `json:"models"`
+	// Reach 「谁能连到」：只在限定设备时带出，缺席 = 任何设备。
+	Reach *BundleReach `json:"reach,omitempty"`
+}
+
+// BundleReach 供应商可达范围：Mode 取 any / devices，Devices 是设备指纹。
+type BundleReach struct {
+	Mode    string   `json:"mode"`
+	Devices []string `json:"devices,omitempty"`
+}
+
+// BundleEngineProfile 一条引擎配置：账号级「用什么、怎么干活」，没有设备也没有 CLI 路径。
+// 类型专属设置整份放在 Config（与同步载荷同一个形状）。AccountDefault 只随包带出供
+// 查看——账号默认是本机的决定，导入不会改它。
+type BundleEngineProfile struct {
+	ExportKey       string                      `json:"exportKey"`
+	Type            string                      `json:"type"`
+	Name            string                      `json:"name"`
+	LLMProviderKey  string                      `json:"llmProviderKey"`
+	LLMModelKey     string                      `json:"llmModelKey"`
+	EnvJSON         string                      `json:"envJSON"`
+	ReasoningEffort string                      `json:"reasoningEffort"`
+	Config          syncwire.AgentBackendConfig `json:"config"`
+	AccountDefault  bool                        `json:"accountDefault,omitempty"`
+}
+
+// BundleExecConstraint 成员「在哪跑」约束：Mode 取 any / labels / devices。
+type BundleExecConstraint struct {
+	Mode    string   `json:"mode"`
+	Labels  []string `json:"labels,omitempty"`
+	Devices []string `json:"devices,omitempty"`
+}
+
+// BundleDevicePref 一台设备的标签与它在账号设备顺序里的位置。
+type BundleDevicePref struct {
+	DeviceFingerprint string   `json:"deviceFingerprint"`
+	Labels            []string `json:"labels"`
+	SortOrder         int      `json:"sortOrder"`
+}
+
+// BundleDeviceCLIPath 某种运行时在某台设备上的 CLI 路径覆盖。
+type BundleDeviceCLIPath struct {
+	RuntimeType       string `json:"runtimeType"`
+	DeviceFingerprint string `json:"deviceFingerprint"`
+	CLIPath           string `json:"cliPath"`
 }
 
 // BundleLLMProviderModel 一条稳定模型记录。
@@ -102,6 +154,8 @@ type BundleDepartment struct {
 	ParentKey    string `json:"parentKey"`
 	LeadAgentKey string `json:"leadAgentKey"`
 	SortOrder    int    `json:"sortOrder"`
+	// DefaultEngineKey 成员默认引擎（BundleEngineProfile.ExportKey）；空 = 跟随上级。
+	DefaultEngineKey string `json:"defaultEngineKey,omitempty"`
 }
 
 // BundleAgent 一条 Agent 记录。
@@ -118,6 +172,11 @@ type BundleAgent struct {
 	SortOrder      int                `json:"sortOrder"`
 	PromptJSON     string             `json:"promptJSON"`
 	ExecTargets    []BundleExecTarget `json:"execTargets"`
+	// 成员的执行设置（新结构）：引擎配置引用、「在哪跑」约束（缺席 = 任意设备）与技能授权。
+	EngineKey          string                `json:"engineKey,omitempty"`
+	ExecConstraint     *BundleExecConstraint `json:"execConstraint,omitempty"`
+	SkillGrantsRuntime string                `json:"skillGrantsRuntime,omitempty"`
+	SkillGrantsJSON    string                `json:"skillGrantsJSON,omitempty"`
 }
 
 // BundleExecTarget Agent 有序执行目标列表里的一档（R15f）：它指向 backend 的稳定

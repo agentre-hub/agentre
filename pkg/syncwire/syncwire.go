@@ -31,6 +31,14 @@ const (
 	KindProjectLocation = "project_location"
 	KindLLMProvider     = "llm_provider"
 	KindAgentBackendCLI = "agent_backend_cli"
+	// KindEngineProfile 是引擎配置(去设备的后端):载荷没有设备,也没有 cli_path。
+	KindEngineProfile = "engine_profile"
+	// KindDevicePref 是一台设备的账号级偏好(标签与在账号设备顺序里的位置);设备指纹在
+	// 上行/下行项的 agentred_fingerprint 列上,是它的账号内自然键。
+	KindDevicePref = "device_pref"
+	// KindDeviceCLIPath 是某种运行时在某台设备上的 CLI 路径覆盖;自然键(运行时类型,
+	// 设备指纹)在列上:ScopeSyncID 装运行时类型,AgentredFingerprint 装设备。
+	KindDeviceCLIPath = "device_cli_path"
 	// KindMemory 是 Agent 记忆条目。归属(全局 / 部门 / agent / 项目)用同步标识引用,
 	// 因此排在 department / agent / project 之后。
 	KindMemory = "memory"
@@ -50,6 +58,10 @@ const (
 // 次序是承重的:认领(R12a)与任何需要遍历全部类型的地方都按它走,父行因此先入队、
 // 先落地,R2a 的暂缓少绕一圈。追加新 kind 时按引用方向插进去,别随手贴到末尾。
 var Kinds = []string{
+	// 引擎配置被部门与 Agent 引用,排在它们之前;设备偏好与 CLI 覆盖不引用别的对象。
+	KindEngineProfile,
+	KindDevicePref,
+	KindDeviceCLIPath,
 	KindProject,
 	KindDepartment,
 	KindAgent,

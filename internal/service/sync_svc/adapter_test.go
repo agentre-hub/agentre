@@ -126,7 +126,7 @@ func TestLLMProviderAdapter_LoadCarriesCredentialAndNestedModels(t *testing.T) {
 	require.NotNil(t, out)
 	assert.Equal(t, "provider-1", out.SyncID)
 	assert.NoError(t, syncwire.GuardPayload(syncwire.KindLLMProvider, out.Payload))
-	assert.JSONEq(t, `{"name":"Primary","type":"anthropic","base_url":"https://api.example","api_key":"sk-secret","default_model_key":"model-1","enabled":true,"models":[{"model_key":"model-1","model_id":"claude-sonnet","name":"Sonnet","enabled":true,"context_window":200000,"max_output":8192}]}`,
+	assert.JSONEq(t, `{"name":"Primary","type":"anthropic","base_url":"https://api.example","api_key":"sk-secret","default_model_key":"model-1","enabled":true,"models":[{"model_key":"model-1","model_id":"claude-sonnet","name":"Sonnet","enabled":true,"context_window":200000,"max_output":8192}],"reach":{"mode":"any"}}`,
 		string(out.Payload))
 }
 

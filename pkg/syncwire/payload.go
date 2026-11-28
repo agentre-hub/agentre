@@ -58,6 +58,9 @@ type ProjectPayload struct {
 	ParentSyncID string `json:"parent_sync_id,omitempty"`
 	// SortOrder 是同一层内的手工排序位次。
 	SortOrder int `json:"sort_order"`
+	// DefaultDeviceFingerprint 是项目的默认设备(设备指纹字符串,空串 = 没有)。指针:
+	// 键不在 = 对端是不认识这个字段的旧版本,接收端保持本机现状,而不是当成「清除」。
+	DefaultDeviceFingerprint *string `json:"default_device_fingerprint,omitempty"`
 }
 
 // ProjectAgentPayload 是 kind=project_agent 的载荷:项目 ↔ Agent 的成员关系。
@@ -96,6 +99,9 @@ type DepartmentPayload struct {
 	// adapter_refcycle_test.go 是那道守卫)。
 	LeadAgentSyncID string `json:"lead_agent_sync_id,omitempty"`
 	SortOrder       int    `json:"sort_order"`
+	// DefaultEngineProfileSyncID 是部门的成员默认引擎(引擎配置的同步标识,空串 = 跟随
+	// 上级)。指针:键不在 = 旧版本对端,接收端保持本机现状。
+	DefaultEngineProfileSyncID *string `json:"default_engine_profile_sync_id,omitempty"`
 }
 
 // AgentPayload 是 kind=agent 的载荷。
@@ -126,6 +132,27 @@ type AgentPayload struct {
 	// MemoryEnabled 是 Agent 的记忆开关。指针：键不在 = 对端是不认识这个字段的旧版本，
 	// 接收端保持本机现状，而不是把它当成「关」。
 	MemoryEnabled *bool `json:"memory_enabled,omitempty"`
+	// Engine 是成员的执行设置:引擎配置引用、「在哪跑」约束与技能授权。指针:键不在 =
+	// 对端是不认识执行设置的旧版本,接收端保持本机现状(而不是把它当成「全清空」)。
+	Engine *AgentEnginePayload `json:"engine,omitempty"`
+}
+
+// AgentEnginePayload 是 Agent 的执行设置。引用走同步标识;技能授权的正文形状归桌面端
+// 所有,契约只搬运(与 PromptJSON 同理),它授权时对应的运行时类型一并带上。
+type AgentEnginePayload struct {
+	// EngineProfileSyncID 为空 = 没有指定引擎配置(沿部门链走账号默认)。
+	EngineProfileSyncID string                `json:"engine_profile_sync_id,omitempty"`
+	ExecConstraint      ExecConstraintPayload `json:"exec_constraint"`
+	SkillGrantsRuntime  string                `json:"skill_grants_runtime,omitempty"`
+	SkillGrantsJSON     string                `json:"skill_grants_json,omitempty"`
+}
+
+// ExecConstraintPayload 是成员「在哪跑」的约束:Mode 取 any / labels / devices。Labels
+// 只在 labels 模式有值,Devices(设备指纹)只在 devices 模式有值。
+type ExecConstraintPayload struct {
+	Mode    string   `json:"mode"`
+	Labels  []string `json:"labels,omitempty"`
+	Devices []string `json:"devices,omitempty"`
 }
 
 // AgentBackendPayload 是 kind=agent_backend 的载荷:后端的**账号级身份**。
@@ -183,6 +210,36 @@ type AgentBackendConfig struct {
 	ACPArgs    []string `json:"acpArgs,omitempty"`
 }
 
+// EngineProfilePayload 是 kind=engine_profile 的载荷:引擎配置,即去掉设备的后端。
+//
+// 与 AgentBackendPayload 同样的身份字段与 config 规则,但**没有设备**(设备不属于配置)
+// 也**没有 cli_path**(每设备覆盖,自成 device_cli_path;GuardPayload 对本 kind 挡住它)。
+// AccountDefault 是「账号默认」标记:永远至多一份配置带它,接收端据此经窄口改默认。
+type EngineProfilePayload struct {
+	Type            string             `json:"type"`
+	Name            string             `json:"name"`
+	ProviderKey     string             `json:"provider_key"`
+	ModelKey        string             `json:"model_key"`
+	EnvJSON         string             `json:"env_json"`
+	ReasoningEffort string             `json:"reasoning_effort"`
+	Config          AgentBackendConfig `json:"config"`
+	AccountDefault  bool               `json:"account_default,omitempty"`
+}
+
+// DevicePrefPayload 是 kind=device_pref 的载荷:一台设备的标签与它在账号设备顺序里的
+// 位次。设备指纹在列(AgentredFingerprint)上,不在载荷里。
+type DevicePrefPayload struct {
+	Labels    []string `json:"labels"`
+	SortOrder int      `json:"sort_order"`
+}
+
+// DeviceCLIPathPayload 是 kind=device_cli_path 的载荷:某种运行时在某台设备上的 CLI
+// 路径。(运行时类型, 设备指纹)在列上:ScopeSyncID 装运行时类型,AgentredFingerprint
+// 装设备;空路径不上行(「空 = 自动探测」就是没有这一行)。
+type DeviceCLIPathPayload struct {
+	CLIPath string `json:"cli_path"`
+}
+
 // AgentBackendCLIPayload 是 kind=agent_backend_cli 的载荷:某个后端在某台机器上的
 // 可执行文件路径。
 //
@@ -222,6 +279,15 @@ type LLMProviderPayload struct {
 	DefaultModelKey string             `json:"default_model_key"`
 	Enabled         bool               `json:"enabled"`
 	Models          []LLMProviderModel `json:"models"`
+	// Reach 是「谁能连到」。指针:键不在 = 旧版本对端,接收端保持本机现状。
+	Reach *LLMProviderReach `json:"reach,omitempty"`
+}
+
+// LLMProviderReach 是供应商的可达范围:Mode 取 any(任何设备)/ devices(只有 Devices
+// 里的设备指纹)。
+type LLMProviderReach struct {
+	Mode    string   `json:"mode"`
+	Devices []string `json:"devices,omitempty"`
 }
 
 // LLMProviderModel 是内嵌在 LLMProviderPayload 里的一行模型。它**不是**一个 kind:
@@ -322,6 +388,9 @@ var payloadTypes = map[string]reflect.Type{
 	KindAgent:           reflect.TypeOf(AgentPayload{}),
 	KindAgentBackend:    reflect.TypeOf(AgentBackendPayload{}),
 	KindAgentBackendCLI: reflect.TypeOf(AgentBackendCLIPayload{}),
+	KindEngineProfile:   reflect.TypeOf(EngineProfilePayload{}),
+	KindDevicePref:      reflect.TypeOf(DevicePrefPayload{}),
+	KindDeviceCLIPath:   reflect.TypeOf(DeviceCLIPathPayload{}),
 	KindAgentExecTarget: reflect.TypeOf(AgentExecTargetPayload{}),
 	KindProjectAgent:    reflect.TypeOf(ProjectAgentPayload{}),
 	KindProjectLocation: reflect.TypeOf(ProjectLocationPayload{}),

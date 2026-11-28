@@ -142,3 +142,28 @@ func TestGuardPayload_GivenABoardPayloadCarryingALocalID_Rejects(t *testing.T) {
 			syncwire.ErrPayloadLocalID, payload)
 	}
 }
+
+// TestGuardPayload_GivenTheEngineAndDevicePayloads_PassesOnlyWithoutKeysOrLocalPaths
+// 引擎配置不带设备，所以也不带 CLI 路径（路径是每设备覆盖，自成 device_cli_path）；
+// 凭据只属于 llm_provider。新载荷里的引用全是同步标识 / 指纹字符串。
+func TestGuardPayload_GivenTheEngineAndDevicePayloads_PassesOnlyWithoutKeysOrLocalPaths(t *testing.T) {
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindEngineProfile,
+		[]byte(`{"type":"codex","name":"n","provider_key":"p","model_key":"m","config":{},"account_default":true}`)))
+	assert.ErrorIs(t, syncwire.GuardPayload(syncwire.KindEngineProfile,
+		[]byte(`{"cli_path":"/usr/local/bin/codex"}`)), syncwire.ErrPayloadCredential)
+	assert.ErrorIs(t, syncwire.GuardPayload(syncwire.KindEngineProfile,
+		[]byte(`{"api_key":"sk-x"}`)), syncwire.ErrPayloadCredential)
+
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindDeviceCLIPath, []byte(`{"cli_path":"/opt/claude"}`)))
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindDevicePref, []byte(`{"labels":["gpu"],"sort_order":1}`)))
+	assert.ErrorIs(t, syncwire.GuardPayload(syncwire.KindDevicePref, []byte(`{"api_key":"sk-x"}`)), syncwire.ErrPayloadCredential)
+
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindAgent,
+		[]byte(`{"engine":{"engine_profile_sync_id":"e","exec_constraint":{"mode":"devices","devices":["sha256:a"]}}}`)))
+	assert.ErrorIs(t, syncwire.GuardPayload(syncwire.KindAgent,
+		[]byte(`{"engine":{"engine_profile_id":7}}`)), syncwire.ErrPayloadLocalID)
+	assert.NoError(t, syncwire.GuardPayload(syncwire.KindLLMProvider,
+		[]byte(`{"api_key":"sk","reach":{"mode":"devices","devices":["sha256:a"]}}`)))
+	assert.ErrorIs(t, syncwire.GuardPayload(syncwire.KindAgent,
+		[]byte(`{"engine":{"api_key":"sk"}}`)), syncwire.ErrPayloadCredential)
+}

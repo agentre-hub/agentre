@@ -71,20 +71,23 @@ func payloadCases() []payloadCase {
 			full: syncwire.ProjectPayload{
 				Name: "Atlas", Icon: "rocket", Color: "blue", Description: "the one",
 				ParentSyncID: "proj-parent", SortOrder: 7,
+				DefaultDeviceFingerprint: strPtr("sha256:dev-a"),
 			},
 			zeroJSON: `{"name":"","icon":"","color":"","description":"","sort_order":0}`,
 			fullJSON: `{"name":"Atlas","icon":"rocket","color":"blue","description":"the one",` +
-				`"parent_sync_id":"proj-parent","sort_order":7}`,
+				`"parent_sync_id":"proj-parent","sort_order":7,"default_device_fingerprint":"sha256:dev-a"}`,
 		},
 		{
 			kind: syncwire.KindDepartment,
 			full: syncwire.DepartmentPayload{
 				Name: "Ops", Description: "keeps it up", Icon: "users", AccentColor: "amber",
 				ParentSyncID: "dept-parent", LeadAgentSyncID: "agent-lead", SortOrder: 3,
+				DefaultEngineProfileSyncID: strPtr("engine-1"),
 			},
 			zeroJSON: `{"name":"","description":"","icon":"","accent_color":"","sort_order":0}`,
 			fullJSON: `{"name":"Ops","description":"keeps it up","icon":"users","accent_color":"amber",` +
-				`"parent_sync_id":"dept-parent","lead_agent_sync_id":"agent-lead","sort_order":3}`,
+				`"parent_sync_id":"dept-parent","lead_agent_sync_id":"agent-lead","sort_order":3,` +
+				`"default_engine_profile_sync_id":"engine-1"}`,
 		},
 		{
 			kind: syncwire.KindAgent,
@@ -94,13 +97,23 @@ func payloadCases() []payloadCase {
 				DepartmentSyncID: "dept-1", ParentAgentSyncID: "agent-parent",
 				SortOrder: 2, PromptJSON: `{"role":"dev"}`, ToolsJSON: `["bash"]`, Pinned: true,
 				MemoryEnabled: boolPtr(false),
+				Engine: &syncwire.AgentEnginePayload{
+					EngineProfileSyncID: "engine-1",
+					ExecConstraint: syncwire.ExecConstraintPayload{
+						Mode: "labels", Labels: []string{"gpu"}, Devices: []string{"sha256:dev-a"},
+					},
+					SkillGrantsRuntime: "claudecode", SkillGrantsJSON: `[{"id":"s"}]`,
+				},
 			},
 			zeroJSON: `{"name":"","description":"","avatar_color":"","avatar_icon":"",` +
 				`"system_badge":"","sort_order":0,"prompt_json":"","tools_json":"","pinned":false}`,
 			fullJSON: `{"name":"Nova","description":"ships it","avatar_color":"violet","avatar_icon":"bot",` +
 				`"avatar_hash":"9f86d081884c7d65","system_badge":"system","department_sync_id":"dept-1",` +
 				`"parent_agent_sync_id":"agent-parent","sort_order":2,"prompt_json":"{\"role\":\"dev\"}",` +
-				`"tools_json":"[\"bash\"]","pinned":true,"memory_enabled":false}`,
+				`"tools_json":"[\"bash\"]","pinned":true,"memory_enabled":false,` +
+				`"engine":{"engine_profile_sync_id":"engine-1",` +
+				`"exec_constraint":{"mode":"labels","labels":["gpu"],"devices":["sha256:dev-a"]},` +
+				`"skill_grants_runtime":"claudecode","skill_grants_json":"[{\"id\":\"s\"}]"}}`,
 		},
 		{
 			kind: syncwire.KindAgentBackend,
@@ -154,13 +167,40 @@ func payloadCases() []payloadCase {
 					ModelKey: "opus", ModelID: "claude-opus-5", Name: "Opus 5",
 					Enabled: true, ContextWindow: 200000, MaxOutput: 64000,
 				}},
+				Reach: &syncwire.LLMProviderReach{Mode: "devices", Devices: []string{"sha256:dev-a"}},
 			},
 			zeroJSON: `{"name":"","type":"","base_url":"","api_key":"","default_model_key":"",` +
 				`"enabled":false,"models":null}`,
 			fullJSON: `{"name":"Anthropic","type":"anthropic","base_url":"https://api.anthropic.com",` +
 				`"api_key":"` + apiKeyUnderTest + `","default_model_key":"opus","enabled":true,` +
 				`"models":[{"model_key":"opus","model_id":"claude-opus-5","name":"Opus 5",` +
-				`"enabled":true,"context_window":200000,"max_output":64000}]}`,
+				`"enabled":true,"context_window":200000,"max_output":64000}],` +
+				`"reach":{"mode":"devices","devices":["sha256:dev-a"]}}`,
+		},
+		{
+			kind: syncwire.KindEngineProfile,
+			full: syncwire.EngineProfilePayload{
+				Type: "claudecode", Name: "Claude 主力", ProviderKey: "anthropic-main",
+				ModelKey: "opus", EnvJSON: `{"HTTP_PROXY":"http://127.0.0.1:7890"}`, ReasoningEffort: "high",
+				Config: fullAgentBackendConfig(), AccountDefault: true,
+			},
+			zeroJSON: `{"type":"","name":"","provider_key":"","model_key":"","env_json":"",` +
+				`"reasoning_effort":"","config":{}}`,
+			fullJSON: `{"type":"claudecode","name":"Claude 主力","provider_key":"anthropic-main",` +
+				`"model_key":"opus","env_json":"{\"HTTP_PROXY\":\"http://127.0.0.1:7890\"}",` +
+				`"reasoning_effort":"high","config":` + fullAgentBackendConfigJSON + `,"account_default":true}`,
+		},
+		{
+			kind:     syncwire.KindDevicePref,
+			full:     syncwire.DevicePrefPayload{Labels: []string{"gpu", "home"}, SortOrder: 2},
+			zeroJSON: `{"labels":null,"sort_order":0}`,
+			fullJSON: `{"labels":["gpu","home"],"sort_order":2}`,
+		},
+		{
+			kind:     syncwire.KindDeviceCLIPath,
+			full:     syncwire.DeviceCLIPathPayload{CLIPath: "/opt/homebrew/bin/claude"},
+			zeroJSON: `{"cli_path":""}`,
+			fullJSON: `{"cli_path":"/opt/homebrew/bin/claude"}`,
 		},
 		{
 			kind:     syncwire.KindLabel,
@@ -341,3 +381,5 @@ func TestPayloadFor_GivenThePayloadTypes_ThenTheyMatchTheVocabularyExactly(t *te
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func strPtr(s string) *string { return &s }

@@ -28,7 +28,7 @@ var ErrPayloadAvatarContent = errors.New("sync payload carries avatar content in
 //     在别的机器上指向完全不同的对象。
 //   - `api_key` 这个键，以及整行 provider 正文（`provider` / `providers` 取值是
 //     对象或数组）。只有 kind=llm_provider 能携带 api_key；其它对象只传
-//     provider_key 这个字符串。agent_backend 身份载荷也不得含 cli_path。
+//     provider_key 这个字符串。agent_backend / engine_profile 身份载荷也不得含 cli_path。
 //   - `avatar_data_url`：头像正文按内容哈希单独传，不进同步载荷。
 //
 // **它挡不住、也没打算挡的：载荷里以 JSON 字符串形式携带的正文。** 最要紧的一处是
@@ -92,7 +92,7 @@ func checkPayloadKey(kind, key string, value any) error {
 	if norm == "apikey" && kind != KindLLMProvider {
 		return ErrPayloadCredential
 	}
-	if norm == "clipath" && kind == KindAgentBackend {
+	if norm == "clipath" && (kind == KindAgentBackend || kind == KindEngineProfile) {
 		return ErrPayloadCredential
 	}
 	// 头像正文只按内容哈希单独传（R16a）；这个键名一旦出现在载荷里，不论值是

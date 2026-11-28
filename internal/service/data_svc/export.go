@@ -77,6 +77,28 @@ func (s *dataSvc) Export(ctx context.Context, req *ExportRequest) (*ExportResult
 		summary[string(ScopeRemoteDevices)] = len(bundle.Items.RemoteDevices)
 	}
 
+	// 引擎配置 exportKey：engine-profiles 与 organization 共用同一份。organization 里有
+	// 引擎引用而没选 engine-profiles 时（见下）也要建，条目只在选了 scope 时才写进包。
+	var engineKey map[int64]string
+	if _, ok := set[ScopeEngineProfiles]; ok {
+		profiles, keys, err := s.assignEngineKeys(ctx)
+		if err != nil {
+			return nil, err
+		}
+		engineKey = keys
+		bundle.Items.EngineProfiles = make([]BundleEngineProfile, 0, len(profiles))
+		for _, p := range profiles {
+			bundle.Items.EngineProfiles = append(bundle.Items.EngineProfiles, toBundleEngineProfile(p, keys[p.ID]))
+		}
+		summary[string(ScopeEngineProfiles)] = len(bundle.Items.EngineProfiles)
+	}
+	if _, ok := set[ScopeDevicePrefs]; ok {
+		if err := s.exportDevicePrefs(ctx, &bundle); err != nil {
+			return nil, err
+		}
+		summary[string(ScopeDevicePrefs)] = len(bundle.Items.DevicePrefs) + len(bundle.Items.DeviceCLIPaths)
+	}
+
 	// Build a shared backendKey map once if either scope that uses it is requested.
 	// This guarantees AgentBackends and Organization reference the same exportKey values.
 	var backendKey map[int64]string
@@ -136,6 +158,12 @@ func (s *dataSvc) Export(ctx context.Context, req *ExportRequest) (*ExportResult
 			return nil, err
 		}
 
+		if engineKey == nil && orgReferencesEngine(depts, agents) {
+			if _, engineKey, err = s.assignEngineKeys(ctx); err != nil {
+				return nil, err
+			}
+		}
+
 		deptKey := make(map[int64]string, len(depts))
 		agentKey := make(map[int64]string, len(agents))
 		for _, d := range depts {
@@ -147,11 +175,11 @@ func (s *dataSvc) Export(ctx context.Context, req *ExportRequest) (*ExportResult
 
 		bundle.Items.Departments = make([]BundleDepartment, 0, len(depts))
 		for _, d := range depts {
-			bundle.Items.Departments = append(bundle.Items.Departments, toBundleDept(d, deptKey, agentKey))
+			bundle.Items.Departments = append(bundle.Items.Departments, toBundleDept(d, deptKey, agentKey, engineKey))
 		}
 		bundle.Items.Agents = make([]BundleAgent, 0, len(agents))
 		for _, a := range agents {
-			bundle.Items.Agents = append(bundle.Items.Agents, toBundleAgent(a, deptKey, agentKey, backendKey, targetsByAgent[a.ID]))
+			bundle.Items.Agents = append(bundle.Items.Agents, toBundleAgent(a, deptKey, agentKey, backendKey, engineKey, targetsByAgent[a.ID]))
 		}
 		summary[string(ScopeOrganization)] = len(bundle.Items.Departments) + len(bundle.Items.Agents)
 	}
@@ -185,6 +213,7 @@ func toBundleProvider(ctx context.Context, p *llm_provider_entity.LLMProvider, s
 		DefaultModelKey: p.DefaultModelKey,
 		APIKey:          apiKey,
 		Models:          make([]BundleLLMProviderModel, 0, len(models)),
+		Reach:           toBundleReach(p),
 	}
 	for _, m := range models {
 		out.Models = append(out.Models, BundleLLMProviderModel{
@@ -276,7 +305,7 @@ func bundleRoutesFromEntity(routes map[string]agent_backend_entity.ModelRouteTar
 	return out
 }
 
-func toBundleDept(d *department_entity.Department, deptKey, agentKey map[int64]string) BundleDepartment {
+func toBundleDept(d *department_entity.Department, deptKey, agentKey, engineKey map[int64]string) BundleDepartment {
 	out := BundleDepartment{
 		ExportKey: deptKey[d.ID],
 		Name:      d.Name, Description: d.Description, Icon: d.Icon, AccentColor: d.AccentColor,
@@ -288,10 +317,13 @@ func toBundleDept(d *department_entity.Department, deptKey, agentKey map[int64]s
 	if d.LeadAgentID > 0 {
 		out.LeadAgentKey = agentKey[d.LeadAgentID]
 	}
+	if d.DefaultEngineProfileID > 0 {
+		out.DefaultEngineKey = engineKey[d.DefaultEngineProfileID]
+	}
 	return out
 }
 
-func toBundleAgent(a *agent_entity.Agent, deptKey, agentKey, backendKey map[int64]string, targets []*agent_entity.AgentExecTarget) BundleAgent {
+func toBundleAgent(a *agent_entity.Agent, deptKey, agentKey, backendKey, engineKey map[int64]string, targets []*agent_entity.AgentExecTarget) BundleAgent {
 	out := BundleAgent{
 		ExportKey: agentKey[a.ID],
 		Name:      a.Name, Description: a.Description,
@@ -305,6 +337,7 @@ func toBundleAgent(a *agent_entity.Agent, deptKey, agentKey, backendKey map[int6
 	if a.ParentAgentID > 0 {
 		out.ParentAgentKey = agentKey[a.ParentAgentID]
 	}
+	applyAgentEngineToBundle(&out, a, engineKey)
 	// ExecTargets 一律写，哪怕是空数组。targets 已经按
 	// sort_order 升序给出（agent_repo.AgentExecTarget().ListByAgents 的约定）。
 	out.ExecTargets = make([]BundleExecTarget, 0, len(targets))
@@ -316,4 +349,20 @@ func toBundleAgent(a *agent_entity.Agent, deptKey, agentKey, backendKey map[int6
 		})
 	}
 	return out
+}
+
+// orgReferencesEngine 报告部门或成员里有没有引擎配置引用：没有就不必为 organization
+// scope 单独去读引擎配置。
+func orgReferencesEngine(depts []*department_entity.Department, agents []*agent_entity.Agent) bool {
+	for _, d := range depts {
+		if d.DefaultEngineProfileID > 0 {
+			return true
+		}
+	}
+	for _, a := range agents {
+		if a.EngineProfileID > 0 {
+			return true
+		}
+	}
+	return false
 }

@@ -42,13 +42,15 @@ func (projectAdapter) load(ctx context.Context, syncID string) (*outbound, error
 			parentSyncID = syncIDOf(parent.SyncMeta)
 		}
 	}
+	defaultDevice := string(row.DefaultDeviceFingerprint)
 	payload, err := json.Marshal(syncwire.ProjectPayload{
-		Name:         row.Name,
-		Icon:         row.Icon,
-		Color:        row.Color,
-		Description:  row.Description,
-		ParentSyncID: parentSyncID,
-		SortOrder:    row.SortOrder,
+		Name:                     row.Name,
+		Icon:                     row.Icon,
+		Color:                    row.Color,
+		Description:              row.Description,
+		ParentSyncID:             parentSyncID,
+		SortOrder:                row.SortOrder,
+		DefaultDeviceFingerprint: &defaultDevice,
 	})
 	if err != nil {
 		return nil, err
@@ -84,10 +86,18 @@ func (projectAdapter) apply(ctx context.Context, in *inbound, resolved map[strin
 	if !found {
 		// 同步进来的项目不带源端本机路径，落成「本机未配置路径」（R10、决策 21）。
 		row.SyncID, row.Path, row.LocalPathMissing = in.SyncID, "", true
-		return project_repo.Project().Create(ctx, row)
+		if err := project_repo.Project().Create(ctx, row); err != nil {
+			return err
+		}
+	} else if err := project_repo.Project().Update(ctx, row); err != nil {
+		// 已有的行：path / local_path_missing 是本机独有状态，一律不动。
+		return err
 	}
-	// 已有的行：path / local_path_missing 是本机独有状态，一律不动。
-	return project_repo.Project().Update(ctx, row)
+	// 默认设备不在整行写口里：经窄写口落地。键不在 = 旧版本对端，保持本机现状。
+	if p.DefaultDeviceFingerprint != nil {
+		return project_repo.Project().SetDefaultDevice(ctx, row.ID, devicefp.Carrier(*p.DefaultDeviceFingerprint))
+	}
+	return nil
 }
 
 func (projectAdapter) remove(ctx context.Context, in *inbound) error {

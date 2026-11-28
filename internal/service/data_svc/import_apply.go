@@ -66,6 +66,9 @@ func (s *dataSvc) ApplyImport(ctx context.Context, req *ApplyImportRequest) (*Ap
 		if err := applyAgentBackends(txCtx, b, actions, km, deviceRefs, counts, s.now()); err != nil {
 			return err
 		}
+		if err := applyEngineProfiles(txCtx, b, actions, km, counts, s.now()); err != nil {
+			return err
+		}
 		if err := applyDepartments(txCtx, b, actions, km, counts, s.now()); err != nil {
 			return err
 		}
@@ -75,7 +78,7 @@ func (s *dataSvc) ApplyImport(ctx context.Context, req *ApplyImportRequest) (*Ap
 		if err := backfillOrg(txCtx, b, km, s.now()); err != nil {
 			return err
 		}
-		return nil
+		return applyDevicePrefs(txCtx, b, actions, counts, s.now())
 	})
 	if err != nil {
 		logger.Ctx(ctx).Error("data_svc.ApplyImport: txn rollback", zap.Error(err))
@@ -139,6 +142,9 @@ func applyProviders(ctx context.Context, b BundleV1, actions map[string]ItemActi
 			if err := upsertProviderModels(ctx, local.ID, p.Models, now); err != nil {
 				return err
 			}
+			if err := applyProviderReach(ctx, local.ID, p); err != nil {
+				return err
+			}
 			km.providers[p.ProviderKey] = local.ID
 			counts["overwrote"]++
 		case ActionDuplicate:
@@ -158,6 +164,9 @@ func applyProviders(ctx context.Context, b BundleV1, actions map[string]ItemActi
 			if err := llm_provider_repo.LLMProvider().CreateWithModels(ctx, row, models, defaultKey); err != nil {
 				return err
 			}
+			if err := applyProviderReach(ctx, row.ID, p); err != nil {
+				return err
+			}
 			km.providers[p.ProviderKey] = row.ID
 			counts["duplicated"]++
 		case ActionCreate:
@@ -167,6 +176,9 @@ func applyProviders(ctx context.Context, b BundleV1, actions map[string]ItemActi
 			row := newProviderEntity(p, now)
 			models, defaultKey := modelEntitiesFromBundle(p, false)
 			if err := llm_provider_repo.LLMProvider().CreateWithModels(ctx, row, models, defaultKey); err != nil {
+				return err
+			}
+			if err := applyProviderReach(ctx, row.ID, p); err != nil {
 				return err
 			}
 			km.providers[p.ProviderKey] = row.ID
@@ -624,6 +636,9 @@ func applyOneDepartment(ctx context.Context, d BundleDepartment, actions map[str
 		if err := department_repo.Department().Update(ctx, existing); err != nil {
 			return err
 		}
+		if err := applyDepartmentEngine(ctx, existing.ID, d, km); err != nil {
+			return err
+		}
 		km.depts[d.ExportKey] = existing.ID
 		counts["overwrote"]++
 	case ActionDuplicate:
@@ -645,6 +660,9 @@ func applyOneDepartment(ctx context.Context, d BundleDepartment, actions map[str
 			})
 		}
 		if err := department_repo.Department().Create(ctx, row); err != nil {
+			return err
+		}
+		if err := applyDepartmentEngine(ctx, row.ID, d, km); err != nil {
 			return err
 		}
 		km.depts[d.ExportKey] = row.ID
@@ -669,6 +687,9 @@ func applyOneDepartment(ctx context.Context, d BundleDepartment, actions map[str
 			Updatetime:  now,
 		}
 		if err := department_repo.Department().Create(ctx, row); err != nil {
+			return err
+		}
+		if err := applyDepartmentEngine(ctx, row.ID, d, km); err != nil {
 			return err
 		}
 		km.depts[d.ExportKey] = row.ID
@@ -708,6 +729,8 @@ func applyAgents(ctx context.Context, b BundleV1, actions map[string]ItemAction,
 		act := actions[actionKey(string(ScopeOrganization), a.ExportKey)]
 		var localID int64
 		replaceExecTargets := false
+		// written 是这一轮真正写过的 Agent 行（跳过的没有）：执行设置在它落库之后经窄写口补上。
+		var written *agent_entity.Agent
 		switch act {
 		case ActionSkip:
 			counts["skipped"]++
@@ -737,6 +760,7 @@ func applyAgents(ctx context.Context, b BundleV1, actions map[string]ItemAction,
 			}
 			km.agents[a.ExportKey] = existing.ID
 			counts["overwrote"]++
+			written = existing
 		case ActionDuplicate:
 			row := &agent_entity.Agent{
 				Name:           a.Name,
@@ -770,6 +794,7 @@ func applyAgents(ctx context.Context, b BundleV1, actions map[string]ItemAction,
 			km.agents[a.ExportKey] = row.ID
 			counts["duplicated"]++
 			localID, replaceExecTargets = row.ID, true
+			written = row
 		case ActionCreate:
 			if existing != nil {
 				// V1: preview can't detect agent conflict because dept resolution requires apply-time keymap.
@@ -800,6 +825,7 @@ func applyAgents(ctx context.Context, b BundleV1, actions map[string]ItemAction,
 			km.agents[a.ExportKey] = row.ID
 			counts["created"]++
 			localID, replaceExecTargets = row.ID, true
+			written = row
 		default:
 			return i18n.NewError(ctx, code.DataImportInvalidAction)
 		}
@@ -809,6 +835,11 @@ func applyAgents(ctx context.Context, b BundleV1, actions map[string]ItemAction,
 		// 落完)。
 		if replaceExecTargets {
 			if err := agent_repo.AgentExecTarget().Replace(ctx, localID, targets); err != nil {
+				return err
+			}
+		}
+		if written != nil {
+			if err := applyAgentEngineSettings(ctx, written, a, km); err != nil {
 				return err
 			}
 		}

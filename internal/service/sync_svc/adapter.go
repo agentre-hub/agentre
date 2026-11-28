@@ -74,6 +74,9 @@ func (baseAdapter) dependentsOnClaim(context.Context, string) ([]relatedRow, err
 // agentAdapter 据此优雅退化成只带哈希、不取正文。
 func defaultAdapters(avatar avatarTransport) map[string]adapter {
 	list := []adapter{
+		&engineProfileAdapter{},
+		&devicePrefAdapter{},
+		&deviceCLIPathAdapter{},
 		&projectAdapter{},
 		&departmentAdapter{},
 		&agentAdapter{avatar: avatar},

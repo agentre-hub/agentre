@@ -192,6 +192,17 @@ func (s *dataSvc) PreviewImport(ctx context.Context, raw []byte) (*ImportPreview
 		items = append(items, it)
 	}
 
+	engineItems, err := previewEngineProfiles(ctx, b)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, engineItems...)
+	deviceItems, err := previewDevicePrefs(ctx, b)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, deviceItems...)
+
 	return &ImportPreview{
 		Format:          b.Format,
 		Version:         b.Version,

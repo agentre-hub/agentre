@@ -16,14 +16,20 @@ const (
 	ScopeAgentBackends Scope = "agent-backends"
 	ScopeOrganization  Scope = "organization"
 	ScopeRemoteDevices Scope = "remote-devices"
+	// ScopeEngineProfiles 引擎配置（去设备的后端）；ScopeDevicePrefs 设备偏好（标签、
+	// 账号设备顺序）与按（运行时类型, 设备）存的 CLI 路径覆盖。
+	ScopeEngineProfiles Scope = "engine-profiles"
+	ScopeDevicePrefs    Scope = "device-prefs"
 )
 
 // validScopes 当前支持的全部 scope。
 var validScopes = map[Scope]struct{}{
-	ScopeLLMProviders:  {},
-	ScopeAgentBackends: {},
-	ScopeOrganization:  {},
-	ScopeRemoteDevices: {},
+	ScopeLLMProviders:   {},
+	ScopeAgentBackends:  {},
+	ScopeOrganization:   {},
+	ScopeRemoteDevices:  {},
+	ScopeEngineProfiles: {},
+	ScopeDevicePrefs:    {},
 }
 
 // ValidateScopes 校验列表里的 scope 全部识别。
