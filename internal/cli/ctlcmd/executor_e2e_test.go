@@ -29,6 +29,7 @@ func (e2eOrg) ListProjects(context.Context) ([]*agentrewire.CtlProject, error)  
 func (e2eOrg) ListProviders(context.Context) ([]*agentrewire.CtlProvider, error) { return nil, nil }
 func (e2eOrg) ListModels(context.Context) ([]*agentrewire.CtlModel, error)       { return nil, nil }
 func (e2eOrg) ListBackends(context.Context) ([]*agentrewire.CtlBackend, error)   { return nil, nil }
+func (e2eOrg) ListEngines(context.Context) ([]*agentrewire.CtlEngine, error)     { return nil, nil }
 
 type e2eWriter struct {
 	mu      sync.Mutex
@@ -74,7 +75,7 @@ func realExecutor(t *testing.T, allow bool) (*httptest.Server, *e2eWriter) {
 	svc := ctl_svc.Default()
 	org := e2eOrg{}
 	svc.RegisterResources(ctl_svc.Resources{
-		Org: org, Projects: org, Providers: org, Backends: org,
+		Org: org, Projects: org, Providers: org, Backends: org, Engines: org,
 		Writers: map[agentrewire.CtlKind]ctl_svc.KindWriter{agentrewire.CtlKind_CTL_KIND_AGENT: w},
 	})
 	svc.RegisterSessionApprovals(answeringApprovals{allow: allow})

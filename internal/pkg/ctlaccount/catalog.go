@@ -194,6 +194,8 @@ func KindName(kind agentrewire.CtlKind) string {
 		return "model"
 	case agentrewire.CtlKind_CTL_KIND_BACKEND:
 		return "backend"
+	case agentrewire.CtlKind_CTL_KIND_ENGINE:
+		return "engine"
 	case agentrewire.CtlKind_CTL_KIND_MEMORY:
 		return "memory"
 	}
@@ -224,6 +226,8 @@ func DocOf(r *agentrewire.CtlResource) Doc {
 		return Doc{ID: d.Model.GetId(), Name: d.Model.GetModelId(), ProviderID: d.Model.GetProviderId()}
 	case *agentrewire.CtlResource_Backend:
 		return Doc{ID: d.Backend.GetId(), Name: d.Backend.GetName()}
+	case *agentrewire.CtlResource_Engine:
+		return Doc{ID: d.Engine.GetId(), Name: d.Engine.GetName()}
 	case *agentrewire.CtlResource_Memory:
 		// 记忆没有名字：按编号定位，名字一栏放摘要只供展示。
 		return Doc{ID: d.Memory.GetId(), Name: d.Memory.GetSummary()}

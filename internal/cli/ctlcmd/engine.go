@@ -11,23 +11,21 @@ import (
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
-// configField 是某个后端类型在 --config 里接受的一个键。
+// configField 是某个运行时类型在 --config 里接受的一个键。
 type configField struct {
 	key    string
 	values string // help 里展示的取值说明
 }
 
-// backendType 是 help 与 --config 校验共用的后端类型契约。键名与同步契约
+// engineType 是 help 与 --config 校验共用的运行时类型契约。键名与同步契约
 // syncwire.AgentBackendConfig 的 JSON 键一致。
-type backendType struct {
+type engineType struct {
 	name    string
 	summary string
 	config  []configField
-	// token 为 true：该类型有 --token 密钥。
-	token bool
 }
 
-var backendTypes = []backendType{
+var engineTypes = []engineType{
 	{name: "builtin", summary: "Agentre's built-in agent loop; needs --provider"},
 	{name: "claudecode", summary: "Claude Code CLI", config: []configField{
 		{"modelRoutes", `{ "OPUS"|"SONNET"|"HAIKU": { "providerKey": "<key>", "modelKey": "<key>" } }`},
@@ -39,7 +37,7 @@ var backendTypes = []backendType{
 		{"approval", "untrusted | on-request | never"},
 	}},
 	{name: "piagent", summary: "pi agent CLI; needs --provider and --model"},
-	{name: "openclaw", summary: "OpenClaw gateway", token: true, config: []configField{
+	{name: "openclaw", summary: "OpenClaw gateway", config: []configField{
 		{"openclawGatewayUrl", "ws://loopback… or wss://… (no credentials in the URL)"},
 		{"openclawAgentId", "gateway agent id (empty = gateway default)"},
 		{"openclawDefaultModel", "model id (empty = agent/session default)"},
@@ -56,32 +54,31 @@ var backendTypes = []backendType{
 	{name: "antigravity", summary: "Antigravity CLI (agy acp); needs a gemini --provider"},
 }
 
-func lookupBackendType(name string) *backendType {
-	for i := range backendTypes {
-		if backendTypes[i].name == name {
-			return &backendTypes[i]
+func lookupEngineType(name string) *engineType {
+	for i := range engineTypes {
+		if engineTypes[i].name == name {
+			return &engineTypes[i]
 		}
 	}
 	return nil
 }
 
-func backendTypeNames() string {
-	names := make([]string, 0, len(backendTypes))
-	for _, t := range backendTypes {
+func engineTypeNames() string {
+	names := make([]string, 0, len(engineTypes))
+	for _, t := range engineTypes {
 		names = append(names, t.name)
 	}
 	return strings.Join(names, " | ")
 }
 
-func initBackendFlags() {
-	b := func(w *writeCtx) *agentrewire.CtlBackend { return w.doc.GetBackend() }
+func initEngineFlags() {
+	b := func(w *writeCtx) *agentrewire.CtlEngine { return w.doc.GetEngine() }
 	common := []*flagDef{
-		strField("name", "<name>", "name", "backend name (unique)", func(w *writeCtx, v string) { b(w).Name = v }),
-		strField("device", "<device>", "device", "paired device name or fingerprint to run on (empty = this machine)", func(w *writeCtx, v string) { b(w).Device = v }),
+		strField("name", "<name>", "name", "engine name (unique)", func(w *writeCtx, v string) { b(w).Name = v }),
 		refField("provider", kindProvider, "providerId", "LLM provider (empty = the CLI's own login)", func(w *writeCtx, id int64) { b(w).ProviderId = id }),
 		{name: "model", value: "<model>", field: "modelId", usage: "fixed model: a model id of the bound provider, <provider>/<model id> when none is bound, or a numeric id (empty = provider default)",
 			apply: func(w *writeCtx, v string) error {
-				id, err := w.backendModel(v)
+				id, err := w.engineModel(v)
 				if err == nil {
 					b(w).ModelId = id
 				}
@@ -100,55 +97,47 @@ func initBackendFlags() {
 				b(w).Env[k] = val
 				return nil
 			}},
-		{name: "config", value: "<JSON>", field: "configJson", usage: "type-specific settings as a JSON object (see help backend <type>)",
-			apply: func(w *writeCtx, v string) error { return w.setBackendConfig("--config", []byte(v)) }},
+		{name: "config", value: "<JSON>", field: "configJson", usage: "type-specific settings as a JSON object (see help engine <type>)",
+			apply: func(w *writeCtx, v string) error { return w.setEngineConfig("--config", []byte(v)) }},
 		{name: "config-file", value: "<file>", field: "configJson", usage: "same as --config, read from a file",
 			apply: func(w *writeCtx, v string) error {
 				raw, err := os.ReadFile(v) //nolint:gosec // 用户显式指定要读的文件。
 				if err != nil {
 					return usageErrorf("--config-file: %v", err)
 				}
-				return w.setBackendConfig("--config-file", raw)
+				return w.setEngineConfig("--config-file", raw)
 			}},
-		{name: "token", secret: true, field: "token", usage: "openclaw gateway token (secret, see help backend openclaw)",
-			check: func(w *writeCtx) error {
-				if t := w.backendType(); t == nil || !t.token {
-					return usageErrorf("--token applies only to openclaw backends")
-				}
-				return nil
-			},
-			apply: func(w *writeCtx, v string) error { b(w).Token = v; return nil }},
 	}
-	typeFlag := &flagDef{name: "type", value: "<type>", field: "type", usage: backendTypeNames() + " (create only)",
+	typeFlag := &flagDef{name: "type", value: "<type>", field: "type", usage: engineTypeNames() + " (create only)",
 		apply: func(w *writeCtx, v string) error {
-			if lookupBackendType(v) == nil {
-				return usageErrorf("unknown backend type %q (one of: %s)", v, backendTypeNames())
+			if lookupEngineType(v) == nil {
+				return usageErrorf("unknown engine type %q (one of: %s)", v, engineTypeNames())
 			}
 			b(w).Type = v
 			return nil
 		}}
-	kindBackend.createFlags = append([]*flagDef{typeFlag}, common...)
-	kindBackend.updateFlags = common
-	kindBackend.required = []string{"type", "name"}
-	kindBackend.filters = []*flagDef{{name: "type", value: "<type>", usage: "only backends of this type"}}
-	kindBackend.examples = []string{
-		`agrctl create backend --type codex --name codex-remote --device build-box --config '{"sandbox":"workspace-write","approval":"on-request"}'`,
-		"agrctl update backend codex-remote --reasoning-effort high",
-		"agrctl delete backend codex-remote",
+	kindEngine.createFlags = append([]*flagDef{typeFlag}, common...)
+	kindEngine.updateFlags = common
+	kindEngine.required = []string{"type", "name"}
+	kindEngine.filters = []*flagDef{{name: "type", value: "<type>", usage: "only engines of this type"}}
+	kindEngine.examples = []string{
+		`agrctl create engine --type codex --name codex-main --config '{"sandbox":"workspace-write","approval":"on-request"}'`,
+		"agrctl update engine codex-main --reasoning-effort high",
+		"agrctl delete engine codex-main",
 	}
 }
 
-// backendType 是本次写入针对的后端类型：create 取 --type，update 取目标的类型。
-func (w *writeCtx) backendType() *backendType {
+// engineType 是本次写入针对的运行时类型：create 取 --type，update 取目标的类型。
+func (w *writeCtx) engineType() *engineType {
 	if w.target != nil {
-		return lookupBackendType(w.target.GetBackend().GetType())
+		return lookupEngineType(w.target.GetEngine().GetType())
 	}
-	return lookupBackendType(w.doc.GetBackend().GetType())
+	return lookupEngineType(w.doc.GetEngine().GetType())
 }
 
-// setBackendConfig 校验 --config 是 JSON 对象、且每个键都属于该后端类型，然后原样写入。
-func (w *writeCtx) setBackendConfig(flagName string, raw []byte) error {
-	t := w.backendType()
+// setEngineConfig 校验 --config 是 JSON 对象、且每个键都属于该运行时类型，然后原样写入。
+func (w *writeCtx) setEngineConfig(flagName string, raw []byte) error {
+	t := w.engineType()
 	if t == nil {
 		return usageErrorf("%s needs --type", flagName)
 	}
@@ -168,26 +157,26 @@ func (w *writeCtx) setBackendConfig(flagName string, raw []byte) error {
 	}
 	if len(unknown) > 0 {
 		sort.Strings(unknown)
-		return usageErrorf("%s: %s not accepted by %s backends (see agrctl help backend %s)",
+		return usageErrorf("%s: %s not accepted by %s engines (see agrctl help engine %s)",
 			flagName, strings.Join(unknown, ", "), t.name, t.name)
 	}
-	w.doc.GetBackend().ConfigJson = string(bytes.TrimSpace(raw))
+	w.doc.GetEngine().ConfigJson = string(bytes.TrimSpace(raw))
 	return nil
 }
 
-// backendModel 解析 --model：数字 id；已知绑定的提供方（本次 --provider 或目标已绑定的）
+// engineModel 解析 --model：数字 id；已知绑定的提供方（本次 --provider 或目标已绑定的）
 // 时是该提供方下的 ModelID；否则是 <provider>/<ModelID>。ModelID 自己可以带 /，所以
 // 有提供方时不再按 / 切。
-func (w *writeCtx) backendModel(v string) (int64, error) {
+func (w *writeCtx) engineModel(v string) (int64, error) {
 	if v == "" {
 		return 0, nil
 	}
 	if _, err := strconv.ParseInt(v, 10, 64); err == nil {
 		return w.ref(kindModel, v)
 	}
-	providerID := w.target.GetBackend().GetProviderId()
+	providerID := w.target.GetEngine().GetProviderId()
 	if w.fieldSet("providerId") {
-		providerID = w.doc.GetBackend().GetProviderId()
+		providerID = w.doc.GetEngine().GetProviderId()
 	}
 	if providerID == 0 {
 		return w.ref(kindModel, v)

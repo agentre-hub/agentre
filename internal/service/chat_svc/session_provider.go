@@ -14,13 +14,12 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/view"
-	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 )
 
 // 会话级 LLM 供应商：切换入口 + 有效供应商解析的唯一口径。
@@ -296,9 +295,10 @@ func (s *chatSvc) validateSessionModelTarget(ctx context.Context, be *agent_back
 	return prov, m, nil
 }
 
-// sessionProviderBackend 解析这条会话「下一轮落在哪一档」的 backend：钉住的那一档优先
-// （R15b / 决策36），否则 Agent 的默认档 —— 与 GetLaunchCommand / LoadSession 展示取的
-// 是同一档，切换校验因此对的是用户真正会跑的那个后端 kind。只读仓储，无副作用。
+// sessionProviderBackend 解析这条会话「下一轮用哪份引擎配置」的后端视图：钉住的那份优先
+// （决策 10），还没钉的会话是成员此刻生效的那份（sessionengine.ForSession，只读、不派发）——
+// 与会话头 / 工具审批取的是同一份，切换校验因此对的是用户真正会跑的那个后端 kind。只读仓储，
+// 无副作用。
 func sessionProviderBackend(ctx context.Context, sess *chat_entity.Session) (*agent_backend_entity.AgentBackend, error) {
 	a, err := agent_repo.Agent().Find(ctx, sess.AgentID)
 	if err != nil {
@@ -307,13 +307,9 @@ func sessionProviderBackend(ctx context.Context, sess *chat_entity.Session) (*ag
 	if a == nil {
 		return nil, i18n.NewError(ctx, code.AgentNotFound)
 	}
-	backendID := exec_target_svc.SessionBackendID(sess, a)
-	if backendID <= 0 {
-		return nil, i18n.NewError(ctx, code.ChatAgentNoBackend)
-	}
-	be, err := agent_backend_repo.AgentBackend().Find(ctx, backendID)
+	be, err := sessionengine.ForSession(ctx, sess, a)
 	if err != nil {
-		return nil, operationFailedWithCause(ctx, err, zap.Int64("agentBackendId", backendID))
+		return nil, err
 	}
 	if be == nil {
 		return nil, i18n.NewError(ctx, code.ChatAgentNoBackend)

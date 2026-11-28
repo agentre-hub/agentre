@@ -79,6 +79,14 @@ type BackendService interface {
 	Delete(ctx context.Context, req *agent_backend_svc.DeleteBackendRequest) (*agent_backend_svc.DeleteBackendResponse, error)
 }
 
+// EngineProfileService 引擎配置读写（agent_backend_svc.EngineProfile）：配置不带设备与凭据。
+type EngineProfileService interface {
+	Get(ctx context.Context, req *agent_backend_svc.GetEngineProfileRequest) (*agent_backend_svc.GetEngineProfileResponse, error)
+	Create(ctx context.Context, req *agent_backend_svc.CreateEngineProfileRequest) (*agent_backend_svc.CreateEngineProfileResponse, error)
+	Update(ctx context.Context, req *agent_backend_svc.UpdateEngineProfileRequest) (*agent_backend_svc.UpdateEngineProfileResponse, error)
+	Delete(ctx context.Context, req *agent_backend_svc.DeleteEngineProfileRequest) (*agent_backend_svc.DeleteEngineProfileResponse, error)
+}
+
 // DeviceDirectory 已配对设备目录（remote_device_svc），把后端的 --device 名字解析成指纹。
 type DeviceDirectory interface {
 	List(ctx context.Context) ([]*remote_device_svc.DeviceView, error)
@@ -111,6 +119,7 @@ type servicePorts struct {
 	projects    func() ProjectService
 	providers   func() ProviderService
 	backends    func() BackendService
+	engines     func() EngineProfileService
 	devices     func() DeviceDirectory
 }
 
@@ -121,6 +130,7 @@ func productionPorts() servicePorts {
 		projects:    func() ProjectService { return project_svc.Default() },
 		providers:   func() ProviderService { return llm_provider_svc.LLMProvider() },
 		backends:    func() BackendService { return agent_backend_svc.AgentBackend() },
+		engines:     func() EngineProfileService { return agent_backend_svc.EngineProfile() },
 		devices:     func() DeviceDirectory { return remote_device_svc.Default() },
 	}
 }

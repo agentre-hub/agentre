@@ -98,7 +98,7 @@ func newDoc(kind agentrewire.CtlKind) *agentrewire.CtlResource {
 	case agentrewire.CtlKind_CTL_KIND_MEMORY:
 		return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Memory{Memory: &agentrewire.CtlMemory{}}}
 	default:
-		return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Backend{Backend: &agentrewire.CtlBackend{}}}
+		return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Engine{Engine: &agentrewire.CtlEngine{}}}
 	}
 }
 
@@ -231,7 +231,7 @@ func runWrite(verb string, args []string, s *sys) error {
 }
 
 // applyFlags 按定义顺序（而非命令行顺序）应用 flag：被依赖的字段先落定，例如
-// backend 的 --type 先于 --config、--provider 先于 --model。
+// engine 的 --type 先于 --config、--provider 先于 --model。
 func (w *writeCtx) applyFlags(defs []*flagDef, p parsedArgs) error {
 	for _, def := range defs {
 		for _, o := range p.flags {

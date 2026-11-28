@@ -46,8 +46,8 @@ func TestAccountSend_GivenALoginThenTheTurnRunsOnTheFirstAvailableBackendAndIsSa
 	assert.Equal(t, "/srv/PJ-1", run.GetCwd(), "cwd comes from the dispatch plan")
 	assert.Equal(t, "Nightly", run.GetTitle())
 	assert.Equal(t, "ship it", run.GetUserText())
-	assert.Equal(t, "codex", run.GetBackend().GetType())
-	assert.Equal(t, "BE-9", run.GetBackend().GetSyncId(), "an agentred target gets the backend's sync id")
+	assert.Equal(t, "codex", run.GetBackend().GetType(), "the runtime rides the legacy backend field until the protocol cut")
+	assert.Equal(t, "EN-9", run.GetEngineProfileSyncId(), "the plan's engine profile names what the turn runs with")
 	assert.Equal(t, ownFP, run.GetSourceDevice(), "the source is the identity auth.account reported")
 	assert.Equal(t, "build-box", run.GetSourceDeviceName())
 	assert.Equal(t, "PV-4", run.GetLlmProviderKey())
@@ -88,21 +88,24 @@ func TestAccountSend_GivenIsolatedOrJSONThenTheOutputsMatchTheDesktop(t *testing
 	assert.Equal(t, "isolated answer\n", wr.stdout)
 }
 
-func TestAccountSend_GivenDeviceOrBackendThenTheyPickWithinTheAgentsBackends(t *testing.T) {
+func TestAccountSend_GivenDeviceOrEngineThenTheDispatchPlanPicksAndValidates(t *testing.T) {
 	cases := []struct {
 		name   string
 		args   []string
 		code   int
-		target string
+		device string // 第二次问 server 时带的 device（指纹）
+		engine string
 		stderr string
 	}{
-		{"device by name", []string{"--device", "build-box"}, exitOK, "BE-9", "build-box"},
-		{"device by fingerprint", []string{"--device", boxFP}, exitOK, "BE-9", "build-box"},
-		{"backend by name", []string{"--backend", "codex-remote"}, exitOK, "BE-9", "build-box"},
-		{"device offline", []string{"--device", "laptop"}, exitFailed, "BE-5", "offline"},
-		{"backend offline", []string{"--backend", "claude-local"}, exitFailed, "BE-5", "offline"},
-		{"device not the agent's", []string{"--device", "nowhere"}, exitUsage, "", "one of: laptop, build-box"},
-		{"backend not the agent's", []string{"--backend", "claw"}, exitUsage, "", "one of: claude-local, codex-remote"},
+		{"device by name", []string{"--device", "build-box"}, exitOK, boxFP, "", "build-box"},
+		{"device by fingerprint", []string{"--device", boxFP}, exitOK, boxFP, "", "build-box"},
+		{"engine by name", []string{"--engine", "claude-main"}, exitOK, "", "EN-5", "build-box"},
+		{"engine by id", []string{"--engine", "5"}, exitOK, "", "EN-5", "build-box"},
+		{"device and engine", []string{"--device", "build-box", "--engine", "claude-main"}, exitOK, boxFP, "EN-5", "build-box"},
+		{"device failing the rule says why", []string{"--device", "laptop"}, exitFailed, "", "", "laptop: offline"},
+		{"device not dispatchable", []string{"--device", "nowhere"}, exitUsage, "", "", "one of: laptop, build-box"},
+		{"unknown engine", []string{"--engine", "nope"}, exitUsage, "", "", "one of: claude-main, codex-main, claw"},
+		{"local is a desktop notion", []string{"--device", "local"}, exitUsage, "", "", "one of: laptop, build-box"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -110,25 +113,45 @@ func TestAccountSend_GivenDeviceOrBackendThenTheyPickWithinTheAgentsBackends(t *
 			r := runWith(append(append([]string{"send", "--agent", "reviewer"}, c.args...), "go"), envMap(), human)
 			assert.Equal(t, c.code, r.code, r.stderr)
 			assert.Contains(t, r.stderr, c.stderr)
-			plans := w.planQueries()
-			if c.target != "" {
-				q, _ := url.ParseQuery(plans[len(plans)-1])
-				assert.Equal(t, c.target, q.Get("target_backend_sync_id"))
-			}
 			if c.code != exitOK {
 				assert.Empty(t, w.box.runRequests(), "nothing ran")
+				return
+			}
+			plans := w.planQueries()
+			q, _ := url.ParseQuery(plans[len(plans)-1])
+			assert.Equal(t, c.device, q.Get("device"))
+			assert.Equal(t, c.engine, q.Get("engine_sync_id"))
+			assert.NotContains(t, strings.Join(plans, "\n"), "target_backend_sync_id", "the old backend-tier query is gone")
+			if c.engine != "" {
+				assert.Equal(t, c.engine, w.box.runRequests()[0].GetEngineProfileSyncId())
 			}
 		})
 	}
 }
 
-func TestAccountSend_GivenNoAvailableBackendThenEveryTierSaysWhy(t *testing.T) {
+func TestAccountSend_GivenBackendFlagThenItIsUnknown(t *testing.T) {
 	w := newWorld(t)
-	w.tiers["AG-12"][1].availability = "project_path_missing"
+	r := runWith([]string{"send", "--agent", "reviewer", "--backend", "codex-remote", "go"}, envMap(), human)
+	assert.Equal(t, exitUsage, r.code)
+	assert.Contains(t, r.stderr, "--backend")
+	assert.Empty(t, w.box.runRequests())
+}
+
+func TestAccountSend_GivenEngineWithSessionThenUsageError(t *testing.T) {
+	w := newWorld(t)
+	r := runWith([]string{"send", "--session", sessA, "--engine", "claude-main", "more"}, envMap(), human)
+	assert.Equal(t, exitUsage, r.code)
+	assert.Contains(t, r.stderr, "--engine")
+	assert.Empty(t, w.box.runRequests())
+}
+
+func TestAccountSend_GivenNoEligibleDeviceThenEveryDeviceSaysWhy(t *testing.T) {
+	w := newWorld(t)
+	w.enginePlans["AG-12"].devices[1].reasonCode = "no_project_path"
 	r := runWith([]string{"send", "--agent", "reviewer", "--project", "agentre", "go"}, envMap(), human)
 	assert.Equal(t, exitFailed, r.code)
-	assert.Contains(t, r.stderr, "laptop: the device is offline")
-	assert.Contains(t, r.stderr, "build-box: the project has no path on that device")
+	assert.Contains(t, r.stderr, "laptop: offline")
+	assert.Contains(t, r.stderr, "build-box: no path for project PJ-1")
 }
 
 func TestAccountSend_GivenBadOverridesThenUsageErrorsBeforeAnythingRuns(t *testing.T) {

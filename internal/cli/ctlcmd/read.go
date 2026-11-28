@@ -94,12 +94,12 @@ func listFilter(cat *catalog, spec *kindSpec, p parsedArgs) (func(*agentrewire.C
 				return nil, err
 			}
 			keep = func(r *agentrewire.CtlResource) bool { return r.GetModel().GetProviderId() == id }
-		case spec == kindBackend && o.def.name == "type":
-			if lookupBackendType(o.value) == nil {
-				return nil, usageErrorf("unknown backend type %q (one of: %s)", o.value, backendTypeNames())
+		case spec == kindEngine && o.def.name == "type":
+			if lookupEngineType(o.value) == nil {
+				return nil, usageErrorf("unknown engine type %q (one of: %s)", o.value, engineTypeNames())
 			}
 			t := o.value
-			keep = func(r *agentrewire.CtlResource) bool { return r.GetBackend().GetType() == t }
+			keep = func(r *agentrewire.CtlResource) bool { return r.GetEngine().GetType() == t }
 		}
 	}
 	return keep, nil
@@ -191,7 +191,7 @@ func tableHeader(kind agentrewire.CtlKind) []string {
 	case agentrewire.CtlKind_CTL_KIND_MEMORY:
 		return []string{"ID", "LAYER", "SUMMARY", "DETAIL", "CARRIED", "UPDATED"}
 	default:
-		return []string{"ID", "NAME", "TYPE", "DEVICE", "PROVIDER", "MODEL", "TOKEN"}
+		return []string{"ID", "NAME", "TYPE", "PROVIDER", "MODEL"}
 	}
 }
 
@@ -205,30 +205,6 @@ func yesNo(b bool) string {
 func mark(b bool, s string) string {
 	if b {
 		return s
-	}
-	return ""
-}
-
-// tokenLabel 是 token 状态在 get 里的写法：set / unset / unknown（执行者问不到后端
-// 绑定的那台设备）。
-func tokenLabel(state agentrewire.CtlTokenState) string {
-	switch state {
-	case agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET:
-		return "set"
-	case agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNKNOWN:
-		return "unknown"
-	default:
-		return "unset"
-	}
-}
-
-// tokenCell 是 list 表格里的 TOKEN 列：没有 token 的类型与未设置都是空格子（印成 -）。
-func tokenCell(b *agentrewire.CtlBackend) string {
-	if t := lookupBackendType(b.GetType()); t == nil || !t.token {
-		return ""
-	}
-	if label := tokenLabel(b.GetTokenState()); label != "unset" {
-		return label
 	}
 	return ""
 }
@@ -263,10 +239,10 @@ func (c *catalog) row(r *agentrewire.CtlResource) []string {
 		x := d.Model
 		return []string{id, x.GetModelId(), c.label(agentrewire.CtlKind_CTL_KIND_PROVIDER, x.GetProviderId()),
 			itoa(x.GetContextWindow()), yesNo(x.GetEnabled()), mark(x.GetIsDefault(), "*")}
-	case *agentrewire.CtlResource_Backend:
-		x := d.Backend
-		return []string{id, x.GetName(), x.GetType(), x.GetDevice(), c.label(agentrewire.CtlKind_CTL_KIND_PROVIDER, x.GetProviderId()),
-			c.label(agentrewire.CtlKind_CTL_KIND_MODEL, x.GetModelId()), tokenCell(x)}
+	case *agentrewire.CtlResource_Engine:
+		x := d.Engine
+		return []string{id, x.GetName(), x.GetType(), c.label(agentrewire.CtlKind_CTL_KIND_PROVIDER, x.GetProviderId()),
+			c.label(agentrewire.CtlKind_CTL_KIND_MODEL, x.GetModelId())}
 	case *agentrewire.CtlResource_Memory:
 		return c.memoryRow(d.Memory)
 	}
@@ -397,19 +373,15 @@ type modelView struct {
 	References    references `json:"references"`
 }
 
-type backendView struct {
+type engineView struct {
 	ID              int64             `json:"id"`
 	Name            string            `json:"name"`
 	Type            string            `json:"type"`
-	Device          string            `json:"device"`
-	CLIPath         string            `json:"cliPath,omitempty"`
 	Provider        string            `json:"provider"`
 	Model           string            `json:"model"`
 	ReasoningEffort string            `json:"reasoningEffort,omitempty"`
 	Env             map[string]string `json:"env,omitempty"`
 	Config          json.RawMessage   `json:"config,omitempty"`
-	// Token 只说是否已设置（set / unset / unknown），只对有 token 的类型出现。
-	Token string `json:"token,omitempty"`
 }
 
 // view 是资源的 JSON 视图：list -o json 与 get 共用；get 的关联信息（成员路径、
@@ -458,16 +430,13 @@ func (c *catalog) view(r *agentrewire.CtlResource, detail bool) any {
 			v.Key = x.GetKey()
 		}
 		return v
-	case *agentrewire.CtlResource_Backend:
-		x := d.Backend
-		v := backendView{ID: x.GetId(), Name: x.GetName(), Type: x.GetType(), Device: x.GetDevice(), CLIPath: x.GetCliPath(),
+	case *agentrewire.CtlResource_Engine:
+		x := d.Engine
+		v := engineView{ID: x.GetId(), Name: x.GetName(), Type: x.GetType(),
 			Provider: c.path(agentrewire.CtlKind_CTL_KIND_PROVIDER, x.GetProviderId()), Model: c.modelPath(x.GetModelId()),
 			ReasoningEffort: x.GetReasoningEffort(), Env: x.GetEnv()}
 		if cfg := strings.TrimSpace(x.GetConfigJson()); cfg != "" && json.Valid([]byte(cfg)) {
 			v.Config = json.RawMessage(cfg)
-		}
-		if t := lookupBackendType(x.GetType()); t != nil && t.token {
-			v.Token = tokenLabel(x.GetTokenState())
 		}
 		return v
 	case *agentrewire.CtlResource_Memory:

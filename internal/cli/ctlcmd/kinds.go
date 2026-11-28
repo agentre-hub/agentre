@@ -38,9 +38,10 @@ var (
 	kindProvider   = &kindSpec{kind: agentrewire.CtlKind_CTL_KIND_PROVIDER, name: "provider", plural: "providers"}
 	kindModel      = &kindSpec{kind: agentrewire.CtlKind_CTL_KIND_MODEL, name: "model", plural: "models"}
 	kindBackend    = &kindSpec{kind: agentrewire.CtlKind_CTL_KIND_BACKEND, name: "backend", plural: "backends"}
+	kindEngine     = &kindSpec{kind: agentrewire.CtlKind_CTL_KIND_ENGINE, name: "engine", plural: "engines"}
 	kindMemory     = &kindSpec{kind: agentrewire.CtlKind_CTL_KIND_MEMORY, name: "memory", plural: "memories"}
 
-	allKinds = []*kindSpec{kindAgent, kindDepartment, kindProject, kindProvider, kindModel, kindBackend, kindMemory}
+	allKinds = []*kindSpec{kindAgent, kindDepartment, kindProject, kindProvider, kindModel, kindEngine, kindMemory}
 )
 
 // lookupKind 接受单数、复数与短名。
@@ -73,7 +74,7 @@ func init() {
 	initProjectFlags()
 	initProviderFlags()
 	initModelFlags()
-	initBackendFlags()
+	initEngineFlags()
 	initMemoryFlags()
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/dispatch_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 const (
@@ -40,21 +43,24 @@ type fakeConversations struct {
 
 	checkErr   error
 	checkedFor []int64 // agentID / sessionID 交替无所谓,只看是否先于建会话
-	// checkedBackend 是新会话校验覆盖时按的那一档后端(0 = agent 默认档)。
-	checkedBackend []int64
-	execTargets    []chat_svc.CtlExecTarget
-	pinned         map[int64]int64
-	checked        []chat_svc.CtlOverrides
-	applied        map[int64]chat_svc.CtlOverrides
-	steered        []string
-	discardN       int
-	discarded      bool
-	pending        wire.SessionPendingWaitersResult
-	tail           *chat_svc.CtlTail
-	tailErr        error
-	tailFrom       int64
-	tailResume     bool
-	tailSession    int64
+	// checkedEngine 是新会话校验覆盖时按的那份引擎配置(0 = 成员生效的那份)。
+	checkedEngine []int64
+	// plan 是派发方案;engines 是 --engine 能解析的引擎配置;planned 记下问方案时的引擎配置。
+	plan        *chat_svc.CtlDispatch
+	engines     []chat_svc.CtlEngine
+	planned     []int64
+	pinned      map[int64]pinnedDispatch
+	checked     []chat_svc.CtlOverrides
+	applied     map[int64]chat_svc.CtlOverrides
+	steered     []string
+	discardN    int
+	discarded   bool
+	pending     wire.SessionPendingWaitersResult
+	tail        *chat_svc.CtlTail
+	tailErr     error
+	tailFrom    int64
+	tailResume  bool
+	tailSession int64
 
 	list             []*chat_svc.CtlConversation
 	listFilter       chat_svc.CtlListFilter
@@ -117,26 +123,50 @@ func (f *fakeConversations) DescribeCtlConversation(_ context.Context, sessionID
 	return &cp, nil
 }
 
-func (f *fakeConversations) CheckCtlOverrides(_ context.Context, agentID, agentBackendID, sessionID int64, o chat_svc.CtlOverrides) error {
+func (f *fakeConversations) CheckCtlOverrides(_ context.Context, agentID, engineProfileID, sessionID int64, o chat_svc.CtlOverrides) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.checked = append(f.checked, o)
-	f.checkedBackend = append(f.checkedBackend, agentBackendID)
+	f.checkedEngine = append(f.checkedEngine, engineProfileID)
 	f.checkedFor = append(f.checkedFor, agentID+sessionID)
 	return f.checkErr
 }
 
-func (f *fakeConversations) CtlExecTargets(context.Context, int64, int64) ([]chat_svc.CtlExecTarget, error) {
-	return f.execTargets, nil
+func (f *fakeConversations) ResolveCtlEngine(_ context.Context, ref string) (*chat_svc.CtlEngine, error) {
+	var options []string
+	for i := range f.engines {
+		options = append(options, f.engines[i].Name)
+		if f.engines[i].Name == ref || strconv.FormatInt(f.engines[i].ID, 10) == ref {
+			return &f.engines[i], nil
+		}
+	}
+	return nil, &chat_svc.CtlEngineNotFoundError{Ref: ref, Options: options}
 }
 
-func (f *fakeConversations) PinCtlExecTarget(_ context.Context, sessionID, agentBackendID int64) error {
+func (f *fakeConversations) CtlDispatchPlan(_ context.Context, _, _, engineProfileID int64) (*chat_svc.CtlDispatch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.planned = append(f.planned, engineProfileID)
+	if f.plan == nil { // 没布置方案的用例:本机通过、自动选中
+		return &chat_svc.CtlDispatch{Found: true, Chosen: "sha256:self", Devices: []chat_svc.CtlDevice{
+			{Name: "this desktop", Refs: []string{"local"}, Fingerprint: "sha256:self", Eligible: true, Chosen: true},
+		}}, nil
+	}
+	return f.plan, nil
+}
+
+type pinnedDispatch struct {
+	engineProfileID int64
+	device          devicefp.Carrier
+}
+
+func (f *fakeConversations) PinCtlDispatch(_ context.Context, sessionID, engineProfileID int64, device devicefp.Carrier) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.pinned == nil {
-		f.pinned = map[int64]int64{}
+		f.pinned = map[int64]pinnedDispatch{}
 	}
-	f.pinned[sessionID] = agentBackendID
+	f.pinned[sessionID] = pinnedDispatch{engineProfileID, device}
 	return nil
 }
 
@@ -641,73 +671,95 @@ func TestConversationAddressing_SessionsStreamAnswer(t *testing.T) {
 	assert.True(t, strings.Contains(rec.Body.String(), "not found"))
 }
 
-// ---- send --device / --backend:桌面端在 agent 自己的执行目标里挑一档,首轮之前钉住 ----
+// ---- send --device / --engine:桌面端按共享派发函数校验、首轮之前把设备与引擎配置钉住 ----
 
-// planner 的执行目标(按生效顺序):本机 claude-local、build-box 上的 codex-remote、
-// 离线的 gpu-box 上的 codex-gpu。
-func plannerTargets() []chat_svc.CtlExecTarget {
-	return []chat_svc.CtlExecTarget{
-		{AgentBackendID: 5, Backend: "claude-local", Device: "this desktop", DeviceRefs: []string{"this desktop", "local"}, Available: true},
-		{AgentBackendID: 9, Backend: "codex-remote", Device: "build-box", DeviceRefs: []string{"build-box", "sha256:bb"}, Available: true},
-		{AgentBackendID: 12, Backend: "codex-gpu", Device: "gpu-box", DeviceRefs: []string{"gpu-box"}, Reason: "device gpu-box is offline"},
+// planner 的派发方案(按派发顺序):本机没装运行时、build-box 通过且被自动选中、gpu-box 离线。
+func plannerPlan() *chat_svc.CtlDispatch {
+	return &chat_svc.CtlDispatch{
+		Found: true, EngineProfileID: 31, Chosen: "sha256:bb",
+		Devices: []chat_svc.CtlDevice{
+			{Name: "this desktop", Refs: []string{"this desktop", "本机", "local", "sha256:self"}, Fingerprint: "sha256:self",
+				Reason: &dispatch_svc.ReasonView{Code: "runtime_missing", Runtime: "codex"}},
+			{Name: "build-box", Refs: []string{"build-box", "sha256:bb"}, Fingerprint: "sha256:bb", Eligible: true, Chosen: true},
+			{Name: "gpu-box", Refs: []string{"gpu-box", "sha256:gpu"}, Fingerprint: "sha256:gpu",
+				Reason: &dispatch_svc.ReasonView{Code: "offline"}},
+		},
 	}
 }
 
-func TestSend_DeviceOrBackendPinsTheNewSession(t *testing.T) {
+func plannerEngines() []chat_svc.CtlEngine {
+	return []chat_svc.CtlEngine{{ID: 31, Name: "claude-main"}, {ID: 32, Name: "codex-main"}}
+}
+
+func TestSend_NewSessionPinsTheDispatchedDeviceAndEngine(t *testing.T) {
 	cases := []struct {
-		name, field, ref string
-		wantBackend      int64
+		name, body  string
+		wantEngine  int64
+		wantDevice  devicefp.Carrier
+		wantPlanned int64
 	}{
-		{"device by name", "device", "build-box", 9},
-		{"device by fingerprint", "device", "sha256:bb", 9},
-		{"the local machine is a device too", "device", "local", 5},
-		{"backend by name", "backend", "codex-remote", 9},
-		{"backend by id", "backend", "5", 5},
+		{"neither → the rule's pick", `{"agent":"planner","text":"go","effort":"high"}`, 31, "sha256:bb", 0},
+		{"device by name", `{"agent":"planner","text":"go","effort":"high","device":"build-box"}`, 31, "sha256:bb", 0},
+		{"device by fingerprint", `{"agent":"planner","text":"go","device":"sha256:bb"}`, 31, "sha256:bb", 0},
+		{"engine by name", `{"agent":"planner","text":"go","effort":"high","engine":"codex-main"}`, 32, "sha256:bb", 32},
+		{"engine by id with device", `{"agent":"planner","text":"go","engine":"32","device":"build-box"}`, 32, "sha256:bb", 32},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			convs := newFakeConversations(conv(100, convA, chat_svc.CtlStatusIdle))
-			convs.execTargets = plannerTargets()
+			convs.plan, convs.engines = plannerPlan(), plannerEngines()
+			if c.wantEngine == 32 {
+				convs.plan.EngineProfileID = 32
+			}
 			rig := newConvRig(t, convs)
-			rec := do(t, rig.h, http.MethodPost, "/ctl/v1/send", testToken,
-				`{"agent":"planner","text":"go","effort":"high","`+c.field+`":"`+c.ref+`"}`)
+			rec := do(t, rig.h, http.MethodPost, "/ctl/v1/send", testToken, c.body)
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-			assert.Equal(t, c.wantBackend, convs.pinned[100], "pinned before the first turn")
-			assert.Equal(t, []int64{c.wantBackend}, convs.checkedBackend, "overrides are checked against the chosen backend")
+			assert.Equal(t, pinnedDispatch{c.wantEngine, c.wantDevice}, convs.pinned[100], "pinned before the first turn")
+			assert.Equal(t, []int64{c.wantPlanned}, convs.planned, "the dispatch rule is asked about the requested engine")
+			assert.Equal(t, []int64{c.wantEngine}, convs.checkedEngine, "overrides are checked against the final engine profile")
 			require.NotNil(t, rig.chat.lastSend)
+			assert.Zero(t, rig.chat.lastSend.ExecTargetOverride, "the old exec target is no longer sent")
 		})
 	}
-	t.Run("neither → the agent's own order, nothing pinned here", func(t *testing.T) {
-		convs := newFakeConversations(conv(100, convA, chat_svc.CtlStatusIdle))
-		convs.execTargets = plannerTargets()
-		rig := newConvRig(t, convs)
-		rec := do(t, rig.h, http.MethodPost, "/ctl/v1/send", testToken, `{"agent":"planner","text":"go"}`)
-		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-		assert.Empty(t, convs.pinned)
-	})
 }
 
-func TestSend_DeviceOrBackendRejections(t *testing.T) {
+func TestSend_TheLocalDesktopIsADeviceUnderEveryName(t *testing.T) {
+	for _, ref := range []string{"本机", "local", "this desktop", "sha256:self"} {
+		t.Run(ref, func(t *testing.T) {
+			convs := newFakeConversations(conv(100, convA, chat_svc.CtlStatusIdle))
+			convs.plan, convs.engines = plannerPlan(), plannerEngines()
+			convs.plan.Devices[0].Eligible, convs.plan.Devices[0].Reason = true, nil
+			rig := newConvRig(t, convs)
+			rec := do(t, rig.h, http.MethodPost, "/ctl/v1/send", testToken, `{"agent":"planner","text":"go","device":"`+ref+`"}`)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			assert.Equal(t, devicefp.Carrier("sha256:self"), convs.pinned[100].device)
+		})
+	}
+}
+
+func TestSend_DeviceOrEngineRejections(t *testing.T) {
 	cases := []struct {
 		name, body string
 		code       int
 		msgs       []string
 	}{
-		{"unknown device lists the agent's devices", `{"agent":"planner","text":"go","device":"nowhere"}`,
+		{"unknown device lists the dispatchable devices", `{"agent":"planner","text":"go","device":"nowhere"}`,
 			http.StatusUnprocessableEntity, []string{"--device", "this desktop", "build-box", "gpu-box"}},
-		{"backend not among the agent's lists them", `{"agent":"planner","text":"go","backend":"ghost"}`,
-			http.StatusUnprocessableEntity, []string{"--backend", "claude-local", "codex-remote"}},
-		{"offline device → its reason", `{"agent":"planner","text":"go","device":"gpu-box"}`,
-			http.StatusConflict, []string{"codex-gpu", "gpu-box is offline"}},
-		{"both device and backend", `{"agent":"planner","text":"go","device":"build-box","backend":"codex-remote"}`,
-			http.StatusBadRequest, []string{"device", "backend"}},
+		{"a device the rule rejects → its reason", `{"agent":"planner","text":"go","device":"gpu-box"}`,
+			http.StatusConflict, []string{"gpu-box: offline"}},
+		{"the local desktop failing the rule says why", `{"agent":"planner","text":"go","device":"local"}`,
+			http.StatusConflict, []string{"this desktop: codex is not installed"}},
+		{"unknown engine lists them", `{"agent":"planner","text":"go","engine":"ghost"}`,
+			http.StatusUnprocessableEntity, []string{"--engine", "claude-main", "codex-main"}},
 		{"device when continuing", `{"conversationId":"` + convA + `","text":"go","device":"build-box"}`,
+			http.StatusBadRequest, []string{"cannot be combined"}},
+		{"engine when continuing", `{"conversationId":"` + convA + `","text":"go","engine":"codex-main"}`,
 			http.StatusBadRequest, []string{"cannot be combined"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			convs := newFakeConversations(conv(100, convA, chat_svc.CtlStatusIdle))
-			convs.execTargets = plannerTargets()
+			convs.plan, convs.engines = plannerPlan(), plannerEngines()
 			rig := newConvRig(t, convs)
 			rec := do(t, rig.h, http.MethodPost, "/ctl/v1/send", testToken, c.body)
 			assert.Equal(t, c.code, rec.Code, rec.Body.String())
@@ -716,6 +768,24 @@ func TestSend_DeviceOrBackendRejections(t *testing.T) {
 			}
 			assert.Nil(t, rig.chat.lastEnsure, "a refused target creates no session")
 			assert.Nil(t, rig.chat.lastSend)
+			assert.Empty(t, convs.pinned)
 		})
 	}
+}
+
+// 没有任何设备通过(无处可跑):逐台列出原因,退出码 1(409);不建会话。
+func TestSend_NoEligibleDeviceListsEveryReason(t *testing.T) {
+	convs := newFakeConversations(conv(100, convA, chat_svc.CtlStatusIdle))
+	convs.engines = plannerEngines()
+	convs.plan = plannerPlan()
+	convs.plan.Found, convs.plan.Chosen = false, ""
+	convs.plan.Devices[1].Eligible, convs.plan.Devices[1].Chosen = false, false
+	convs.plan.Devices[1].Reason = &dispatch_svc.ReasonView{Code: "no_project_path", Project: "agentre"}
+	rig := newConvRig(t, convs)
+	rec := do(t, rig.h, http.MethodPost, "/ctl/v1/send", testToken, `{"agent":"planner","text":"go"}`)
+	assert.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	for _, m := range []string{"this desktop: codex is not installed", "build-box: no path for project agentre", "gpu-box: offline"} {
+		assert.Contains(t, rec.Body.String(), m)
+	}
+	assert.Nil(t, rig.chat.lastEnsure)
 }

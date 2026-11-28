@@ -274,3 +274,18 @@ func docOf(r *agentrewire.CtlResource) doc {
 	d := ctlaccount.DocOf(r)
 	return doc{id: d.ID, name: d.Name, parentID: d.ParentID, providerID: d.ProviderID}
 }
+
+// nameBySyncID 是同步标识对应资源的名字（只有引擎配置与项目带同步标识）；目录里没有时原样
+// 交回同步标识，信息不丢。
+func (c *catalog) nameBySyncID(kind agentrewire.CtlKind, syncID string) string {
+	items, err := c.list(kind)
+	if err != nil {
+		return syncID
+	}
+	for _, it := range items {
+		if syncID != "" && (it.GetEngine().GetSyncId() == syncID || it.GetProject().GetSyncId() == syncID) {
+			return docOf(it).name
+		}
+	}
+	return syncID
+}

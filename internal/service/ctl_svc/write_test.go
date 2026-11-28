@@ -206,6 +206,9 @@ func newWriteFixture() *writeFixture {
 			{Id: 21, ProviderId: 1, Key: "mk-1", ModelId: "claude-opus-5", IsDefault: true, Enabled: true},
 			{Id: 22, ProviderId: 1, Key: "mk-2", ModelId: "claude-sonnet-5", Enabled: true},
 		},
+		engines: []*agentrewire.CtlEngine{
+			{Id: 31, Name: "claude-main", Type: "claudecode", ProviderId: 1, ConfigJson: `{"defaultPermissionMode":"plan","defaultModel":"x"}`},
+		},
 		backends: []*agentrewire.CtlBackend{
 			{Id: 5, Name: "cc", Type: "claudecode", ProviderId: 1, ConfigJson: `{"defaultPermissionMode":"plan","defaultModel":"x"}`},
 			{Id: 9, Name: "claw", Type: "openclaw", Token: "gateway-secret-token", TokenState: agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET},
@@ -447,6 +450,38 @@ func TestWrite_GivenBackendConfigThenOnlyGivenKeysReplaced(t *testing.T) {
 	fields := resp.GetChanges()[0].GetFields()
 	require.Len(t, fields, 1)
 	assert.True(t, proto.Equal(fieldChange("config.defaultPermissionMode", str("plan"), str("acceptEdits")), fields[0]))
+}
+
+func TestWrite_GivenEngineConfigThenOnlyGivenKeysReplaced(t *testing.T) {
+	f := newWriteFixture()
+	rec := postResources(t, f.h, testToken, writeBody(t, &agentrewire.CtlWriteRequest{
+		Op: agentrewire.CtlOp_CTL_OP_UPDATE, Kind: agentrewire.CtlKind_CTL_KIND_ENGINE, Id: 31,
+		Caller:   agentrewire.CtlCaller_CTL_CALLER_HUMAN,
+		Resource: &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Engine{Engine: &agentrewire.CtlEngine{ConfigJson: `{"defaultPermissionMode":"acceptEdits"}`}}},
+		Fields:   []string{"configJson"},
+	}))
+	resp := decodeWrite(t, rec.Code, rec.Body.Bytes())
+	w := f.writer(agentrewire.CtlKind_CTL_KIND_ENGINE).onlyWrite(t, "update")
+	assert.JSONEq(t, `{"defaultPermissionMode":"acceptEdits","defaultModel":"x"}`, w.Next.GetEngine().GetConfigJson())
+	fields := resp.GetChanges()[0].GetFields()
+	require.Len(t, fields, 1)
+	assert.True(t, proto.Equal(fieldChange("config.defaultPermissionMode", str("plan"), str("acceptEdits")), fields[0]))
+	assert.Equal(t, agentrewire.CtlKind_CTL_KIND_ENGINE, resp.GetChanges()[0].GetKind())
+}
+
+// 引擎配置不带设备、按设备的 CLI 路径与任何凭据：这些字段不存在，写它们是 400。
+func TestWrite_GivenEngineFieldsItDoesNotHaveThenBadRequest(t *testing.T) {
+	for _, field := range []string{"device", "cliPath", "token", "deviceFingerprint", "syncId"} {
+		f := newWriteFixture()
+		rec := postResources(t, f.h, testToken, writeBody(t, &agentrewire.CtlWriteRequest{
+			Op: agentrewire.CtlOp_CTL_OP_UPDATE, Kind: agentrewire.CtlKind_CTL_KIND_ENGINE, Id: 31,
+			Caller:   agentrewire.CtlCaller_CTL_CALLER_HUMAN,
+			Resource: &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Engine{Engine: &agentrewire.CtlEngine{Name: "x"}}},
+			Fields:   []string{field},
+		}))
+		assert.Equal(t, http.StatusBadRequest, rec.Code, field)
+		assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_ENGINE).count(), field)
+	}
 }
 
 func TestWrite_RequestErrors(t *testing.T) {

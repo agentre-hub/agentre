@@ -39,6 +39,11 @@ type BackendResources interface {
 	ListBackends(ctx context.Context) ([]*agentrewire.CtlBackend, error)
 }
 
+// EngineResources 读引擎配置。
+type EngineResources interface {
+	ListEngines(ctx context.Context) ([]*agentrewire.CtlEngine, error)
+}
+
 // Write 是执行者合并好的一次按 id 写入，交给该类资源的 KindWriter 经服务层落库。
 type Write struct {
 	// Cur 是 update / delete 目标的当前文档（与 get 同形：密钥已脱敏）；create 时为 nil。
@@ -71,6 +76,7 @@ type Resources struct {
 	Projects  ProjectResources
 	Providers ProviderResources
 	Backends  BackendResources
+	Engines   EngineResources
 	// Writers 按资源类型写入；某类缺席时该类的写请求 503。
 	Writers map[agentrewire.CtlKind]KindWriter
 	Cascade CascadeCounter
@@ -81,11 +87,17 @@ type Resources struct {
 }
 
 func (r Resources) ready() bool {
-	return r.Org != nil && r.Projects != nil && r.Providers != nil && r.Backends != nil
+	return r.Org != nil && r.Projects != nil && r.Providers != nil && r.Backends != nil && r.Engines != nil
 }
 
 // kindNames 是错误消息里的资源名，与 agrctl 的资源名一致（与 agentred 的审批卡同一份）。
 var kindNames = blocks.CtlKindNames
+
+func init() {
+	// 引擎配置是 ctl 的资源类型之一（取代 backend），审批卡与错误消息按同一张表叫它 engine。
+	// 共享表在 internal/pkg/transcript/blocks（不在本任务的路径内），这里先补上这一项。
+	kindNames[agentrewire.CtlKind_CTL_KIND_ENGINE] = "engine"
+}
 
 // errUnknownKind 是请求里的资源类型不认识（含未指定）。
 type errUnknownKind agentrewire.CtlKind
@@ -208,6 +220,12 @@ func (h *ctlHandler) listResources(ctx context.Context, kind agentrewire.CtlKind
 			out = append(out, &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Backend{Backend: it}})
 		}
 		return out, err
+	case agentrewire.CtlKind_CTL_KIND_ENGINE:
+		items, err := h.resources.Engines.ListEngines(ctx)
+		for _, it := range items {
+			out = append(out, &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Engine{Engine: it}})
+		}
+		return out, err
 	default:
 		return nil, errUnknownKind(kind)
 	}
@@ -241,6 +259,8 @@ func resourceID(r *agentrewire.CtlResource) int64 {
 		return d.Model.GetId()
 	case *agentrewire.CtlResource_Backend:
 		return d.Backend.GetId()
+	case *agentrewire.CtlResource_Engine:
+		return d.Engine.GetId()
 	}
 	return 0
 }

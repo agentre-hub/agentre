@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -30,8 +31,11 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/ipc"
+	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
+	"github.com/agentre-hub/agentre/internal/service/dispatch_svc"
 	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // CtlConversationStatus 是 agrctl 看到的会话运行态(spec「等待」「跟随输出」)。
@@ -122,18 +126,44 @@ type CtlTail struct {
 	LatestSeq int64
 }
 
-// CtlExecTarget 是 agent 的一档执行目标,供 agrctl send --device / --backend 挑选。
-type CtlExecTarget struct {
-	AgentBackendID int64
-	// Backend 是后端名。
-	Backend string
-	// Device 是它所在设备的展示名(本机为 "this desktop");DeviceRefs 是 --device 能
-	// 选中它的全部写法(设备名、指纹;本机另有 "local" 与主机名)。
-	Device     string
-	DeviceRefs []string
-	Available  bool
-	// Reason 是不可用的原因(Available 时为空)。
-	Reason string
+// CtlEngine 是 agrctl --engine 点名的一份引擎配置。
+type CtlEngine struct {
+	ID   int64
+	Name string
+}
+
+// CtlEngineNotFoundError 是 --engine 点名的引擎配置不存在（或已删除）；Options 是可选的引擎
+// 配置名，命令行据此给出用法错误。
+type CtlEngineNotFoundError struct {
+	Ref     string
+	Options []string
+}
+
+func (e *CtlEngineNotFoundError) Error() string {
+	return fmt.Sprintf("--engine %q is not an engine profile (one of: %s)", e.Ref, strings.Join(e.Options, ", "))
+}
+
+// CtlDevice 是共享派发函数对一台设备的结果，加上 --device 能选中它的全部写法。
+type CtlDevice struct {
+	// Name 是展示名（本机没有账号名时为 "this desktop"）。
+	Name string
+	// Refs 是 --device 能选中它的写法：名字、指纹；本机另有「本机」「local」与主机名。
+	Refs        []string
+	Fingerprint devicefp.Carrier
+	Eligible    bool
+	Chosen      bool
+	// Reason 是不通过时第一条不满足的检查；通过时为 nil。
+	Reason *dispatch_svc.ReasonView
+}
+
+// CtlDispatch 是一次新会话的派发方案：用的引擎配置、选中的设备，与每台设备的结果。
+type CtlDispatch struct {
+	// Found 为 false = 没有任何设备通过（无处可跑），Devices 带着逐台的原因。
+	Found           bool
+	EngineProfileID int64
+	// Chosen 是自动选中的设备（Found 时有值）。
+	Chosen  devicefp.Carrier
+	Devices []CtlDevice
 }
 
 // CtlPendingApproval 是一张还挂着的审批卡,形状与 agentred 的 PendingApproval 相同:Kind 是卡的
@@ -155,13 +185,16 @@ type CtlConversationGateway interface {
 	LookupCtlConversation(ctx context.Context, conversationID string) (*CtlConversation, error)
 	// DescribeCtlConversation 同上,按本机主键。
 	DescribeCtlConversation(ctx context.Context, sessionID int64) (*CtlConversation, error)
-	// CheckCtlOverrides 只校验不写:sessionID>0 按该会话下一轮的后端;否则按新会话将落到
-	// 的那一档 —— agentBackendID>0 是 --device / --backend 挑中的一档,0 是 agent 的默认档。
-	CheckCtlOverrides(ctx context.Context, agentID, agentBackendID, sessionID int64, o CtlOverrides) error
-	// CtlExecTargets 按生效顺序列出 agent 的执行目标,每档带设备、可用性与不可用的原因。
-	CtlExecTargets(ctx context.Context, agentID, projectID int64) ([]CtlExecTarget, error)
-	// PinCtlExecTarget 在新会话首轮之前把它钉到选中的那一档后端上。
-	PinCtlExecTarget(ctx context.Context, sessionID, agentBackendID int64) error
+	// CheckCtlOverrides 只校验不写:sessionID>0 按该会话下一轮用的引擎配置;否则按新会话将用的
+	// 那份 —— engineProfileID>0 是 --engine 点名的,0 是成员生效的那份。
+	CheckCtlOverrides(ctx context.Context, agentID, engineProfileID, sessionID int64, o CtlOverrides) error
+	// ResolveCtlEngine 把 --engine(名字或 id)解析成一份活的引擎配置;找不到报 *CtlEngineNotFoundError。
+	ResolveCtlEngine(ctx context.Context, ref string) (*CtlEngine, error)
+	// CtlDispatchPlan 按共享派发函数给新会话出方案(与控制台、新会话界面同一份判定):
+	// engineProfileID>0 是本会话换用的引擎配置,0 是成员生效的那份。
+	CtlDispatchPlan(ctx context.Context, agentID, projectID, engineProfileID int64) (*CtlDispatch, error)
+	// PinCtlDispatch 在新会话首轮之前把方案选中的引擎配置与设备钉到会话上(会话不能换设备)。
+	PinCtlDispatch(ctx context.Context, sessionID, engineProfileID int64, device devicefp.Carrier) error
 	// ApplyCtlOverrides 把覆盖写到会话上(自下一轮生效),与桌面端会话设置同一条路径。
 	ApplyCtlOverrides(ctx context.Context, sessionID int64, o CtlOverrides) error
 	// SteerCtlConversation 把一条插话排进正在跑的这一轮(与桌面端插话同一个队列),交回排队 id。
@@ -296,11 +329,11 @@ func ctlDeviceName(ctx context.Context, deviceID int64) string {
 	return fallback
 }
 
-func (s *chatSvc) CheckCtlOverrides(ctx context.Context, agentID, agentBackendID, sessionID int64, o CtlOverrides) error {
+func (s *chatSvc) CheckCtlOverrides(ctx context.Context, agentID, engineProfileID, sessionID int64, o CtlOverrides) error {
 	if o.Empty() {
 		return nil
 	}
-	sess := &chat_entity.Session{AgentID: agentID, ExecAgentBackendID: agentBackendID}
+	var be *agent_backend_entity.AgentBackend
 	if sessionID > 0 {
 		found, err := chat_repo.Session().Find(ctx, sessionID)
 		if err != nil {
@@ -309,13 +342,24 @@ func (s *chatSvc) CheckCtlOverrides(ctx context.Context, agentID, agentBackendID
 		if found == nil {
 			return i18n.NewError(ctx, code.ChatSessionNotFound)
 		}
-		sess = found
+		if be, err = sessionProviderBackend(ctx, found); err != nil {
+			return err
+		}
+	} else {
+		a, err := agent_repo.Agent().Find(ctx, agentID)
+		if err != nil {
+			return operationFailedWithCause(ctx, err, zap.Int64("agentId", agentID))
+		}
+		if a == nil {
+			return i18n.NewError(ctx, code.AgentNotFound)
+		}
+		profile, err := s.turnEngineProfile(ctx, a, engineProfileID)
+		if err != nil {
+			return err
+		}
+		be = sessionengine.View(profile, "")
 	}
-	be, err := sessionProviderBackend(ctx, sess)
-	if err != nil {
-		return err
-	}
-	_, err = s.resolveCtlOverrides(ctx, be, o)
+	_, err := s.resolveCtlOverrides(ctx, be, o)
 	return err
 }
 
@@ -582,79 +626,91 @@ func ctlNotificationSeq(params any) int64 {
 // ctlLocalDevice 是本机桌面在 --device 里的展示名。
 const ctlLocalDevice = "this desktop"
 
-// CtlExecTargets 按 R15 的生效顺序列出 agent 的执行目标与每档此刻的可用性(与新会话
-// 自动挑选同一份判定)。agent 没有显式执行目标时只有它的主档,按可用处理 —— 自动挑选
-// 对这种 agent 也不做逐档判定。
-func (s *chatSvc) CtlExecTargets(ctx context.Context, agentID, projectID int64) ([]CtlExecTarget, error) {
-	a, err := agent_repo.Agent().Find(ctx, agentID)
+// ResolveCtlEngine 见 CtlConversationGateway。
+func (s *chatSvc) ResolveCtlEngine(ctx context.Context, ref string) (*CtlEngine, error) {
+	ref = strings.TrimSpace(ref)
+	profiles, err := agent_backend_repo.EngineProfile().List(ctx)
 	if err != nil {
-		return nil, operationFailedWithCause(ctx, err, zap.Int64("agentId", agentID))
+		return nil, operationFailedWithCause(ctx, err)
 	}
-	if a == nil {
-		return nil, i18n.NewError(ctx, code.AgentNotFound)
+	var options []string
+	for _, p := range profiles {
+		if !p.IsActive() {
+			continue
+		}
+		options = append(options, p.Name)
+		if ref != "" && (p.Name == ref || strconv.FormatInt(p.ID, 10) == ref) {
+			return &CtlEngine{ID: p.ID, Name: p.Name}, nil
+		}
 	}
-	views, err := s.execTargets().ListExecTargetAvailability(ctx, agentID, projectID)
+	return nil, &CtlEngineNotFoundError{Ref: ref, Options: options}
+}
+
+// CtlDispatchPlan 见 CtlConversationGateway。
+func (s *chatSvc) CtlDispatchPlan(ctx context.Context, agentID, projectID, engineProfileID int64) (*CtlDispatch, error) {
+	dispatcher := dispatch_svc.Dispatch()
+	if dispatcher == nil {
+		return nil, operationFailedWithCause(ctx, errors.New("dispatch service unavailable"), zap.Int64("agentId", agentID))
+	}
+	plan, err := dispatcher.Plan(ctx, &dispatch_svc.PlanRequest{AgentID: agentID, ProjectID: projectID, EngineProfileID: engineProfileID})
 	if err != nil {
 		return nil, err
 	}
-	if len(views) == 0 && a.AgentBackendID > 0 {
-		views = []exec_target_svc.ExecTargetAvailabilityView{{AgentBackendID: a.AgentBackendID, Available: true}}
-	}
-	out := make([]CtlExecTarget, 0, len(views))
-	for _, v := range views {
-		be, err := agent_backend_repo.AgentBackend().Find(ctx, v.AgentBackendID)
-		if err != nil {
-			return nil, operationFailedWithCause(ctx, err, zap.Int64("agentBackendId", v.AgentBackendID))
-		}
-		t := CtlExecTarget{AgentBackendID: v.AgentBackendID, Available: v.Available && be != nil}
-		if !t.Available {
-			t.Reason = v.Hint
-			if t.Reason == "" {
-				t.Reason = string(v.Reason)
-			}
-		}
-		if be == nil {
-			t.Backend = fmt.Sprintf("#%d", v.AgentBackendID)
-			out = append(out, t)
+	out := &CtlDispatch{Found: plan.Found, EngineProfileID: plan.Engine.ID, Chosen: plan.Chosen}
+	for _, d := range plan.Devices {
+		if d == nil {
 			continue
 		}
-		t.Backend = be.Name
-		t.Device, t.DeviceRefs = ctlExecDevice(ctx, be)
-		out = append(out, t)
+		name, refs := ctlDeviceNames(d)
+		out.Devices = append(out.Devices, CtlDevice{
+			Name: name, Refs: refs, Fingerprint: d.Fingerprint, Eligible: d.Eligible, Chosen: d.Chosen, Reason: d.Reason,
+		})
 	}
 	return out, nil
 }
 
-// ctlExecDevice 是一档后端所在设备的展示名,以及 --device 能选中它的写法。
-func ctlExecDevice(ctx context.Context, be *agent_backend_entity.AgentBackend) (string, []string) {
-	if exec_target_svc.BackendTargetsRemote(be) {
-		fp := string(be.DeviceFingerprint)
-		name := fp
-		if view := exec_target_svc.LocalPairedDeviceView(ctx, be.DeviceFingerprint); view != nil && strings.TrimSpace(view.Name) != "" {
-			name = view.Name
+// ctlDeviceNames 是一台参与派发的设备的展示名，以及 --device 能选中它的全部写法。
+func ctlDeviceNames(d *dispatch_svc.DeviceResult) (string, []string) {
+	name := strings.TrimSpace(d.Name)
+	var refs []string
+	if name != "" {
+		refs = append(refs, name)
+	}
+	if d.IsSelf {
+		if name == "" {
+			name = ctlLocalDevice
 		}
-		return name, []string{name, fp}
-	}
-	refs := []string{ctlLocalDevice, "local"}
-	if host, err := os.Hostname(); err == nil && host != "" {
-		refs = append(refs, host)
-	}
-	if rds := remote_device_svc.Default(); rds != nil {
-		if fp, err := rds.DeviceFingerprint(); err == nil && fp != "" {
-			refs = append(refs, string(fp))
+		refs = append(refs, ctlLocalDevice, "本机", "local")
+		if host, err := os.Hostname(); err == nil && host != "" {
+			refs = append(refs, host)
 		}
 	}
-	return ctlLocalDevice, refs
+	if name == "" {
+		name = string(d.Fingerprint)
+	}
+	if d.Fingerprint != "" {
+		refs = append(refs, string(d.Fingerprint))
+	}
+	return name, slices.Compact(refs)
 }
 
-// PinCtlExecTarget 把新会话钉到选中的那一档(R15b 的会话粘性):此后每一轮的后端解析
-// 都短路到它。远端档的设备列不在这里写 —— 真正借到连接时由 recordExecDaemon 带着当下
-// 的 daemon 实例标识一并写上。
-func (s *chatSvc) PinCtlExecTarget(ctx context.Context, sessionID, agentBackendID int64) error {
-	if err := chat_repo.Session().UpdateExecDaemon(ctx, sessionID, 0, "", agentBackendID); err != nil {
-		return operationFailedWithCause(ctx, err, zap.Int64("sessionId", sessionID), zap.Int64("agentBackendId", agentBackendID))
+// PinCtlDispatch 见 CtlConversationGateway。借 pinTurn 写（先设备后引擎配置、本机不写设备
+// 列），它写库失败只记日志，所以这里回读实体确认真的钉上了。
+func (s *chatSvc) PinCtlDispatch(ctx context.Context, sessionID, engineProfileID int64, device devicefp.Carrier) error {
+	sess, err := chat_repo.Session().Find(ctx, sessionID)
+	if err != nil {
+		return operationFailedWithCause(ctx, err, zap.Int64("sessionId", sessionID))
 	}
-	logger.Ctx(ctx).Info("chat_svc.PinCtlExecTarget: session pinned to the chosen exec target",
-		zap.Int64("sessionId", sessionID), zap.Int64("agentBackendId", agentBackendID))
+	if sess == nil {
+		return i18n.NewError(ctx, code.ChatSessionNotFound)
+	}
+	if !remote_device_svc.TargetsAnotherMachine(device) {
+		device = ""
+	}
+	s.pinTurn(ctx, sess, &turnPin{engineProfileID: engineProfileID, device: device})
+	if sess.EngineProfileID != engineProfileID {
+		return operationFailedWithCause(ctx, errors.New("pin the dispatched engine profile failed"),
+			zap.Int64("sessionId", sessionID), zap.Int64("engineProfileId", engineProfileID))
+	}
 	return nil
 }

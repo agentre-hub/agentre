@@ -30,15 +30,15 @@ var sendFlags = []*flagDef{
 	{name: "permission-mode", value: "<mode>", usage: "permission mode from now on (depends on the backend)"},
 	{name: "wait", usage: "block like agrctl wait: until idle (exit 0), failed (1), waiting for input (4)"},
 	{name: "timeout", value: "<duration>", usage: "with --wait: give up after this long (e.g. 90s, 10m) — exit 5"},
-	{name: "device", value: "<device>", usage: "new session: run on the agent's first backend on this device (name or fingerprint; \"local\" = this desktop)"},
-	{name: "backend", value: "<ref>", usage: "new session: run on exactly this backend of the agent (name or id)"},
+	{name: "device", value: "<device>", usage: "new session: run on this device (name or fingerprint; \"本机\" / \"local\" = this desktop)"},
+	{name: "engine", value: "<name|id>", usage: "new session: run with this engine profile instead of the agent's own (this session only)"},
 	{name: "endpoint", value: "<url>", usage: "control endpoint URL   (env AGENTRE_CTL_ENDPOINT)"},
 	{name: "token", value: "<value>", usage: "with --endpoint: its credential (env AGENTRE_CTL_TOKEN); alone: a personal token (env AGENTRE_TOKEN)"},
 	outputFlag, outputFlagLong,
 }
 
 // newSessionOnly 是只对新会话有意义、与 --session 互斥的 flag。
-var newSessionOnly = []string{"agent", "agent-id", "project", "title", "isolated", "device", "backend"}
+var newSessionOnly = []string{"agent", "agent-id", "project", "title", "isolated", "device", "engine"}
 
 // runSend 派发一条任务给某个 agent,或继续一条会话(`agrctl send`)。
 func runSend(args []string, s *sys) error {
@@ -63,9 +63,6 @@ func runSend(args []string, s *sys) error {
 		}
 	} else if !p.has("agent") && !p.has("agent-id") {
 		return usageErrorf("send: --agent is required (or --session <id> to continue a session)")
-	}
-	if p.has("device") && p.has("backend") {
-		return usageErrorf("send: --device and --backend are mutually exclusive")
 	}
 	if p.has("model") && p.has("cli-model") {
 		return usageErrorf("send: --model and --cli-model are mutually exclusive")
@@ -158,7 +155,7 @@ func sendInputFrom(p parsedArgs, text string, images []sendImage, timeout time.D
 	in := ctlaccount.SendInput{
 		Text: text, Images: images, Session: last(p, "session"), Steer: p.on("steer"), Wait: p.on("wait"), Timeout: timeout,
 		Agent: last(p, "agent"), Project: last(p, "project"), Title: last(p, "title"), Device: last(p, "device"),
-		Backend: last(p, "backend"), Isolated: p.on("isolated"), Model: last(p, "model"), CLIModel: last(p, "cli-model"),
+		Engine: last(p, "engine"), Isolated: p.on("isolated"), Model: last(p, "model"), CLIModel: last(p, "cli-model"),
 		Effort: last(p, "effort"), PermissionMode: last(p, "permission-mode"),
 	}
 	if v := last(p, "agent-id"); v != "" {
@@ -195,7 +192,7 @@ func newSessionBody(body map[string]any, p parsedArgs, x *executor, args []strin
 	if v := last(p, "title"); v != "" {
 		body["title"] = v
 	}
-	for _, name := range []string{"device", "backend"} {
+	for _, name := range []string{"device", "engine"} {
 		if v := last(p, name); v != "" {
 			body[name] = v
 		}

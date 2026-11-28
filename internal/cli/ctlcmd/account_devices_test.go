@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agrctlcred"
-	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
 // 设备管理（仅账号模式）：list / get / update / delete / upgrade device。
@@ -93,22 +92,91 @@ func subset(m map[string]any, keys ...string) map[string]any {
 	return out
 }
 
-func TestGetDevice_AlsoListsTheBackendsBoundToIt(t *testing.T) {
-	w := newWorld(t)
-	for _, it := range w.srv.exec.items[agentrewire.CtlKind_CTL_KIND_BACKEND] {
-		if it.GetBackend().GetId() == 9 {
-			it.GetBackend().DeviceFingerprint = boxFP
+// mountFacts 让假 server 回答 GET /v1/devices/{id}/facts（agrctl 假定的读口，形状同
+// syncwire.DeviceFactsReport）：只有 build-box（2）上报过。
+func mountFacts(w *world) {
+	w.srv.mux.HandleFunc("GET /v1/devices/{id}/facts", func(rw http.ResponseWriter, r *http.Request) {
+		if !w.srv.authed(rw, r, true) {
+			return
 		}
-	}
+		if r.PathValue("id") != "2" {
+			writeEnvelope(rw, map[string]any{"reported": false})
+			return
+		}
+		writeEnvelope(rw, map[string]any{"reported": true, "report": map[string]any{
+			"collected_at": 1_760_000_000_000,
+			"runtimes": []any{
+				map[string]any{"runtime": "codex", "found": true, "version": "0.9.1", "path": "/usr/local/bin/codex", "below_minimum": false, "native_login": "loggedIn"},
+				map[string]any{"runtime": "claudecode", "found": false, "below_minimum": false},
+			},
+			"service_engines": []any{
+				map[string]any{"engine_sync_id": "EN-10", "runtime": "openclaw", "credential_present": true, "last_connection": "succeeded"},
+			},
+			"local_paths": []any{map[string]any{"project_sync_id": "PJ-1", "path": "/srv/agentre"}},
+		}})
+	})
+}
+
+func TestGetDevice_ListsTheRuntimesEndpointsAndProjectPathsItReported(t *testing.T) {
+	w := newWorld(t)
+	w.syncIDs()
+	mountFacts(w)
 	r := runWith([]string{"get", "device", "2"}, envMap(), term{})
 	require.Equal(t, exitOK, r.code, r.stderr)
 	var out struct {
-		ID       int64    `json:"id"`
-		Backends []string `json:"backends"`
+		ID       int64 `json:"id"`
+		Backends any   `json:"backends"`
+		Runtimes []struct {
+			Runtime     string `json:"runtime"`
+			Found       bool   `json:"found"`
+			Version     string `json:"version"`
+			Path        string `json:"path"`
+			NativeLogin string `json:"nativeLogin"`
+		} `json:"runtimes"`
+		Endpoints []struct {
+			Engine         string `json:"engine"`
+			Runtime        string `json:"runtime"`
+			Credential     bool   `json:"credential"`
+			LastConnection string `json:"lastConnection"`
+		} `json:"endpoints"`
+		ProjectPaths []struct {
+			Project string `json:"project"`
+			Path    string `json:"path"`
+		} `json:"projectPaths"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(r.stdout), &out), r.stdout)
 	assert.Equal(t, int64(2), out.ID)
-	assert.Equal(t, []string{"codex-remote"}, out.Backends)
+	assert.Nil(t, out.Backends, "no more \"backends bound to this device\"")
+	require.Len(t, out.Runtimes, 2)
+	assert.Equal(t, "codex", out.Runtimes[0].Runtime)
+	assert.True(t, out.Runtimes[0].Found)
+	assert.Equal(t, "0.9.1", out.Runtimes[0].Version)
+	assert.Equal(t, "/usr/local/bin/codex", out.Runtimes[0].Path)
+	assert.Equal(t, "loggedIn", out.Runtimes[0].NativeLogin)
+	assert.False(t, out.Runtimes[1].Found)
+	require.Len(t, out.Endpoints, 1)
+	assert.Equal(t, "claw", out.Endpoints[0].Engine, "the engine's name, not its sync id")
+	assert.Equal(t, "openclaw", out.Endpoints[0].Runtime)
+	assert.True(t, out.Endpoints[0].Credential)
+	assert.Equal(t, "succeeded", out.Endpoints[0].LastConnection)
+	require.Len(t, out.ProjectPaths, 1)
+	assert.Equal(t, "agentre", out.ProjectPaths[0].Project)
+	assert.Equal(t, "/srv/agentre", out.ProjectPaths[0].Path)
+	assert.NotContains(t, strings.ToLower(r.stdout), "secret")
+	assert.NotContains(t, strings.ToLower(r.stdout), "token")
+	assert.NotContains(t, strings.ToLower(r.stdout), "apikey")
+}
+
+func TestGetDevice_GivenNothingReportedThenItSaysSoAndKeepsTheRest(t *testing.T) {
+	w := newWorld(t)
+	mountFacts(w)
+	r := runWith([]string{"get", "device", "1"}, envMap(), term{})
+	require.Equal(t, exitOK, r.code, r.stderr)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal([]byte(r.stdout), &out), r.stdout)
+	assert.Equal(t, "laptop", out["name"])
+	assert.Equal(t, false, out["reported"])
+	assert.NotContains(t, out, "runtimes")
 
 	ambiguous := runWith([]string{"get", "device", "build-box"}, envMap(), term{})
 	assert.Equal(t, exitUsage, ambiguous.code, "the agentred and the cli device share a name")

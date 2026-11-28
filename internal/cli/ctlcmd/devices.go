@@ -24,7 +24,9 @@ Lists the account's devices: name, kind, online state (a cli device shows when i
 version, and a * on the device this agrctl is logged in as. Needs agrctl login.`
 	deviceGetUsage = `agrctl get device <device> [-o json]
 
-Prints one device as JSON, including the agent backends bound to it. <device> is an id or a name.
+Prints one device as JSON, including what the device reported: its runtimes (version, path, login),
+the endpoints of Hermes / OpenClaw engines (credential present or not, last connection) and its
+project paths. <device> is an id or a name. A device that never reported prints "reported": false.
 Needs agrctl login.`
 	deviceUpdateUsage = `agrctl update device <device> --name <name>
 
@@ -159,15 +161,19 @@ func runDevice(verb string, args []string, s *sys) error {
 }
 
 type deviceView struct {
-	ID         int64    `json:"id"`
-	Name       string   `json:"name"`
-	Kind       string   `json:"kind"`
-	Platform   string   `json:"platform,omitempty"`
-	Version    string   `json:"version,omitempty"`
-	Online     bool     `json:"online"`
-	LastSeenAt int64    `json:"lastSeenAt,omitempty"`
-	Current    bool     `json:"current"`
-	Backends   []string `json:"backends,omitempty"`
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Kind       string `json:"kind"`
+	Platform   string `json:"platform,omitempty"`
+	Version    string `json:"version,omitempty"`
+	Online     bool   `json:"online"`
+	LastSeenAt int64  `json:"lastSeenAt,omitempty"`
+	Current    bool   `json:"current"`
+	// Reported 是这台设备有没有上报过它的情况；下面三项只在上报过时出现。
+	Reported     *bool             `json:"reported,omitempty"`
+	Runtimes     []runtimeView     `json:"runtimes,omitempty"`
+	Endpoints    []endpointView    `json:"endpoints,omitempty"`
+	ProjectPaths []projectPathView `json:"projectPaths,omitempty"`
 }
 
 func viewOfDevice(d ctlaccount.Device) deviceView {
@@ -208,17 +214,53 @@ func listDevices(s *sys, devices []ctlaccount.Device, asJSON bool) error {
 	return printTable(s.stdout, []string{"ID", "NAME", "KIND", "STATUS", "VERSION", "CURRENT"}, rows)
 }
 
-// getDevice 打印一台设备，并列出绑定在它上面的后端。
+type runtimeView struct {
+	Runtime        string `json:"runtime"`
+	Found          bool   `json:"found"`
+	Version        string `json:"version,omitempty"`
+	Path           string `json:"path,omitempty"`
+	MinimumVersion string `json:"minimumVersion,omitempty"`
+	BelowMinimum   bool   `json:"belowMinimum,omitempty"`
+	NativeLogin    string `json:"nativeLogin,omitempty"`
+}
+
+// endpointView 是一份外部服务型引擎（Hermes / OpenClaw）的端点在这台设备上的情况：只说有没有
+// 凭据与最近一次连接的结果，从不带凭据本身。
+type endpointView struct {
+	Engine         string `json:"engine"`
+	Runtime        string `json:"runtime"`
+	Credential     bool   `json:"credential"`
+	LastConnection string `json:"lastConnection,omitempty"`
+}
+
+type projectPathView struct {
+	Project string `json:"project"`
+	Path    string `json:"path"`
+}
+
+// getDevice 打印一台设备，并列出它上报的运行时、服务型引擎的端点与项目路径。
 func getDevice(s *sys, x *executor, d ctlaccount.Device, args []string) error {
 	v := viewOfDevice(d)
-	items, err := newCatalog(x, args).list(agentrewire.CtlKind_CTL_KIND_BACKEND)
+	facts, err := ctlaccount.GetDeviceFacts(context.Background(), x.acct, d.ID)
 	if err != nil {
-		return err
+		return serverErr(err)
 	}
-	for _, it := range items {
-		if b := it.GetBackend(); b != nil && d.Fingerprint != "" && b.GetDeviceFingerprint() == d.Fingerprint {
-			v.Backends = append(v.Backends, b.GetName())
-		}
+	reported := facts.Reported && facts.Report != nil
+	v.Reported = &reported
+	if !reported {
+		return printJSON(s.stdout, v)
+	}
+	cat := newCatalog(x, args)
+	for _, r := range facts.Report.Runtimes {
+		v.Runtimes = append(v.Runtimes, runtimeView{Runtime: r.Runtime, Found: r.Found, Version: r.Version, Path: r.Path,
+			MinimumVersion: r.MinimumVersion, BelowMinimum: r.BelowMinimum, NativeLogin: r.NativeLogin})
+	}
+	for _, e := range facts.Report.ServiceEngines {
+		v.Endpoints = append(v.Endpoints, endpointView{Engine: cat.nameBySyncID(agentrewire.CtlKind_CTL_KIND_ENGINE, e.EngineSyncID),
+			Runtime: e.Runtime, Credential: e.CredentialPresent, LastConnection: e.LastConnection})
+	}
+	for _, p := range facts.Report.LocalPaths {
+		v.ProjectPaths = append(v.ProjectPaths, projectPathView{Project: cat.nameBySyncID(agentrewire.CtlKind_CTL_KIND_PROJECT, p.ProjectSyncID), Path: p.Path})
 	}
 	return printJSON(s.stdout, v)
 }

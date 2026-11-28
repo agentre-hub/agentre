@@ -58,6 +58,10 @@ func backendDoc(b *agentrewire.CtlBackend) *agentrewire.CtlResource {
 	return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Backend{Backend: b}}
 }
 
+func engineDoc(e *agentrewire.CtlEngine) *agentrewire.CtlResource {
+	return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Engine{Engine: e}}
+}
+
 // newFakeExecutor 起一个带固定数据集的假执行者。数据集里故意放了两个同名的 docs 项目
 // （在不同父项目下），用来走歧义路径。
 func newFakeExecutor(t *testing.T, token string) (*fakeExecutor, *httptest.Server) {
@@ -92,6 +96,11 @@ func newFakeExecutor(t *testing.T, token string) (*fakeExecutor, *httptest.Serve
 			// 同一提供方下 ModelId 重复：走歧义路径。
 			modelDoc(&agentrewire.CtlModel{Id: 24, ProviderId: 1, Key: "0b6c-24", ModelId: "claude/dup", Enabled: true}),
 			modelDoc(&agentrewire.CtlModel{Id: 25, ProviderId: 1, Key: "0b6c-25", ModelId: "claude/dup", Enabled: true}),
+		},
+		agentrewire.CtlKind_CTL_KIND_ENGINE: {
+			engineDoc(&agentrewire.CtlEngine{Id: 5, Name: "claude-main", Type: "claudecode", ProviderId: 1}),
+			engineDoc(&agentrewire.CtlEngine{Id: 9, Name: "codex-main", Type: "codex", ProviderId: 4, ModelId: 21}),
+			engineDoc(&agentrewire.CtlEngine{Id: 10, Name: "claw", Type: "openclaw"}),
 		},
 		agentrewire.CtlKind_CTL_KIND_BACKEND: {
 			backendDoc(&agentrewire.CtlBackend{Id: 5, Name: "claude-local", Type: "claudecode", ProviderId: 1}),
@@ -233,6 +242,8 @@ func docID(r *agentrewire.CtlResource) int64 {
 		return d.Model.GetId()
 	case *agentrewire.CtlResource_Backend:
 		return d.Backend.GetId()
+	case *agentrewire.CtlResource_Engine:
+		return d.Engine.GetId()
 	case *agentrewire.CtlResource_Memory:
 		return d.Memory.GetId()
 	}

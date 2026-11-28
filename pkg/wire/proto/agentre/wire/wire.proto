@@ -1973,6 +1973,9 @@ enum CtlKind {
   // 记忆（spec 2026-11-11「Agent 读写记忆」）：只对会话级 token 开放；读只见本会话可见的
   // 正常条目，写入不出审批卡、以该会话的 agent 身份进行，delete 是归档。
   CTL_KIND_MEMORY = 7;
+  // 引擎配置（spec 2026-11-25 决策 15）：取代 CTL_KIND_BACKEND 的命令行形态，没有设备字段
+  // 与按设备的 CLI 路径。CTL_KIND_BACKEND 随协议版本切换（任务 17）一并移除。
+  CTL_KIND_ENGINE = 8;
 }
 
 // CtlOp 是写操作的种类。
@@ -2120,6 +2123,25 @@ message CtlBackend {
   string device_fingerprint = 14;
 }
 
+// CtlEngine 是一份引擎配置（运行时类型 + 模型来源 + 设置，不含设备）。任何响应里都没有密钥。
+message CtlEngine {
+  int64 id = 1;
+  string name = 2;
+  // 运行时类型，创建后不可改。
+  string type = 3;
+  // 绑定的提供方；0 = CLI 自身登录态（native）。
+  int64 provider_id = 4;
+  // 固定模型；0 = 跟随提供方的默认模型。
+  int64 model_id = 5;
+  string reasoning_effort = 6;
+  map<string, string> env = 7;
+  // 该运行时类型独占的设置，形如同步契约的 AgentBackendConfig（camelCase 键的 JSON 对象）。
+  // 写入时 update 只替换其中出现的键。
+  string config_json = 8;
+  // 只读：引擎配置的同步标识。
+  string sync_id = 9;
+}
+
 // CtlTokenState 是后端 token 的状态。
 enum CtlTokenState {
   // 该后端类型没有 token（只有 openclaw 有）。
@@ -2161,6 +2183,7 @@ message CtlResource {
     CtlModel model = 5;
     CtlBackend backend = 6;
     CtlMemory memory = 7;
+    CtlEngine engine = 8;
   }
 }
 

@@ -28,6 +28,7 @@ type mockPorts struct {
 	projects  *mock_ctl_svc.MockProjectService
 	providers *mock_ctl_svc.MockProviderService
 	backends  *mock_ctl_svc.MockBackendService
+	engines   *mock_ctl_svc.MockEngineProfileService
 	devices   *mock_ctl_svc.MockDeviceDirectory
 	ports     servicePorts
 }
@@ -40,6 +41,7 @@ func newMockPorts(t *testing.T) *mockPorts {
 		projects:  mock_ctl_svc.NewMockProjectService(ctrl),
 		providers: mock_ctl_svc.NewMockProviderService(ctrl),
 		backends:  mock_ctl_svc.NewMockBackendService(ctrl),
+		engines:   mock_ctl_svc.NewMockEngineProfileService(ctrl),
 		devices:   mock_ctl_svc.NewMockDeviceDirectory(ctrl),
 	}
 	m.ports = servicePorts{
@@ -48,6 +50,7 @@ func newMockPorts(t *testing.T) *mockPorts {
 		projects:    func() ProjectService { return m.projects },
 		providers:   func() ProviderService { return m.providers },
 		backends:    func() BackendService { return m.backends },
+		engines:     func() EngineProfileService { return m.engines },
 		devices:     func() DeviceDirectory { return m.devices },
 	}
 	return m
@@ -454,5 +457,69 @@ func TestBackendWriter(t *testing.T) {
 		m.devices.EXPECT().EnsureFromAccount(gomock.Any()).Return("", false, errors.New("server unreachable"))
 		_, err := backendWriter{m.ports}.deviceID(ctx, "newbox")
 		assert.ErrorContains(t, err, "server unreachable")
+	})
+}
+
+// ---- engines ----
+
+func engineRes(e *agentrewire.CtlEngine) *agentrewire.CtlResource {
+	return &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Engine{Engine: e}}
+}
+
+func TestEngineWriter(t *testing.T) {
+	ctx := context.Background()
+	t.Run("create 把供应商与模型 id 换成 key、设置收进请求，没有设备", func(t *testing.T) {
+		m := newMockPorts(t)
+		m.expectKeyLookups()
+		m.engines.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, req *agent_backend_svc.CreateEngineProfileRequest) (*agent_backend_svc.CreateEngineProfileResponse, error) {
+				assert.Equal(t, "codex", req.Type)
+				assert.Equal(t, "codex-main", req.Name)
+				assert.Equal(t, "pk-1", req.LLMProviderKey)
+				assert.Equal(t, "mk-1", req.LLMModelKey)
+				assert.Equal(t, "workspace-write", req.Sandbox)
+				assert.Equal(t, "high", req.ReasoningEffort)
+				assert.JSONEq(t, `{"A":"1"}`, req.EnvJSON)
+				return &agent_backend_svc.CreateEngineProfileResponse{Item: &agent_backend_svc.EngineProfileItem{ID: 70, SyncID: "sy-70"}}, nil
+			})
+		id, err := engineWriter{m.ports}.Create(ctx, Write{
+			Next: engineRes(&agentrewire.CtlEngine{
+				Type: "codex", Name: "codex-main", ProviderId: 1, ModelId: 21, ReasoningEffort: "high",
+				Env: map[string]string{"A": "1"}, ConfigJson: `{"sandbox":"workspace-write"}`,
+			}),
+			Fields: fieldSet("type", "name", "providerId", "modelId", "reasoningEffort", "env", "configJson"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, int64(70), id)
+	})
+	t.Run("update 没写的引用沿用服务层原始 key", func(t *testing.T) {
+		m := newMockPorts(t)
+		m.engines.EXPECT().Get(gomock.Any(), &agent_backend_svc.GetEngineProfileRequest{ID: 31}).Return(&agent_backend_svc.GetEngineProfileResponse{
+			Item: &agent_backend_svc.EngineProfileItem{ID: 31, LLMProviderKey: "pk-dangling", LLMModelKey: "mk-dangling"},
+		}, nil)
+		m.engines.EXPECT().Update(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, req *agent_backend_svc.UpdateEngineProfileRequest) (*agent_backend_svc.UpdateEngineProfileResponse, error) {
+				assert.Equal(t, int64(31), req.ID)
+				assert.Equal(t, "pk-dangling", req.LLMProviderKey)
+				assert.Equal(t, "mk-dangling", req.LLMModelKey)
+				assert.Equal(t, "high", req.ReasoningEffort)
+				assert.Equal(t, "workspace-write", req.Sandbox)
+				return &agent_backend_svc.UpdateEngineProfileResponse{Item: &agent_backend_svc.EngineProfileItem{ID: 31}}, nil
+			})
+		require.NoError(t, engineWriter{m.ports}.Update(ctx, Write{
+			Cur:    engineRes(&agentrewire.CtlEngine{Id: 31, Name: "codex-main", Type: "codex"}),
+			Next:   engineRes(&agentrewire.CtlEngine{Id: 31, Name: "codex-main", Type: "codex", ReasoningEffort: "high", ConfigJson: `{"sandbox":"workspace-write"}`}),
+			Fields: fieldSet("reasoningEffort"),
+		}))
+	})
+	t.Run("delete → 服务层的删除（引用改为跟随上一级）", func(t *testing.T) {
+		m := newMockPorts(t)
+		m.engines.EXPECT().Delete(gomock.Any(), &agent_backend_svc.DeleteEngineProfileRequest{ID: 31}).Return(&agent_backend_svc.DeleteEngineProfileResponse{}, nil)
+		require.NoError(t, engineWriter{m.ports}.Delete(ctx, Write{Cur: engineRes(&agentrewire.CtlEngine{Id: 31})}))
+	})
+	t.Run("账号默认不可删的拒绝原样上抛", func(t *testing.T) {
+		m := newMockPorts(t)
+		m.engines.EXPECT().Delete(gomock.Any(), gomock.Any()).Return(nil, assert.AnError)
+		assert.ErrorIs(t, engineWriter{m.ports}.Delete(ctx, Write{Cur: engineRes(&agentrewire.CtlEngine{Id: 31})}), assert.AnError)
 	})
 }

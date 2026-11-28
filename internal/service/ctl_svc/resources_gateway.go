@@ -32,6 +32,7 @@ func ProductionResources() Resources {
 		Projects:  projectSvcResources{},
 		Providers: providerSvcResources{},
 		Backends:  backendSvcResources{},
+		Engines:   engineSvcResources{},
 		Writers:   productionWriters(ports),
 		Cascade:   departmentWriter{ports},
 		Memory:    liveMemory{},
@@ -423,5 +424,68 @@ func backendDocFrom(b *agent_backend_svc.BackendItem, ids keyIndex, cliPath stri
 		ConfigJson:        string(configJSON),
 		SyncId:            b.SyncID,
 		DeviceFingerprint: string(b.DeviceID),
+	}, nil
+}
+
+// ---- engines ----
+
+type engineSvcResources struct{}
+
+func (engineSvcResources) ListEngines(ctx context.Context) ([]*agentrewire.CtlEngine, error) {
+	resp, err := agent_backend_svc.EngineProfile().List(ctx, &agent_backend_svc.ListEngineProfilesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	ids, err := loadKeyIndex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*agentrewire.CtlEngine, 0, len(resp.Items))
+	for _, e := range resp.Items {
+		doc, err := engineDocFrom(e, ids)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, doc)
+	}
+	return out, nil
+}
+
+// engineDocFrom：类型独占设置按同步契约的形状收进 config_json；引擎配置没有设备、CLI 路径
+// 与任何凭据，所以文档里也没有。
+func engineDocFrom(e *agent_backend_svc.EngineProfileItem, ids keyIndex) (*agentrewire.CtlEngine, error) {
+	env, err := agent_backend_entity.ParseEnvJSON(e.EnvJSON)
+	if err != nil {
+		return nil, fmt.Errorf("engine %d: parse env_json: %w", e.ID, err)
+	}
+	cfg := syncwire.AgentBackendConfig{
+		Sandbox:               e.Sandbox,
+		Approval:              e.Approval,
+		DefaultPermissionMode: e.DefaultPermissionMode,
+		DefaultModel:          e.DefaultModel,
+		OpenClawGatewayURL:    e.OpenClawGatewayURL,
+		OpenClawAgentID:       e.OpenClawAgentID,
+		OpenClawDefaultModel:  e.OpenClawDefaultModel,
+		OpenClawSessionMode:   e.OpenClawSessionMode,
+		HermesURL:             e.HermesURL,
+		HermesAuthProvider:    e.HermesAuthProvider,
+		HermesUserID:          e.HermesUserID,
+		ACPCommand:            e.ACPCommand,
+		ACPArgs:               e.ACPArgs,
+	}
+	if len(e.ModelRoutes) > 0 {
+		routes, err := json.Marshal(e.ModelRoutes)
+		if err != nil {
+			return nil, fmt.Errorf("engine %d: encode model routes: %w", e.ID, err)
+		}
+		cfg.ModelRoutes = routes
+	}
+	configJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("engine %d: encode config: %w", e.ID, err)
+	}
+	return &agentrewire.CtlEngine{
+		Id: e.ID, Name: e.Name, Type: e.Type, ProviderId: ids.providers[e.LLMProviderKey], ModelId: ids.models[e.LLMModelKey],
+		ReasoningEffort: e.ReasoningEffort, Env: env, ConfigJson: string(configJSON), SyncId: e.SyncID,
 	}, nil
 }

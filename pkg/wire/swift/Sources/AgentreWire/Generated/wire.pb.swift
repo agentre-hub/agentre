@@ -468,6 +468,10 @@ public nonisolated enum Agentre_Wire_CtlKind: SwiftProtobuf.Enum, Swift.CaseIter
   /// 记忆（spec 2026-11-11「Agent 读写记忆」）：只对会话级 token 开放；读只见本会话可见的
   /// 正常条目，写入不出审批卡、以该会话的 agent 身份进行，delete 是归档。
   case memory // = 7
+
+  /// 引擎配置（spec 2026-11-25 决策 15）：取代 CTL_KIND_BACKEND 的命令行形态，没有设备字段
+  /// 与按设备的 CLI 路径。CTL_KIND_BACKEND 随协议版本切换（任务 17）一并移除。
+  case engine // = 8
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -484,6 +488,7 @@ public nonisolated enum Agentre_Wire_CtlKind: SwiftProtobuf.Enum, Swift.CaseIter
     case 5: self = .model
     case 6: self = .backend
     case 7: self = .memory
+    case 8: self = .engine
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -498,6 +503,7 @@ public nonisolated enum Agentre_Wire_CtlKind: SwiftProtobuf.Enum, Swift.CaseIter
     case .model: return 5
     case .backend: return 6
     case .memory: return 7
+    case .engine: return 8
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -512,6 +518,7 @@ public nonisolated enum Agentre_Wire_CtlKind: SwiftProtobuf.Enum, Swift.CaseIter
     .model,
     .backend,
     .memory,
+    .engine,
   ]
 
 }
@@ -7062,6 +7069,41 @@ public nonisolated struct Agentre_Wire_CtlBackend: Sendable {
   public init() {}
 }
 
+/// CtlEngine 是一份引擎配置（运行时类型 + 模型来源 + 设置，不含设备）。任何响应里都没有密钥。
+public nonisolated struct Agentre_Wire_CtlEngine: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var id: Int64 = 0
+
+  public var name: String = String()
+
+  /// 运行时类型，创建后不可改。
+  public var type: String = String()
+
+  /// 绑定的提供方；0 = CLI 自身登录态（native）。
+  public var providerID: Int64 = 0
+
+  /// 固定模型；0 = 跟随提供方的默认模型。
+  public var modelID: Int64 = 0
+
+  public var reasoningEffort: String = String()
+
+  public var env: Dictionary<String,String> = [:]
+
+  /// 该运行时类型独占的设置，形如同步契约的 AgentBackendConfig（camelCase 键的 JSON 对象）。
+  /// 写入时 update 只替换其中出现的键。
+  public var configJson: String = String()
+
+  /// 只读：引擎配置的同步标识。
+  public var syncID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 /// CtlMemory 是一条记忆。
 public nonisolated struct Agentre_Wire_CtlMemory: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -7162,6 +7204,14 @@ public nonisolated struct Agentre_Wire_CtlResource: Sendable {
     set {doc = .memory(newValue)}
   }
 
+  public var engine: Agentre_Wire_CtlEngine {
+    get {
+      if case .engine(let v)? = doc {return v}
+      return Agentre_Wire_CtlEngine()
+    }
+    set {doc = .engine(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Doc: Equatable, Sendable {
@@ -7172,6 +7222,7 @@ public nonisolated struct Agentre_Wire_CtlResource: Sendable {
     case model(Agentre_Wire_CtlModel)
     case backend(Agentre_Wire_CtlBackend)
     case memory(Agentre_Wire_CtlMemory)
+    case engine(Agentre_Wire_CtlEngine)
 
   }
 
@@ -7692,7 +7743,7 @@ nonisolated extension Agentre_Wire_AgentredSelfUpdateRejectReason: SwiftProtobuf
 }
 
 nonisolated extension Agentre_Wire_CtlKind: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0CTL_KIND_UNSPECIFIED\0\u{1}CTL_KIND_AGENT\0\u{1}CTL_KIND_DEPARTMENT\0\u{1}CTL_KIND_PROJECT\0\u{1}CTL_KIND_PROVIDER\0\u{1}CTL_KIND_MODEL\0\u{1}CTL_KIND_BACKEND\0\u{1}CTL_KIND_MEMORY\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0CTL_KIND_UNSPECIFIED\0\u{1}CTL_KIND_AGENT\0\u{1}CTL_KIND_DEPARTMENT\0\u{1}CTL_KIND_PROJECT\0\u{1}CTL_KIND_PROVIDER\0\u{1}CTL_KIND_MODEL\0\u{1}CTL_KIND_BACKEND\0\u{1}CTL_KIND_MEMORY\0\u{1}CTL_KIND_ENGINE\0")
 }
 
 nonisolated extension Agentre_Wire_CtlOp: SwiftProtobuf._ProtoNameProviding {
@@ -20630,6 +20681,76 @@ nonisolated extension Agentre_Wire_CtlBackend: SwiftProtobuf.Message, SwiftProto
   }
 }
 
+nonisolated extension Agentre_Wire_CtlEngine: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".CtlEngine"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}name\0\u{1}type\0\u{3}provider_id\0\u{3}model_id\0\u{3}reasoning_effort\0\u{1}env\0\u{3}config_json\0\u{3}sync_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.type) }()
+      case 4: try { try decoder.decodeSingularInt64Field(value: &self.providerID) }()
+      case 5: try { try decoder.decodeSingularInt64Field(value: &self.modelID) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.reasoningEffort) }()
+      case 7: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: &self.env) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.configJson) }()
+      case 9: try { try decoder.decodeSingularStringField(value: &self.syncID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.id != 0 {
+      try visitor.visitSingularInt64Field(value: self.id, fieldNumber: 1)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 2)
+    }
+    if !self.type.isEmpty {
+      try visitor.visitSingularStringField(value: self.type, fieldNumber: 3)
+    }
+    if self.providerID != 0 {
+      try visitor.visitSingularInt64Field(value: self.providerID, fieldNumber: 4)
+    }
+    if self.modelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.modelID, fieldNumber: 5)
+    }
+    if !self.reasoningEffort.isEmpty {
+      try visitor.visitSingularStringField(value: self.reasoningEffort, fieldNumber: 6)
+    }
+    if !self.env.isEmpty {
+      try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMap<SwiftProtobuf.ProtobufString,SwiftProtobuf.ProtobufString>.self, value: self.env, fieldNumber: 7)
+    }
+    if !self.configJson.isEmpty {
+      try visitor.visitSingularStringField(value: self.configJson, fieldNumber: 8)
+    }
+    if !self.syncID.isEmpty {
+      try visitor.visitSingularStringField(value: self.syncID, fieldNumber: 9)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_CtlEngine, rhs: Agentre_Wire_CtlEngine) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.type != rhs.type {return false}
+    if lhs.providerID != rhs.providerID {return false}
+    if lhs.modelID != rhs.modelID {return false}
+    if lhs.reasoningEffort != rhs.reasoningEffort {return false}
+    if lhs.env != rhs.env {return false}
+    if lhs.configJson != rhs.configJson {return false}
+    if lhs.syncID != rhs.syncID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 nonisolated extension Agentre_Wire_CtlMemory: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CtlMemory"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}layer\0\u{3}owner_id\0\u{1}summary\0\u{1}detail\0\u{1}pinned\0\u{3}over_budget\0\u{3}changed_at\0")
@@ -20697,7 +20818,7 @@ nonisolated extension Agentre_Wire_CtlMemory: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Agentre_Wire_CtlResource: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".CtlResource"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}agent\0\u{1}department\0\u{1}project\0\u{1}provider\0\u{1}model\0\u{1}backend\0\u{1}memory\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}agent\0\u{1}department\0\u{1}project\0\u{1}provider\0\u{1}model\0\u{1}backend\0\u{1}memory\0\u{1}engine\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -20796,6 +20917,19 @@ nonisolated extension Agentre_Wire_CtlResource: SwiftProtobuf.Message, SwiftProt
           self.doc = .memory(v)
         }
       }()
+      case 8: try {
+        var v: Agentre_Wire_CtlEngine?
+        var hadOneofValue = false
+        if let current = self.doc {
+          hadOneofValue = true
+          if case .engine(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.doc = .engine(v)
+        }
+      }()
       default: break
       }
     }
@@ -20834,6 +20968,10 @@ nonisolated extension Agentre_Wire_CtlResource: SwiftProtobuf.Message, SwiftProt
     case .memory?: try {
       guard case .memory(let v)? = self.doc else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+    }()
+    case .engine?: try {
+      guard case .engine(let v)? = self.doc else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
     }()
     case nil: break
     }

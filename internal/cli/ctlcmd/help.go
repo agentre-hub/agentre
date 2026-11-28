@@ -17,7 +17,7 @@ Usage:
   agrctl create <resource> [flags]              create a resource
   agrctl update <resource> <ref> [flags]        change only the flags given
   agrctl delete <resource> <ref> [flags]        delete a resource
-  agrctl help [<resource> [<backend type>]]     flags, --config fields, secrets and examples
+  agrctl help [<resource> [<engine type>]]      flags, --config fields, secrets and examples
   agrctl send --agent <name> [flags] <text...>  dispatch a task to an agent (prints the session id)
   agrctl send --session <id> [flags] <text...>  continue a session (--steer interjects into a running turn)
   agrctl wait <session> [--timeout <d>]         wait until the session is idle or waits for input
@@ -41,10 +41,10 @@ Usage:
   agrctl list devices | get device <d> | update device <d> --name <n> | delete device <d> | upgrade device <d>
                                                 account mode only; see 'agrctl help device'
 
-Resources: agent, department (dept), project (proj), provider, model, backend, memory.
+Resources: agent, department (dept), project (proj), provider, model, engine, memory.
 <ref> is a numeric id, a name, or a parent/child path (projects, departments);
 a model is <provider>/<model id>; a memory is its id (m58 or 58). Flags that name
-another resource (--department, --parent, --backend, --provider, --lead, …) take
+another resource (--department, --parent, --provider, --lead, …) take
 the same forms. A <session> is always the full session UUID that agrctl send prints.
 
 Executor (agrctl whoami shows it): inside an Agentre session, that session; with
@@ -75,7 +75,7 @@ agrctl wait as a background shell command (or give --timeout and wait again on e
 
 func sendUsage() string {
 	var b strings.Builder
-	b.WriteString(`agrctl send --agent <name|id> [--device <device> | --backend <ref>] [--project <ref>] [--title <title>] [--isolated]
+	b.WriteString(`agrctl send --agent <name|id> [--device <device>] [--engine <ref>] [--project <ref>] [--title <title>] [--isolated]
             [--model <provider>/<model> | --cli-model <model>] [--effort <level>]
             [--permission-mode <mode>] [--image <file>]... [--wait [--timeout <duration>]] [-o json] <text...>
 agrctl send --session <id> [--steer] [--image <file>]... [--model …] [--effort …]
@@ -89,9 +89,14 @@ Without --wait it prints the session id on stdout ("dispatched to <agent> — <d
 and returns at once; the turn keeps running. With --wait it behaves like agrctl wait.
 A running session refuses a plain send (exit 1): add --steer to interject into the current turn —
 steers not yet delivered when the turn ends go out, in order, at the start of the next one.
-Without --device / --backend a new session runs on the agent's first available backend, in the
-agent's order. A --device or --backend that is not one of the agent's fails with the choices
-listed (exit 2); one that is offline, or has no path for the project, fails with the reason (exit 1).
+Without --device / --engine a new session runs with the agent's own engine profile on the device
+the dispatch rule picks (manual choice, then the project's default device, then the account's device
+order — the same answer as the console). --device names a device (name or fingerprint; "本机" or
+"local" is this desktop): one that is not a dispatchable device fails with the choices listed
+(exit 2); one the rule rejects — offline, the runtime missing or too old, no path for the project —
+fails with its reason (exit 1). --engine runs this new session with another engine profile (name
+or id; see agrctl list engines) and cannot be combined with --session (exit 2). When no device can
+run the agent, every device's reason is listed (exit 1).
 An unsupported --model / --cli-model / --effort / --permission-mode value fails with the
 choices listed (exit 2); the values apply to this session from the next turn on.
 Against the account the session runs on the chosen device and is saved to the account (the
@@ -268,7 +273,7 @@ func runHelp(args []string, w io.Writer) error {
 		return nil
 	case 1, 2:
 	default:
-		return usageErrorf("help takes at most a resource and a backend type")
+		return usageErrorf("help takes at most a resource and an engine type")
 	}
 	if u := verbUsage(args[0]); u != "" && len(args) == 1 {
 		_, _ = fmt.Fprintln(w, u)
@@ -291,14 +296,14 @@ func runHelp(args []string, w io.Writer) error {
 		return usageErrorf("unknown resource %q (one of: %s)", args[0], kindNames())
 	}
 	if len(args) == 2 {
-		if spec != kindBackend {
-			return usageErrorf("only backend has per-type help")
+		if spec != kindEngine {
+			return usageErrorf("only engine has per-type help")
 		}
-		t := lookupBackendType(args[1])
+		t := lookupEngineType(args[1])
 		if t == nil {
-			return usageErrorf("unknown backend type %q (one of: %s)", args[1], backendTypeNames())
+			return usageErrorf("unknown engine type %q (one of: %s)", args[1], engineTypeNames())
 		}
-		writeBackendTypeHelp(w, t)
+		writeEngineTypeHelp(w, t)
 		return nil
 	}
 	writeKindHelp(w, spec)
@@ -357,8 +362,8 @@ func writeKindHelp(w io.Writer, spec *kindSpec) {
 		b.WriteString("\nFilters (list):\n")
 		writeFlagTable(&b, spec.filters, nil)
 	}
-	if spec == kindBackend {
-		_, _ = fmt.Fprintf(&b, "\nTypes: %s\n  --config fields depend on the type: agrctl help backend <type>\n", backendTypeNames())
+	if spec == kindEngine {
+		_, _ = fmt.Fprintf(&b, "\nTypes: %s\n  --config fields depend on the type: agrctl help engine <type>\n", engineTypeNames())
 	}
 	if spec.notes != "" {
 		b.WriteString("\n" + spec.notes + "\n")
@@ -366,8 +371,6 @@ func writeKindHelp(w io.Writer, spec *kindSpec) {
 	b.WriteString("\nSecrets:\n")
 	if spec.secretHelp != "" {
 		b.WriteString("  " + strings.ReplaceAll(spec.secretHelp, "\n", "\n  ") + "\n")
-	} else if spec == kindBackend {
-		b.WriteString("  --token (openclaw only), see agrctl help backend openclaw\n")
 	} else {
 		b.WriteString("  none\n")
 	}
@@ -409,10 +412,10 @@ func writeFlagTable(b *strings.Builder, defs []*flagDef, note func(*flagDef) str
 	_ = tw.Flush()
 }
 
-func writeBackendTypeHelp(w io.Writer, t *backendType) {
+func writeEngineTypeHelp(w io.Writer, t *engineType) {
 	var b strings.Builder
-	_, _ = fmt.Fprintf(&b, "Backend type: %s — %s\n\n", t.name, t.summary)
-	b.WriteString("Flags: see agrctl help backend (--name, --device, --provider, --model,\n" +
+	_, _ = fmt.Fprintf(&b, "Engine type: %s — %s\n\n", t.name, t.summary)
+	b.WriteString("Flags: see agrctl help engine (--name, --provider, --model,\n" +
 		"       --reasoning-effort, --env KEY=VAL, --config, --config-file)\n\n")
 	b.WriteString("--config fields:\n")
 	if len(t.config) == 0 {
@@ -424,29 +427,21 @@ func writeBackendTypeHelp(w io.Writer, t *backendType) {
 		}
 		_ = tw.Flush()
 	}
-	b.WriteString("\nSecrets:\n")
-	if t.token {
-		b.WriteString("  --token        bare: typed in without echo (needs a terminal).\n" +
-			"                 --token=<value> also works, but the token stays in your shell history.\n" +
-			"  get / list show only its state: set / unset / unknown. unknown means the device the\n" +
-			"  backend is bound to cannot be asked right now (offline, or managed through the server).\n")
-	} else {
-		b.WriteString("  none\n")
-	}
+	b.WriteString("\nSecrets:\n  none (an engine profile holds no credential; a device keeps its own)\n")
 	b.WriteString("\nExample:\n")
 	switch t.name {
 	case "openclaw":
-		b.WriteString(`  agrctl create backend --type openclaw --name claw --config '{"openclawGatewayUrl":"ws://127.0.0.1:18789","openclawSessionMode":"per-agentre-session"}' --token` + "\n")
+		b.WriteString(`  agrctl create engine --type openclaw --name claw --config '{"openclawGatewayUrl":"ws://127.0.0.1:18789","openclawSessionMode":"per-agentre-session"}'` + "\n")
 	case "builtin":
-		b.WriteString("  agrctl create backend --type builtin --name my-builtin --provider anthropic\n")
+		b.WriteString("  agrctl create engine --type builtin --name my-builtin --provider anthropic\n")
 	case "piagent":
-		b.WriteString("  agrctl create backend --type piagent --name my-piagent --provider openrouter --model openai/gpt-5.1\n")
+		b.WriteString("  agrctl create engine --type piagent --name my-piagent --provider openrouter --model openai/gpt-5.1\n")
 	case "antigravity":
-		b.WriteString("  agrctl create backend --type antigravity --name my-agy --provider huu\n")
+		b.WriteString("  agrctl create engine --type antigravity --name my-agy --provider huu\n")
 	case "codex":
-		b.WriteString(`  agrctl create backend --type codex --name codex-remote --device build-box --config '{"sandbox":"workspace-write","approval":"on-request"}'` + "\n")
+		b.WriteString(`  agrctl create engine --type codex --name codex-main --config '{"sandbox":"workspace-write","approval":"on-request"}'` + "\n")
 	default:
-		_, _ = fmt.Fprintf(&b, "  agrctl create backend --type %s --name my-%s\n", t.name, t.name)
+		_, _ = fmt.Fprintf(&b, "  agrctl create engine --type %s --name my-%s\n", t.name, t.name)
 	}
 	_, _ = io.WriteString(w, b.String())
 }

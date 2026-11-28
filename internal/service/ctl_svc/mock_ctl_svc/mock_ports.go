@@ -713,6 +713,90 @@ func (mr *MockBackendServiceMockRecorder) UpdateOpenClaw(ctx, req, token, clearT
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOpenClaw", reflect.TypeOf((*MockBackendService)(nil).UpdateOpenClaw), ctx, req, token, clearToken)
 }
 
+// MockEngineProfileService is a mock of EngineProfileService interface.
+type MockEngineProfileService struct {
+	ctrl     *gomock.Controller
+	recorder *MockEngineProfileServiceMockRecorder
+	isgomock struct{}
+}
+
+// MockEngineProfileServiceMockRecorder is the mock recorder for MockEngineProfileService.
+type MockEngineProfileServiceMockRecorder struct {
+	mock *MockEngineProfileService
+}
+
+// NewMockEngineProfileService creates a new mock instance.
+func NewMockEngineProfileService(ctrl *gomock.Controller) *MockEngineProfileService {
+	mock := &MockEngineProfileService{ctrl: ctrl}
+	mock.recorder = &MockEngineProfileServiceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockEngineProfileService) EXPECT() *MockEngineProfileServiceMockRecorder {
+	return m.recorder
+}
+
+// Create mocks base method.
+func (m *MockEngineProfileService) Create(ctx context.Context, req *agent_backend_svc.CreateEngineProfileRequest) (*agent_backend_svc.CreateEngineProfileResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, req)
+	ret0, _ := ret[0].(*agent_backend_svc.CreateEngineProfileResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockEngineProfileServiceMockRecorder) Create(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockEngineProfileService)(nil).Create), ctx, req)
+}
+
+// Delete mocks base method.
+func (m *MockEngineProfileService) Delete(ctx context.Context, req *agent_backend_svc.DeleteEngineProfileRequest) (*agent_backend_svc.DeleteEngineProfileResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Delete", ctx, req)
+	ret0, _ := ret[0].(*agent_backend_svc.DeleteEngineProfileResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Delete indicates an expected call of Delete.
+func (mr *MockEngineProfileServiceMockRecorder) Delete(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockEngineProfileService)(nil).Delete), ctx, req)
+}
+
+// Get mocks base method.
+func (m *MockEngineProfileService) Get(ctx context.Context, req *agent_backend_svc.GetEngineProfileRequest) (*agent_backend_svc.GetEngineProfileResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, req)
+	ret0, _ := ret[0].(*agent_backend_svc.GetEngineProfileResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockEngineProfileServiceMockRecorder) Get(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockEngineProfileService)(nil).Get), ctx, req)
+}
+
+// Update mocks base method.
+func (m *MockEngineProfileService) Update(ctx context.Context, req *agent_backend_svc.UpdateEngineProfileRequest) (*agent_backend_svc.UpdateEngineProfileResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Update", ctx, req)
+	ret0, _ := ret[0].(*agent_backend_svc.UpdateEngineProfileResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Update indicates an expected call of Update.
+func (mr *MockEngineProfileServiceMockRecorder) Update(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockEngineProfileService)(nil).Update), ctx, req)
+}
+
 // MockDeviceDirectory is a mock of DeviceDirectory interface.
 type MockDeviceDirectory struct {
 	ctrl     *gomock.Controller

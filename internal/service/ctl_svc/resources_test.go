@@ -27,6 +27,7 @@ type fakeResourceGateways struct {
 	providers   []*agentrewire.CtlProvider
 	models      []*agentrewire.CtlModel
 	backends    []*agentrewire.CtlBackend
+	engines     []*agentrewire.CtlEngine
 	err         error
 }
 
@@ -49,8 +50,12 @@ func (f *fakeResourceGateways) ListBackends(context.Context) ([]*agentrewire.Ctl
 	return f.backends, f.err
 }
 
+func (f *fakeResourceGateways) ListEngines(context.Context) ([]*agentrewire.CtlEngine, error) {
+	return f.engines, f.err
+}
+
 func (f *fakeResourceGateways) resources() Resources {
-	return Resources{Org: f, Projects: f, Providers: f, Backends: f}
+	return Resources{Org: f, Projects: f, Providers: f, Backends: f, Engines: f}
 }
 
 // fakeResourceData 是每类各一两条的样本；网关故意回明文密钥，验证 handler 这道边界。
@@ -72,6 +77,7 @@ func fakeResourceData() *fakeResourceGateways {
 		backends: []*agentrewire.CtlBackend{
 			{Id: 5, Name: "claw", Type: "openclaw", Token: "gateway-secret-token", TokenState: agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET, Device: "box"},
 		},
+		engines: []*agentrewire.CtlEngine{{Id: 31, Name: "claude-main", Type: "claudecode", ProviderId: 1, SyncId: "en-31"}},
 	}
 }
 
@@ -108,6 +114,7 @@ func TestResources_ListEveryKind(t *testing.T) {
 		{"CTL_KIND_PROVIDER", []int64{1}},
 		{"CTL_KIND_MODEL", []int64{21}},
 		{"CTL_KIND_BACKEND", []int64{5}},
+		{"CTL_KIND_ENGINE", []int64{31}},
 	}
 	for _, c := range cases {
 		t.Run(c.kind, func(t *testing.T) {
@@ -173,6 +180,12 @@ func TestResources_NeverEchoSecrets(t *testing.T) {
 	b := resp.GetGet().GetResource().GetBackend()
 	assert.Empty(t, b.GetToken())
 	assert.Equal(t, agentrewire.CtlTokenState_CTL_TOKEN_STATE_SET, b.GetTokenState())
+
+	resp = decodeCtlResponse(t, postResources(t, h, testToken, `{"get":{"kind":"CTL_KIND_ENGINE","id":"31"}}`))
+	e := resp.GetGet().GetResource().GetEngine()
+	require.NotNil(t, e)
+	assert.Equal(t, "claude-main", e.GetName())
+	assert.Equal(t, "en-31", e.GetSyncId())
 }
 
 // ---- 错误路径 ----

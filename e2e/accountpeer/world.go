@@ -104,8 +104,8 @@ func (w *World) deviceToken(rw http.ResponseWriter, r *http.Request) {
 		"refresh_expires_in": 86400, "device_id": 42})
 }
 
-// ctlResources serves the account's catalog: one agent (reviewer) bound to one backend
-// (codex on build-box). Every other kind is empty.
+// ctlResources serves the account's catalog: one agent (reviewer) and one engine profile
+// (codex-main). Every other kind is empty.
 func (w *World) ctlResources(rw http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
 	var req agentrewire.CtlRequest
@@ -119,21 +119,25 @@ func (w *World) ctlResources(rw http.ResponseWriter, r *http.Request) {
 	case agentrewire.CtlKind_CTL_KIND_AGENT:
 		items = append(items, &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Agent{Agent: &agentrewire.CtlAgent{
 			Id: 12, SyncId: "AG-12", Name: "reviewer", BackendIds: []int64{9}}}})
-	case agentrewire.CtlKind_CTL_KIND_BACKEND:
-		items = append(items, &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Backend{Backend: &agentrewire.CtlBackend{
-			Id: 9, SyncId: "BE-9", Name: "codex-box", Type: "codex", Device: "build-box"}}})
+	case agentrewire.CtlKind_CTL_KIND_ENGINE:
+		items = append(items, &agentrewire.CtlResource{Doc: &agentrewire.CtlResource_Engine{Engine: &agentrewire.CtlEngine{
+			Id: 9, SyncId: "EN-9", Name: "codex-main", Type: "codex"}}})
 	}
 	out, _ := protojson.Marshal(&agentrewire.CtlResponse{Result: &agentrewire.CtlResponse_List{List: &agentrewire.CtlListResponse{Items: items}}})
 	_, _ = rw.Write(out)
 }
 
+// dispatchTarget answers GET /v1/workspace/dispatch-target the way the engine-profile dispatch
+// does: the shared rule's verdict for every device taking part, and the chosen one.
 func (w *World) dispatchTarget(rw http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent_sync_id")
 	chosen := map[string]any{"device_fingerprint": boxFingerprint, "device_id": 2, "device_name": "build-box",
-		"backend_sync_id": "BE-9", "backend_type": "codex", "kind": "agentred"}
-	tier := map[string]any{"rank": 1, "backend_sync_id": "BE-9", "device_id": 2, "device_name": "build-box",
-		"backend_type": "codex", "kind": "agentred", "availability": "available"}
-	envelope(rw, map[string]any{"agent_sync_id": agent, "tiers": []any{tier}, "chosen": chosen, "projects": []any{}})
+		"kind": "agentred", "engine_sync_id": "EN-9", "runtime": "codex"}
+	device := map[string]any{"device_id": 2, "device_fingerprint": boxFingerprint, "device_name": "build-box",
+		"kind": "agentred", "eligible": true, "chosen": true}
+	envelope(rw, map[string]any{"agent_sync_id": agent, "found": true,
+		"engine":  map[string]any{"sync_id": "EN-9", "name": "codex-main", "runtime": "codex"},
+		"devices": []any{device}, "chosen": chosen})
 }
 
 func (w *World) devices(rw http.ResponseWriter, _ *http.Request) {

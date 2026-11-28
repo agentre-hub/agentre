@@ -455,15 +455,15 @@ func TestWrite_GivenExecutorRejectsThenMessagePassedThroughExit1(t *testing.T) {
 	}
 }
 
-// ─── backends and --config ─────────────────────────────────────────────
+// ─── engines and --config ─────────────────────────────────────────────
 
-func TestBackend_GivenConfigOfItsTypeThenSentAsConfigJSON(t *testing.T) {
+func TestEngine_GivenConfigOfItsTypeThenSentAsConfigJSON(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"create", "backend", "--type", "codex", "--name", "codex-2", "--device", "build-box", "--provider", "openrouter", "--model", "openai/gpt-5.1",
+	r := runWith([]string{"create", "engine", "--type", "codex", "--name", "codex-2", "--provider", "openrouter", "--model", "openai/gpt-5.1",
 		"--env", "A=1", "--config", `{"sandbox":"workspace-write","approval":"on-request"}`}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
-	b := f.onlyWrite(t).GetResource().GetBackend()
-	if b.GetType() != "codex" || b.GetDevice() != "build-box" || b.GetProviderId() != 4 || b.GetModelId() != 21 || b.GetEnv()["A"] != "1" {
+	b := f.onlyWrite(t).GetResource().GetEngine()
+	if b.GetType() != "codex" || b.GetProviderId() != 4 || b.GetModelId() != 21 || b.GetEnv()["A"] != "1" {
 		t.Fatalf("backend = %v", b)
 	}
 	var cfg map[string]string
@@ -474,37 +474,37 @@ func TestBackend_GivenConfigOfItsTypeThenSentAsConfigJSON(t *testing.T) {
 
 // 规格「用户能新建一个 Antigravity 后端」：agrctl 认得 antigravity 这个类型，create 与
 // list --type 都不报未知类型。
-func TestBackend_GivenAntigravityTypeThenCreatedAndFilterable(t *testing.T) {
+func TestEngine_GivenAntigravityTypeThenCreatedAndFilterable(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"create", "backend", "--type", "antigravity", "--name", "agy", "--provider", "openrouter"}, envFor(srv, tok), term{})
+	r := runWith([]string{"create", "engine", "--type", "antigravity", "--name", "agy", "--provider", "openrouter"}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
-	if b := f.onlyWrite(t).GetResource().GetBackend(); b.GetType() != "antigravity" || b.GetProviderId() != 4 {
+	if b := f.onlyWrite(t).GetResource().GetEngine(); b.GetType() != "antigravity" || b.GetProviderId() != 4 {
 		t.Fatalf("backend = %v", b)
 	}
-	r = runWith([]string{"list", "backends", "--type", "antigravity"}, envFor(srv, tok), term{})
+	r = runWith([]string{"list", "engines", "--type", "antigravity"}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
 }
 
-func TestBackend_GivenConfigFileThenReadFromFile(t *testing.T) {
+func TestEngine_GivenConfigFileThenReadFromFile(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
 	path := filepath.Join(t.TempDir(), "cfg.json")
 	if err := os.WriteFile(path, []byte(`{"approval":"never"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r := runWith([]string{"update", "backend", "codex-remote", "--config-file", path}, envFor(srv, tok), term{})
+	r := runWith([]string{"update", "engine", "codex-main", "--config-file", path}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
 	w := f.onlyWrite(t)
-	if !slices.Equal(w.GetFields(), []string{"configJson"}) || !strings.Contains(w.GetResource().GetBackend().GetConfigJson(), "never") {
+	if !slices.Equal(w.GetFields(), []string{"configJson"}) || !strings.Contains(w.GetResource().GetEngine().GetConfigJson(), "never") {
 		t.Fatalf("write = %v", w)
 	}
 }
 
-func TestBackend_GivenConfigKeyOfAnotherTypeThenUsageErrorAndNoWrite(t *testing.T) {
+func TestEngine_GivenConfigKeyOfAnotherTypeThenUsageErrorAndNoWrite(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
 	for _, args := range [][]string{
-		{"update", "backend", "codex-remote", "--config", `{"hermesUrl":"http://x"}`},
-		{"create", "backend", "--type", "codex", "--name", "x", "--config", `not json`},
-		{"create", "backend", "--type", "nope", "--name", "x"},
+		{"update", "engine", "codex-main", "--config", `{"hermesUrl":"http://x"}`},
+		{"create", "engine", "--type", "codex", "--name", "x", "--config", `not json`},
+		{"create", "engine", "--type", "nope", "--name", "x"},
 	} {
 		r := runWith(args, envFor(srv, tok), term{})
 		wantCode(t, r, 2)
@@ -574,27 +574,6 @@ func TestSecret_GivenExplicitEmptyAPIKeyThenUsageErrorAndNoWrite(t *testing.T) {
 	}
 }
 
-func TestSecret_GivenEmptyTokenOnOpenClawThenClearsIt(t *testing.T) {
-	f, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"update", "backend", "claw", "--token="}, envFor(srv, tok), term{})
-	wantCode(t, r, 0)
-	w := f.onlyWrite(t)
-	if !slices.Equal(w.GetFields(), []string{"token"}) || w.GetResource().GetBackend().GetToken() != "" {
-		t.Fatalf("write = %v", w)
-	}
-}
-
-// 纯空白的 --token（如 --token="   "）不是「留空清除」，是拿不准意图的用法错误：在规划
-// 阶段（连接执行者之前）就拒绝，退出码 2，不发请求——不能让空白悄悄当清除指令发出去。
-func TestSecret_GivenBlankTokenOnOpenClawThenUsageErrorAndNoWriteSent(t *testing.T) {
-	f, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"update", "backend", "claw", "--token=   "}, envFor(srv, tok), term{})
-	wantCode(t, r, 2)
-	if f.writeCount() != 0 {
-		t.Fatal("no write must be sent")
-	}
-}
-
 func TestSecret_GivenSpaceSeparatedAPIKeyThenUsageError(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
 	r := runWith([]string{"update", "provider", "openrouter", "--api-key", "sk-x"}, envFor(srv, tok), term{})
@@ -604,74 +583,48 @@ func TestSecret_GivenSpaceSeparatedAPIKeyThenUsageError(t *testing.T) {
 	}
 }
 
-func TestSecret_GivenBareTokenOnOpenClawWithoutTTYThenExit3(t *testing.T) {
+// ─── 引擎配置不带设备，也不带任何凭据 ────────────────────────────────────────
+
+func TestEngine_GivenListThenNoDeviceOrTokenColumnAndNoSecretField(t *testing.T) {
 	_, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"update", "backend", "claw", "--token"}, envFor(srv, tok), term{})
-	wantCode(t, r, 3)
-	if !strings.HasPrefix(r.stderr, "NEEDS TTY: --token") {
-		t.Fatalf("stderr = %q", r.stderr)
-	}
-}
-
-func TestSecret_GivenTokenOnNonOpenClawBackendThenUsageError(t *testing.T) {
-	_, srv := newFakeExecutor(t, tok)
-	r := runWith([]string{"update", "backend", "codex-remote", "--token=abc"}, envFor(srv, tok), term{})
-	wantCode(t, r, 2)
-}
-
-// ─── token 三态（spec「token 只显示是否已设置」；执行者问不到绑定设备时报 unknown）──
-
-// withTokenStateBackends 在假执行者里补两个 openclaw 后端：一个确定未设置、一个状态未知。
-func withTokenStateBackends(f *fakeExecutor) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.items[agentrewire.CtlKind_CTL_KIND_BACKEND] = append(f.items[agentrewire.CtlKind_CTL_KIND_BACKEND],
-		backendDoc(&agentrewire.CtlBackend{Id: 11, Name: "claw-unset", Type: "openclaw", TokenState: agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNSET}),
-		backendDoc(&agentrewire.CtlBackend{Id: 12, Name: "claw-far", Type: "openclaw", Device: "far-box", TokenState: agentrewire.CtlTokenState_CTL_TOKEN_STATE_UNKNOWN}))
-}
-
-func TestList_GivenBackendsThenTokenColumnShowsSetDashOrUnknown(t *testing.T) {
-	f, srv := newFakeExecutor(t, tok)
-	withTokenStateBackends(f)
-	r := runWith([]string{"list", "backends"}, envFor(srv, tok), term{})
+	r := runWith([]string{"list", "engines"}, envFor(srv, tok), term{})
 	wantCode(t, r, 0)
 	rows := tableRows(r.stdout)
-	if got := rows[0]; !slices.Equal(got, []string{"ID", "NAME", "TYPE", "DEVICE", "PROVIDER", "MODEL", "TOKEN"}) {
+	if got := rows[0]; !slices.Equal(got, []string{"ID", "NAME", "TYPE", "PROVIDER", "MODEL"}) {
 		t.Fatalf("header = %v", got)
 	}
-	token := map[string]string{}
-	for _, row := range rows[1:] {
-		token[row[1]] = row[len(row)-1]
-	}
-	want := map[string]string{"claude-local": "-", "codex-remote": "-", "claw": "set", "claw-unset": "-", "claw-far": "unknown"}
-	for name, w := range want {
-		if token[name] != w {
-			t.Fatalf("token of %s = %q, want %q (stdout=%q)", name, token[name], w, r.stdout)
+	r = runWith([]string{"get", "engine", "claw"}, envFor(srv, tok), term{})
+	wantCode(t, r, 0)
+	for _, banned := range []string{`"token"`, `"device"`, `"cliPath"`, "apiKey"} {
+		if strings.Contains(r.stdout, banned) {
+			t.Fatalf("engine output must not carry %s: %q", banned, r.stdout)
 		}
 	}
 }
 
-func TestGet_GivenOpenClawBackendThenTokenIsSetUnsetOrUnknown(t *testing.T) {
+func TestEngine_GivenTokenOrDeviceFlagThenUnknownFlagAndNoWrite(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
-	withTokenStateBackends(f)
-	for name, want := range map[string]string{"claw": "set", "claw-unset": "unset", "claw-far": "unknown"} {
-		r := runWith([]string{"get", "backend", name}, envFor(srv, tok), term{})
-		wantCode(t, r, 0)
-		var got struct {
-			Token *string `json:"token"`
-		}
-		if err := json.Unmarshal([]byte(r.stdout), &got); err != nil {
-			t.Fatal(err)
-		}
-		if got.Token == nil || *got.Token != want {
-			t.Fatalf("get %s: token = %v, want %q (stdout=%q)", name, got.Token, want, r.stdout)
+	for _, args := range [][]string{
+		{"update", "engine", "claw", "--token=abc"},
+		{"create", "engine", "--type", "codex", "--name", "x", "--device", "build-box"},
+	} {
+		r := runWith(args, envFor(srv, tok), term{})
+		wantCode(t, r, 2)
+		if !strings.Contains(r.stderr, "unknown flag") {
+			t.Fatalf("%v: stderr = %q", args, r.stderr)
 		}
 	}
-	// 没有 token 的类型不出现这个字段。
-	r := runWith([]string{"get", "backend", "codex-remote"}, envFor(srv, tok), term{})
-	wantCode(t, r, 0)
-	if strings.Contains(r.stdout, `"token"`) {
-		t.Fatalf("codex backend must not show a token field: %q", r.stdout)
+	if f.writeCount() != 0 {
+		t.Fatal("no write must be sent")
+	}
+}
+
+func TestBackend_GivenTheOldResourceNameThenUnknownResource(t *testing.T) {
+	_, srv := newFakeExecutor(t, tok)
+	r := runWith([]string{"list", "backends"}, envFor(srv, tok), term{})
+	wantCode(t, r, 2)
+	if !strings.Contains(r.stderr, "engine") {
+		t.Fatalf("stderr = %q, want the resource list to name engine", r.stderr)
 	}
 }
 
@@ -848,9 +801,9 @@ func TestHelp_GivenResourceThenFlagsAndSecretsWithoutConnecting(t *testing.T) {
 	}
 }
 
-func TestHelp_GivenBackendTypeThenItsConfigFieldsOnly(t *testing.T) {
+func TestHelp_GivenEngineTypeThenItsConfigFieldsOnly(t *testing.T) {
 	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
-	r := runWith([]string{"help", "backend", "codex"}, noEnv, term{})
+	r := runWith([]string{"help", "engine", "codex"}, noEnv, term{})
 	wantCode(t, r, 0)
 	if !strings.Contains(r.stdout, "sandbox") || !strings.Contains(r.stdout, "approval") {
 		t.Fatalf("stdout = %q", r.stdout)
@@ -860,15 +813,13 @@ func TestHelp_GivenBackendTypeThenItsConfigFieldsOnly(t *testing.T) {
 	}
 }
 
-// openclaw 的帮助说明 get / list 里 token 状态的三种写法，unknown 的含义要说清。
-func TestHelp_GivenOpenClawThenTokenStatesExplained(t *testing.T) {
+// openclaw 的帮助不再有 token：引擎配置不带凭据，凭据属于设备。
+func TestHelp_GivenOpenClawThenNoTokenFlagButTheDeviceOwnsCredentials(t *testing.T) {
 	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
-	r := runWith([]string{"help", "backend", "openclaw"}, noEnv, term{})
+	r := runWith([]string{"help", "engine", "openclaw"}, noEnv, term{})
 	wantCode(t, r, 0)
-	for _, want := range []string{"set / unset / unknown", "cannot be asked"} {
-		if !strings.Contains(r.stdout, want) {
-			t.Fatalf("stdout = %q, want %q", r.stdout, want)
-		}
+	if strings.Contains(r.stdout, "--token") || !strings.Contains(r.stdout, "a device keeps its own") {
+		t.Fatalf("stdout = %q", r.stdout)
 	}
 }
 
@@ -881,7 +832,7 @@ func TestHelp_GivenTypeNeedingProviderThenExampleCarriesIt(t *testing.T) {
 		// antigravity 必须绑定 gemini 供应商（规格「建后端：必须绑定一个 gemini 供应商」）。
 		"antigravity": {"--provider "},
 	} {
-		r := runWith([]string{"help", "backend", typ}, noEnv, term{})
+		r := runWith([]string{"help", "engine", typ}, noEnv, term{})
 		wantCode(t, r, 0)
 		_, example, _ := strings.Cut(r.stdout, "Example:")
 		for _, want := range wants {
@@ -893,7 +844,7 @@ func TestHelp_GivenTypeNeedingProviderThenExampleCarriesIt(t *testing.T) {
 }
 
 func TestHelp_GivenUnknownResourceOrTypeThenUsageError(t *testing.T) {
-	for _, args := range [][]string{{"help", "widget"}, {"help", "backend", "nope"}} {
+	for _, args := range [][]string{{"help", "widget"}, {"help", "engine", "nope"}, {"help", "backend"}} {
 		r := runWith(args, noEnv, term{})
 		wantCode(t, r, 2)
 	}
@@ -1052,11 +1003,11 @@ func TestGet_GivenProviderThenBaseURLFieldNamedLikeItsFlag(t *testing.T) {
 }
 
 // CLI 路径覆盖不在本 spec 范围内：没有 --cli-path。
-func TestBackend_GivenCLIPathFlagThenUnknownFlag(t *testing.T) {
+func TestEngine_GivenCLIPathFlagThenUnknownFlag(t *testing.T) {
 	f, srv := newFakeExecutor(t, tok)
 	for _, args := range [][]string{
-		{"create", "backend", "--name", "b", "--type", "codex", "--cli-path", "/usr/bin/codex"},
-		{"update", "backend", "codex-remote", "--cli-path", "/usr/bin/codex"},
+		{"create", "engine", "--name", "b", "--type", "codex", "--cli-path", "/usr/bin/codex"},
+		{"update", "engine", "codex-main", "--cli-path", "/usr/bin/codex"},
 	} {
 		r := runWith(args, envFor(srv, tok), term{})
 		wantCode(t, r, 2)

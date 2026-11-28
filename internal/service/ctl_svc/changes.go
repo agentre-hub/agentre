@@ -32,6 +32,9 @@ var refFields = map[agentrewire.CtlKind]map[string]agentrewire.CtlKind{
 	agentrewire.CtlKind_CTL_KIND_BACKEND: {
 		"providerId": agentrewire.CtlKind_CTL_KIND_PROVIDER, "modelId": agentrewire.CtlKind_CTL_KIND_MODEL,
 	},
+	agentrewire.CtlKind_CTL_KIND_ENGINE: {
+		"providerId": agentrewire.CtlKind_CTL_KIND_PROVIDER, "modelId": agentrewire.CtlKind_CTL_KIND_MODEL,
+	},
 }
 
 // secretFields 是只写的密钥字段。

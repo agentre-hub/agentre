@@ -30,10 +30,16 @@ const (
 	patFP = "pat:" + personalToken
 )
 
-// tierSpec 是假派发计划里的一档。
-type tierSpec struct {
-	backendSync, deviceName, fingerprint, backendType, kind, availability string
-	deviceID                                                              int64
+// devSpec 是假派发计划里的一台设备：reason 为空即通过；reasonCode 是共享派发函数的原因码。
+type devSpec struct {
+	deviceName, fingerprint, kind, reasonCode string
+	deviceID                                  int64
+}
+
+// enginePlan 是一名成员生效的引擎配置与参与派发的设备（按派发顺序）。
+type enginePlan struct {
+	engineSync, engineName, runtime string
+	devices                         []devSpec
 }
 
 type world struct {
@@ -43,14 +49,14 @@ type world struct {
 	box    *fakeAgentred
 	laptop *fakeAgentred // 笔记本：登记在 relay 上但离线
 	// saved 是账号的会话索引（/v1/agent-sessions），mirror 是 server 镜像的帧（/transcript）。
-	saved  []map[string]any
-	mirror map[string][]map[string]any
-	mseq   int64
-	tiers  map[string][]tierSpec // agent sync id → 执行目标链
-	mu     sync.Mutex
-	plans  []string // dispatch-target 收到的 query
-	saves  []map[string]any
-	saveOK bool
+	saved       []map[string]any
+	mirror      map[string][]map[string]any
+	mseq        int64
+	enginePlans map[string]*enginePlan // agent sync id → 生效引擎配置与设备
+	mu          sync.Mutex
+	plans       []string // dispatch-target 收到的 query
+	saves       []map[string]any
+	saveOK      bool
 	// extraDevices 是 /v1/devices 在固定三台之外再报的设备（按需由用例加）。
 	extraDevices []map[string]any
 }
@@ -62,12 +68,14 @@ func newWorld(t *testing.T) *world {
 	dir := accountDirs(t)
 	f := newFakeServer(t)
 	f.saveLogin(t, dir)
-	w := &world{t: t, srv: f, saveOK: true, tiers: map[string][]tierSpec{
-		"AG-12": {
-			{backendSync: "BE-5", deviceName: "laptop", fingerprint: laptopFP, backendType: "claudecode", kind: "desktop", availability: "offline", deviceID: 1},
-			{backendSync: "BE-9", deviceName: "build-box", fingerprint: boxFP, backendType: "codex", kind: "agentred", availability: "available", deviceID: 2},
-		},
-		"AG-3": {{backendSync: "BE-PI", deviceName: "build-box", fingerprint: boxFP, backendType: "piagent", kind: "agentred", availability: "available", deviceID: 2}},
+	w := &world{t: t, srv: f, saveOK: true, enginePlans: map[string]*enginePlan{
+		"AG-12": {engineSync: "EN-9", engineName: "codex-main", runtime: "codex", devices: []devSpec{
+			{deviceName: "laptop", fingerprint: laptopFP, kind: "desktop", reasonCode: "offline", deviceID: 1},
+			{deviceName: "build-box", fingerprint: boxFP, kind: "agentred", deviceID: 2},
+		}},
+		"AG-3": {engineSync: "EN-PI", engineName: "pi-main", runtime: "piagent", devices: []devSpec{
+			{deviceName: "build-box", fingerprint: boxFP, kind: "agentred", deviceID: 2},
+		}},
 	}}
 	w.syncIDs()
 	w.relay = relaypeertest.New(func(bearer string) bool {
@@ -129,8 +137,13 @@ func (w *world) syncIDs() {
 	for _, it := range e.items[agentrewire.CtlKind_CTL_KIND_BACKEND] {
 		it.GetBackend().SyncId = "BE-" + itoa(it.GetBackend().GetId())
 	}
+	for _, it := range e.items[agentrewire.CtlKind_CTL_KIND_ENGINE] {
+		it.GetEngine().SyncId = "EN-" + itoa(it.GetEngine().GetId())
+	}
 }
 
+// serveDispatch 是假 server 的 GET /v1/workspace/dispatch-target（新契约：引擎配置 + 设备情况
+// + 共享派发函数）：device 是手动指定的设备指纹，engine_sync_id 是「这次改用」的引擎配置。
 func (w *world) serveDispatch(rw http.ResponseWriter, r *http.Request) {
 	if !w.srv.authed(rw, r, true) {
 		return
@@ -139,22 +152,33 @@ func (w *world) serveDispatch(rw http.ResponseWriter, r *http.Request) {
 	w.mu.Lock()
 	w.plans = append(w.plans, r.URL.RawQuery)
 	w.mu.Unlock()
-	tiers := []map[string]any{}
-	var chosen map[string]any
-	target := q.Get("target_backend_sync_id")
-	for i, ts := range w.tiers[q.Get("agent_sync_id")] {
-		tiers = append(tiers, map[string]any{"rank": i + 1, "backend_sync_id": ts.backendSync, "device_id": ts.deviceID,
-			"device_name": ts.deviceName, "backend_type": ts.backendType, "kind": ts.kind, "availability": ts.availability})
-		if chosen != nil || (target != "" && ts.backendSync != target) || ts.availability != "available" {
-			continue
-		}
-		chosen = map[string]any{"device_fingerprint": ts.fingerprint, "device_id": ts.deviceID, "device_name": ts.deviceName,
-			"backend_sync_id": ts.backendSync, "backend_type": ts.backendType, "kind": ts.kind}
-		if p := q.Get("project_sync_id"); p != "" {
-			chosen["cwd"] = "/srv/" + p
-		}
+	pl := w.enginePlans[q.Get("agent_sync_id")]
+	engine := map[string]any{"sync_id": pl.engineSync, "name": pl.engineName, "runtime": pl.runtime}
+	if es := q.Get("engine_sync_id"); es != "" {
+		engine = map[string]any{"sync_id": es, "name": es, "runtime": "codex"}
 	}
-	writeEnvelope(rw, map[string]any{"agent_sync_id": q.Get("agent_sync_id"), "tiers": tiers, "chosen": chosen, "projects": []any{}})
+	manual := q.Get("device")
+	devices := []map[string]any{}
+	var chosen map[string]any
+	pick := func(d devSpec) bool { return d.reasonCode == "" && (manual == "" || d.fingerprint == manual) }
+	for _, d := range pl.devices {
+		row := map[string]any{"device_id": d.deviceID, "device_fingerprint": d.fingerprint, "device_name": d.deviceName,
+			"kind": d.kind, "eligible": d.reasonCode == "", "chosen": false}
+		if d.reasonCode != "" {
+			row["reason"] = map[string]any{"code": d.reasonCode, "last_seen": 1_700_000_000_000, "runtime": pl.runtime, "project": q.Get("project_sync_id")}
+		}
+		if chosen == nil && pick(d) {
+			row["chosen"] = true
+			chosen = map[string]any{"device_id": d.deviceID, "device_fingerprint": d.fingerprint, "device_name": d.deviceName,
+				"kind": d.kind, "engine_sync_id": engine["sync_id"], "runtime": engine["runtime"]}
+			if p := q.Get("project_sync_id"); p != "" {
+				chosen["cwd"] = "/srv/" + p
+			}
+		}
+		devices = append(devices, row)
+	}
+	writeEnvelope(rw, map[string]any{"agent_sync_id": q.Get("agent_sync_id"), "found": chosen != nil, "engine": engine,
+		"devices": devices, "chosen": chosen})
 }
 
 func (w *world) serveDevices(rw http.ResponseWriter, r *http.Request) {

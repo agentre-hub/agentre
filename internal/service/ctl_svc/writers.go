@@ -30,6 +30,7 @@ func productionWriters(p servicePorts) map[agentrewire.CtlKind]KindWriter {
 		agentrewire.CtlKind_CTL_KIND_PROVIDER:   providerWriter{p},
 		agentrewire.CtlKind_CTL_KIND_MODEL:      modelWriter{p},
 		agentrewire.CtlKind_CTL_KIND_BACKEND:    backendWriter{p},
+		agentrewire.CtlKind_CTL_KIND_ENGINE:     engineWriter{p},
 	}
 }
 
@@ -608,4 +609,106 @@ func matchDeviceName(ctx context.Context, dir DeviceDirectory, device string) ([
 		}
 	}
 	return views, nil
+}
+
+// ---- engines ----
+
+type engineWriter struct{ p servicePorts }
+
+// engineRequest 是 Create/UpdateEngineProfileRequest 共有的字段。
+type engineRequest struct {
+	providerKey, modelKey string
+	envJSON               string
+	cfg                   syncwire.AgentBackendConfig
+	routes                map[string]agent_backend_svc.RouteTarget
+}
+
+func (w engineWriter) Create(ctx context.Context, wr Write) (int64, error) {
+	e := wr.Next.GetEngine()
+	r, err := w.request(ctx, e, nil, wr.Fields)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := w.p.engines().Create(ctx, &agent_backend_svc.CreateEngineProfileRequest{
+		Type: e.GetType(), Name: e.GetName(), LLMProviderKey: r.providerKey, LLMModelKey: r.modelKey, ModelRoutes: r.routes,
+		Sandbox: r.cfg.Sandbox, Approval: r.cfg.Approval, EnvJSON: r.envJSON, ReasoningEffort: e.GetReasoningEffort(),
+		DefaultPermissionMode: r.cfg.DefaultPermissionMode, DefaultModel: r.cfg.DefaultModel,
+		OpenClawGatewayURL: r.cfg.OpenClawGatewayURL, OpenClawAgentID: r.cfg.OpenClawAgentID,
+		OpenClawDefaultModel: r.cfg.OpenClawDefaultModel, OpenClawSessionMode: r.cfg.OpenClawSessionMode,
+		HermesURL: r.cfg.HermesURL, HermesAuthProvider: r.cfg.HermesAuthProvider, HermesUserID: r.cfg.HermesUserID,
+		ACPCommand: r.cfg.ACPCommand, ACPArgs: r.cfg.ACPArgs,
+	})
+	if err != nil {
+		return 0, explainBackendErr(err)
+	}
+	return resp.Item.ID, nil
+}
+
+func (w engineWriter) Update(ctx context.Context, wr Write) error {
+	id := wr.Cur.GetEngine().GetId()
+	got, err := w.p.engines().Get(ctx, &agent_backend_svc.GetEngineProfileRequest{ID: id})
+	if err != nil {
+		return err
+	}
+	e := wr.Next.GetEngine()
+	r, err := w.request(ctx, e, got.Item, wr.Fields)
+	if err != nil {
+		return err
+	}
+	_, err = w.p.engines().Update(ctx, &agent_backend_svc.UpdateEngineProfileRequest{
+		ID: id, Name: e.GetName(), LLMProviderKey: r.providerKey, LLMModelKey: r.modelKey, ModelRoutes: r.routes,
+		Sandbox: r.cfg.Sandbox, Approval: r.cfg.Approval, EnvJSON: r.envJSON, ReasoningEffort: e.GetReasoningEffort(),
+		DefaultPermissionMode: r.cfg.DefaultPermissionMode, DefaultModel: r.cfg.DefaultModel,
+		OpenClawGatewayURL: r.cfg.OpenClawGatewayURL, OpenClawAgentID: r.cfg.OpenClawAgentID,
+		OpenClawDefaultModel: r.cfg.OpenClawDefaultModel, OpenClawSessionMode: r.cfg.OpenClawSessionMode,
+		HermesURL: r.cfg.HermesURL, HermesAuthProvider: r.cfg.HermesAuthProvider, HermesUserID: r.cfg.HermesUserID,
+		ACPCommand: r.cfg.ACPCommand, ACPArgs: r.cfg.ACPArgs,
+	})
+	return explainBackendErr(err)
+}
+
+// Delete 软删：直接引用它的成员与部门由服务层改为跟随上一级；账号默认那份服务层拒绝。
+func (w engineWriter) Delete(ctx context.Context, wr Write) error {
+	_, err := w.p.engines().Delete(ctx, &agent_backend_svc.DeleteEngineProfileRequest{ID: wr.Cur.GetEngine().GetId()})
+	return err
+}
+
+// request 算出服务请求里的引用与设置；update 时没写的引用沿用服务层的原始 key，不经过
+// id 往返——悬空的引用也不会被改写。
+func (w engineWriter) request(ctx context.Context, e *agentrewire.CtlEngine, item *agent_backend_svc.EngineProfileItem, fields map[string]bool) (engineRequest, error) {
+	var r engineRequest
+	if item != nil {
+		r.providerKey, r.modelKey = item.LLMProviderKey, item.LLMModelKey
+	}
+	// 引用解析（id → key）与后端写入同一份逻辑。
+	keys := backendWriter(w)
+	var err error
+	if item == nil || fields["providerId"] {
+		if r.providerKey, err = keys.providerKey(ctx, e.GetProviderId()); err != nil {
+			return r, err
+		}
+	}
+	if item == nil || fields["modelId"] {
+		if r.modelKey, err = keys.modelKey(ctx, e.GetModelId()); err != nil {
+			return r, err
+		}
+	}
+	if len(e.GetEnv()) > 0 {
+		raw, err := json.Marshal(e.GetEnv())
+		if err != nil {
+			return r, err
+		}
+		r.envJSON = string(raw)
+	}
+	if e.GetConfigJson() != "" {
+		if err := json.Unmarshal([]byte(e.GetConfigJson()), &r.cfg); err != nil {
+			return r, errBadRequest("configJson: " + err.Error())
+		}
+	}
+	if len(r.cfg.ModelRoutes) > 0 && string(r.cfg.ModelRoutes) != "null" {
+		if err := json.Unmarshal(r.cfg.ModelRoutes, &r.routes); err != nil {
+			return r, errBadRequest("configJson.modelRoutes: " + err.Error())
+		}
+	}
+	return r, nil
 }

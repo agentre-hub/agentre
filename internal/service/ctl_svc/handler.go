@@ -3,6 +3,7 @@ package ctl_svc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -14,7 +15,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/pkg/ctlaccount"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 // routePrefix 控制 API 的版本化前缀；gateway 已把 /ctl/* 全部转到本 handler。
@@ -164,10 +167,10 @@ type sendRequest struct {
 	CLIModel       string `json:"cliModel,omitempty"`
 	Effort         string `json:"effort,omitempty"`
 	PermissionMode string `json:"permissionMode,omitempty"`
-	// 新会话的执行目标(二选一,都不给 = 按 agent 配置的顺序挑第一个可用的):Device 是设备
-	// 名或指纹(本机也算一台),Backend 是该 agent 某一档后端的名字或 id。
-	Device  string `json:"device,omitempty"`
-	Backend string `json:"backend,omitempty"`
+	// 新会话在哪跑(都不给 = 按派发规则选设备、用成员生效的引擎配置):Device 是设备名或
+	// 指纹(本机也算一台,「本机」「local」都认),Engine 是本会话换用的引擎配置的名字或 id。
+	Device string `json:"device,omitempty"`
+	Engine string `json:"engine,omitempty"`
 }
 
 func (r sendRequest) continuing() bool { return strings.TrimSpace(r.ConversationID) != "" }
@@ -221,12 +224,8 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 		return
 	}
 	if req.continuing() && (req.Agent != "" || req.AgentID > 0 || req.ProjectID > 0 || req.Isolated || req.Title != "" ||
-		req.Device != "" || req.Backend != "") {
-		writeErr(w, http.StatusBadRequest, "a session (conversationId) cannot be combined with agent, project, isolated, title, device or backend")
-		return
-	}
-	if strings.TrimSpace(req.Device) != "" && strings.TrimSpace(req.Backend) != "" {
-		writeErr(w, http.StatusBadRequest, "--device and --backend are mutually exclusive")
+		req.Device != "" || req.Engine != "") {
+		writeErr(w, http.StatusBadRequest, "a session (conversationId) cannot be combined with agent, project, isolated, title, device or engine")
 		return
 	}
 	if req.Steer && len(req.Images) > 0 {
@@ -270,11 +269,11 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	backendID, ok := h.pickExecTarget(w, r, req, a)
+	target, ok := h.pickDispatch(w, r, req, a)
 	if !ok {
 		return
 	}
-	if err := h.conversations.CheckCtlOverrides(ctx, a.ID, backendID, 0, overrides); err != nil {
+	if err := h.conversations.CheckCtlOverrides(ctx, a.ID, target.engineProfileID, 0, overrides); err != nil {
 		writeOverrideErr(w, err)
 		return
 	}
@@ -282,12 +281,10 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 	if !ok {
 		return
 	}
-	// 钉在首轮之前:Send 解析这条会话的后端时直接短路到选中的那一档。
-	if backendID > 0 {
-		if err := h.conversations.PinCtlExecTarget(ctx, c.SessionID, backendID); err != nil {
-			writeErr(w, http.StatusInternalServerError, "pin the chosen backend failed: "+err.Error())
-			return
-		}
+	// 钉在首轮之前:Send 此后直接用钉住的设备与引擎配置,不再重新派发(会话不能换设备)。
+	if err := h.conversations.PinCtlDispatch(ctx, c.SessionID, target.engineProfileID, target.device); err != nil {
+		writeErr(w, http.StatusInternalServerError, "pin the dispatched device failed: "+err.Error())
+		return
 	}
 	if err := h.conversations.ApplyCtlOverrides(ctx, c.SessionID, overrides); err != nil {
 		writeOverrideErr(w, err)
@@ -296,61 +293,78 @@ func (h *ctlHandler) serveSend(w http.ResponseWriter, r *http.Request, cred cred
 	h.dispatch(w, r, cred, req, c)
 }
 
-// pickExecTarget 按 --device / --backend 在 agent 的执行目标里挑一档(spec「发起与继续」):
-// --device 取运行在那台设备上的第一档(按 agent 配置的顺序),--backend 精确点名一档。
-// 都没给交回 0(新会话按 agent 的顺序自动挑)。点名的不在这个 agent 的执行目标里是用法
-// 错误(422,列出可选值);挑中的那一档此刻不可用(设备离线、项目在那台设备上没有路径…)
-// 报它的原因(409)。失败时已写好响应并交回 false。
-func (h *ctlHandler) pickExecTarget(w http.ResponseWriter, r *http.Request, req sendRequest, a agentResolved) (int64, bool) {
-	device, backend := strings.TrimSpace(req.Device), strings.TrimSpace(req.Backend)
-	if device == "" && backend == "" {
-		return 0, true
-	}
-	targets, err := h.conversations.CtlExecTargets(r.Context(), a.ID, req.ProjectID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "list the agent's backends failed: "+err.Error())
-		return 0, false
-	}
-	var (
-		chosen  *chat_svc.CtlExecTarget
-		options []string
-	)
-	for i := range targets {
-		t := &targets[i]
-		switch {
-		case backend != "":
-			options = appendUnique(options, t.Backend)
-			if chosen == nil && (t.Backend == backend || strconv.FormatInt(t.AgentBackendID, 10) == backend) {
-				chosen = t
-			}
-		default:
-			options = appendUnique(options, t.Device)
-			if chosen == nil && slices.Contains(t.DeviceRefs, device) {
-				chosen = t
-			}
-		}
-	}
-	if chosen == nil {
-		flag, value, what := "backend", backend, "backends"
-		if backend == "" {
-			flag, value, what = "device", device, "devices"
-		}
-		writeErr(w, http.StatusUnprocessableEntity, fmt.Sprintf("--%s %q is not one of agent %s's %s (one of: %s)",
-			flag, value, a.Name, what, strings.Join(options, ", ")))
-		return 0, false
-	}
-	if !chosen.Available {
-		writeErr(w, http.StatusConflict, fmt.Sprintf("backend %s on %s is unavailable: %s", chosen.Backend, chosen.Device, chosen.Reason))
-		return 0, false
-	}
-	return chosen.AgentBackendID, true
+// dispatchTarget 是新会话派发的结果:用哪份引擎配置、跑在哪台设备上。
+type dispatchTarget struct {
+	engineProfileID int64
+	device          devicefp.Carrier
 }
 
-func appendUnique(list []string, v string) []string {
-	if v == "" || slices.Contains(list, v) {
-		return list
+// pickDispatch 按共享派发函数为新会话挑设备与引擎配置(spec「agrctl」):--engine 点名的引擎
+// 配置不存在是用法错误(422,列出可选的);--device 不是参与派发的设备是用法错误(422,列出
+// 可选的),是但规则不通过报它的原因(409);没给 --device 时取规则选中的那台,没有任何设备
+// 通过时逐台列出原因(409)。失败时已写好响应并交回 false。
+func (h *ctlHandler) pickDispatch(w http.ResponseWriter, r *http.Request, req sendRequest, a agentResolved) (dispatchTarget, bool) {
+	ctx := r.Context()
+	var engineID int64
+	if ref := strings.TrimSpace(req.Engine); ref != "" {
+		engine, err := h.conversations.ResolveCtlEngine(ctx, ref)
+		var notFound *chat_svc.CtlEngineNotFoundError
+		switch {
+		case errors.As(err, &notFound):
+			writeErr(w, http.StatusUnprocessableEntity, notFound.Error())
+			return dispatchTarget{}, false
+		case err != nil:
+			writeErr(w, http.StatusInternalServerError, "resolve the engine failed: "+err.Error())
+			return dispatchTarget{}, false
+		}
+		engineID = engine.ID
 	}
-	return append(list, v)
+	plan, err := h.conversations.CtlDispatchPlan(ctx, a.ID, req.ProjectID, engineID)
+	if err != nil || plan == nil {
+		writeErr(w, http.StatusInternalServerError, "plan the dispatch failed")
+		return dispatchTarget{}, false
+	}
+	target := dispatchTarget{engineProfileID: plan.EngineProfileID, device: plan.Chosen}
+	if ref := strings.TrimSpace(req.Device); ref != "" {
+		var options []string
+		var chosen *chat_svc.CtlDevice
+		for i := range plan.Devices {
+			d := &plan.Devices[i]
+			options = append(options, d.Name)
+			if chosen == nil && slices.Contains(d.Refs, ref) {
+				chosen = d
+			}
+		}
+		if chosen == nil {
+			writeErr(w, http.StatusUnprocessableEntity, ctlaccount.UnknownDeviceMessage(ref, a.Name, options))
+			return dispatchTarget{}, false
+		}
+		if !chosen.Eligible {
+			writeErr(w, http.StatusConflict, ctlaccount.RequestedDeviceMessage(a.Name, verdictOf(*chosen)))
+			return dispatchTarget{}, false
+		}
+		target.device = chosen.Fingerprint
+		return target, true
+	}
+	if !plan.Found {
+		verdicts := make([]ctlaccount.DeviceVerdict, 0, len(plan.Devices))
+		for _, d := range plan.Devices {
+			verdicts = append(verdicts, verdictOf(d))
+		}
+		writeErr(w, http.StatusConflict, ctlaccount.NowhereToRunMessage(a.Name, verdicts))
+		return dispatchTarget{}, false
+	}
+	return target, true
+}
+
+// verdictOf 把一台设备的不通过原因交给命令行的措辞(与账号模式同一份)。
+func verdictOf(d chat_svc.CtlDevice) ctlaccount.DeviceVerdict {
+	v := ctlaccount.DeviceVerdict{Name: d.Name}
+	if r := d.Reason; r != nil {
+		v.Reason = ctlaccount.Reason{Code: r.Code, LastSeen: r.LastSeen, Runtime: r.Runtime, Labels: r.Labels,
+			Project: r.Project, Provider: r.Provider, Engine: r.Engine}
+	}
+	return v
 }
 
 // createConversation 为一次新派发建会话并带回它的对话身份。

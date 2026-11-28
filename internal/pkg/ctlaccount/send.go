@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -37,17 +36,21 @@ type Image struct {
 
 // SendInput 是一次 send：Session 为空则按 Agent / AgentID / Project 新开一条会话。
 type SendInput struct {
-	Text     string
-	Images   []Image
-	Session  string
-	Steer    bool
-	Wait     bool
-	Timeout  time.Duration
-	Agent    string
-	AgentID  int64
-	Project  string
-	Title    string
-	Device   string
+	Text    string
+	Images  []Image
+	Session string
+	Steer   bool
+	Wait    bool
+	Timeout time.Duration
+	Agent   string
+	AgentID int64
+	Project string
+	Title   string
+	Device  string
+	// Engine 是本会话换用的引擎配置（名字或 id，仅新会话）；空 = 成员生效的那份。
+	Engine string
+	// Backend 已废弃且不再被读：agentred 的控制台代理（internal/daemon/handlers/ctlproxy_console.go）
+	// 还在填它，那一侧迁到 Engine 之后删掉这一格。
 	Backend  string
 	Isolated bool
 
@@ -141,37 +144,53 @@ func missingSyncID(kind string) error {
 	return fmt.Errorf("the account server did not report the %s's sync id; it needs to be upgraded", kind)
 }
 
-// dispatchPlan 是 GET /v1/workspace/dispatch-target 的应答（与控制台 lib/dispatch.ts 同形）。
+// dispatchPlan 是 GET /v1/workspace/dispatch-target 的应答。
+//
+// 契约（server 任务实现，这里是 agrctl 假定的形状）：请求带 agent_sync_id，可选
+// project_sync_id、device（手动指定的设备指纹）、engine_sync_id（本会话换用的引擎配置）；
+// 应答是共享派发函数（pkg/syncwire/dispatch）对每台参与设备的结果：Devices 按派发顺序，
+// Found 为 true 时 Chosen 是选中的那台（含它的 cwd 与用的引擎配置）。
 type dispatchPlan struct {
-	Tiers  []dispatchTier  `json:"tiers"`
-	Chosen *dispatchChoice `json:"chosen"`
+	Found   bool            `json:"found"`
+	Engine  dispatchEngine  `json:"engine"`
+	Devices []dispatchDev   `json:"devices"`
+	Chosen  *dispatchChoice `json:"chosen"`
 }
 
-type dispatchTier struct {
-	BackendSyncID string `json:"backend_sync_id"`
-	DeviceID      int64  `json:"device_id"`
-	DeviceName    string `json:"device_name"`
-	BackendType   string `json:"backend_type"`
-	Kind          string `json:"kind"`
-	Availability  string `json:"availability"`
+type dispatchEngine struct {
+	SyncID  string `json:"sync_id"`
+	Name    string `json:"name"`
+	Runtime string `json:"runtime"`
+}
+
+type dispatchDev struct {
+	DeviceID          int64  `json:"device_id"`
+	DeviceFingerprint string `json:"device_fingerprint"`
+	DeviceName        string `json:"device_name"`
+	Kind              string `json:"kind"`
+	Eligible          bool   `json:"eligible"`
+	Reason            Reason `json:"reason"`
 }
 
 type dispatchChoice struct {
 	DeviceFingerprint string `json:"device_fingerprint"`
 	DeviceName        string `json:"device_name"`
-	BackendSyncID     string `json:"backend_sync_id"`
-	BackendType       string `json:"backend_type"`
 	Kind              string `json:"kind"`
 	Cwd               string `json:"cwd"`
+	EngineSyncID      string `json:"engine_sync_id"`
+	Runtime           string `json:"runtime"`
 }
 
-func (a *Client) plan(ctx context.Context, agentSync, projectSync, targetBackend string) (*dispatchPlan, error) {
+func (a *Client) plan(ctx context.Context, agentSync, projectSync, device, engineSync string) (*dispatchPlan, error) {
 	q := url.Values{"agent_sync_id": {agentSync}}
 	if projectSync != "" {
 		q.Set("project_sync_id", projectSync)
 	}
-	if targetBackend != "" {
-		q.Set("target_backend_sync_id", targetBackend)
+	if device != "" {
+		q.Set("device", device)
+	}
+	if engineSync != "" {
+		q.Set("engine_sync_id", engineSync)
 	}
 	raw, err := a.srv.GetRaw(ctx, "/v1/workspace/dispatch-target?"+q.Encode())
 	if err != nil {
@@ -230,72 +249,64 @@ func ListDevices(ctx context.Context, srv Server) ([]Device, error) {
 	return out.Devices, nil
 }
 
-// availabilityReason 把派发计划逐档的原因说成人话（与控制台同一组分类）。
-func availabilityReason(availability string) string {
-	switch availability {
-	case "offline":
-		return "the device is offline"
-	case "unpaired":
-		return "the device is not paired with this account"
-	case "no_device":
-		return "no device is set for this backend"
-	case "project_path_missing":
-		return "the project has no path on that device"
-	default:
-		return availability
+// resolveEngine 把 --engine（名字或 id）解析成引擎配置的同步标识；空 = 成员生效的那份。
+func (a *Client) resolveEngine(ref string) (string, error) {
+	if ref == "" {
+		return "", nil
 	}
-}
-
-// pickTarget 按 --device / --backend 在 agent 的执行后端里挑一档，交回它的同步标识（空 =
-// 由 server 按 agent 的顺序挑第一个可用的）。点名的不在这个 agent 的执行后端里是用法错误。
-func (a *Client) pickTarget(ctx context.Context, agent *agentrewire.CtlAgent, projectSync string, in SendInput) (string, error) {
-	switch {
-	case in.Backend != "":
-		var options []string
-		var chosen *agentrewire.CtlBackend
-		for _, id := range agent.GetBackendIds() {
-			b := a.cat.ByID(agentrewire.CtlKind_CTL_KIND_BACKEND, id).GetBackend()
-			if b == nil {
-				continue
-			}
-			options = append(options, b.GetName())
-			if chosen == nil && (b.GetName() == in.Backend || strconv.FormatInt(b.GetId(), 10) == in.Backend) {
-				chosen = b
-			}
-		}
-		if chosen == nil {
-			return "", Usagef("--backend %q is not one of agent %s's backends (one of: %s)", in.Backend, agent.GetName(), strings.Join(options, ", "))
-		}
-		if chosen.GetSyncId() == "" {
-			return "", missingSyncID("backend")
-		}
-		return chosen.GetSyncId(), nil
-	case in.Device != "":
-		p, err := a.plan(ctx, agent.GetSyncId(), projectSync, "")
-		if err != nil {
+	it, err := a.cat.Locate(agentrewire.CtlKind_CTL_KIND_ENGINE, ref)
+	if err != nil {
+		var ae *AmbiguousError
+		if errors.As(err, &ae) {
 			return "", err
 		}
-		devices, err := a.devices(ctx)
-		if err != nil {
-			return "", err
-		}
-		var options []string
-		for _, t := range p.Tiers {
-			if t.DeviceName != "" && !slices.Contains(options, t.DeviceName) {
-				options = append(options, t.DeviceName)
-			}
-			if t.DeviceID != 0 && deviceMatches(devices, t, in.Device) {
-				return t.BackendSyncID, nil
-			}
-		}
-		return "", Usagef("--device %q is not one of agent %s's devices (one of: %s)", in.Device, agent.GetName(), strings.Join(options, ", "))
+		return "", Usagef("--engine %q is not an engine of this account (one of: %s)", ref, strings.Join(a.engineChoices(), ", "))
 	}
-	return "", nil
+	if it.GetEngine().GetSyncId() == "" {
+		return "", missingSyncID("engine")
+	}
+	return it.GetEngine().GetSyncId(), nil
 }
 
-// deviceMatches：--device 是这一档设备的名字、账号里的备注名或指纹。
-func deviceMatches(devices []accountDevice, t dispatchTier, ref string) bool {
-	if t.DeviceName == ref {
+func (a *Client) engineChoices() []string {
+	items, err := a.cat.List(agentrewire.CtlKind_CTL_KIND_ENGINE)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.GetEngine().GetName())
+	}
+	return out
+}
+
+// pickDevice 把 --device（设备名、账号里的备注名或指纹）对到派发计划里的一台设备：不是参与
+// 派发的设备是用法错误（列出可选的）；是但派发规则不通过，报它的原因（退出码 1）。
+// 交回它的指纹，之后带着它再问一次计划拿 cwd。
+func (a *Client) pickDevice(ctx context.Context, agent string, p *dispatchPlan, ref string) (string, error) {
+	devices, err := a.devices(ctx)
+	if err != nil {
+		return "", err
+	}
+	var options []string
+	for _, d := range p.Devices {
+		if d.DeviceName != "" && !slices.Contains(options, d.DeviceName) {
+			options = append(options, d.DeviceName)
+		}
+		if !deviceMatches(devices, d, ref) {
+			continue
+		}
+		if !d.Eligible {
+			return "", errors.New(RequestedDeviceMessage(agent, DeviceVerdict{Name: d.DeviceName, Reason: d.Reason}))
+		}
+		return d.DeviceFingerprint, nil
+	}
+	return "", Usagef("%s", UnknownDeviceMessage(ref, agent, options))
+}
+
+// deviceMatches：--device 是这台设备的名字、账号里的备注名或指纹。
+func deviceMatches(devices []accountDevice, t dispatchDev, ref string) bool {
+	if t.DeviceName == ref || t.DeviceFingerprint == ref {
 		return true
 	}
 	for _, d := range devices {
@@ -306,22 +317,13 @@ func deviceMatches(devices []accountDevice, t dispatchTier, ref string) bool {
 	return false
 }
 
-func unavailable(agent string, p *dispatchPlan, target string) error {
-	var reasons []string
-	for _, t := range p.Tiers {
-		if target != "" && t.BackendSyncID != target {
-			continue
-		}
-		where := t.DeviceName
-		if where == "" {
-			where = "(no device)"
-		}
-		reasons = append(reasons, where+": "+availabilityReason(t.Availability))
+// unavailable：没有任何设备通过派发规则时，逐台说出原因。
+func unavailable(agent string, p *dispatchPlan) error {
+	verdicts := make([]DeviceVerdict, 0, len(p.Devices))
+	for _, d := range p.Devices {
+		verdicts = append(verdicts, DeviceVerdict{Name: d.DeviceName, Reason: d.Reason})
 	}
-	if len(reasons) == 0 {
-		return fmt.Errorf("agent %s has no backend to run on", agent)
-	}
-	return fmt.Errorf("agent %s cannot run anywhere right now — %s", agent, strings.Join(reasons, "; "))
+	return errors.New(NowhereToRunMessage(agent, verdicts))
 }
 
 func (a *Client) startSession(ctx context.Context, in SendInput) (Reply, error) {
@@ -353,17 +355,26 @@ func (a *Client) startSession(ctx context.Context, in SendInput) (Reply, error) 
 	if err != nil {
 		return Reply{}, err
 	}
-	target, err := a.pickTarget(ctx, agent, projectSync, in)
+	engineSync, err := a.resolveEngine(in.Engine)
 	if err != nil {
 		return Reply{}, err
 	}
-	p, err := a.plan(ctx, agent.GetSyncId(), projectSync, target)
+	p, err := a.plan(ctx, agent.GetSyncId(), projectSync, "", engineSync)
 	if err != nil {
 		return Reply{}, err
+	}
+	if in.Device != "" {
+		device, err := a.pickDevice(ctx, agent.GetName(), p, in.Device)
+		if err != nil {
+			return Reply{}, err
+		}
+		if p, err = a.plan(ctx, agent.GetSyncId(), projectSync, device, engineSync); err != nil {
+			return Reply{}, err
+		}
 	}
 	choice := p.Chosen
 	if choice == nil {
-		return Reply{}, unavailable(agent.GetName(), p, target)
+		return Reply{}, unavailable(agent.GetName(), p)
 	}
 	conn, err := a.peer.Open(ctx, relaypeer.MachineTarget(choice.DeviceFingerprint))
 	if err != nil {
@@ -377,16 +388,13 @@ func (a *Client) startSession(ctx context.Context, in SendInput) (Reply, error) 
 	if title == "" {
 		title = deriveTitle(in.Text)
 	}
-	backend := &agentrewire.AgentBackend{Type: choice.BackendType}
-	if choice.Kind == "agentred" {
-		backend.SyncId = choice.BackendSyncID
-	}
+	// 运行时类型暂时仍走旧的 backend 字段（协议切换前对端据它建这一轮），引擎配置由同步标识指明。
 	req := &agentrewire.RuntimeRunRequest{
 		ConversationId: id, Title: title, AgentSyncId: agent.GetSyncId(), ProjectSyncId: projectSync,
-		Cwd: choice.Cwd, Backend: backend,
+		Cwd: choice.Cwd, Backend: &agentrewire.AgentBackend{Type: choice.Runtime}, EngineProfileSyncId: choice.EngineSyncID,
 	}
 	a.fillTurn(req, conn, in, model)
-	if choice.Kind == "agentred" && choice.BackendType == "piagent" {
+	if choice.Kind == "agentred" && choice.Runtime == "piagent" {
 		err = a.runPiGeneration(ctx, conn, req)
 	} else {
 		_, err = wirecall.RuntimeRun(ctx, conn, req)

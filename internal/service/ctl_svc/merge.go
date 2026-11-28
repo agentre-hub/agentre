@@ -59,6 +59,11 @@ var writableFields = map[agentrewire.CtlKind]map[string]int{
 		"providerId": writeAlways, "modelId": writeAlways, "reasoningEffort": writeAlways, "env": writeAlways,
 		"configJson": writeAlways, "token": writeAlways,
 	},
+	// 引擎配置没有设备、按设备的 CLI 路径与任何凭据：这些字段根本不可写。
+	agentrewire.CtlKind_CTL_KIND_ENGINE: {
+		"type": writeOnCreate, "name": writeAlways, "providerId": writeAlways, "modelId": writeAlways,
+		"reasoningEffort": writeAlways, "env": writeAlways, "configJson": writeAlways,
+	},
 }
 
 // docMessage 取资源文档里具体那一类的消息；文档为空时返回 nil。
