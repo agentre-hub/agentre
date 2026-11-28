@@ -8,25 +8,24 @@ import (
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
-	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
-	"github.com/agentre-hub/agentre/internal/service/skill_svc/mock_skill_svc"
-	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
-// countingDisc 记录 Discover 被调用(= 起 CLI 子进程)的次数;gate 非空时阻塞到被放行。
+// countingDisc 记录 Discover 被调用(= 起 CLI 子进程)的次数与最后一次的 CLI 路径;gate 非空时阻塞到被放行。
 type countingDisc struct {
-	calls *atomic.Int32
-	gate  chan struct{}
+	calls   *atomic.Int32
+	gate    chan struct{}
+	cliPath *atomic.Value
 }
 
-func (c countingDisc) Discover(_ context.Context, _ agentskill.DiscoverQuery) ([]agentskill.SkillPack, error) {
+func (c countingDisc) Discover(_ context.Context, q agentskill.DiscoverQuery) ([]agentskill.SkillPack, error) {
 	c.calls.Add(1)
+	if c.cliPath != nil {
+		c.cliPath.Store(q.CLIPath)
+	}
 	if c.gate != nil {
 		<-c.gate
 	}
@@ -34,27 +33,25 @@ func (c countingDisc) Discover(_ context.Context, _ agentskill.DiscoverQuery) ([
 }
 
 type cacheFixture struct {
-	svc   *Service
-	calls *atomic.Int32
+	*fixture
+	calls   *atomic.Int32
+	cliPath *atomic.Value
 }
 
-// newCacheFixture 造一个本机 claudecode 档的服务,发现器是计数替身。
+// newCacheFixture 造一个只在本机能跑 claudecode 的成员,本机 CLI 路径覆盖为 /bin/claude,
+// 发现器是计数替身。
 func newCacheFixture(t *testing.T, gate chan struct{}) *cacheFixture {
 	t.Helper()
-	ctrl := gomock.NewController(t)
-	al := mock_skill_svc.NewMockAgentLookup(ctrl)
-	bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-	al.EXPECT().Find(gomock.Any(), int64(1)).Return(&agent_entity.Agent{ID: 1, AgentBackendID: 9}, nil).AnyTimes()
-	bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
-		Type: string(agent_backend_entity.TypeClaudeCode), CLIPath: "/bin/claude",
-	}, nil).AnyTimes()
-	calls := &atomic.Int32{}
-	restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, countingDisc{calls: calls, gate: gate})
+	f := newFixture(t)
+	f.cliPath = "/bin/claude"
+	calls, cliPath := &atomic.Int32{}, &atomic.Value{}
+	restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, countingDisc{calls: calls, gate: gate, cliPath: cliPath})
 	t.Cleanup(restore)
-	target := skillTarget()
-	target.AgentBackendID = 9
-	et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{target}}
-	return &cacheFixture{svc: newForTest(al, bl, et), calls: calls}
+	return &cacheFixture{fixture: f, calls: calls, cliPath: cliPath}
+}
+
+func (f *cacheFixture) list(ctx context.Context, refresh bool) (MemberSkillCatalogDTO, error) {
+	return f.svc.MemberSkillCatalog(ctx, 1, refresh)
 }
 
 func TestDiscoveryCache_Local(t *testing.T) {
@@ -62,11 +59,12 @@ func TestDiscoveryCache_Local(t *testing.T) {
 	Convey("给定本机 claudecode 档", t, func() {
 		Convey("同一机器与后端的第二次请求不再起子进程(packs 与 commands 共用)", func() {
 			f := newCacheFixture(t, nil)
-			_, err := f.svc.ListAgentSkillPacksForTarget(ctx, 1, 9, false)
+			_, err := f.list(ctx, false)
 			So(err, ShouldBeNil)
-			_, err = f.svc.ListAgentSkillPacksForTarget(ctx, 1, 9, false)
+			_, err = f.list(ctx, false)
 			So(err, ShouldBeNil)
 			So(f.calls.Load(), ShouldEqual, 1)
+			So(f.cliPath.Load(), ShouldEqual, "/bin/claude") // 本机发现用本机的 CLI 路径覆盖
 			_, err = f.svc.ListAgentSkillCommands(ctx, 1, "/proj")
 			So(err, ShouldBeNil)
 			_, err = f.svc.ListAgentSkillCommands(ctx, 1, "/proj")
@@ -82,7 +80,7 @@ func TestDiscoveryCache_Local(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					_, _ = f.svc.ListAgentSkillPacksForTarget(ctx, 1, 9, false)
+					_, _ = f.list(ctx, false)
 				}()
 			}
 			for f.calls.Load() == 0 {
@@ -94,8 +92,8 @@ func TestDiscoveryCache_Local(t *testing.T) {
 
 		Convey("refresh=true 强制重扫", func() {
 			f := newCacheFixture(t, nil)
-			_, _ = f.svc.ListAgentSkillPacksForTarget(ctx, 1, 9, false)
-			_, err := f.svc.ListAgentSkillPacksForTarget(ctx, 1, 9, true)
+			_, _ = f.list(ctx, false)
+			_, err := f.list(ctx, true)
 			So(err, ShouldBeNil)
 			So(f.calls.Load(), ShouldEqual, 2)
 		})
@@ -110,7 +108,7 @@ func TestDiscoveryCache_Invalidation(t *testing.T) {
 		stamp := "v1"
 		f.svc.cache = agentskill.NewDiscoveryCacheWith(5*time.Minute, func() time.Time { return now })
 		f.svc.localStamp = func() string { return stamp }
-		list := func() { _, _ = f.svc.ListAgentSkillPacksForTarget(ctx, 1, 9, false) }
+		list := func() { _, _ = f.list(ctx, false) }
 		list()
 		So(f.calls.Load(), ShouldEqual, 1)
 
@@ -140,7 +138,7 @@ func TestDiscoveryCache_Invalidation(t *testing.T) {
 		Convey("refresh=true 也清掉同机器后端的 commands 清单", func() {
 			_, _ = f.svc.ListAgentSkillCommands(ctx, 1, "/proj")
 			So(f.calls.Load(), ShouldEqual, 1)
-			_, err := f.svc.ListAgentSkillPacksForTarget(ctx, 1, 9, true)
+			_, err := f.list(ctx, true)
 			So(err, ShouldBeNil)
 			So(f.calls.Load(), ShouldEqual, 2)
 			_, _ = f.svc.ListAgentSkillCommands(ctx, 1, "/proj")
@@ -176,10 +174,10 @@ func TestDiscoveryCache_ErrorsAreNotCached(t *testing.T) {
 		fail.Store(true)
 		restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, errDisc{calls: calls, fail: fail})
 		defer restore()
-		_, err := f.svc.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
+		_, err := f.list(context.Background(), false)
 		So(err, ShouldNotBeNil)
 		fail.Store(false)
-		cat, err := f.svc.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
+		cat, err := f.list(context.Background(), false)
 		So(err, ShouldBeNil)
 		So(calls.Load(), ShouldEqual, 2)
 		So(cat.Packs, ShouldNotBeEmpty)
@@ -203,52 +201,41 @@ func (c *countingRemote) ListSkillCommands(_ context.Context, _ int64, _, _ stri
 
 func TestDiscoveryCache_Remote(t *testing.T) {
 	ctx := context.Background()
-	Convey("给定指向两台不同远端 daemon 的 backend", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		al.EXPECT().Find(gomock.Any(), int64(1)).Return(&agent_entity.Agent{ID: 1, AgentBackendID: 8}, nil).AnyTimes()
-		al.EXPECT().Find(gomock.Any(), int64(2)).Return(&agent_entity.Agent{ID: 2, AgentBackendID: 9}, nil).AnyTimes()
-		bl.EXPECT().Find(gomock.Any(), int64(8)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:d-a",
-		}, nil).AnyTimes()
-		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:d-b",
-		}, nil).AnyTimes()
-		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
-		rds.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
-			{ID: 7, DaemonFingerprint: "sha256:d-a"}, {ID: 8, DaemonFingerprint: "sha256:d-b"},
-		}, nil).AnyTimes()
-		prev := remote_device_svc.Default()
-		remote_device_svc.SetDefault(rds)
-		t.Cleanup(func() { remote_device_svc.SetDefault(prev) })
-		ta, tb := skillTarget(), skillTarget()
-		ta.AgentBackendID, tb.AgentBackendID = 8, 9
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{ta, tb}}
+	Convey("给定只能在已配对 agentred 上跑的成员", t, func() {
+		f := newFixture(t)
+		f.devices = []Device{
+			{Fingerprint: selfFP, IsSelf: true, CanRun: false},
+			{Fingerprint: "sha256:d-a", PairedID: 7, CanRun: true},
+		}
 		rem := &countingRemote{}
-		s := newForTestRemote(al, bl, et, rem)
+		f.svc.remote = rem
+		// 本机发现器在场(运行时支持技能包),但本机跑不了,不该被问到。
+		local := &atomic.Int32{}
+		t.Cleanup(agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, countingDisc{calls: local}))
 
-		Convey("同设备第二次不再问远端;不同设备不共享", func() {
-			_, _ = s.ListAgentSkillPacksForTarget(ctx, 1, 8, false)
-			_, _ = s.ListAgentSkillPacksForTarget(ctx, 1, 8, false)
+		Convey("同设备第二次不再问远端;换了设备不共享;refresh 重问", func() {
+			_, _ = f.svc.MemberSkillCatalog(ctx, 1, false)
+			_, _ = f.svc.MemberSkillCatalog(ctx, 1, false)
 			So(rem.packCalls.Load(), ShouldEqual, 1)
-			_, _ = s.ListAgentSkillPacksForTarget(ctx, 2, 9, false)
+			f.devices[1] = Device{Fingerprint: "sha256:d-b", PairedID: 8, CanRun: true}
+			_, _ = f.svc.MemberSkillCatalog(ctx, 1, false)
 			So(rem.packCalls.Load(), ShouldEqual, 2)
-			_, _ = s.ListAgentSkillPacksForTarget(ctx, 1, 8, true)
+			_, _ = f.svc.MemberSkillCatalog(ctx, 1, true)
 			So(rem.packCalls.Load(), ShouldEqual, 3)
+			So(local.Load(), ShouldEqual, 0)
 		})
 
 		Convey("commands 按设备 / cwd / 授权区分缓存", func() {
-			_, _ = s.ListAgentSkillCommands(ctx, 1, "/p")
-			_, _ = s.ListAgentSkillCommands(ctx, 1, "/p")
+			_, _ = f.svc.ListAgentSkillCommands(ctx, 1, "/p")
+			_, _ = f.svc.ListAgentSkillCommands(ctx, 1, "/p")
 			So(rem.cmdCalls.Load(), ShouldEqual, 1)
-			_, _ = s.ListAgentSkillCommands(ctx, 1, "/q") // 另一个 cwd
+			_, _ = f.svc.ListAgentSkillCommands(ctx, 1, "/q") // 另一个 cwd
 			So(rem.cmdCalls.Load(), ShouldEqual, 2)
-			_, _ = s.ListAgentSkillCommands(ctx, 2, "/p") // 另一台设备
+			f.devices[1] = Device{Fingerprint: "sha256:d-b", PairedID: 8, CanRun: true} // 另一台设备
+			_, _ = f.svc.ListAgentSkillCommands(ctx, 1, "/p")
 			So(rem.cmdCalls.Load(), ShouldEqual, 3)
-			ta.SetSkills([]agent_entity.AgentSkillItem{{ID: "p@m", Enabled: true}}) // 授权变了
-			_, _ = s.ListAgentSkillCommands(ctx, 1, "/p")
+			f.grant("claudecode", agent_entity.AgentSkillItem{ID: "p@m", Enabled: true}) // 授权变了
+			_, _ = f.svc.ListAgentSkillCommands(ctx, 1, "/p")
 			So(rem.cmdCalls.Load(), ShouldEqual, 4)
 		})
 	})

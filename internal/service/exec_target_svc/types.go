@@ -1,6 +1,6 @@
-// Package exec_target_svc 拥有「这条会话的活在哪儿干」这一个域：
-// 按 R14/R15 顺序为 Agent 挑执行目标档、逐档判定可用性、把会话解析成
-// {设备, 工作目录} 作用域。它只读仓储与设备/网关状态，不驱动任何一轮执行。
+// Package exec_target_svc 是旧的执行目标域，只剩 chat_svc 在用（它改走 dispatch_svc 前）：
+// 按 R14/R15 顺序为 Agent 挑执行目标档、逐档判定可用性，以及会话 cwd 的本地/远端规则。
+// 会话的 {设备, 工作目录} 作用域已归 dispatch_svc。它只读仓储与设备/网关状态，不驱动任何一轮执行。
 package exec_target_svc
 
 import "github.com/agentre-hub/agentre/pkg/wire/devicefp"
@@ -48,7 +48,9 @@ const (
 )
 
 // LocalCommandScope 是本地命令历史与命令执行共享的稳定设备/cwd 作用域。
-// DeviceID 为空表示本机；Cwd 为空表示目标设备上的默认 Agent 工作目录。
+// DeviceID 为空表示本机；Cwd 为空表示目标设备上的默认 Agent 工作目录。它与下面的请求
+// 只剩 App.ResolveLocalCommandScope 绑定的 DTO 名（前端按这两个生成类型取值），解析本身
+// 在 dispatch_svc。
 type LocalCommandScope struct {
 	DeviceID devicefp.Carrier `json:"deviceId"`
 	Cwd      string           `json:"cwd"`

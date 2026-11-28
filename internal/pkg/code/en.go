@@ -75,6 +75,9 @@ var enUS = map[int]string{
 	DeviceFactsDeviceNotFound:    "Device not found: only this device or a paired device can be refreshed",
 	DeviceFactsDeviceUnreachable: "This device cannot be reached right now, so its status could not be read",
 
+	DispatchNoEligibleDevice:        "No device can run this member right now",
+	DispatchManualDeviceUnavailable: "The chosen device cannot run this member right now; pick another or let it choose automatically",
+
 	AppSettingNotFound:      "App setting not found",
 	AppSettingInvalidPort:   "Port must be an integer between 0 and 65535",
 	AppSettingInvalidHost:   "Listen host is not a valid IP",

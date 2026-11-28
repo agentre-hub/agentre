@@ -4,13 +4,11 @@ import (
 	"context"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/memory_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/service/agent_svc"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
-	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/memory_svc"
 )
 
@@ -147,78 +145,48 @@ func memoryTier(caps capability.Capabilities, backendType string) string {
 	return string(chat_svc.MemoryTier(caps, backendType))
 }
 
-// memoryTargetSource 是 memory_svc.TargetSource 的宿主实现：执行目标与顺序来自
-// exec_target_svc，后端来自仓储，能力集来自 chat_svc（远端只读已缓存的，不拨号）。
+// memoryTargetSource 是 memory_svc.TargetSource 的宿主实现：判档看成员生效的引擎配置
+// （成员 › 部门链 › 账号默认）的运行时能力 —— 执行位置由派发决定，记忆带多少只看用什么
+// 运行时，不再逐档看执行目标。
 type memoryTargetSource struct {
-	resolve            func(ctx context.Context, agentID int64) ([]*agent_entity.AgentExecTarget, error)
-	backends           func(ctx context.Context, ids []int64) (map[int64]*agent_backend_entity.AgentBackend, error)
-	caps               func(ctx context.Context, be *agent_backend_entity.AgentBackend) (capability.Capabilities, bool, error)
-	deviceName         func(ctx context.Context, be *agent_backend_entity.AgentBackend) string
-	typeSupportsMemory func(backendType string) bool
+	effective func(ctx context.Context, agentID int64) (*agent_backend_entity.EngineProfile, error)
+	// caps 运行时类型的能力集；ok=false 表示本机没有这种运行时（不下结论）。
+	caps func(runtimeType string) (capability.Capabilities, bool)
 }
 
 func newMemoryTargetSource() *memoryTargetSource {
 	return &memoryTargetSource{
-		resolve: func(ctx context.Context, agentID int64) ([]*agent_entity.AgentExecTarget, error) {
-			return exec_target_svc.ExecTarget().ResolvedExecTargets(ctx, agentID)
-		},
-		backends: func(ctx context.Context, ids []int64) (map[int64]*agent_backend_entity.AgentBackend, error) {
-			return agent_backend_repo.AgentBackend().BatchFind(ctx, ids)
-		},
-		caps: func(ctx context.Context, be *agent_backend_entity.AgentBackend) (capability.Capabilities, bool, error) {
-			return chat_svc.Chat().BackendCapabilities(ctx, be)
-		},
-		deviceName: func(ctx context.Context, be *agent_backend_entity.AgentBackend) string {
-			if view := exec_target_svc.LocalPairedDeviceView(ctx, be.DeviceFingerprint); view != nil {
-				return view.Name
+		effective: func(ctx context.Context, agentID int64) (*agent_backend_entity.EngineProfile, error) {
+			eff, err := agent_svc.Agent().EffectiveEngine(ctx, agentID)
+			if err != nil || eff == nil {
+				return nil, err
 			}
-			return ""
+			return eff.Profile, nil
 		},
-		typeSupportsMemory: func(backendType string) bool {
-			r := agentruntime.RuntimeFor(agent_backend_entity.BackendType(backendType))
-			return r != nil && r.Capabilities().Has(capability.CapMemory)
+		caps: func(runtimeType string) (capability.Capabilities, bool) {
+			r := agentruntime.RuntimeFor(agent_backend_entity.BackendType(runtimeType))
+			if r == nil {
+				return capability.Capabilities{}, false
+			}
+			return r.Capabilities(), true
 		},
 	}
 }
 
 func (s *memoryTargetSource) ExecTargets(ctx context.Context, agentID int64) ([]memory_svc.ExecTarget, error) {
-	targets, err := s.resolve(ctx, agentID)
+	p, err := s.effective(ctx, agentID)
 	if err != nil {
 		return nil, err
 	}
-	if len(targets) == 0 {
+	if p == nil {
 		return nil, nil
 	}
-	ids := make([]int64, 0, len(targets))
-	for _, t := range targets {
-		ids = append(ids, t.AgentBackendID)
+	caps, known := s.caps(p.Type)
+	if !known {
+		return nil, nil
 	}
-	backends, err := s.backends(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]memory_svc.ExecTarget, 0, len(targets))
-	for _, t := range targets {
-		be := backends[t.AgentBackendID]
-		if be == nil {
-			continue
-		}
-		caps, known, err := s.caps(ctx, be)
-		if err != nil {
-			return nil, err
-		}
-		if !known {
-			continue
-		}
-		remote := exec_target_svc.BackendTargetsRemote(be)
-		target := memory_svc.ExecTarget{
-			BackendID: be.ID, BackendName: be.Name, BackendType: be.Type,
-			Remote: remote, Caps: caps, TypeSupportsMemory: s.typeSupportsMemory(be.Type),
-		}
-		if remote {
-			target.DeviceName = s.deviceName(ctx, be)
-		}
-		out = append(out, target)
-	}
-	return out, nil
+	return []memory_svc.ExecTarget{{
+		BackendID: p.ID, BackendName: p.Name, BackendType: p.Type,
+		Caps: caps, TypeSupportsMemory: caps.Has(capability.CapMemory),
+	}}, nil
 }

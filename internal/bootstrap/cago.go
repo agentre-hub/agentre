@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/buildinfo"
-	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/app_setting_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
@@ -48,6 +47,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/ctl_svc"
 	"github.com/agentre-hub/agentre/internal/service/ctlskill_svc"
+	"github.com/agentre-hub/agentre/internal/service/dispatch_svc"
 	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/hooktool_svc"
 	"github.com/agentre-hub/agentre/internal/service/issue_svc"
@@ -165,13 +165,16 @@ func Init(ctx context.Context) (*Runtime, error) {
 	chat_svc.Dispatch().ReconcileAfterRestart(ctx)
 	// 把 project_svc 的 cwd 解析注入 exec_target_svc —— 那个包不直接 import project_svc，
 	// 避免 project_svc → chat_repo 与 exec_target_svc → project_svc 形成环。
+	// exec_target_svc 只剩 chat_svc 在用（它改走派发服务前）。
 	exec_target_svc.RegisterCwdResolver(project_svc.Default().ResolveSessionCwd)
 	exec_target_svc.RegisterExecTarget(exec_target_svc.NewExecTarget(nil))
-	// 把执行目标域的会话解析注入 workspace_fs_svc（它自己声明的窄接口），让它不必
-	// 跨域读 chat / agent / agent_backend 三张表。
+	// 派发服务：共享派发函数 + 本机的设备、设备情况、设备偏好；本机会话 cwd 规则来自 project_svc。
+	dispatch_svc.RegisterDispatch(dispatch_svc.New(dispatch_svc.DefaultDeps(project_svc.Default().ResolveSessionCwd)))
+	// 把会话的执行设备 / cwd 解析注入 workspace_fs_svc（它自己声明的窄接口），让它不必
+	// 跨域读会话、成员与设备。
 	workspace_fs_svc.RegisterSessionWorkspaceResolver(
 		func(ctx context.Context, sessionID int64) (int64, string, error) {
-			return exec_target_svc.ExecTarget().ResolveSessionWorkspace(ctx, sessionID)
+			return dispatch_svc.Dispatch().ResolveSessionWorkspace(ctx, sessionID)
 		})
 	// 第二个窄接口：工作根认领要知道「本会话 AI 写过哪些路径」，那是 chat 消息
 	// 里的事实。这里注入的是包级函数（不经 chat_svc.Chat()），因为它只读消息、
@@ -252,18 +255,10 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// 工具可挂几分钟,由 MCP handler 自身上限收口(见 approvalTimeout)。
 	remote.RegisterMCPProxyDispatcher(remote.NewLocalGatewayDispatcher(gw.URL, &http.Client{}))
 
-	// 技能包(skill pack)注入:skill_svc 组合 agent 授权 + 发现,chat_svc 按 CapSkills
+	// 技能包(skill pack)注入:skill_svc 组合成员授权 + 发现,chat_svc 按 CapSkills
 	// 在 runTurn 注入 RunRequest.EnabledPlugins(runtime 各自渲染到 CLI 配置)。
-	skill_svc.Register(agent_repo.Agent(), agent_backend_repo.AgentBackend(), agent_repo.AgentExecTarget(), agent_backend_svc.NewRemoteSkillDiscoverer())
-	chat_svc.RegisterEnabledPluginsProvider(func(ctx context.Context, a *agent_entity.Agent, agentBackendID int64) map[string]bool {
-		// agentBackendID = 这一轮实际落到的那一档(R15b/R15e);0 = 老会话未钉档,
-		// skill_svc 自行回落到主档。
-		m, err := skill_svc.Default().EnabledPluginsMapForTarget(ctx, a.ID, agentBackendID)
-		if err != nil {
-			return nil // 发现/查询失败 → 软降级(本轮不约束技能集),不阻断对话
-		}
-		return m
-	})
+	skill_svc.Register(agent_repo.Agent(), skillEngine{}, skillPlacement{}, skillCLIPaths{}, agent_backend_svc.NewRemoteSkillDiscoverer())
+	chat_svc.RegisterEnabledPluginsProvider(turnEnabledPlugins)
 
 	// 注入平台原生通知实现，供前端 App.ShowNotification 调用。
 	notification_svc.RegisterNotifier(sysnotify.New())

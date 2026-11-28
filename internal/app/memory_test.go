@@ -8,58 +8,58 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
-	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 	"github.com/agentre-hub/agentre/internal/service/memory_svc"
-	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
 func memoryCaps() capability.Capabilities {
 	return capability.Capabilities{Set: map[capability.Capability]bool{capability.CapMemory: true}}
 }
 
-// 记忆页头部：执行目标来源把 agent 的各档后端翻成判档所需的事实；
-// 能力集未知的远端档不下结论，直接略去。
+// 记忆页头部：判档看成员生效的引擎配置的运行时能力，不再逐档看执行目标。
 func TestMemoryTargetSource_ExecTargets(t *testing.T) {
 	ctx := context.Background()
-	remoteFP := devicefp.Carrier("sha256:remote")
-	backends := map[int64]*agent_backend_entity.AgentBackend{
-		1: {ID: 1, Name: "Claude Code", Type: string(agent_backend_entity.TypeClaudeCode)},
-		2: {ID: 2, Name: "Claude Code", Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: remoteFP},
-		3: {ID: 3, Name: "Codex", Type: string(agent_backend_entity.TypeCodex), DeviceFingerprint: remoteFP},
+	profiles := map[int64]*agent_backend_entity.EngineProfile{
+		5: {ID: 21, Name: "Claude", Type: string(agent_backend_entity.TypeClaudeCode)},
+		6: {ID: 22, Name: "Hermes", Type: string(agent_backend_entity.TypeHermes)},
+		7: {ID: 23, Name: "Mystery", Type: "mystery"},
 	}
 	src := &memoryTargetSource{
-		resolve: func(context.Context, int64) ([]*agent_entity.AgentExecTarget, error) {
-			return []*agent_entity.AgentExecTarget{{AgentBackendID: 1}, {AgentBackendID: 2}, {AgentBackendID: 3}, {AgentBackendID: 99}}, nil
+		effective: func(_ context.Context, agentID int64) (*agent_backend_entity.EngineProfile, error) {
+			return profiles[agentID], nil
 		},
-		backends: func(context.Context, []int64) (map[int64]*agent_backend_entity.AgentBackend, error) {
-			return backends, nil
-		},
-		caps: func(_ context.Context, be *agent_backend_entity.AgentBackend) (capability.Capabilities, bool, error) {
-			switch be.ID {
-			case 1:
-				return memoryCaps(), true, nil
-			case 2:
-				return capability.Capabilities{}, true, nil // 设备在线、报了能力、没有记忆
+		caps: func(runtimeType string) (capability.Capabilities, bool) {
+			switch runtimeType {
+			case string(agent_backend_entity.TypeClaudeCode):
+				return memoryCaps(), true
+			case string(agent_backend_entity.TypeHermes):
+				return capability.Capabilities{}, true
 			}
-			return capability.Capabilities{}, false, nil // 3 号设备没连着：未知
+			return capability.Capabilities{}, false
 		},
-		deviceName:         func(context.Context, *agent_backend_entity.AgentBackend) string { return "机房 2 号机" },
-		typeSupportsMemory: func(bt string) bool { return bt == string(agent_backend_entity.TypeClaudeCode) },
 	}
 
 	got, err := src.ExecTargets(ctx, 5)
 	require.NoError(t, err)
-	require.Len(t, got, 2, "未知能力的远端档与已删除的后端不列出")
-	assert.Equal(t, int64(1), got[0].BackendID)
-	assert.False(t, got[0].Remote)
-	assert.Empty(t, got[0].DeviceName)
-	assert.True(t, got[0].Caps.Has(capability.CapMemory))
-	assert.Equal(t, int64(2), got[1].BackendID)
-	assert.True(t, got[1].Remote)
-	assert.Equal(t, "机房 2 号机", got[1].DeviceName)
-	assert.True(t, got[1].TypeSupportsMemory)
+	require.Len(t, got, 1, "一名成员只有一份生效的引擎配置")
+	assert.Equal(t, memory_svc.ExecTarget{
+		BackendID: 21, BackendName: "Claude", BackendType: "claudecode", Caps: memoryCaps(), TypeSupportsMemory: true,
+	}, got[0])
+
+	got, err = src.ExecTargets(ctx, 6)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.False(t, got[0].Caps.Has(capability.CapMemory))
+	assert.False(t, got[0].TypeSupportsMemory)
+
+	got, err = src.ExecTargets(ctx, 7)
+	require.NoError(t, err)
+	assert.Empty(t, got, "能力未知的运行时不下结论")
+
+	got, err = src.ExecTargets(ctx, 8)
+	require.NoError(t, err)
+	assert.Empty(t, got, "没有生效的引擎配置：什么都不列")
 }
 
 // 注入给 memory_svc 的判档就是 chat_svc.MemoryTier，不另写一套规则。

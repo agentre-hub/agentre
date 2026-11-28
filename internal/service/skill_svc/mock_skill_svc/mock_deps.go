@@ -16,6 +16,7 @@ import (
 	agent_backend_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	agent_entity "github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	agentskill "github.com/agentre-hub/agentre/internal/pkg/agentskill"
+	skill_svc "github.com/agentre-hub/agentre/internal/service/skill_svc"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -58,82 +59,121 @@ func (mr *MockAgentLookupMockRecorder) Find(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockAgentLookup)(nil).Find), ctx, id)
 }
 
-// MockBackendLookup is a mock of BackendLookup interface.
-type MockBackendLookup struct {
+// MockEngineLookup is a mock of EngineLookup interface.
+type MockEngineLookup struct {
 	ctrl     *gomock.Controller
-	recorder *MockBackendLookupMockRecorder
+	recorder *MockEngineLookupMockRecorder
 	isgomock struct{}
 }
 
-// MockBackendLookupMockRecorder is the mock recorder for MockBackendLookup.
-type MockBackendLookupMockRecorder struct {
-	mock *MockBackendLookup
+// MockEngineLookupMockRecorder is the mock recorder for MockEngineLookup.
+type MockEngineLookupMockRecorder struct {
+	mock *MockEngineLookup
 }
 
-// NewMockBackendLookup creates a new mock instance.
-func NewMockBackendLookup(ctrl *gomock.Controller) *MockBackendLookup {
-	mock := &MockBackendLookup{ctrl: ctrl}
-	mock.recorder = &MockBackendLookupMockRecorder{mock}
+// NewMockEngineLookup creates a new mock instance.
+func NewMockEngineLookup(ctrl *gomock.Controller) *MockEngineLookup {
+	mock := &MockEngineLookup{ctrl: ctrl}
+	mock.recorder = &MockEngineLookupMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockBackendLookup) EXPECT() *MockBackendLookupMockRecorder {
+func (m *MockEngineLookup) EXPECT() *MockEngineLookupMockRecorder {
 	return m.recorder
 }
 
-// Find mocks base method.
-func (m *MockBackendLookup) Find(ctx context.Context, id int64) (*agent_backend_entity.AgentBackend, error) {
+// Effective mocks base method.
+func (m *MockEngineLookup) Effective(ctx context.Context, agentID int64) (*agent_backend_entity.EngineProfile, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Find", ctx, id)
-	ret0, _ := ret[0].(*agent_backend_entity.AgentBackend)
+	ret := m.ctrl.Call(m, "Effective", ctx, agentID)
+	ret0, _ := ret[0].(*agent_backend_entity.EngineProfile)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// Find indicates an expected call of Find.
-func (mr *MockBackendLookupMockRecorder) Find(ctx, id any) *gomock.Call {
+// Effective indicates an expected call of Effective.
+func (mr *MockEngineLookupMockRecorder) Effective(ctx, agentID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockBackendLookup)(nil).Find), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Effective", reflect.TypeOf((*MockEngineLookup)(nil).Effective), ctx, agentID)
 }
 
-// MockExecTargetLookup is a mock of ExecTargetLookup interface.
-type MockExecTargetLookup struct {
+// MockPlacement is a mock of Placement interface.
+type MockPlacement struct {
 	ctrl     *gomock.Controller
-	recorder *MockExecTargetLookupMockRecorder
+	recorder *MockPlacementMockRecorder
 	isgomock struct{}
 }
 
-// MockExecTargetLookupMockRecorder is the mock recorder for MockExecTargetLookup.
-type MockExecTargetLookupMockRecorder struct {
-	mock *MockExecTargetLookup
+// MockPlacementMockRecorder is the mock recorder for MockPlacement.
+type MockPlacementMockRecorder struct {
+	mock *MockPlacement
 }
 
-// NewMockExecTargetLookup creates a new mock instance.
-func NewMockExecTargetLookup(ctrl *gomock.Controller) *MockExecTargetLookup {
-	mock := &MockExecTargetLookup{ctrl: ctrl}
-	mock.recorder = &MockExecTargetLookupMockRecorder{mock}
+// NewMockPlacement creates a new mock instance.
+func NewMockPlacement(ctrl *gomock.Controller) *MockPlacement {
+	mock := &MockPlacement{ctrl: ctrl}
+	mock.recorder = &MockPlacementMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockExecTargetLookup) EXPECT() *MockExecTargetLookupMockRecorder {
+func (m *MockPlacement) EXPECT() *MockPlacementMockRecorder {
 	return m.recorder
 }
 
-// ListByAgent mocks base method.
-func (m *MockExecTargetLookup) ListByAgent(ctx context.Context, agentID int64) ([]*agent_entity.AgentExecTarget, error) {
+// MemberDevices mocks base method.
+func (m *MockPlacement) MemberDevices(ctx context.Context, agentID int64) ([]skill_svc.Device, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListByAgent", ctx, agentID)
-	ret0, _ := ret[0].([]*agent_entity.AgentExecTarget)
+	ret := m.ctrl.Call(m, "MemberDevices", ctx, agentID)
+	ret0, _ := ret[0].([]skill_svc.Device)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListByAgent indicates an expected call of ListByAgent.
-func (mr *MockExecTargetLookupMockRecorder) ListByAgent(ctx, agentID any) *gomock.Call {
+// MemberDevices indicates an expected call of MemberDevices.
+func (mr *MockPlacementMockRecorder) MemberDevices(ctx, agentID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByAgent", reflect.TypeOf((*MockExecTargetLookup)(nil).ListByAgent), ctx, agentID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MemberDevices", reflect.TypeOf((*MockPlacement)(nil).MemberDevices), ctx, agentID)
+}
+
+// MockCLIPaths is a mock of CLIPaths interface.
+type MockCLIPaths struct {
+	ctrl     *gomock.Controller
+	recorder *MockCLIPathsMockRecorder
+	isgomock struct{}
+}
+
+// MockCLIPathsMockRecorder is the mock recorder for MockCLIPaths.
+type MockCLIPathsMockRecorder struct {
+	mock *MockCLIPaths
+}
+
+// NewMockCLIPaths creates a new mock instance.
+func NewMockCLIPaths(ctrl *gomock.Controller) *MockCLIPaths {
+	mock := &MockCLIPaths{ctrl: ctrl}
+	mock.recorder = &MockCLIPathsMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCLIPaths) EXPECT() *MockCLIPathsMockRecorder {
+	return m.recorder
+}
+
+// LocalCLIPath mocks base method.
+func (m *MockCLIPaths) LocalCLIPath(ctx context.Context, runtimeType string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LocalCLIPath", ctx, runtimeType)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LocalCLIPath indicates an expected call of LocalCLIPath.
+func (mr *MockCLIPathsMockRecorder) LocalCLIPath(ctx, runtimeType any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LocalCLIPath", reflect.TypeOf((*MockCLIPaths)(nil).LocalCLIPath), ctx, runtimeType)
 }
 
 // MockRemoteDiscoverer is a mock of RemoteDiscoverer interface.

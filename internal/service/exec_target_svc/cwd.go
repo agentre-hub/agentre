@@ -12,9 +12,6 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/chat_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
-	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
-	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
-	"github.com/agentre-hub/agentre/internal/repository/chat_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 )
 
@@ -105,55 +102,4 @@ func ResolveSessionCwd(ctx context.Context, sess *chat_entity.Session, be *agent
 		return "", err
 	}
 	return loc.Path, nil
-}
-
-// ResolveSessionWorkspace 把 sessionID 解析成 {deviceID, cwd},实现
-// workspace_fs_svc 自己声明的 SessionWorkspaceResolver 窄接口(在 bootstrap
-// 注入)。放在 exec_target_svc 是因为这里本来就持有 session → agent → backend 的查询
-// 与 ResolveSessionCwd 的本地/远端规则;workspace_fs_svc 因此不必跨域去读
-// chat / agent / agent_backend 三张表。
-//
-// deviceID 为 0 表示本机会话。远端 backend 的 DeviceFingerprint 解析不出整数时直接报
-// 错,而不是回落 0 —— 那会让调用方拿着远端机器上的路径去列本机文件系统。
-func (s *execTargetSvc) ResolveSessionWorkspace(ctx context.Context, sessionID int64) (int64, string, error) {
-	if sessionID <= 0 {
-		return 0, "", i18n.NewError(ctx, code.InvalidParameter)
-	}
-	sess, err := chat_repo.Session().Find(ctx, sessionID)
-	if err != nil {
-		return 0, "", operationFailedWithCause(ctx, err)
-	}
-	if sess == nil {
-		return 0, "", i18n.NewError(ctx, code.ChatSessionNotFound)
-	}
-	a, err := agent_repo.Agent().Find(ctx, sess.AgentID)
-	if err != nil {
-		return 0, "", operationFailedWithCause(ctx, err)
-	}
-	// 钉住的那一档优先（R15b / 决策36）：主档在本机、会话钉在某台 agentred 上时，
-	// 回到主档会拿本机路径去列远端机器的文件。
-	var be *agent_backend_entity.AgentBackend
-	if backendID := SessionBackendID(sess, a); backendID > 0 {
-		be, err = agent_backend_repo.AgentBackend().Find(ctx, backendID)
-		if err != nil {
-			return 0, "", operationFailedWithCause(ctx, err)
-		}
-	}
-
-	var deviceID int64
-	// self 档（R13 认领后本机 backend 的 DeviceFingerprint 是本机指纹）也按本机处理：deviceID 0
-	// 让 workspace_fs_svc 走本机文件系统，而不是去配对表里找行报 RemoteDeviceNotFound。
-	if BackendTargetsRemote(be) {
-		id, ok := LocalPairedDeviceID(ctx, be.DeviceFingerprint)
-		if !ok {
-			return 0, "", i18n.NewError(ctx, code.RemoteDeviceNotFound)
-		}
-		deviceID = id
-	}
-
-	cwd, err := ResolveSessionCwd(ctx, sess, be)
-	if err != nil {
-		return 0, "", err
-	}
-	return deviceID, cwd, nil
 }

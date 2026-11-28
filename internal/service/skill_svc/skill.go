@@ -8,20 +8,25 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cago-frame/cago/pkg/i18n"
+
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
-	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
-
-	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
+	"github.com/agentre-hub/agentre/internal/pkg/code"
 )
 
 // Service 技能包组合服务。依赖通过消费者侧窄接口注入(DIP)。
+//
+// 技能授权挂在成员上、按生效引擎配置的运行时校验(spec 2026-11-25 决策 9);目录从一台
+// 能运行该引擎配置的在线设备读取,本机优先;授权开着的包在某台能跑的设备上没装时照常
+// 派过去,只在目录里标出那台设备。
 type Service struct {
-	agent      AgentLookup
-	backend    BackendLookup
-	execTarget ExecTargetLookup // 技能授权挂在执行目标行上(R15e),不再挂在 Agent 行
-	remote     RemoteDiscoverer // 远端 backend 走 daemon 发现;本地 backend 不用
+	agent     AgentLookup
+	engine    EngineLookup
+	placement Placement
+	cliPaths  CLIPaths
+	remote    RemoteDiscoverer // agentred 上的包走 daemon 发现
 
 	// cache 记忆发现结果:每次发现都要起 CLI 子进程(~3s),composer 每次挂载都会问。
 	cache *agentskill.DiscoveryCache
@@ -29,13 +34,22 @@ type Service struct {
 	localStamp func() string
 }
 
-// scopeOf 返回缓存作用域前缀「机器|后端类型|」:手动刷新按它清掉同一机器 + 后端的
-// 全部条目(packs 与各 cwd 的 commands)。远端按桌面端 paired 行 ID 区分设备。
-func scopeOf(deviceID int64, remote bool, backendType string) string {
-	if remote {
-		return "dev" + strconv.FormatInt(deviceID, 10) + "|" + backendType + "|"
+// host 是这一次发现由哪台机器回答:本机(带本机 CLI 路径覆盖)或一台已配对的 agentred。
+type host struct {
+	runtime  string
+	remote   bool
+	deviceID int64  // remote 时为本机配对表行 ID
+	cliPath  string // 本机时的 CLI 路径覆盖
+	device   Device
+}
+
+// scope 缓存作用域前缀「机器|运行时|」:手动刷新按它清掉同一机器 + 运行时的全部条目
+// (packs 与各 cwd 的 commands)。远端按桌面端 paired 行 ID 区分设备。
+func (h *host) scope() string {
+	if h.remote {
+		return "dev" + strconv.FormatInt(h.deviceID, 10) + "|" + h.runtime + "|"
 	}
-	return "local|" + backendType + "|"
+	return "local|" + h.runtime + "|"
 }
 
 // stampFor 本机条目带插件注册文件指纹(mtime 变化即失效);远端观测不到文件,只靠 TTL。
@@ -56,115 +70,73 @@ func authKey(authorized []agent_entity.AgentSkillItem) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-type discoveryResult struct {
-	backendType agent_backend_entity.BackendType
-	backend     *agent_backend_entity.AgentBackend
-	packs       []agentskill.SkillPack
+// member 成员与它生效的引擎配置。成员不存在回 (nil, nil, nil);没有生效配置报需要引擎配置。
+func (s *Service) member(ctx context.Context, agentID int64) (*agent_entity.Agent, *agent_backend_entity.EngineProfile, error) {
+	a, err := s.agent.Find(ctx, agentID)
+	if err != nil || a == nil {
+		return nil, nil, err
+	}
+	p, err := s.engine.Effective(ctx, agentID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if p == nil {
+		return nil, nil, i18n.NewError(ctx, code.EngineProfileRequired)
+	}
+	return a, p, nil
 }
 
-// discoverForBackend 拿指定 backend 的已安装包(无发现器的 backend 为空)。按**给
-// 定的执行目标**发现,而不是按 Agent 的主档 —— 组织架构页"一档一块"的入口
-// (ListAgentSkillPacksForTarget)就是把目标那一档的 backend 交到这里。
-func (s *Service) discoverForBackend(ctx context.Context, be *agent_backend_entity.AgentBackend, refresh bool) (discoveryResult, error) {
-	backendType := agent_backend_entity.BackendType(be.Type)
-	// 远端 backend:技能包装在 daemon 那台机器上,desktop 本地的 claude plugin list
-	// 看不到。经 RemoteDiscoverer 走 daemon skills.list 发现(借 device 连接池)。
-	// 指向本机指纹的档(R13 认领后本机 backend 的 DeviceID == 本机指纹)不是远端:
-	// 它跟 DeviceID 空一样走本地 Discoverer。
-	if remote_device_svc.TargetsAnotherMachine(be.DeviceFingerprint) {
-		deviceID, ok := pairedDeviceID(ctx, be.DeviceFingerprint)
-		if !ok || s.remote == nil {
-			return discoveryResult{backendType: backendType, backend: be, packs: []agentskill.SkillPack{}}, nil
+// pickHost 选回答这次发现的机器:本机能跑就是本机;否则按派发顺序第一台能跑的已配对
+// agentred;都没有回 nil(不发现)。别的桌面端没有可借的通道,不选。
+func (s *Service) pickHost(ctx context.Context, runtime string, devices []Device) (*host, error) {
+	for _, d := range devices {
+		if d.IsSelf && d.CanRun {
+			cliPath, err := s.cliPaths.LocalCLIPath(ctx, runtime)
+			if err != nil {
+				return nil, err
+			}
+			return &host{runtime: runtime, cliPath: cliPath, device: d}, nil
 		}
-		packs, err := agentskill.CachedDiscovery(s.cache, scopeOf(deviceID, true, be.Type)+"packs", s.stampFor(true), refresh,
-			func() ([]agentskill.SkillPack, error) { return s.remote.ListSkills(ctx, deviceID, be.Type) })
-		if err != nil {
-			return discoveryResult{}, err
+	}
+	for _, d := range devices {
+		if d.CanRun && !d.IsSelf && d.PairedID > 0 && s.remote != nil {
+			return &host{runtime: runtime, remote: true, deviceID: d.PairedID, device: d}, nil
 		}
-		if packs == nil {
+	}
+	return nil, nil
+}
+
+// discoverPacks 那台机器上已装的包;h 为 nil 或运行时没有发现器时为空。
+func (s *Service) discoverPacks(ctx context.Context, h *host, refresh bool) ([]agentskill.SkillPack, error) {
+	if h == nil {
+		return []agentskill.SkillPack{}, nil
+	}
+	if h.remote {
+		packs, err := agentskill.CachedDiscovery(s.cache, h.scope()+"packs", s.stampFor(true), refresh,
+			func() ([]agentskill.SkillPack, error) { return s.remote.ListSkills(ctx, h.deviceID, h.runtime) })
+		if packs == nil && err == nil {
 			packs = []agentskill.SkillPack{}
 		}
-		return discoveryResult{backendType: backendType, backend: be, packs: packs}, nil
+		return packs, err
 	}
-	d, ok := agentskill.DiscovererFor(backendType)
+	d, ok := agentskill.DiscovererFor(agent_backend_entity.BackendType(h.runtime))
 	if !ok {
-		return discoveryResult{backendType: backendType, backend: be, packs: []agentskill.SkillPack{}}, nil
+		return []agentskill.SkillPack{}, nil
 	}
-	packs, err := s.localPacks(ctx, d, be, refresh)
-	return discoveryResult{backendType: backendType, backend: be, packs: packs}, err
+	return s.localPacks(ctx, d, h, refresh)
 }
 
-// localPacks 本机已装包,按(后端类型、CLI 路径)缓存。
-func (s *Service) localPacks(ctx context.Context, d agentskill.Discoverer, be *agent_backend_entity.AgentBackend, refresh bool) ([]agentskill.SkillPack, error) {
-	return agentskill.CachedDiscovery(s.cache, scopeOf(0, false, be.Type)+"packs|"+be.CLIPath, s.stampFor(false), refresh,
+// localPacks 本机已装包,按(运行时、CLI 路径)缓存。
+func (s *Service) localPacks(ctx context.Context, d agentskill.Discoverer, h *host, refresh bool) ([]agentskill.SkillPack, error) {
+	return agentskill.CachedDiscovery(s.cache, h.scope()+"packs|"+h.cliPath, s.stampFor(false), refresh,
 		func() ([]agentskill.SkillPack, error) {
-			return d.Discover(ctx, agentskill.DiscoverQuery{CLIPath: be.CLIPath})
+			return d.Discover(ctx, agentskill.DiscoverQuery{CLIPath: h.cliPath})
 		})
 }
 
-// pairedDeviceID 把 backend 的 DeviceID（规范指纹）解析成本机 paired_agentreds 的
-// 行 ID —— 远端发现借的是 device 连接池，那个子系统按数值行 ID 建键。指纹在本机配
-// 对表里查不到（这台 daemon 没在本机配对）返回 (0,false)，调用方据此回空包而不是
-// 猜一个行号去拨号。与 chat_svc.localPairedDeviceID 同一取法，skill_svc 侧独立声明
-// 以保持 consumer-side 窄依赖。
-func pairedDeviceID(ctx context.Context, fingerprint devicefp.Carrier) (int64, bool) {
-	rds := remote_device_svc.Default()
-	if rds == nil {
-		return 0, false
-	}
-	rows, err := rds.List(ctx)
-	if err != nil {
-		return 0, false
-	}
-	for _, row := range rows {
-		if row != nil && row.DaemonFingerprint == fingerprint {
-			return row.ID, true
-		}
-	}
-	return 0, false
-}
-
-// authorizedSkills 取 agentID 主档(sort_order 最小的一档)的技能授权。授权存在
-// agent_exec_targets(R15e) —— 不做跨档并集:agentID 有几档就有几份互不相干的授权,
-// 这里只取最靠前那一档的。
-func (s *Service) authorizedSkills(ctx context.Context, agentID int64) ([]agent_entity.AgentSkillItem, error) {
-	return s.authorizedSkillsForTarget(ctx, agentID, 0)
-}
-
-// authorizedSkillsForTarget 取 agentID 名下**指定那一档**的技能授权(R15e)。
-// agentBackendID <= 0 时回落到主档 —— 老会话没钉过档,行为必须与钉档前一致。
-//
-// 指定了一档、但它已经不在列表里(用户把这一档从组织架构页删了,backend 本身还在,
-// 会话仍钉在它上面)时返回空授权,**不**回落到主档:回落会把用户在别的档上授权、
-// 甚至显式关掉的技能,注入到一个从没授权过它们的 backend 上。
-func (s *Service) authorizedSkillsForTarget(
-	ctx context.Context, agentID, agentBackendID int64,
-) ([]agent_entity.AgentSkillItem, error) {
-	targets, err := s.execTarget.ListByAgent(ctx, agentID)
-	if err != nil {
-		return nil, err
-	}
-	if len(targets) == 0 {
-		return nil, nil
-	}
-	if agentBackendID > 0 {
-		for _, t := range targets {
-			if t != nil && t.AgentBackendID == agentBackendID {
-				return t.GetSkills(), nil
-			}
-		}
-		return nil, nil
-	}
-	if targets[0] == nil {
-		return nil, nil
-	}
-	return targets[0].GetSkills(), nil
-}
-
-// catalogOf 把「发现到的包 + 这份授权」合并成目录 DTO——取包与取授权的来源由调用
-// 方分别给出,合并与映射只留这一份。
-func catalogOf(discovered discoveryResult, authorized []agent_entity.AgentSkillItem) SkillCatalogDTO {
-	entries := agentskill.MergeCatalog(agentskill.RecommendedFor(discovered.backendType), discovered.packs, authorized)
+// catalogOf 把「发现到的包 + 这份授权」合并成目录 DTO。
+func catalogOf(runtime string, packs []agentskill.SkillPack, authorized []agent_entity.AgentSkillItem) []SkillPackDTO {
+	entries := agentskill.MergeCatalog(agentskill.RecommendedFor(agent_backend_entity.BackendType(runtime)), packs, authorized)
 	dto := make([]SkillPackDTO, 0, len(entries))
 	for _, e := range entries {
 		dto = append(dto, SkillPackDTO{
@@ -180,71 +152,105 @@ func catalogOf(discovered discoveryResult, authorized []agent_entity.AgentSkillI
 			EffectiveEnabled: e.EffectiveEnabled,
 		})
 	}
-	return SkillCatalogDTO{Packs: dto}
+	return dto
 }
 
-// ListAgentSkillPacksForTarget 合并推荐 + 发现 + 授权,发现来源与授权都钉死在
-// agentID 名下 agentBackendID 对应的那一档执行目标上（R15e，任务 12"组织架构页
-// 一档一块"）：一档一块，互不干扰、不做并集。找不到该档（agentBackendID 不在这个
-// Agent 的列表里，例如前端还没保存完就切换了）返回空目录、不是错误。
-func (s *Service) ListAgentSkillPacksForTarget(ctx context.Context, agentID, agentBackendID int64, refresh bool) (SkillCatalogDTO, error) {
-	targets, err := s.execTarget.ListByAgent(ctx, agentID)
-	if err != nil {
-		return SkillCatalogDTO{}, err
+// MemberSkillCatalog 成员详情「技能」一块:合并推荐 + 发现 + 授权,并标出失效授权与缺包
+// 的设备。成员不存在返回空目录、不是错误(前端还没保存完就切换了)。
+func (s *Service) MemberSkillCatalog(ctx context.Context, agentID int64, refresh bool) (MemberSkillCatalogDTO, error) {
+	a, p, err := s.member(ctx, agentID)
+	if err != nil || a == nil {
+		return MemberSkillCatalogDTO{Packs: []SkillPackDTO{}}, err
 	}
-	var target *agent_entity.AgentExecTarget
-	for _, t := range targets {
-		if t.AgentBackendID == agentBackendID {
-			target = t
-			break
+	valid, invalid := a.SkillGrantsFor(p.Type)
+	out := MemberSkillCatalogDTO{Runtime: p.Type, Packs: []SkillPackDTO{}, InvalidGrants: invalid}
+	if _, ok := agentskill.DiscovererFor(agent_backend_entity.BackendType(p.Type)); !ok {
+		return out, nil
+	}
+	out.Supported = true
+	devices, err := s.placement.MemberDevices(ctx, agentID)
+	if err != nil {
+		return MemberSkillCatalogDTO{}, err
+	}
+	h, err := s.pickHost(ctx, p.Type, devices)
+	if err != nil {
+		return MemberSkillCatalogDTO{}, err
+	}
+	if h != nil {
+		out.SourceDevice, out.SourceDeviceName = h.device.Fingerprint, h.device.Name
+		if refresh {
+			// 手动刷新:同一机器 + 运行时的 commands 清单也一并作废,免得 composer 还拿旧的。
+			s.cache.InvalidatePrefix(h.scope())
 		}
 	}
-	if target == nil {
-		return SkillCatalogDTO{}, nil
-	}
-	be, err := s.backend.Find(ctx, agentBackendID)
-	if err != nil || be == nil {
-		return SkillCatalogDTO{}, err
-	}
-	if refresh {
-		// 手动刷新:同一机器 + 后端的 commands 清单也一并作废,免得 composer 还拿旧的。
-		s.invalidateScope(ctx, be)
-	}
-	discovered, err := s.discoverForBackend(ctx, be, refresh)
+	packs, err := s.discoverPacks(ctx, h, refresh)
 	if err != nil {
-		return SkillCatalogDTO{}, err
+		return MemberSkillCatalogDTO{}, err
 	}
-	return catalogOf(discovered, target.GetSkills()), nil
+	out.Packs = catalogOf(p.Type, packs, valid)
+	out.MissingPacks = missingPacks(valid, devices)
+	return out, nil
 }
 
-// ListAgentSkillCommands 返回当前 agent 在 cwd 中可调用的 Skill 命令。
+// missingPacks 授权开着的包在哪些能跑这名成员、且上报了技能包的设备上没装。没上报的设备
+// 不下结论;跑不了的设备不派过去,也不提示。
+func missingPacks(granted []agent_entity.AgentSkillItem, devices []Device) []MissingPackDTO {
+	var out []MissingPackDTO
+	for _, g := range granted {
+		if !g.Enabled {
+			continue
+		}
+		var missing []DeviceRefDTO
+		for _, d := range devices {
+			if !d.CanRun || !d.PacksKnown || contains(d.InstalledPacks, g.ID) {
+				continue
+			}
+			missing = append(missing, DeviceRefDTO{Fingerprint: d.Fingerprint, Name: d.Name, IsSelf: d.IsSelf})
+		}
+		if len(missing) > 0 {
+			out = append(out, MissingPackDTO{PackID: g.ID, Devices: missing})
+		}
+	}
+	return out
+}
+
+func contains(xs []string, x string) bool {
+	for _, v := range xs {
+		if v == x {
+			return true
+		}
+	}
+	return false
+}
+
+// ListAgentSkillCommands 返回成员在 cwd 中可调用的 Skill 命令。
 //
-// 「谁跑这一轮谁说得出自己有什么」是这个方法的判据,于是它按执行目标落在哪台机器
-// 上分成两条:
+// 「谁跑这一轮谁说得出自己有什么」是这个方法的判据:回答的机器与目录同一选法(本机优先,
+// 否则第一台能跑的已配对 agentred)。
 //
-//   - **本机档**(DeviceFingerprint 空,或 R13 认领后等于本机指纹):本地枚举包,再
-//     交给 agentskill.BuildCommands 合并。
-//   - **远端档**:整份清单问那台机器要(skills.commands),插件包与 CLI 原生解析的
+//   - **本机**:本地枚举包,再交给 agentskill.BuildCommands 合并。
+//   - **agentred**:整份清单问那台机器要(skills.commands),插件包与 CLI 原生解析的
 //     user / project / system skill 都在里面 —— 本机发现器只看得见桌面端自己这台机器上
-//     的目录,拿它答远端档等于答错人,而界面上看不出少了东西。
+//     的目录,拿它答远端等于答错人。
 //
 // 两条路的合并规则是同一份实现(agentskill.BuildCommands):本机在这里调,远端在那台
 // 机器的 handler 里调。授权两条路都由这一侧给出 —— 组织架构库只在桌面端。
 func (s *Service) ListAgentSkillCommands(ctx context.Context, agentID int64, cwd string) (SkillCommandCatalogDTO, error) {
-	a, err := s.agent.Find(ctx, agentID)
+	a, p, err := s.member(ctx, agentID)
 	if err != nil || a == nil {
 		return SkillCommandCatalogDTO{}, err
 	}
-	be, err := s.backend.Find(ctx, a.AgentBackendID)
-	if err != nil || be == nil {
-		return SkillCommandCatalogDTO{}, err
-	}
-	authorized, err := s.authorizedSkills(ctx, agentID)
+	devices, err := s.placement.MemberDevices(ctx, agentID)
 	if err != nil {
 		return SkillCommandCatalogDTO{}, err
 	}
-
-	commands, err := s.cachedCommands(ctx, be, strings.TrimSpace(cwd), authorized)
+	h, err := s.pickHost(ctx, p.Type, devices)
+	if err != nil || h == nil {
+		// 没有能跑它的机器:回空清单而不是错误,输入框照常能用,只是没有补全。
+		return SkillCommandCatalogDTO{}, err
+	}
+	authorized, _ := a.SkillGrantsFor(p.Type)
+	commands, err := s.cachedCommands(ctx, h, strings.TrimSpace(cwd), authorized)
 	if err != nil {
 		return SkillCommandCatalogDTO{}, err
 	}
@@ -255,87 +261,59 @@ func (s *Service) ListAgentSkillCommands(ctx context.Context, agentID int64, cwd
 	return SkillCommandCatalogDTO{Commands: dto}, nil
 }
 
-// invalidateScope 清掉 be 所在机器 + 后端的全部缓存条目。
-func (s *Service) invalidateScope(ctx context.Context, be *agent_backend_entity.AgentBackend) {
-	if remote_device_svc.TargetsAnotherMachine(be.DeviceFingerprint) {
-		if deviceID, ok := pairedDeviceID(ctx, be.DeviceFingerprint); ok {
-			s.cache.InvalidatePrefix(scopeOf(deviceID, true, be.Type))
-		}
-		return
-	}
-	s.cache.InvalidatePrefix(scopeOf(0, false, be.Type))
-}
-
-// cachedCommands 给 discoverCommands 套上缓存:key 含机器、后端类型,本机再含 CLI 路径,
+// cachedCommands 给 discoverCommands 套上缓存:key 含机器、运行时,本机再含 CLI 路径,
 // 并都含 cwd 与授权摘要(项目级 skill 依赖 cwd;授权决定哪些包出命令)。
 func (s *Service) cachedCommands(
-	ctx context.Context, be *agent_backend_entity.AgentBackend, cwd string,
-	authorized []agent_entity.AgentSkillItem,
+	ctx context.Context, h *host, cwd string, authorized []agent_entity.AgentSkillItem,
 ) ([]agentskill.SkillCommand, error) {
-	remote := remote_device_svc.TargetsAnotherMachine(be.DeviceFingerprint)
-	var key string
-	if remote {
-		deviceID, ok := pairedDeviceID(ctx, be.DeviceFingerprint)
-		if !ok || s.remote == nil {
-			return s.discoverCommands(ctx, be, cwd, authorized) // 空清单,无子进程
-		}
-		key = scopeOf(deviceID, true, be.Type) + "cmds|"
-	} else {
-		key = scopeOf(0, false, be.Type) + "cmds|" + be.CLIPath + "|"
+	key := h.scope() + "cmds|"
+	if !h.remote {
+		key += h.cliPath + "|"
 	}
 	key += cwd + "|" + authKey(authorized)
-	return agentskill.CachedDiscovery(s.cache, key, s.stampFor(remote), false,
-		func() ([]agentskill.SkillCommand, error) { return s.discoverCommands(ctx, be, cwd, authorized) })
+	return agentskill.CachedDiscovery(s.cache, key, s.stampFor(h.remote), false,
+		func() ([]agentskill.SkillCommand, error) { return s.discoverCommands(ctx, h, cwd, authorized) })
 }
 
-// discoverCommands 按执行目标落在哪台机器上,选出答这份清单的那一方。
+// discoverCommands 按回答的机器选出答这份清单的那一方。
 func (s *Service) discoverCommands(
-	ctx context.Context, be *agent_backend_entity.AgentBackend, cwd string,
-	authorized []agent_entity.AgentSkillItem,
+	ctx context.Context, h *host, cwd string, authorized []agent_entity.AgentSkillItem,
 ) ([]agentskill.SkillCommand, error) {
-	if remote_device_svc.TargetsAnotherMachine(be.DeviceFingerprint) {
-		deviceID, ok := pairedDeviceID(ctx, be.DeviceFingerprint)
-		if !ok || s.remote == nil {
-			// 那台机器没在本机配对过,没有可拨的对象。回空清单而不是错误:输入框
-			// 照常能用,只是没有补全 —— 与 ListAgentSkillPacksForTarget 对同一情形的处置一致。
-			return nil, nil
-		}
-		return s.remote.ListSkillCommands(ctx, deviceID, be.Type, cwd, authorized)
+	if h.remote {
+		return s.remote.ListSkillCommands(ctx, h.deviceID, h.runtime, cwd, authorized)
 	}
-
-	backendType := agent_backend_entity.BackendType(be.Type)
+	runtime := agent_backend_entity.BackendType(h.runtime)
 	var installed []agentskill.SkillPack
-	if d, ok := agentskill.DiscovererFor(backendType); ok {
-		packs, err := s.localPacks(ctx, d, be, false)
+	if d, ok := agentskill.DiscovererFor(runtime); ok {
+		packs, err := s.localPacks(ctx, d, h, false)
 		if err != nil {
 			return nil, err
 		}
 		installed = packs
 	}
 	return agentskill.BuildCommands(ctx, agentskill.CommandsQuery{
-		BackendType: backendType,
-		CLIPath:     be.CLIPath,
+		BackendType: runtime,
+		CLIPath:     h.cliPath,
 		Cwd:         cwd,
 		Installed:   installed,
 		Authorized:  authorized,
 	})
 }
 
-// EnabledPluginsMapForTarget 同 EnabledPluginsMap,但授权取自 agentBackendID 指名的
-// **那一档**执行目标(R15b / R15e):技能授权已经下沉到单个执行目标,一轮该注入哪一份
-// 由「这一轮落到的那一档」回答,不是「Agent 的主档」—— 同一台机器上可以有多档,
-// 续轮取的必须是会话钉住的那一档的那份,不是同机第一档。agentBackendID <= 0
-// (老会话尚未钉档)回落到主档。
-func (s *Service) EnabledPluginsMapForTarget(
-	ctx context.Context, agentID, agentBackendID int64,
-) (map[string]bool, error) {
-	a, err := s.agent.Find(ctx, agentID)
-	if err != nil || a == nil {
-		return nil, err
+// EnabledPluginsMapFor 一轮注入的技能包覆盖 map(仅显式授权):授权取成员上的那份,按这一
+// 轮运行时校验 —— 授权时的运行时对不上就整份不发。runtimeType 为空时按成员生效的引擎配置
+// 的运行时取。
+func (s *Service) EnabledPluginsMapFor(ctx context.Context, a *agent_entity.Agent, runtimeType string) (map[string]bool, error) {
+	if a == nil {
+		return nil, nil
 	}
-	authorized, err := s.authorizedSkillsForTarget(ctx, agentID, agentBackendID)
-	if err != nil {
-		return nil, err
+	if runtimeType == "" {
+		p, err := s.engine.Effective(ctx, a.ID)
+		if err != nil || p == nil {
+			return nil, err
+		}
+		runtimeType = p.Type
 	}
-	return agentskill.EnabledPluginsMap(authorized), nil
+	valid, _ := a.SkillGrantsFor(runtimeType)
+	return agentskill.EnabledPluginsMap(valid), nil
 }

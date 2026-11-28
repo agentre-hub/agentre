@@ -8,6 +8,7 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 
 	"github.com/agentre-hub/agentre/internal/pkg/code"
+	"github.com/agentre-hub/agentre/internal/service/dispatch_svc"
 	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/internal/service/project_svc"
 	"github.com/agentre-hub/agentre/internal/service/terminal_svc"
@@ -40,11 +41,11 @@ func (a *App) TerminalOpenForSession(terminalID string, sessionID int64, root st
 	if a.terminalSvc == nil {
 		return errTerminalSvcNotInitialized
 	}
-	targets := exec_target_svc.ExecTarget()
-	if targets == nil {
+	dispatcher := dispatch_svc.Dispatch()
+	if dispatcher == nil {
 		return terminal_svc.ErrCommandScopeResolverNotInitialized
 	}
-	deviceID, cwd, err := targets.ResolveSessionWorkspace(a.ctx, sessionID)
+	deviceID, cwd, err := dispatcher.ResolveSessionWorkspace(a.ctx, sessionID)
 	if err != nil {
 		return err
 	}
@@ -80,7 +81,8 @@ func (a *App) claimedTerminalRoot(ctx context.Context, sessionID int64, cwd, roo
 	return "", i18n.NewError(ctx, code.WorkspaceFsPathRefused)
 }
 
-// ResolveLocalCommandScope 只读解析已有会话或预会话目标的命令执行设备/cwd。
+// ResolveLocalCommandScope 只读解析已有会话或预会话目标的命令执行设备/cwd。请求与结果
+// 仍用 exec_target_svc 的类型名，是因为前端按这两个生成类型取值；解析本身走派发服务。
 func (a *App) ResolveLocalCommandScope(
 	req *exec_target_svc.ResolveLocalCommandScopeRequest,
 ) (*exec_target_svc.LocalCommandScope, error) {

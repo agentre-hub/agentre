@@ -5,14 +5,10 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentskill"
-	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
-	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
-	"github.com/agentre-hub/agentre/internal/service/skill_svc/mock_skill_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -26,31 +22,6 @@ type fakeCommandDisc struct{ commands []agentskill.SkillCommand }
 
 func (f fakeCommandDisc) DiscoverCommands(_ context.Context, _ agentskill.CommandDiscoverQuery) ([]agentskill.SkillCommand, error) {
 	return f.commands, nil
-}
-
-// fakeExecTargets 替身执行目标查找器：技能授权挂在执行目标行上(R15e),测试直接
-// 给一份预置的有序行,可在子 Convey 里重新赋值来模拟"改了授权"。
-type fakeExecTargets struct {
-	rows []*agent_entity.AgentExecTarget
-}
-
-func (f *fakeExecTargets) ListByAgent(_ context.Context, _ int64) ([]*agent_entity.AgentExecTarget, error) {
-	return f.rows, nil
-}
-
-// skillTarget 造一个只带技能授权的执行目标行,方便测试装配。
-func skillTarget(items ...agent_entity.AgentSkillItem) *agent_entity.AgentExecTarget {
-	t := &agent_entity.AgentExecTarget{}
-	t.SetSkills(items)
-	return t
-}
-
-func newForTest(a AgentLookup, b BackendLookup, et ExecTargetLookup) *Service {
-	return &Service{agent: a, backend: b, execTarget: et, cache: agentskill.NewDiscoveryCache()}
-}
-
-func newForTestRemote(a AgentLookup, b BackendLookup, et ExecTargetLookup, r RemoteDiscoverer) *Service {
-	return &Service{agent: a, backend: b, execTarget: et, remote: r, cache: agentskill.NewDiscoveryCache()}
 }
 
 // fakeRemoteDisc 替身远端发现器:记录入参,回预置 daemon 包。
@@ -83,438 +54,244 @@ func (f *fakeRemoteDisc) ListSkills(_ context.Context, deviceID int64, backendTy
 	return f.packs, nil
 }
 
-// TestListAgentSkillPacksForTarget_SelfFingerprintBackendUsesLocalDiscovery R13 认领后本机
-// backend 的 DeviceID 是本机指纹:技能发现必须当本机档走本地 Discoverer,而不是当
-// 远端档(DeviceIDInt 解析不出数字)返回空包。
-func TestListAgentSkillPacksForTarget_SelfFingerprintBackendUsesLocalDiscovery(t *testing.T) {
-	Convey("给定指向本机指纹的 claudecode backend, 发现走本地 Discoverer", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		ag := &agent_entity.Agent{ID: 1, AgentBackendID: 9}
-		al.EXPECT().Find(gomock.Any(), int64(1)).Return(ag, nil).AnyTimes()
-		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:self",
-		}, nil).AnyTimes()
+const (
+	selfFP devicefp.Carrier = "sha256:self"
+	boxFP  devicefp.Carrier = "sha256:box"
+)
 
-		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
-		prevSvc := remote_device_svc.Default()
-		remote_device_svc.SetDefault(rds)
-		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
+// fixture 一名成员、它生效的引擎配置，以及它在各台设备上能不能跑；它自己充当全部端口替身
+// （mockgen 替身因 Placement 返回本包类型会与内部测试成环）。
+type fixture struct {
+	agent   *agent_entity.Agent
+	profile *agent_backend_entity.EngineProfile
+	devices []Device
+	cliPath string
+	remote  *fakeRemoteDisc
+	svc     *Service
+}
 
+func (f *fixture) Find(_ context.Context, id int64) (*agent_entity.Agent, error) {
+	if id != f.agent.ID {
+		return nil, nil
+	}
+	return f.agent, nil
+}
+
+func (f *fixture) Effective(context.Context, int64) (*agent_backend_entity.EngineProfile, error) {
+	return f.profile, nil
+}
+
+func (f *fixture) MemberDevices(context.Context, int64) ([]Device, error) { return f.devices, nil }
+
+func (f *fixture) LocalCLIPath(context.Context, string) (string, error) { return f.cliPath, nil }
+
+// newFixture 默认：成员 1 用 Claude Code，本机与已配对的 agentred（行 ID 7）都能跑。
+func newFixture(t *testing.T) *fixture {
+	t.Helper()
+	f := &fixture{
+		agent:   &agent_entity.Agent{ID: 1},
+		profile: &agent_backend_entity.EngineProfile{ID: 11, Name: "Claude", Type: string(agent_backend_entity.TypeClaudeCode)},
+		devices: []Device{
+			{Fingerprint: selfFP, IsSelf: true, CanRun: true},
+			{Fingerprint: boxFP, Name: "机房", PairedID: 7, CanRun: true},
+		},
+		remote: &fakeRemoteDisc{},
+	}
+	f.svc = newService(f, f, f, f, f.remote)
+	return f
+}
+
+func (f *fixture) grant(runtime string, items ...agent_entity.AgentSkillItem) {
+	f.agent.SetSkillGrants(runtime, items)
+}
+
+func packsByID(cat MemberSkillCatalogDTO) map[string]SkillPackDTO {
+	byID := map[string]SkillPackDTO{}
+	for _, p := range cat.Packs {
+		byID[p.ID] = p
+	}
+	return byID
+}
+
+func TestMemberSkillCatalog_DiscoverySource(t *testing.T) {
+	ctx := context.Background()
+	Convey("技能目录从一台能运行引擎配置的在线设备读取，本机优先", t, func() {
+		f := newFixture(t)
 		restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fakeDisc{[]agentskill.SkillPack{
 			{ID: "local-only@desktop", Name: "local-only", Installed: true, Source: agentskill.SourceInstalled},
 		}})
 		defer restore()
-		target := skillTarget()
-		target.AgentBackendID = 9
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{target}}
-		s := newForTest(al, bl, et)
-
-		cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
-		So(err, ShouldBeNil)
-		byID := map[string]SkillPackDTO{}
-		for _, p := range cat.Packs {
-			byID[p.ID] = p
-		}
-		// 本地发现器的包必须出现在目录里(不能是空包)。
-		So(byID["local-only@desktop"].Installed, ShouldBeTrue)
-	})
-}
-
-func TestListAgentSkillPacksForTarget_RemoteBackendUsesDaemonDiscovery(t *testing.T) {
-	Convey("远端 backend(DeviceID 是别机指纹)走 daemon 发现,不混入 desktop 本地发现", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		ag := &agent_entity.Agent{ID: 1, AgentBackendID: 9}
-		al.EXPECT().Find(gomock.Any(), int64(1)).Return(ag, nil).AnyTimes()
-		// 远端 backend:Type=claudecode + DeviceID=别机指纹。连接池按数值行 ID 建键,
-		// 所以发现前必须把指纹在本机配对表里解析成行 ID(=7)。
-		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:daemon-x",
-		}, nil).AnyTimes()
-		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
-		rds.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
-			{ID: 7, DaemonFingerprint: "sha256:daemon-x"},
-		}, nil).AnyTimes()
-		prevSvc := remote_device_svc.Default()
-		remote_device_svc.SetDefault(rds)
-		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
-		// 本地发现器回一个独有包:若路由错跑了本地,它会冒出来。
-		restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fakeDisc{[]agentskill.SkillPack{
-			{ID: "local-only@desktop", Name: "local-only", Installed: true, Source: agentskill.SourceInstalled},
-		}})
-		defer restore()
-		remote := &fakeRemoteDisc{packs: []agentskill.SkillPack{
+		f.remote.packs = []agentskill.SkillPack{
 			{ID: "superpowers@claude-plugins-official", Name: "superpowers", Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: true},
-		}}
-		target := skillTarget()
-		target.AgentBackendID = 9
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{target}}
-		s := newForTestRemote(al, bl, et, remote)
-
-		cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
-		So(err, ShouldBeNil)
-		// 用解析出的 deviceID + backend type 调远端发现。
-		So(remote.gotDeviceID, ShouldEqual, int64(7))
-		So(remote.gotBackend, ShouldEqual, "claudecode")
-		byID := map[string]SkillPackDTO{}
-		for _, p := range cat.Packs {
-			byID[p.ID] = p
 		}
-		// daemon 包进目录;desktop 本地发现不应混入。
-		So(byID["superpowers@claude-plugins-official"].Installed, ShouldBeTrue)
-		So(byID["superpowers@claude-plugins-official"].GloballyEnabled, ShouldBeTrue)
-		_, hasLocal := byID["local-only@desktop"]
-		So(hasLocal, ShouldBeFalse)
-	})
-}
 
-// TestListAgentSkillPacksForTarget_ReadsAuthorizationFromExecTargetNotAgentRow 锁住 R15e
-// 的存放位置:Agent 实体上的 SkillsJSON(不落库的原始载荷)不影响目录的授权标注 ——
-// 真源是这一档执行目标行自己的 SkillsJSON。
-func TestListAgentSkillPacksForTarget_ReadsAuthorizationFromExecTargetNotAgentRow(t *testing.T) {
-	Convey("Agent 行上的 legacy skills_json 与执行目标行的授权不一致时,以执行目标行为准", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		// Agent 行上的遗留列写着"启用 opsctl",但真正的授权(执行目标行)写着"启用
-		// superpowers"——两者互相矛盾,用来证明读路径只看后者。
-		ag := &agent_entity.Agent{ID: 5, AgentBackendID: 9, SkillsJSON: `[{"id":"opsctl@opskat","enabled":true}]`}
-		al.EXPECT().Find(gomock.Any(), int64(5)).Return(ag, nil).AnyTimes()
-		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
-		restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fakeDisc{[]agentskill.SkillPack{
-			{ID: "superpowers@claude-plugins-official", Name: "superpowers", Installed: true, Source: agentskill.SourceInstalled},
-			{ID: "opsctl@opskat", Name: "opsctl", Installed: true, Source: agentskill.SourceInstalled},
-		}})
-		defer restore()
-		target := skillTarget(agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: true})
-		target.AgentBackendID = 9
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{target}}
-		s := newForTest(al, bl, et)
-
-		cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 5, 9, false)
-		So(err, ShouldBeNil)
-		byID := map[string]SkillPackDTO{}
-		for _, p := range cat.Packs {
-			byID[p.ID] = p
-		}
-		So(byID["superpowers@claude-plugins-official"].Enabled, ShouldBeTrue)
-		So(byID["opsctl@opskat"].Enabled, ShouldBeFalse) // 遗留列说 true,真源(执行目标行)没提它 → 不生效
-	})
-}
-
-// TestEnabledPluginsMap_DoesNotUnionAcrossTargets 锁住 R15e 的"不做并集":Agent 有
-// 两档、两份互不相干的技能授权时,EnabledPluginsMapForTarget(agentID, 0) 只看最靠前那一档,
-// 不把两档的授权合并展示 —— caps 按每一档判定,不按 Agent 判定。
-func TestEnabledPluginsMap_DoesNotUnionAcrossTargets(t *testing.T) {
-	Convey("Agent 挂两档,第二档独有的技能不出现在结果里", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		ag := &agent_entity.Agent{ID: 6, AgentBackendID: 9}
-		al.EXPECT().Find(gomock.Any(), int64(6)).Return(ag, nil).AnyTimes()
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{
-			skillTarget(agent_entity.AgentSkillItem{ID: "first-only@x", Enabled: true}),
-			skillTarget(agent_entity.AgentSkillItem{ID: "second-only@x", Enabled: true}),
-		}}
-		s := newForTest(al, nil, et)
-
-		m, err := s.EnabledPluginsMapForTarget(context.Background(), 6, 0)
-		So(err, ShouldBeNil)
-		_, hasFirst := m["first-only@x"]
-		So(hasFirst, ShouldBeTrue)
-		_, hasSecond := m["second-only@x"]
-		So(hasSecond, ShouldBeFalse)
-	})
-}
-
-// TestEnabledPluginsMapForTarget_UsesPinnedTargetNotPrimary 锁住 R15b/R15e 的注入
-// 口径:会话钉在第二档上时,这一轮注入的必须是**那一档**的技能授权,不是 sort_order
-// 最小的主档那份 —— 规格「注入路径不动…只是取值从「Agent 的那份」变成「这一轮落到
-// 的那一档的那份」」,测试接缝里那条「同机多档时续轮取的是原档的 backend 与技能,
-// 不是「同机第一档」」说的就是这里。
-func TestEnabledPluginsMapForTarget_UsesPinnedTargetNotPrimary(t *testing.T) {
-	Convey("Agent 挂两档,按第二档的 backend 取授权时只拿到第二档那份", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		ag := &agent_entity.Agent{ID: 7, AgentBackendID: 11}
-		al.EXPECT().Find(gomock.Any(), int64(7)).Return(ag, nil).AnyTimes()
-		first := skillTarget(agent_entity.AgentSkillItem{ID: "first-only@x", Enabled: true})
-		first.AgentBackendID = 11
-		second := skillTarget(agent_entity.AgentSkillItem{ID: "second-only@x", Enabled: true})
-		second.AgentBackendID = 22
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{first, second}}
-		s := newForTest(al, nil, et)
-
-		m, err := s.EnabledPluginsMapForTarget(context.Background(), 7, 22)
-		So(err, ShouldBeNil)
-		_, hasSecond := m["second-only@x"]
-		So(hasSecond, ShouldBeTrue)
-		_, hasFirst := m["first-only@x"]
-		So(hasFirst, ShouldBeFalse)
-
-		Convey("给 0(老会话未钉档)时回落到主档,与钉档前的行为一致", func() {
-			m, err := s.EnabledPluginsMapForTarget(context.Background(), 7, 0)
+		Convey("本机能跑：读本机，不问 agentred", func() {
+			f.devices[0], f.devices[1] = f.devices[1], f.devices[0] // 派发顺序 agentred 在前也一样本机优先
+			cat, err := f.svc.MemberSkillCatalog(ctx, 1, false)
 			So(err, ShouldBeNil)
-			_, hasFirst := m["first-only@x"]
-			So(hasFirst, ShouldBeTrue)
-			_, hasSecond := m["second-only@x"]
-			So(hasSecond, ShouldBeFalse)
+			So(cat.Supported, ShouldBeTrue)
+			So(cat.Runtime, ShouldEqual, "claudecode")
+			So(cat.SourceDevice, ShouldEqual, selfFP)
+			So(packsByID(cat)["local-only@desktop"].Installed, ShouldBeTrue)
+			So(f.remote.gotDeviceID, ShouldEqual, int64(0))
 		})
 
-		// 钉住的那一档被移出列表(用户在组织架构页删掉了这一档,backend 本身还在)后,
-		// 这一轮仍然跑在 backend 33 上。此时绝不能回落到主档那份授权:那会把用户在
-		// 别的档上授权(甚至显式关掉)的技能，注入到一个从没授权过它们的 backend。
-		// 回落只对「老会话没钉过档」(agentBackendID = 0)成立。
-		Convey("钉住的那一档已不在列表里时,拿到的是空授权而不是主档那份", func() {
-			m, err := s.EnabledPluginsMapForTarget(context.Background(), 7, 33)
+		Convey("本机跑不了：读第一台能跑的已配对 agentred，不混入本机发现", func() {
+			f.devices[0].CanRun = false
+			cat, err := f.svc.MemberSkillCatalog(ctx, 1, false)
 			So(err, ShouldBeNil)
-			_, hasFirst := m["first-only@x"]
-			So(hasFirst, ShouldBeFalse)
-			_, hasSecond := m["second-only@x"]
-			So(hasSecond, ShouldBeFalse)
-		})
-	})
-}
-
-// TestListAgentSkillPacksForTarget_UsesGivenTargetNotAgentPrimary 是任务 12(组织
-// 架构页"一档一块")的读口:发现来源与授权标注都钉死在调用方给出的那一档
-// (agentBackendID),不是 Agent 的主档(sort_order 最小的那档)——两档各自独立,
-// 互不干扰、不做并集(R15e)。
-func TestListAgentSkillPacksForTarget_UsesGivenTargetNotAgentPrimary(t *testing.T) {
-	Convey("按 agentBackendID 取目录:发现与授权都钉在给定的那一档,不是 Agent 的主档", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		bl.EXPECT().Find(gomock.Any(), int64(11)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode),
-		}, nil).AnyTimes()
-		restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fakeDisc{[]agentskill.SkillPack{
-			{ID: "superpowers@x", Name: "superpowers", Installed: true, Source: agentskill.SourceInstalled},
-		}})
-		defer restore()
-		primary := skillTarget(agent_entity.AgentSkillItem{ID: "opsctl@x", Enabled: true})
-		primary.AgentBackendID = 9
-		second := skillTarget(agent_entity.AgentSkillItem{ID: "superpowers@x", Enabled: true})
-		second.AgentBackendID = 11
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{primary, second}}
-		s := newForTest(al, bl, et)
-
-		cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 6, 11, false)
-		So(err, ShouldBeNil)
-		byID := map[string]SkillPackDTO{}
-		for _, p := range cat.Packs {
-			byID[p.ID] = p
-		}
-		So(byID["superpowers@x"].Enabled, ShouldBeTrue)
-		_, hasOpsctl := byID["opsctl@x"]
-		So(hasOpsctl, ShouldBeFalse) // 第一档(主档)的授权不该混进来
-	})
-}
-
-// TestListAgentSkillPacksForTarget_UnknownTargetReturnsEmptyCatalog 找不到该档
-// (agentBackendID 不在这个 Agent 的列表里)时返回空目录、不是错误——与
-// a==nil 时既有的处理口径一致。
-func TestListAgentSkillPacksForTarget_UnknownTargetReturnsEmptyCatalog(t *testing.T) {
-	Convey("给的 agentBackendID 不在该 Agent 的执行目标列表里 → 空目录", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{skillTarget()}}
-		et.rows[0].AgentBackendID = 9
-		s := newForTest(al, bl, et)
-
-		cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 6, 999, false)
-		So(err, ShouldBeNil)
-		So(cat.Packs, ShouldBeEmpty)
-	})
-}
-
-func TestListAgentSkillPacksForTarget_CatalogMerge(t *testing.T) {
-	Convey("合并推荐 + 发现 + 授权标注", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		ag := &agent_entity.Agent{ID: 1, AgentBackendID: 9}
-		al.EXPECT().Find(gomock.Any(), int64(1)).Return(ag, nil).AnyTimes()
-		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)}, nil).AnyTimes()
-		restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fakeDisc{[]agentskill.SkillPack{
-			{ID: "superpowers@claude-plugins-official", Name: "superpowers", Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: true},
-			{ID: "opsctl@opskat", Name: "opsctl", Installed: true, Source: agentskill.SourceInstalled},
-		}})
-		defer restore()
-		// 授权挂在执行目标行上(R15e),不是 Agent 行:et 是这条 Agent 唯一那一档的
-		// 技能授权。
-		primary := skillTarget(agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: true})
-		primary.AgentBackendID = 9
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{primary}}
-		s := newForTest(al, bl, et)
-
-		Convey("ListAgentSkillPacksForTarget", func() {
-			cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
-			So(err, ShouldBeNil)
-			byID := map[string]SkillPackDTO{}
-			for _, p := range cat.Packs {
-				byID[p.ID] = p
-			}
-			So(byID["superpowers@claude-plugins-official"].Enabled, ShouldBeTrue)
-			So(byID["superpowers@claude-plugins-official"].Installed, ShouldBeTrue)
-			So(byID["superpowers@claude-plugins-official"].Recommended, ShouldBeTrue) // 推荐∩安装
-			So(byID["opsctl@opskat"].Enabled, ShouldBeFalse)
-			So(byID["code-review@claude-plugins-official"].Recommended, ShouldBeTrue)
-			So(byID["code-review@claude-plugins-official"].Installed, ShouldBeFalse)
-			So(byID["code-review@claude-plugins-official"].Enabled, ShouldBeFalse)
+			So(cat.SourceDevice, ShouldEqual, boxFP)
+			So(cat.SourceDeviceName, ShouldEqual, "机房")
+			So(f.remote.gotDeviceID, ShouldEqual, int64(7))
+			So(f.remote.gotBackend, ShouldEqual, "claudecode")
+			byID := packsByID(cat)
 			So(byID["superpowers@claude-plugins-official"].GloballyEnabled, ShouldBeTrue)
-			So(byID["opsctl@opskat"].GloballyEnabled, ShouldBeFalse)
+			_, hasLocal := byID["local-only@desktop"]
+			So(hasLocal, ShouldBeFalse)
 		})
-		Convey("Given installed packs with inherited and explicit states, When listing the catalog, Then EffectiveEnabled reports the launch-time truth", func() {
-			row := skillTarget(
-				agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: false}, // 显式关覆盖全局开
-				agent_entity.AgentSkillItem{ID: "opsctl@opskat", Enabled: true},                        // 显式开覆盖全局关
-			)
-			row.AgentBackendID = 9
-			et.rows = []*agent_entity.AgentExecTarget{row}
 
-			cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
+		Convey("哪台都跑不了：不发现，只列推荐与授权，来源设备为空", func() {
+			f.devices[0].CanRun, f.devices[1].CanRun = false, false
+			cat, err := f.svc.MemberSkillCatalog(ctx, 1, false)
 			So(err, ShouldBeNil)
-			byID := map[string]SkillPackDTO{}
-			for _, p := range cat.Packs {
-				byID[p.ID] = p
-			}
-
-			So(byID["superpowers@claude-plugins-official"].EffectiveEnabled, ShouldBeFalse)
-			So(byID["opsctl@opskat"].EffectiveEnabled, ShouldBeTrue)
-			So(byID["code-review@claude-plugins-official"].EffectiveEnabled, ShouldBeFalse)
-		})
-		Convey("Given an installed globally-enabled pack without an agent override, When listing the catalog, Then it is effectively enabled by inheritance", func() {
-			row := skillTarget()
-			row.AgentBackendID = 9
-			et.rows = []*agent_entity.AgentExecTarget{row}
-
-			cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 1, 9, false)
-			So(err, ShouldBeNil)
-			byID := map[string]SkillPackDTO{}
-			for _, p := range cat.Packs {
-				byID[p.ID] = p
-			}
-
-			So(byID["superpowers@claude-plugins-official"].EffectiveEnabled, ShouldBeTrue)
-			So(byID["opsctl@opskat"].EffectiveEnabled, ShouldBeFalse)
-		})
-		Convey("EnabledPluginsMap 只发 agent 显式覆盖(true/false),其余继承", func() {
-			et.rows = []*agent_entity.AgentExecTarget{skillTarget(
-				agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: true},      // 强制开
-				agent_entity.AgentSkillItem{ID: "frontend-design@claude-plugins-official", Enabled: false}, // 强制关(全局开的也能关)
-			)}
-			m, err := s.EnabledPluginsMapForTarget(context.Background(), 1, 0)
-			So(err, ShouldBeNil)
-			So(m["superpowers@claude-plugins-official"], ShouldBeTrue)
-			val, hasFD := m["frontend-design@claude-plugins-official"]
-			So(hasFD, ShouldBeTrue)
-			So(val, ShouldBeFalse)
-			_, hasOpsctl := m["opsctl@opskat"] // 已装、未覆盖 → 不在 map(继承全局)
-			So(hasOpsctl, ShouldBeFalse)
+			So(cat.SourceDevice, ShouldEqual, devicefp.Carrier(""))
+			_, hasLocal := packsByID(cat)["local-only@desktop"]
+			So(hasLocal, ShouldBeFalse)
+			So(packsByID(cat)["code-review@claude-plugins-official"].Recommended, ShouldBeTrue)
 		})
 	})
+}
 
-	Convey("Codex 目录只合并 Codex 发现项,不混入 Claude Code 推荐包", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		ag := &agent_entity.Agent{ID: 2, AgentBackendID: 10}
-		al.EXPECT().Find(gomock.Any(), int64(2)).Return(ag, nil).AnyTimes()
-		bl.EXPECT().Find(gomock.Any(), int64(10)).Return(&agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex)}, nil).AnyTimes()
-		restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeCodex, fakeDisc{[]agentskill.SkillPack{
-			{ID: "browser@openai-bundled", Name: "browser", Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: true},
+func TestMemberSkillCatalog_Grants(t *testing.T) {
+	ctx := context.Background()
+	Convey("授权挂在成员上，按引擎配置的运行时校验", t, func() {
+		f := newFixture(t)
+		restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fakeDisc{[]agentskill.SkillPack{
+			{ID: "superpowers@claude-plugins-official", Name: "superpowers", Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: true},
+			{ID: "opsctl@opskat", Name: "opsctl", Installed: true, Source: agentskill.SourceInstalled},
 		}})
 		defer restore()
-		primary := skillTarget()
-		primary.AgentBackendID = 10
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{primary}}
-		s := newForTest(al, bl, et)
 
-		cat, err := s.ListAgentSkillPacksForTarget(context.Background(), 2, 10, false)
-		So(err, ShouldBeNil)
-		byID := map[string]SkillPackDTO{}
-		for _, p := range cat.Packs {
-			byID[p.ID] = p
-		}
-		So(byID["browser@openai-bundled"].Installed, ShouldBeTrue)
-		_, hasClaudeSuperpowers := byID["superpowers@claude-plugins-official"]
-		So(hasClaudeSuperpowers, ShouldBeFalse)
-		_, hasClaudeCodeReview := byID["code-review@claude-plugins-official"]
-		So(hasClaudeCodeReview, ShouldBeFalse)
-	})
-}
+		Convey("同一运行时的授权生效：显式开/关决定 EffectiveEnabled", func() {
+			f.grant("claudecode",
+				agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: false},
+				agent_entity.AgentSkillItem{ID: "opsctl@opskat", Enabled: true},
+			)
+			cat, err := f.svc.MemberSkillCatalog(ctx, 1, false)
+			So(err, ShouldBeNil)
+			byID := packsByID(cat)
+			So(byID["superpowers@claude-plugins-official"].EffectiveEnabled, ShouldBeFalse)
+			So(byID["opsctl@opskat"].Enabled, ShouldBeTrue)
+			So(byID["opsctl@opskat"].EffectiveEnabled, ShouldBeTrue)
+			So(byID["superpowers@claude-plugins-official"].Recommended, ShouldBeTrue)
+			So(cat.InvalidGrants, ShouldBeEmpty)
+		})
 
-// TestListAgentSkillCommands_SelfFingerprintBackendMergesNativeCommands R13 认领后
-// 本机 backend 的 DeviceID 是本机指纹:命令目录的「本地档才合并 CLI 原生命令」分支
-// 不能只看 DeviceID 空串(IsLocal),必须同样认本机指纹——否则认领后本地档的技能
-// 命令目录会缺掉 CLI 自己解析的 user/project/system 命令,只剩插件包里的。
-func TestListAgentSkillCommands_SelfFingerprintBackendMergesNativeCommands(t *testing.T) {
-	Convey("Given a self-fingerprint claudecode backend (R13 canonicalized local), when commands are listed, then native CLI commands are merged", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		ag := &agent_entity.Agent{ID: 1, AgentBackendID: 9}
-		al.EXPECT().Find(gomock.Any(), int64(1)).Return(ag, nil).AnyTimes()
-		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:self",
-		}, nil).AnyTimes()
+		Convey("授权是对另一种运行时做的：整份失效，单独列出供一键移除", func() {
+			f.grant("codex", agent_entity.AgentSkillItem{ID: "browser@openai-bundled", Enabled: true})
+			cat, err := f.svc.MemberSkillCatalog(ctx, 1, false)
+			So(err, ShouldBeNil)
+			So(cat.InvalidGrants, ShouldResemble, []agent_entity.AgentSkillItem{{ID: "browser@openai-bundled", Enabled: true}})
+			_, has := packsByID(cat)["browser@openai-bundled"]
+			So(has, ShouldBeFalse)
+			So(packsByID(cat)["opsctl@opskat"].Enabled, ShouldBeFalse)
+		})
 
-		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
-		prevSvc := remote_device_svc.Default()
-		remote_device_svc.SetDefault(rds)
-		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
+		Convey("一轮注入的覆盖 map 只发同运行时的显式授权", func() {
+			f.grant("claudecode",
+				agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: true},
+				agent_entity.AgentSkillItem{ID: "frontend-design@claude-plugins-official", Enabled: false},
+			)
+			m, err := f.svc.EnabledPluginsMapFor(ctx, f.agent, "claudecode")
+			So(err, ShouldBeNil)
+			So(m, ShouldResemble, map[string]bool{
+				"superpowers@claude-plugins-official":     true,
+				"frontend-design@claude-plugins-official": false,
+			})
+			m, err = f.svc.EnabledPluginsMapFor(ctx, f.agent, "codex")
+			So(err, ShouldBeNil)
+			So(m, ShouldBeEmpty)
+		})
 
-		restorePacks := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fakeDisc{[]agentskill.SkillPack{
-			{ID: "local@desktop", Name: "local", Skills: []string{"local:run"}, Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: true},
-		}})
-		defer restorePacks()
-		restoreCommands := agentskill.SwapCommandDiscovererForTest(agent_backend_entity.TypeClaudeCode, fakeCommandDisc{[]agentskill.SkillCommand{
-			{Name: "init", Description: "Initialize a project"},
-		}})
-		defer restoreCommands()
-		et := &fakeExecTargets{}
-		s := newForTest(al, bl, et)
-
-		catalog, err := s.ListAgentSkillCommands(context.Background(), 1, "/tmp/project")
-		So(err, ShouldBeNil)
-		// 插件包命令与 CLI 原生命令都要在:认领后的本地档不再只回插件目录。
-		So(catalog.Commands, ShouldResemble, []SkillCommandDTO{
-			{Name: "local:run"},
-			{Name: "init", Description: "Initialize a project"},
+		Convey("没给运行时：按成员生效的引擎配置的运行时取", func() {
+			f.grant("claudecode", agent_entity.AgentSkillItem{ID: "opsctl@opskat", Enabled: true})
+			m, err := f.svc.EnabledPluginsMapFor(ctx, f.agent, "")
+			So(err, ShouldBeNil)
+			So(m, ShouldResemble, map[string]bool{"opsctl@opskat": true})
 		})
 	})
 }
 
-func TestListAgentSkillCommands(t *testing.T) {
-	Convey("Given an agent with inherited plugin skills plus backend-native standalone skills", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		ag := &agent_entity.Agent{ID: 3, AgentBackendID: 12}
-		al.EXPECT().Find(gomock.Any(), int64(3)).Return(ag, nil).AnyTimes()
-		bl.EXPECT().Find(gomock.Any(), int64(12)).Return(&agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex)}, nil).AnyTimes()
+func TestMemberSkillCatalog_MissingPacks(t *testing.T) {
+	ctx := context.Background()
+	Convey("授权开着的包在某台能跑的设备上没装：照常列出并标出哪台没装", t, func() {
+		f := newFixture(t)
+		restore := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode, fakeDisc{})
+		defer restore()
+		f.grant("claudecode",
+			agent_entity.AgentSkillItem{ID: "superpowers@claude-plugins-official", Enabled: true},
+			agent_entity.AgentSkillItem{ID: "opsctl@opskat", Enabled: false},
+		)
+		f.devices = []Device{
+			{Fingerprint: selfFP, IsSelf: true, CanRun: true, InstalledPacks: []string{"superpowers@claude-plugins-official"}, PacksKnown: true},
+			{Fingerprint: boxFP, Name: "机房", PairedID: 7, CanRun: true, InstalledPacks: []string{}, PacksKnown: true},
+			{Fingerprint: "sha256:nofacts", Name: "没报情况", CanRun: true},
+			{Fingerprint: "sha256:cannot", Name: "跑不了", CanRun: false, InstalledPacks: []string{}, PacksKnown: true},
+		}
+		cat, err := f.svc.MemberSkillCatalog(ctx, 1, false)
+		So(err, ShouldBeNil)
+		So(cat.MissingPacks, ShouldResemble, []MissingPackDTO{{
+			PackID:  "superpowers@claude-plugins-official",
+			Devices: []DeviceRefDTO{{Fingerprint: boxFP, Name: "机房"}},
+		}})
+	})
+}
+
+func TestMemberSkillCatalog_EdgeCases(t *testing.T) {
+	ctx := context.Background()
+	Convey("目录的边界情形", t, func() {
+		f := newFixture(t)
+
+		Convey("运行时不支持技能包：Supported=false，不发现", func() {
+			f.profile = &agent_backend_entity.EngineProfile{ID: 12, Name: "Hermes", Type: string(agent_backend_entity.TypeHermes)}
+			cat, err := f.svc.MemberSkillCatalog(ctx, 1, false)
+			So(err, ShouldBeNil)
+			So(cat.Supported, ShouldBeFalse)
+			So(cat.Runtime, ShouldEqual, "hermes")
+			So(cat.Packs, ShouldBeEmpty)
+		})
+
+		Convey("成员没有生效的引擎配置：报需要引擎配置", func() {
+			f.profile = nil
+			_, err := f.svc.MemberSkillCatalog(ctx, 1, false)
+			So(err, ShouldNotBeNil)
+		})
+
+		Convey("成员不存在：空目录不报错", func() {
+			cat, err := f.svc.MemberSkillCatalog(ctx, 404, false)
+			So(err, ShouldBeNil)
+			So(cat.Packs, ShouldBeEmpty)
+		})
+	})
+}
+
+func TestListAgentSkillCommands_Local(t *testing.T) {
+	Convey("Given the member runs locally with plugin skills plus CLI-native skills", t, func() {
+		f := newFixture(t)
+		f.profile = &agent_backend_entity.EngineProfile{ID: 13, Name: "Codex", Type: string(agent_backend_entity.TypeCodex)}
 		restorePacks := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeCodex, fakeDisc{[]agentskill.SkillPack{
 			{ID: "browser@openai-bundled", Name: "browser", Skills: []string{"browser"}, Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: true},
 			{ID: "superpowers@openai-curated", Name: "superpowers", Skills: []string{"tdd"}, Installed: true, Source: agentskill.SourceInstalled, GloballyEnabled: false},
 		}})
 		defer restorePacks()
 		restoreCommands := agentskill.SwapCommandDiscovererForTest(agent_backend_entity.TypeCodex, fakeCommandDisc{[]agentskill.SkillCommand{
-			{Name: "browser:browser"}, // duplicate of enabled plugin-derived command
+			{Name: "browser:browser"},
 			{Name: "shadcn", Description: "Compose shadcn UI"},
 		}})
 		defer restoreCommands()
-		et := &fakeExecTargets{}
-		s := newForTest(al, bl, et)
 
 		Convey("When commands are listed, Then enabled plugin and standalone names merge once while disabled packs stay hidden", func() {
-			catalog, err := s.ListAgentSkillCommands(context.Background(), 3, "/tmp/project")
+			catalog, err := f.svc.ListAgentSkillCommands(context.Background(), 1, "/tmp/project")
 			So(err, ShouldBeNil)
 			So(catalog.Commands, ShouldResemble, []SkillCommandDTO{
 				{Name: "browser:browser"},
@@ -524,102 +301,43 @@ func TestListAgentSkillCommands(t *testing.T) {
 	})
 }
 
-// TestListAgentSkillCommands_RemoteTargetAsksThatMachine 钉住远端档的命令从哪来。
-//
-// 此前这条路是**跛的**:插件包那一半经 skills.list 问对面拿到了,而 CLI 自己解析的
-// user / project / system skill 那一半被整段跳过 —— 本机发现器只看得见桌面端自己
-// 这台机器上的目录,拿它去答远端档等于答错人。于是远端档的输入框里,`/cago` 这类
-// 日常打得最多的 skill 一条都不出现,而界面上看不出少了东西。
-//
-// 现在整份清单由**那台机器**答(skills.commands):谁跑这一轮谁说得出自己有什么。
-// 授权仍由桌面端带过去 —— 组织架构库在这一侧。
-func TestListAgentSkillCommands_RemoteTargetAsksThatMachine(t *testing.T) {
-	Convey("Given an exec target on another machine", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		al.EXPECT().Find(gomock.Any(), int64(1)).
-			Return(&agent_entity.Agent{ID: 1, AgentBackendID: 9}, nil).AnyTimes()
-		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:that-box",
-		}, nil).AnyTimes()
-
-		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
-		rds.EXPECT().List(gomock.Any()).Return([]*remote_device_svc.DeviceView{
-			{ID: 42, DaemonFingerprint: "sha256:that-box"},
-		}, nil).AnyTimes()
-		prevSvc := remote_device_svc.Default()
-		remote_device_svc.SetDefault(rds)
-		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
-
-		// 本机发现器**故意**摆一份不一样的东西:如果实现回头去问了它,断言会当场
-		// 抓住 —— 那正是此前那条跛腿的形状。
+// 本机跑不了时，命令清单整份由那台 agentred 答（插件包与 CLI 原生 skill 都在里面），授权由
+// 这一侧带过去；本机发现器不被问到。
+func TestListAgentSkillCommands_RemoteDeviceAnswers(t *testing.T) {
+	Convey("Given the member can only run on a paired agentred", t, func() {
+		f := newFixture(t)
+		f.devices[0].CanRun = false
+		f.grant("claudecode", agent_entity.AgentSkillItem{ID: "superpowers@official", Enabled: true})
 		restorePacks := agentskill.SwapDiscovererForTest(agent_backend_entity.TypeClaudeCode,
-			fakeDisc{[]agentskill.SkillPack{{ID: "only@here", Name: "onlyhere",
-				Skills: []string{"nope"}, Installed: true, GloballyEnabled: true}}})
+			fakeDisc{[]agentskill.SkillPack{{ID: "only@here", Name: "onlyhere", Skills: []string{"nope"}, Installed: true, GloballyEnabled: true}}})
 		defer restorePacks()
 		restoreCommands := agentskill.SwapCommandDiscovererForTest(agent_backend_entity.TypeClaudeCode,
 			fakeCommandDisc{[]agentskill.SkillCommand{{Name: "local-only"}}})
 		defer restoreCommands()
-
-		remote := &fakeRemoteDisc{commands: []agentskill.SkillCommand{
+		f.remote.commands = []agentskill.SkillCommand{
 			{Name: "superpowers:brainstorming", Description: "先想清楚"},
 			{Name: "cago", Description: "cago 框架"},
-		}}
-		et := &fakeExecTargets{rows: []*agent_entity.AgentExecTarget{
-			skillTarget(agent_entity.AgentSkillItem{ID: "superpowers@official", Enabled: true}),
-		}}
-		s := newForTestRemote(al, bl, et, remote)
+		}
 
-		Convey("When commands are listed, Then that machine answers and the local discoverer is not consulted", func() {
-			catalog, err := s.ListAgentSkillCommands(context.Background(), 1, "/srv/project")
-			So(err, ShouldBeNil)
-			So(catalog.Commands, ShouldResemble, []SkillCommandDTO{
-				{Name: "superpowers:brainstorming", Description: "先想清楚"},
-				{Name: "cago", Description: "cago 框架"},
-			})
-
-			// 拨的是那台机器、带的是这一档的授权与这一轮的 cwd。
-			So(remote.gotCommandDeviceID, ShouldEqual, int64(42))
-			So(remote.gotCommandBackend, ShouldEqual, string(agent_backend_entity.TypeClaudeCode))
-			So(remote.gotCommandCwd, ShouldEqual, "/srv/project")
-			So(remote.gotCommandAuthorized, ShouldResemble, []agent_entity.AgentSkillItem{
-				{ID: "superpowers@official", Enabled: true},
-			})
+		catalog, err := f.svc.ListAgentSkillCommands(context.Background(), 1, "/srv/project")
+		So(err, ShouldBeNil)
+		So(catalog.Commands, ShouldResemble, []SkillCommandDTO{
+			{Name: "superpowers:brainstorming", Description: "先想清楚"},
+			{Name: "cago", Description: "cago 框架"},
 		})
+		So(f.remote.gotCommandDeviceID, ShouldEqual, int64(7))
+		So(f.remote.gotCommandBackend, ShouldEqual, "claudecode")
+		So(f.remote.gotCommandCwd, ShouldEqual, "/srv/project")
+		So(f.remote.gotCommandAuthorized, ShouldResemble, []agent_entity.AgentSkillItem{{ID: "superpowers@official", Enabled: true}})
 	})
-}
 
-// TestListAgentSkillCommands_RemoteTargetWithoutPairedDeviceIsEmpty 那台机器没在本机
-// 配对过就没有可拨的对象。回空清单(输入框照常能用,只是没有补全),不是错误 ——
-// 与 ListAgentSkillPacksForTarget 对同一情形的处置口径一致。
-func TestListAgentSkillCommands_RemoteTargetWithoutPairedDeviceIsEmpty(t *testing.T) {
-	Convey("Given a remote exec target whose machine is not paired here", t, func() {
-		ctrl := gomock.NewController(t)
-		al := mock_skill_svc.NewMockAgentLookup(ctrl)
-		bl := mock_skill_svc.NewMockBackendLookup(ctrl)
-		al.EXPECT().Find(gomock.Any(), int64(1)).
-			Return(&agent_entity.Agent{ID: 1, AgentBackendID: 9}, nil).AnyTimes()
-		bl.EXPECT().Find(gomock.Any(), int64(9)).Return(&agent_backend_entity.AgentBackend{
-			Type: string(agent_backend_entity.TypeClaudeCode), DeviceFingerprint: "sha256:stranger",
-		}, nil).AnyTimes()
-
-		rds := mock_remote_device_svc.NewMockRemoteDeviceSvc(ctrl)
-		rds.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
-		rds.EXPECT().List(gomock.Any()).Return(nil, nil).AnyTimes()
-		prevSvc := remote_device_svc.Default()
-		remote_device_svc.SetDefault(rds)
-		t.Cleanup(func() { remote_device_svc.SetDefault(prevSvc) })
-
-		remote := &fakeRemoteDisc{commands: []agentskill.SkillCommand{{Name: "never"}}}
-		s := newForTestRemote(al, bl, &fakeExecTargets{}, remote)
-
-		Convey("When commands are listed, Then the result is empty and no dial is attempted", func() {
-			catalog, err := s.ListAgentSkillCommands(context.Background(), 1, "/srv/project")
-			So(err, ShouldBeNil)
-			So(catalog.Commands, ShouldBeEmpty)
-			So(remote.gotCommandDeviceID, ShouldEqual, int64(0))
-		})
+	Convey("Given no device can run the member", t, func() {
+		f := newFixture(t)
+		f.devices[0].CanRun, f.devices[1].CanRun = false, false
+		f.remote.commands = []agentskill.SkillCommand{{Name: "never"}}
+		catalog, err := f.svc.ListAgentSkillCommands(context.Background(), 1, "/srv/project")
+		So(err, ShouldBeNil)
+		So(catalog.Commands, ShouldBeEmpty)
+		So(f.remote.gotCommandDeviceID, ShouldEqual, int64(0))
 	})
 }

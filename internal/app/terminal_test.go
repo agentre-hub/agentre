@@ -13,7 +13,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/pty"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_repo/mock_project_repo"
-	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
+	"github.com/agentre-hub/agentre/internal/service/dispatch_svc"
 	"github.com/agentre-hub/agentre/internal/service/terminal_svc"
 	"github.com/agentre-hub/agentre/internal/service/terminal_svc/mocks"
 	"github.com/agentre-hub/agentre/internal/service/workspace_fs_svc"
@@ -79,9 +79,9 @@ func TestApp_TerminalOpen_PropagatesResolveErrorWithoutOpening(t *testing.T) {
 	require.Error(t, a.TerminalOpen("t1", 7, "", 80, 24))
 }
 
-// stubExecTarget 只实现 ResolveSessionWorkspace;嵌入的接口留 nil,碰到别的方法当场 panic。
+// stubExecTarget 只实现派发服务的 ResolveSessionWorkspace;嵌入的接口留 nil,碰到别的方法当场 panic。
 type stubExecTarget struct {
-	exec_target_svc.ExecTargetSvc
+	dispatch_svc.DispatchSvc
 
 	deviceID int64
 	cwd      string
@@ -103,9 +103,9 @@ func newOpenForSessionRig(t *testing.T, ws *stubExecTarget, roots []workspace_fs
 	t.Helper()
 	ctrl := gomock.NewController(t)
 
-	origET := exec_target_svc.ExecTarget()
-	exec_target_svc.RegisterExecTarget(ws)
-	t.Cleanup(func() { exec_target_svc.RegisterExecTarget(origET) })
+	origDispatch := dispatch_svc.Dispatch()
+	dispatch_svc.RegisterDispatch(ws)
+	t.Cleanup(func() { dispatch_svc.RegisterDispatch(origDispatch) })
 
 	origWS := workspace_fs_svc.Default()
 	workspace_fs_svc.RegisterWorkspaceFs(&stubWorkspaceFs{roots: roots})

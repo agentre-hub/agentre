@@ -75,6 +75,9 @@ var zhCN = map[int]string{
 	DeviceFactsDeviceNotFound:    "设备不存在：只能刷新本机或已配对的设备",
 	DeviceFactsDeviceUnreachable: "连不上这台设备，暂时读不到它的情况",
 
+	DispatchNoEligibleDevice:        "现在没有能跑这名成员的设备",
+	DispatchManualDeviceUnavailable: "指定的设备现在不能跑这名成员，换一台或交给自动选择",
+
 	AppSettingNotFound:      "设置项不存在",
 	AppSettingInvalidPort:   "端口必须是 0~65535 之间的整数",
 	AppSettingInvalidHost:   "监听地址不是合法的 IP",

@@ -10,8 +10,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/svcerr"
 )
 
-// ExecTargetSvc 是执行目标域的对外口。四个读方法各自回答一个问题：
-// 派到哪一档、每一档现在能不能用、指定的那一档合不合法、这条会话在哪台机器的哪个目录。
+// ExecTargetSvc 是执行目标域的对外口，只剩 chat_svc 在用（它改走 dispatch_svc 前）：派到
+// 哪一档、每一档现在能不能用、指定的那一档合不合法。会话的设备 / cwd 作用域已归 dispatch_svc。
 type ExecTargetSvc interface {
 	// PickExecTarget 按 R15 顺序为一个 Agent 挑第一个可用的执行目标档：本机没配对 /
 	// 已配对但离线 / 会话绑的项目在那台机器上没配路径 / 既有 BlockReason 四类各自跳过。
@@ -26,12 +26,6 @@ type ExecTargetSvc interface {
 	ListExecTargetAvailability(ctx context.Context, agentID int64, projectID int64) ([]ExecTargetAvailabilityView, error)
 	// ValidateExecTargetOverride 校验 R15a 手动指定的执行目标此刻是否合法可用。
 	ValidateExecTargetOverride(ctx context.Context, agentID, projectID, agentBackendID int64) error
-	// ResolveLocalCommandScope 为已有 session 或未持久化的 agent/project 目标解析历史作用域。
-	ResolveLocalCommandScope(ctx context.Context, req *ResolveLocalCommandScopeRequest) (*LocalCommandScope, error)
-	// ResolveSessionWorkspace 把 sessionID 解析成 {deviceID, cwd}(deviceID 为 0
-	// 即本机会话)。实现 workspace_fs_svc 的 SessionWorkspaceResolver 窄接口,
-	// 由 bootstrap 注入 —— 让那个服务不必跨域读 chat / agent / agent_backend 表。
-	ResolveSessionWorkspace(ctx context.Context, sessionID int64) (deviceID int64, cwd string, err error)
 	// ResolvedExecTargets 取一个 Agent 的执行目标并按 R14 解析出本端顺序。
 	ResolvedExecTargets(ctx context.Context, agentID int64) ([]*agent_entity.AgentExecTarget, error)
 }

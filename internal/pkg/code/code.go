@@ -119,6 +119,12 @@ const (
 	DeviceFactsDeviceUnreachable                // 已配对的设备此刻连不上，读不到它的情况
 )
 
+// 派发 12080~（同一份 spec「派发规则」）：派发判定本身只给原因码，只有必须报错的地方才用这些码。
+const (
+	DispatchNoEligibleDevice        = iota + 12080 // 成员现在没有能跑的设备
+	DispatchManualDeviceUnavailable                // 手动指定的设备现在不能跑这名成员
+)
+
 // App 设置 15000~15999
 const (
 	AppSettingNotFound      = iota + 15000 // 设置项不存在

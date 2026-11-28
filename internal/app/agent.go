@@ -88,12 +88,15 @@ func (a *App) ResolveMemberEngine(req *agent_svc.ResolveMemberEngineRequest) (*a
 	return res, codedError(err)
 }
 
-// ListAgentSkillPacks 返回某 agent 名下 agentBackendID 这一档执行目标可见的技能包
-// 目录(推荐 + 发现 + 已授权)——R15e「一档一块」：发现来源与授权都钉死在这一档，
-// 不与 Agent 名下别的档合并（任务 12：组织架构页技能节改成一档一块之后，每块各自
-// 用自己的 agentBackendID 调这里，不再只看 Agent 的主档）。
+// ListAgentSkillPacks 返回成员可见的技能包目录(推荐 + 发现 + 已授权)。技能授权已挂到成员
+// 上、按生效引擎配置的运行时校验,目录不再按执行目标一档一块 —— agentBackendID 只为现有
+// 界面的调用形状保留、不再参与取数;新界面用 GetMemberSkillCatalog。
 func (a *App) ListAgentSkillPacks(agentID int64, agentBackendID int64, refresh bool) (skill_svc.SkillCatalogDTO, error) {
-	return skill_svc.Default().ListAgentSkillPacksForTarget(a.ctx, agentID, agentBackendID, refresh)
+	res, err := skill_svc.Default().MemberSkillCatalog(a.ctx, agentID, refresh)
+	if err != nil {
+		return skill_svc.SkillCatalogDTO{}, err
+	}
+	return skill_svc.SkillCatalogDTO{Packs: res.Packs}, nil
 }
 
 // ListAgentSkillCommands 返回当前 agent 在 cwd 中可调用的 Skill 命令目录。
