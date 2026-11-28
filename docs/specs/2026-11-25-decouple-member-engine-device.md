@@ -2,7 +2,7 @@
 
 > Status: Approved
 > Owner: desktop app、agentred、agentre-server 维护者（同步契约 `pkg/syncwire` 与协议 `pkg/wire` 成对交付）
-> Last updated: 2026-11-28
+> Last updated: 2026-11-28（修订：设备情况与租约走 syncwire HTTP/JSON）
 
 **Objective:** 组织成员只描述「是谁、用什么引擎干活」，不再写死「在哪台机器上跑」；新会话在哪台设备上跑，由建会话时根据项目、设备自己上报的情况和用户偏好算出来，并钉在会话上；LLM 供应商的 API key 不再常驻在 agentred 上。
 
@@ -217,14 +217,16 @@ Pi 与其它 CLI 后端一样，只拿会话网关 token 与网关地址；真�
 - `llm_provider` 增加「谁能连到」。
 - 新增设备偏好（按设备指纹：标签、在账号设备顺序中的位置）。
 - 引擎配置里「账号默认」的标记。
+- 设备情况上报与租约申请、续租的 HTTP/JSON 类型（设备 ↔ server）。
 
 协议（`pkg/wire`）：
 
 - 开一轮的请求带引擎配置（而不是后端）。
 - 派到桌面端的请求带设备与引擎配置。
-- 设备情况上报。
-- 租约的申请、附带与吊销通知。
+- 直连时随开一轮的请求附带的租约。
 - ctl 消息里 `backend` 改为 `engine`，`send` 增加 `engine`、去掉 `backend`。
+
+租约吊销通知经账号中继的账号通道下发。
 
 协议版本升一档，`MinSupported == Protocol`。桌面端、agentred、agrctl、server 同一批升级；跨代对端在握手期被拒，提示升级较旧的一端（沿用现有措辞规则）。
 
