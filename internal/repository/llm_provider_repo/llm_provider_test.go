@@ -18,6 +18,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
 )
 
@@ -26,7 +27,7 @@ import (
 func setupLLMProviderRepoTest(t *testing.T) (context.Context, sqlmock.Sqlmock, llm_provider_repo.LLMProviderRepo) {
 	t.Helper()
 	ctx, _, mock := testutils.Database(t)
-	return ctx, mock, llm_provider_repo.NewLLMProvider()
+	return ctx, mock, llm_provider_repo.NewLLMProviderWithKeychain(keychain.NewMemory())
 }
 
 // providerRows 构造一行 sqlmock 返回值（llm_providers 新 schema：无 model/max_output/
@@ -163,6 +164,8 @@ func TestLLMProviderRepo_DeleteWithModels(t *testing.T) {
 		ctx, mock, repo := setupLLMProviderRepoTest(t)
 
 		convey.Convey("Provider 与其 Models 在同一事务内原子软删除（spec：无引用 Provider 的删除事务同时移除其 Models）", func() {
+			mock.ExpectQuery("SELECT `provider_key` FROM `llm_providers` WHERE id = \\?").
+				WillReturnRows(sqlmock.NewRows([]string{"provider_key"}).AddRow("pk"))
 			mock.ExpectBegin()
 			mock.ExpectExec("UPDATE `llm_providers` SET `status`=\\?(,`updatetime`=\\?)? WHERE id = \\?").
 				WithArgs(consts.DELETE, int64(3)).
@@ -177,6 +180,8 @@ func TestLLMProviderRepo_DeleteWithModels(t *testing.T) {
 		})
 
 		convey.Convey("Provider 软删除失败 → 整体回滚，Models 不单独删除（不留半批）", func() {
+			mock.ExpectQuery("SELECT `provider_key` FROM `llm_providers` WHERE id = \\?").
+				WillReturnRows(sqlmock.NewRows([]string{"provider_key"}).AddRow("pk"))
 			mock.ExpectBegin()
 			mock.ExpectExec("UPDATE `llm_providers` SET `status`=\\?(,`updatetime`=\\?)? WHERE id = \\?").
 				WithArgs(consts.DELETE, int64(3)).
@@ -189,6 +194,8 @@ func TestLLMProviderRepo_DeleteWithModels(t *testing.T) {
 		})
 
 		convey.Convey("Models 软删除失败 → 整体回滚，Provider 已做的软删除一并撤销", func() {
+			mock.ExpectQuery("SELECT `provider_key` FROM `llm_providers` WHERE id = \\?").
+				WillReturnRows(sqlmock.NewRows([]string{"provider_key"}).AddRow("pk"))
 			mock.ExpectBegin()
 			mock.ExpectExec("UPDATE `llm_providers` SET `status`=\\?(,`updatetime`=\\?)? WHERE id = \\?").
 				WithArgs(consts.DELETE, int64(3)).
@@ -968,9 +975,9 @@ func TestLLMProviderRepo_CountModelReferences(t *testing.T) {
 
 // Given 一份读得早 / 下行出来的供应商实体 When Update 或 UpsertFromSync 回写整行 Then 「谁能连到」
 // 两列不在 UPDATE 里——它们只由 UpdateReach 写，整行回写不得把它们拍回旧值。
-// 参数个数是证据：10 个业务列 + 6 个同步元数据 + WHERE id = 17，没有 reach 两列。
+// 参数个数是证据：9 个业务列（api_key 住钥匙串，也不在其中）+ 6 个同步元数据 + WHERE id = 16，没有 reach 两列。
 func TestLLMProviderRepo_WholeRowWritesLeaveReachAlone(t *testing.T) {
-	args := make([]driver.Value, 17)
+	args := make([]driver.Value, 16)
 	for i := range args {
 		args[i] = sqlmock.AnyArg()
 	}

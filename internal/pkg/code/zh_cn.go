@@ -66,11 +66,12 @@ var zhCN = map[int]string{
 	EngineProfileRequired:                  "该成员没有可用的引擎配置：请为它选择一份，或设置部门 / 账号默认引擎",
 	EngineExecConstraintInvalid:            "「在哪跑」设置不合法：请选择任意设备、至少一个标签或至少一台设备",
 
-	DevicePrefInvalidDevice:    "设备缺失或不参与派发",
-	DevicePrefInvalidOrder:     "设备顺序里有空项或重复项",
-	DeviceCLIRuntimeInvalid:    "该运行时没有 CLI 可执行文件，不能覆盖路径",
-	ProjectDefaultDeviceNoPath: "默认设备必须是在这个项目里配了路径的设备",
-	LLMProviderReachInvalid:    "「谁能连到」设置不合法：请选择任意设备，或至少一台设备",
+	DevicePrefInvalidDevice:        "设备缺失或不参与派发",
+	DevicePrefInvalidOrder:         "设备顺序里有空项或重复项",
+	DeviceCLIRuntimeInvalid:        "该运行时没有 CLI 可执行文件，不能覆盖路径",
+	ProjectDefaultDeviceNoPath:     "默认设备必须是在这个项目里配了路径的设备",
+	LLMProviderReachInvalid:        "「谁能连到」设置不合法：请选择任意设备，或至少一台设备",
+	LLMProviderKeychainUnavailable: "「无法写入系统钥匙串」：API Key 只保存在系统钥匙串中，请检查钥匙串权限后重试",
 
 	DeviceFactsDeviceNotFound:    "设备不存在：只能刷新本机或已配对的设备",
 	DeviceFactsDeviceUnreachable: "连不上这台设备，暂时读不到它的情况",

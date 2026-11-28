@@ -106,11 +106,12 @@ const (
 // 设备偏好与设备相关配置 12060~（同一份 spec：设备标签 / 账号设备顺序、项目默认设备、
 // 供应商「谁能连到」、CLI 路径覆盖按（运行时类型, 设备）存）。
 const (
-	DevicePrefInvalidDevice    = iota + 12060 // 设备指纹缺失或不是参与派发的设备
-	DevicePrefInvalidOrder                    // 设备顺序里有空项或重复项
-	DeviceCLIRuntimeInvalid                   // 运行时类型没有 CLI 可执行文件，不能覆盖路径
-	ProjectDefaultDeviceNoPath                // 项目默认设备必须是在这个项目里有路径的设备
-	LLMProviderReachInvalid                   // 供应商「谁能连到」取值不合法
+	DevicePrefInvalidDevice        = iota + 12060 // 设备指纹缺失或不是参与派发的设备
+	DevicePrefInvalidOrder                        // 设备顺序里有空项或重复项
+	DeviceCLIRuntimeInvalid                       // 运行时类型没有 CLI 可执行文件，不能覆盖路径
+	ProjectDefaultDeviceNoPath                    // 项目默认设备必须是在这个项目里有路径的设备
+	LLMProviderReachInvalid                       // 供应商「谁能连到」取值不合法
+	LLMProviderKeychainUnavailable                // 无法写入系统钥匙串（供应商 key 只存钥匙串，不落明文）
 )
 
 // 设备情况 12070~（同一份 spec「设备与设备情况上报」）：设备页读取 / 刷新设备上报的情况。

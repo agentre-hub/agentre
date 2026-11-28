@@ -4,6 +4,7 @@ package llm_provider_repo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/cago-frame/cago/database/db"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
+	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/repository/repoquery"
 )
 
@@ -98,14 +100,99 @@ func LLMProvider() LLMProviderRepo { return defaultLLMProvider }
 // RegisterLLMProvider 注入仓储实现，由 bootstrap 调用一次。
 func RegisterLLMProvider(impl LLMProviderRepo) { defaultLLMProvider = impl }
 
-type llmProviderRepo struct{}
+// ErrKeychainUnavailable 表示系统钥匙串读写失败：key 不会退回落进 SQLite 明文列。
+var ErrKeychainUnavailable = errors.New("llm_provider_repo: system keychain unavailable")
 
-// NewLLMProvider 构造默认 GORM 实现。
+type llmProviderRepo struct{ kc keychain.Keychain }
+
+// store 取钥匙串；没注册任何实现时为 nil。
+func (r *llmProviderRepo) store() keychain.Keychain {
+	if r.kc != nil {
+		return r.kc
+	}
+	return keychain.Default()
+}
+
+// saveKey 把 key 写进钥匙串（空 key = 删槽位）。钥匙串不可用就报
+// ErrKeychainUnavailable，调用方据此中止，绝不退回把明文写进 SQLite 列。
+func (r *llmProviderRepo) saveKey(providerKey, apiKey string) error {
+	account := keychain.LLMProviderAPIKeyAccount(providerKey)
+	if account == "" {
+		return nil
+	}
+	kc := r.store()
+	if kc == nil {
+		if apiKey == "" {
+			return nil // 没有钥匙串也就没有要清的槽位
+		}
+		return ErrKeychainUnavailable
+	}
+	var err error
+	if apiKey == "" {
+		err = kc.Delete(account)
+	} else {
+		err = kc.Set(account, apiKey)
+	}
+	if err != nil && !errors.Is(err, keychain.ErrNotFound) {
+		return fmt.Errorf("%w: %v", ErrKeychainUnavailable, err)
+	}
+	return nil
+}
+
+// hydrate 把钥匙串里的 key 回填到实体（SQLite 列恒为空）。槽位里没有就保持列值不动
+// （尚未被迁移搬走的旧明文行仍可用）。读路径所有出口都经过它，调用方不感知 key 的住处。
+func (r *llmProviderRepo) hydrate(p *llm_provider_entity.LLMProvider) error {
+	if p == nil {
+		return nil
+	}
+	account := keychain.LLMProviderAPIKeyAccount(p.ProviderKey)
+	kc := r.store()
+	if account == "" || kc == nil {
+		return nil
+	}
+	v, err := kc.Get(account)
+	switch {
+	case err == nil:
+		p.APIKey = v
+	case !errors.Is(err, keychain.ErrNotFound):
+		return fmt.Errorf("%w: %v", ErrKeychainUnavailable, err)
+	}
+	return nil
+}
+
+func (r *llmProviderRepo) hydrateAll(rows []*llm_provider_entity.LLMProvider) error {
+	for _, p := range rows {
+		if err := r.hydrate(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// hydrateMap 回填按 provider_key 索引的 map。
+func (r *llmProviderRepo) hydrateMap(m map[string]*llm_provider_entity.LLMProvider) error {
+	for _, p := range m {
+		if err := r.hydrate(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// NewLLMProvider 构造默认 GORM 实现，key 存取走 keychain.Default()（调用时才取）。
 func NewLLMProvider() LLMProviderRepo { return &llmProviderRepo{} }
+
+// NewLLMProviderWithKeychain 构造把 key 放进指定钥匙串的实现。
+func NewLLMProviderWithKeychain(kc keychain.Keychain) LLMProviderRepo {
+	return &llmProviderRepo{kc: kc}
+}
 
 func (r *llmProviderRepo) Update(ctx context.Context, p *llm_provider_entity.LLMProvider) error {
 	p.SyncID = p.ProviderKey
-	return db.Ctx(ctx).Omit(reachColumns...).Save(p).Error
+	if err := r.saveKey(p.ProviderKey, p.APIKey); err != nil {
+		return err
+	}
+	return db.Ctx(ctx).Omit(append([]string{"api_key"}, reachColumns...)...).Save(p).Error
 }
 
 // reachColumns 是只由 UpdateReach 写的列。
@@ -126,13 +213,23 @@ func (r *llmProviderRepo) Find(ctx context.Context, id int64) (*llm_provider_ent
 	if err != nil {
 		return nil, err
 	}
+	if err := r.hydrate(out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
 func (r *llmProviderRepo) BatchFindByKey(ctx context.Context, keys []string) (map[string]*llm_provider_entity.LLMProvider, error) {
-	return repoquery.ActiveMap[llm_provider_entity.LLMProvider](ctx, "provider_key", keys, func(p *llm_provider_entity.LLMProvider) string {
+	out, err := repoquery.ActiveMap[llm_provider_entity.LLMProvider](ctx, "provider_key", keys, func(p *llm_provider_entity.LLMProvider) string {
 		return p.ProviderKey
 	})
+	if err != nil {
+		return nil, err
+	}
+	if err := r.hydrateMap(out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *llmProviderRepo) FindByName(ctx context.Context, name string) (*llm_provider_entity.LLMProvider, error) {
@@ -142,6 +239,9 @@ func (r *llmProviderRepo) FindByName(ctx context.Context, name string) (*llm_pro
 		return nil, nil
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := r.hydrate(out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -154,6 +254,9 @@ func (r *llmProviderRepo) FindByKey(ctx context.Context, key string) (*llm_provi
 		return nil, nil
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := r.hydrate(out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -171,6 +274,9 @@ func (r *llmProviderRepo) ListByKeysAnyStatus(ctx context.Context, keys []string
 	for _, row := range rows {
 		out[row.ProviderKey] = row
 	}
+	if err := r.hydrateMap(out); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -179,11 +285,29 @@ func (r *llmProviderRepo) List(ctx context.Context) ([]*llm_provider_entity.LLMP
 	if err := db.Ctx(ctx).Where("status = ?", consts.ACTIVE).Order("id ASC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	if err := r.hydrateAll(rows); err != nil {
+		return nil, err
+	}
 	return rows, nil
 }
 
 // DeleteWithModels 在同一事务内软删除 Provider 及其全部 Models（spec 决策 17）。
 func (r *llmProviderRepo) DeleteWithModels(ctx context.Context, id int64) error {
+	var keys []string
+	if err := db.Ctx(ctx).Model(&llm_provider_entity.LLMProvider{}).Where("id = ?", id).Pluck("provider_key", &keys).Error; err != nil {
+		return err
+	}
+	if err := r.deleteWithModelsTx(ctx, id); err != nil {
+		return err
+	}
+	// 事务成功后清钥匙串槽位：尽力而为，槽位残留不影响正确性（行已软删，没人再按这个 key 取）。
+	for _, key := range keys {
+		_ = r.saveKey(key, "")
+	}
+	return nil
+}
+
+func (r *llmProviderRepo) deleteWithModelsTx(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		ctx = db.WithContextDB(ctx, tx)
 		if err := db.Ctx(ctx).Model(&llm_provider_entity.LLMProvider{}).
@@ -200,9 +324,12 @@ func (r *llmProviderRepo) DeleteWithModels(ctx context.Context, id int64) error 
 // CreateWithModels 事务内原子写入 Provider + Models + 默认模型。
 func (r *llmProviderRepo) CreateWithModels(ctx context.Context, p *llm_provider_entity.LLMProvider, models []*llm_provider_model_entity.LLMProviderModel, defaultModelKey string) error {
 	p.SyncID = p.ProviderKey
-	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := r.saveKey(p.ProviderKey, p.APIKey); err != nil {
+		return err
+	}
+	err := db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		ctx = db.WithContextDB(ctx, tx)
-		if err := db.Ctx(ctx).Create(p).Error; err != nil {
+		if err := db.Ctx(ctx).Omit("api_key").Create(p).Error; err != nil {
 			return err
 		}
 		for _, m := range models {
@@ -215,6 +342,11 @@ func (r *llmProviderRepo) CreateWithModels(ctx context.Context, p *llm_provider_
 			Where("id = ?", p.ID).
 			Update("default_model_key", defaultModelKey).Error
 	})
+	if err != nil {
+		// 没落库就别留下无主的 key。
+		_ = r.saveKey(p.ProviderKey, "")
+	}
+	return err
 }
 
 // UpsertFromSync applies the complete nested provider payload as one transaction.
@@ -231,6 +363,10 @@ func (r *llmProviderRepo) CreateWithModels(ctx context.Context, p *llm_provider_
 // set to this landing time and starts with zero sync metadata (Problem 4).
 func (r *llmProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_entity.LLMProvider, models []*llm_provider_model_entity.LLMProviderModel) error {
 	p.SyncID = p.ProviderKey
+	// 下行收到的 key 只进钥匙串，SQLite 列恒为空。
+	if err := r.saveKey(p.ProviderKey, p.APIKey); err != nil {
+		return err
+	}
 	now := time.Now().UnixMilli()
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
 		var existing llm_provider_entity.LLMProvider
@@ -238,7 +374,7 @@ func (r *llmProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_en
 		switch {
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			p.Createtime, p.Updatetime = now, now
-			if err := tx.Create(p).Error; err != nil {
+			if err := tx.Omit("api_key").Create(p).Error; err != nil {
 				return err
 			}
 		case err != nil:
@@ -253,7 +389,7 @@ func (r *llmProviderRepo) UpsertFromSync(ctx context.Context, p *llm_provider_en
 			// 相等，这里重新赋值只是不把这份不变式的成立与否交给「这一行的历史是否
 			// 干净」去赌。
 			p.SyncID = p.ProviderKey
-			if err := tx.Omit(reachColumns...).Save(p).Error; err != nil {
+			if err := tx.Omit(append([]string{"api_key"}, reachColumns...)...).Save(p).Error; err != nil {
 				return err
 			}
 		}

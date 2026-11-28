@@ -369,6 +369,7 @@ func TestLLMProviderAdapter_RoundTripsReach(t *testing.T) {
 	})
 	syncstate_repo.RegisterSyncState(state)
 	providers := mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl)
+	providers.EXPECT().FindByKey(gomock.Any(), gomock.Any()).Return(nil, nil)
 	providers.EXPECT().ListModels(gomock.Any(), int64(8)).Return(nil, nil)
 	llm_provider_repo.RegisterLLMProvider(providers)
 

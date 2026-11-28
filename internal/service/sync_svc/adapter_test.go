@@ -107,7 +107,7 @@ func TestLLMProviderAdapter_LoadCarriesCredentialAndNestedModels(t *testing.T) {
 		DoAndReturn(func(_ context.Context, _, _ string, dest any) (bool, error) {
 			*dest.(*llm_provider_entity.LLMProvider) = llm_provider_entity.LLMProvider{
 				ID: 8, ProviderKey: "provider-1", Name: "Primary", Type: "anthropic",
-				APIKey: "sk-secret", BaseURL: "https://api.example", Enabled: llm_provider_entity.EnabledOn,
+				BaseURL: "https://api.example", Enabled: llm_provider_entity.EnabledOn,
 				DefaultModelKey: "model-1", SyncMeta: syncmeta_entity.SyncMeta{SyncID: "provider-1"},
 			}
 			return true, nil
@@ -115,6 +115,10 @@ func TestLLMProviderAdapter_LoadCarriesCredentialAndNestedModels(t *testing.T) {
 	syncstate_repo.RegisterSyncState(state)
 
 	providers := mock_llm_provider_repo.NewMockLLMProviderRepo(ctrl)
+	// 桌面端 key 住钥匙串、SQLite 列为空：上行 key 必须经仓储从钥匙串读出，不能取 FindRow 的裸列。
+	providers.EXPECT().FindByKey(gomock.Any(), "provider-1").Return(&llm_provider_entity.LLMProvider{
+		ID: 8, ProviderKey: "provider-1", APIKey: "sk-secret",
+	}, nil)
 	providers.EXPECT().ListModels(gomock.Any(), int64(8)).Return([]*llm_provider_model_entity.LLMProviderModel{{
 		ModelKey: "model-1", ModelID: "claude-sonnet", Name: "Sonnet", ContextWindow: 200000,
 		MaxOutput: 8192, Enabled: llm_provider_model_entity.EnabledOn,

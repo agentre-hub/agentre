@@ -66,11 +66,12 @@ var enUS = map[int]string{
 	EngineProfileRequired:                  "This member has no engine profile: choose one, or set a department or account default",
 	EngineExecConstraintInvalid:            "Invalid \"where it runs\" setting: pick any device, at least one label, or at least one device",
 
-	DevicePrefInvalidDevice:    "The device is missing or does not take part in dispatch",
-	DevicePrefInvalidOrder:     "The device order has an empty or duplicated entry",
-	DeviceCLIRuntimeInvalid:    "This runtime has no CLI executable, so its path cannot be overridden",
-	ProjectDefaultDeviceNoPath: "The default device must be a device that has a path in this project",
-	LLMProviderReachInvalid:    "Invalid \"who can reach\" setting: pick any device, or at least one device",
+	DevicePrefInvalidDevice:        "The device is missing or does not take part in dispatch",
+	DevicePrefInvalidOrder:         "The device order has an empty or duplicated entry",
+	DeviceCLIRuntimeInvalid:        "This runtime has no CLI executable, so its path cannot be overridden",
+	ProjectDefaultDeviceNoPath:     "The default device must be a device that has a path in this project",
+	LLMProviderReachInvalid:        "Invalid \"who can reach\" setting: pick any device, or at least one device",
+	LLMProviderKeychainUnavailable: "Unable to write to the system keychain: API keys are only stored in the keychain, please check keychain access and try again",
 
 	DeviceFactsDeviceNotFound:    "Device not found: only this device or a paired device can be refreshed",
 	DeviceFactsDeviceUnreachable: "This device cannot be reached right now, so its status could not be read",

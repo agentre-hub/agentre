@@ -144,7 +144,7 @@ func (s *llmProviderSvc) Create(ctx context.Context, req *CreateProviderRequest)
 	}
 
 	if err := llm_provider_repo.LLMProvider().CreateWithModels(ctx, p, models, defaultKey); err != nil {
-		return nil, err
+		return nil, keychainError(ctx, err)
 	}
 	sync_svc.NotifyCreate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
@@ -156,6 +156,15 @@ func (s *llmProviderSvc) Create(ctx context.Context, req *CreateProviderRequest)
 		zap.Bool("enabled", p.IsEnabled()),
 		zap.String("maskedApiKey", p.MaskedAPIKey()))
 	return &CreateProviderResponse{Item: toItem(p)}, nil
+}
+
+// keychainError 把仓储的「钥匙串不可用」换成面向用户的错误码；其它错误原样返回。
+func keychainError(ctx context.Context, err error) error {
+	if errors.Is(err, llm_provider_repo.ErrKeychainUnavailable) {
+		logger.Ctx(ctx).Warn("llmProviderSvc: system keychain unavailable, provider not saved", zap.Error(err))
+		return i18n.NewError(ctx, code.LLMProviderKeychainUnavailable)
+	}
+	return err
 }
 
 // buildCreateModels 把请求里的 ModelInput 转成实体，mint 稳定 ModelKey，并校验默认模型
@@ -225,7 +234,7 @@ func (s *llmProviderSvc) Update(ctx context.Context, req *UpdateProviderRequest)
 		return nil, err
 	}
 	if err := llm_provider_repo.LLMProvider().Update(ctx, p); err != nil {
-		return nil, err
+		return nil, keychainError(ctx, err)
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
@@ -267,7 +276,7 @@ func (s *llmProviderSvc) SetProviderEnabled(ctx context.Context, req *SetProvide
 	}
 	p.Updatetime = s.now()
 	if err := llm_provider_repo.LLMProvider().Update(ctx, p); err != nil {
-		return nil, err
+		return nil, keychainError(ctx, err)
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
@@ -531,7 +540,7 @@ func (s *llmProviderSvc) SetModelDefault(ctx context.Context, req *SetModelDefau
 	p.Enabled = llm_provider_entity.EnabledOn
 	p.Updatetime = s.now()
 	if err := llm_provider_repo.LLMProvider().Update(ctx, p); err != nil {
-		return nil, err
+		return nil, keychainError(ctx, err)
 	}
 	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)

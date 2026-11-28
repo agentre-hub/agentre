@@ -25,6 +25,14 @@ func (llmProviderAdapter) load(ctx context.Context, syncID string) (*outbound, e
 	if err != nil || !found {
 		return nil, err
 	}
+	// FindRow 读的是裸列；桌面端 key 在钥匙串里，经仓储取回（它负责回填）。
+	withKey, err := llm_provider_repo.LLMProvider().FindByKey(ctx, row.ProviderKey)
+	if err != nil {
+		return nil, err
+	}
+	if withKey != nil {
+		row.APIKey = withKey.APIKey
+	}
 	models, err := llm_provider_repo.LLMProvider().ListModels(ctx, row.ID)
 	if err != nil {
 		return nil, err
