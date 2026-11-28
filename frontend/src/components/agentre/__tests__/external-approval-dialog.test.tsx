@@ -144,6 +144,18 @@ describe("ExternalApprovalDialog", () => {
     expect(approveButton.className).toMatch(/destructive/);
   });
 
+  it("says closing rejects, without promising an auto-reject deadline", async () => {
+    render(<ExternalApprovalDialog />);
+    await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());
+    emitQueue([updateItem()]);
+    const dialog = await screen.findByRole("dialog");
+
+    expect(
+      screen.getByText("Closing this dialog counts as reject."),
+    ).toBeInTheDocument();
+    expect(dialog.textContent).not.toMatch(/minute|auto-reject/i);
+  });
+
   it("closing the dialog (Esc) answers reject", async () => {
     render(<ExternalApprovalDialog />);
     await waitFor(() => expect(runtimeMocks.EventsOn).toHaveBeenCalled());

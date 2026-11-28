@@ -162,9 +162,9 @@ func TestCCBuildClientOpts_BackendDefaultModel(t *testing.T) {
 	})
 }
 
-// TestCCBuildClientOpts_MCPTimeoutEnv 锁住:有 MCPServers 时注入 MCP_TIMEOUT /
-// MCP_TOOL_TIMEOUT env(均为 600000 ms);无 MCPServers 时不注入;caller 显式配
-// 置同名 key 时不覆盖。
+// TestCCBuildClientOpts_MCPTimeoutEnv 锁住:有 MCPServers 时注入 MCP_TIMEOUT(600000 ms)
+// 与 MCP_TOOL_TIMEOUT(999999999 ms,CLI 接受的最大值 —— 审批不设时限,工具调用也不该被
+// CLI 的默认值截断);无 MCPServers 时不注入;caller 显式配置同名 key 时不覆盖。
 func TestCCBuildClientOpts_MCPTimeoutEnv(t *testing.T) {
 	Convey("Given RunRequest 带 MCPServers", t, func() {
 		spec := ccLaunchSpec{
@@ -178,10 +178,10 @@ func TestCCBuildClientOpts_MCPTimeoutEnv(t *testing.T) {
 		}
 		c := claudecode.New(ccBuildClientOpts(spec, "claude")...)
 
-		Convey("Then Env 含 MCP_TIMEOUT=600000 与 MCP_TOOL_TIMEOUT=600000", func() {
+		Convey("Then Env 含 MCP_TIMEOUT=600000 与 MCP_TOOL_TIMEOUT=999999999", func() {
 			env := c.Env()
 			So(env["MCP_TIMEOUT"], ShouldEqual, "600000")
-			So(env["MCP_TOOL_TIMEOUT"], ShouldEqual, "600000")
+			So(env["MCP_TOOL_TIMEOUT"], ShouldEqual, "999999999")
 		})
 	})
 

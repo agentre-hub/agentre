@@ -199,7 +199,7 @@ function ExternalApprovalDialogBody({
         </code>
         <CtlChangeList changes={item.changes} />
         <p className="text-aux text-muted-foreground">
-          {t("externalApproval.autoRejectHint")}
+          {t("externalApproval.closeRejectsHint")}
         </p>
       </DialogShellBody>
       <DialogShellFooter error={error}>

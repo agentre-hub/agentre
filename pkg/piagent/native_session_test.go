@@ -469,23 +469,16 @@ func TestPrepareStreamStartupHonorsCallerDeadlineWhilePiIsSilent(t *testing.T) {
 	}
 }
 
-func TestPreparedStreamStartHonorsPromptAcknowledgementCancellationAndTimeout(t *testing.T) {
+func TestPreparedStreamStartHonorsPromptAcknowledgementCancellation(t *testing.T) {
 	tests := []struct {
-		name       string
-		cancel     bool
-		wantError  error
-		startLimit time.Duration
+		name      string
+		cancel    bool
+		wantError error
 	}{
 		{
-			name:       "Given Pi accepts the prompt frame but stays silent, when the caller cancels, then prepared startup stops",
-			cancel:     true,
-			wantError:  context.Canceled,
-			startLimit: time.Second,
-		},
-		{
-			name:       "Given Pi accepts the prompt frame but stays silent, when the startup timeout expires, then prepared startup stops",
-			wantError:  context.DeadlineExceeded,
-			startLimit: 40 * time.Millisecond,
+			name:      "Given Pi accepts the prompt frame but stays silent, when the caller cancels, then prepared startup stops",
+			cancel:    true,
+			wantError: context.Canceled,
 		},
 	}
 
@@ -499,7 +492,6 @@ func TestPreparedStreamStartHonorsPromptAcknowledgementCancellationAndTimeout(t 
 				WithSession("session-old"),
 				WithKillGrace(50*time.Millisecond),
 			)
-			client.startupTimeout = tt.startLimit
 			prepared, err := client.PrepareStream(context.Background(), "accepted by stdin")
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = prepared.Close(context.Background()) })
@@ -529,7 +521,7 @@ func TestPreparedStreamStartHonorsPromptAcknowledgementCancellationAndTimeout(t 
 			select {
 			case result = <-resultC:
 			case <-time.After(250 * time.Millisecond):
-				t.Fatal("prepared startup remained blocked after cancellation or timeout")
+				t.Fatal("prepared startup remained blocked after cancellation")
 			}
 			assert.Nil(t, result.stream)
 			require.ErrorIs(t, result.err, tt.wantError)
@@ -547,41 +539,51 @@ func TestPreparedStreamStartHonorsPromptAcknowledgementCancellationAndTimeout(t 
 	}
 }
 
-func TestPrepareStreamUsesBoundedStartupTimeoutWithoutCallerDeadline(t *testing.T) {
+func TestPrepareStreamWaitsForSilentPiUntilCallerCancels(t *testing.T) {
+	// Given Pi starts but stays silent (slow extensions, a loaded machine),
+	// When Agentre prepares a turn with a caller context that has no deadline,
+	// Then startup keeps waiting instead of failing on an Agentre-imposed limit,
+	// and only the caller's cancellation ends it and releases the process.
 	proc := newSilentStartupProcess("")
 	client := New(
 		WithRPCProcessRunnerForTesting(&silentStartupRunner{process: proc}),
 		WithKillGrace(50*time.Millisecond),
 	)
-	client.startupTimeout = 40 * time.Millisecond
 
 	type startupResult struct {
 		prepared *PreparedStream
 		err      error
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	resultC := make(chan startupResult, 1)
 	go func() {
-		prepared, err := client.PrepareStream(context.Background(), "must not be sent")
+		prepared, err := client.PrepareStream(ctx, "must not be sent")
 		resultC <- startupResult{prepared: prepared, err: err}
 	}()
+
+	select {
+	case result := <-resultC:
+		t.Fatalf("silent Pi startup ended on its own: %v", result.err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	cancel()
 
 	var result startupResult
 	select {
 	case result = <-resultC:
-	case <-time.After(250 * time.Millisecond):
-		t.Error("Pi startup ignored its bounded default timeout")
-		_ = proc.Signal(os.Interrupt)
-		result = <-resultC
+	case <-time.After(time.Second):
+		t.Fatal("Pi startup ignored the caller's cancellation")
 	}
 	assert.Nil(t, result.prepared)
-	require.ErrorIs(t, result.err, context.DeadlineExceeded)
+	require.ErrorIs(t, result.err, context.Canceled)
 	frames := stdinFrames(t, proc.stdin.String())
 	require.Len(t, frames, 1)
 	assert.Equal(t, "get_state", frames[0]["type"])
 	select {
 	case <-proc.exited:
 	case <-time.After(time.Second):
-		t.Fatal("timed-out Pi startup process was not released")
+		t.Fatal("canceled Pi startup process was not released")
 	}
 }
 

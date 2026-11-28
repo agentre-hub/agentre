@@ -46,7 +46,7 @@
 | 9 | 模型是提供方下的子资源，用 `提供方/ModelID` 定位（按第一个 `/` 切出提供方，其余是 ModelID，如 `openrouter/openai/gpt-5.1`）；同一提供方下 ModelID 重复时按歧义处理。创建模型不接受 key，ModelKey 仍由服务生成，只在 `get` 里展示 | 用户决定（2026-09-23 修订）。模型没有自己的同步标识，随提供方一起同步（`llm_provider_model.go:27`）；ModelKey 是创建时生成的 UUID、永久不可改（`llm_provider.go:164`、`llm_provider_model.go:4`），用户看得到的是 ModelID。Rejected: 用 ModelKey 定位——用户得先查 UUID；按显示名定位——显示名可以为空 |
 | 10 | 密钥只从 flag 写入：裸写 `--api-key`/`--token` 在 TTY 里无回显输入；写 `--api-key=<值>` 可用，但 help 里警告它会留在 shell 历史里；没有 TTY 时裸 flag 以退出码 3 结束并提示 `NEEDS TTY` | 沿用 opsctl 的 `--password` 约定。Rejected: 从环境变量或文件读取密钥——多出一条泄露面 |
 | 11 | 桌面端实时刷新：服务层每写一次这五类资源就发 `config:changed`；组织页、提供方设置、后端设置、侧边栏订阅它，同时也订阅 `sync:applied` | 在生产者一侧统一发事件，Wails、orgtool、ctl 三条写入路径一起受益。Rejected: 只在 ctl 路径上发事件 |
-| 12 | 外部调用的审批弹窗、会话审批的超时都是 4 分钟；关闭弹窗等同拒绝 | 与 orgtool/hooktool 的 `approvalTimeout` 一致（`orgtool_svc/orgtool.go:25`）。Rejected: 关闭后保留待审批——请求会一直悬着 |
+| 12 | 外部调用的审批弹窗、会话审批都不设时限，等到有人作答或调用方断开；关闭弹窗等同拒绝 | 与 orgtool/hooktool 的写工具审批一致：Agentre 不替用户定时限。Rejected: 关闭后保留待审批——请求会一直悬着 |
 | 13 | 控制台答工具审批用一个通用的 relay 方法，所有 `toolKey`（`org`、`ctl`、…）都走它 | 问题 5 对所有 `tool_approval` 块都成立，按 toolKey 各开一个方法只会重复。Rejected: 只接通 `ctl` |
 
 ## Command surface
@@ -126,7 +126,7 @@ agrctl 按以下顺序确定调用方和执行者：
 - 多个请求排队时一次只显示一条，副标题写「第 N 个，共 M 个待审批」。
 - 删除操作使用危险确认形态，主按钮为「批准删除」。
 - 提交中两个按钮都不可点，Esc 也不关窗。提交失败时错误显示在底栏左侧。
-- 4 分钟无人处理即自动拒绝；关闭弹窗等同拒绝。
+- 不设时限，一直等到有人处理或 agrctl 断开；关闭弹窗等同拒绝。
 - 窗口不在前台时同时发一条系统通知，点击通知切回窗口并显示弹窗。
 - 等待期间 agrctl 在 stderr 打印 `waiting for approval in the Agentre desktop …`。
 

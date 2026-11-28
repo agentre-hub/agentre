@@ -74,10 +74,7 @@ type sessionSpec struct {
 // production, a scripted fake in tests).
 type webSocketDialer = hermesgateway.WebSocketDialer
 
-const (
-	gatewayEventsBuffer = 64
-	gatewayReadyTimeout = hermesgateway.ReadyTimeout
-)
+const gatewayEventsBuffer = 64
 
 // gatewaySession owns one WebSocket connection to a `hermes serve` and speaks
 // newline-delimited JSON-RPC 2.0 over it. The codec (rpcConn) is transport

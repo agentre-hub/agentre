@@ -115,7 +115,7 @@ func consoleOwnedHere(t *testing.T, server CtlServerPort, creds *memCredentialSt
 	sink := newFakeSink()
 	c.attachTurn(ctlTestRID, sink)
 	h := NewCtlProxyHandler(CtlProxyDeps{
-		Sessions: c, Server: server, ApprovalTimeout: time.Minute,
+		Sessions: c, Server: server,
 		Self:           ltSelf,
 		OpenClawTokens: NewBackendCredentialHandlers(BackendCredentialDeps{State: creds}),
 	})
@@ -393,7 +393,7 @@ func TestCtlProxy_GivenLocalTokenWriteFails_ThenErrorAndTokenNeverLogged(t *test
 	sink := newFakeSink()
 	c.attachTurn(ctlTestRID, sink)
 	srv := httptest.NewServer(NewCtlProxyHandler(CtlProxyDeps{
-		Sessions: c, Server: server, ApprovalTimeout: time.Minute, Self: ltSelf,
+		Sessions: c, Server: server, Self: ltSelf,
 		OpenClawTokens: NewBackendCredentialHandlers(BackendCredentialDeps{State: creds}),
 	}))
 	t.Cleanup(srv.Close)

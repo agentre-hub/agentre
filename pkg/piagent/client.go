@@ -26,9 +26,6 @@ const (
 	// Past the bound the optional post-answer anchor metadata degrades (empty
 	// anchor, completed answer preserved) instead of failing the turn.
 	rpcFrameSafetyLimit = 128 * 1024 * 1024
-	// Startup may include a 128 MiB get_entries response, so use the existing
-	// 30-second RPC/probe boundary rather than the optional 2-second stats window.
-	rpcStartupTimeout = 30 * time.Second
 )
 
 type Client struct {
@@ -47,10 +44,9 @@ type Client struct {
 	session string
 	// extensions 透传给 pi 的 --extension（可多次）。Agentre 用它加载内嵌的
 	// MCP 桥扩展，把注入的 HTTP MCP server 翻成 pi 一等工具。
-	extensions     []string
-	killGrace      time.Duration
-	startupTimeout time.Duration
-	runner         processRunner
+	extensions []string
+	killGrace  time.Duration
+	runner     processRunner
 
 	// rawSink 若非 nil,子进程 stdout JSON-RPC 帧会先投影成不含 prompt、图片、
 	// Session 内容或凭证的诊断摘要，再同步回调一次。debug 协议诊断用。
@@ -62,10 +58,9 @@ type Client struct {
 
 func New(opts ...Option) *Client {
 	c := &Client{
-		binary:         "pi",
-		killGrace:      10 * time.Second,
-		startupTimeout: rpcStartupTimeout,
-		runner:         execProcessRunner{},
+		binary:    "pi",
+		killGrace: 10 * time.Second,
+		runner:    execProcessRunner{},
 	}
 	for _, o := range opts {
 		o(c)
@@ -74,9 +69,8 @@ func New(opts ...Option) *Client {
 }
 
 type PreparedStream struct {
-	stream         *Stream
-	frame          map[string]any
-	startupTimeout time.Duration
+	stream *Stream
+	frame  map[string]any
 
 	mu      sync.Mutex
 	started bool
@@ -134,20 +128,18 @@ func (c *Client) prepareStreamOn(
 	if err := validateRunOptions(opts...); err != nil {
 		return nil, err
 	}
-	startupCtx, cancelStartup := c.startupContext(ctx)
-	defer cancelStartup()
-	state, err := readSessionState(startupCtx, proc, c.session)
+	state, err := readSessionState(ctx, proc, c.session)
 	if err != nil {
 		_ = proc.terminate(context.Background(), c.killGrace)
 		return nil, err
 	}
 	sessionID := state.SessionID
 	if spec.forkAnchor != "" {
-		if err := forkSession(startupCtx, proc, spec.forkAnchor); err != nil {
+		if err := forkSession(ctx, proc, spec.forkAnchor); err != nil {
 			_ = proc.terminate(context.Background(), c.killGrace)
 			return nil, err
 		}
-		forkedState, err := readSessionState(startupCtx, proc, "")
+		forkedState, err := readSessionState(ctx, proc, "")
 		if err != nil {
 			_ = proc.terminate(context.Background(), c.killGrace)
 			return nil, err
@@ -170,7 +162,7 @@ func (c *Client) prepareStreamOn(
 	if spec.captureUserAnchor {
 		// The anchor boundary is read straight off the process scanner, so it has
 		// to settle before the stream owns the reader via the optional stats probe.
-		entries, err := readSessionEntries(startupCtx, proc, "session-entries-before")
+		entries, err := readSessionEntries(ctx, proc, "session-entries-before")
 		if err != nil {
 			_ = stream.Close(context.Background())
 			return nil, err
@@ -189,7 +181,7 @@ func (c *Client) prepareStreamOn(
 	// response is optional and intentionally not awaited: older/degraded RPC
 	// implementations must not delay or block the actual turn.
 	stream.markInitialSessionStatsPending()
-	if err := stream.send(startupCtx, map[string]any{
+	if err := stream.send(ctx, map[string]any{
 		"id": initialSessionStatsRequestID, "type": "get_session_stats",
 	}); err != nil {
 		_ = stream.Close(context.Background())
@@ -199,7 +191,7 @@ func (c *Client) prepareStreamOn(
 	if imgs := imagesToWire(spec.images); len(imgs) > 0 {
 		frame["images"] = imgs
 	}
-	return &PreparedStream{stream: stream, frame: frame, startupTimeout: c.startupTimeout}, nil
+	return &PreparedStream{stream: stream, frame: frame}, nil
 }
 
 // validateRunOptions 校验一轮的选项。单独拆出来是因为它必须能在起进程之前跑一遍:
@@ -235,13 +227,7 @@ func (p *PreparedStream) start(ctx context.Context, waitForAcknowledgement bool)
 	p.started = true
 	p.mu.Unlock()
 
-	startupCtx := ctx
-	cancelStartup := func() {}
-	if waitForAcknowledgement {
-		startupCtx, cancelStartup = startupContextWithTimeout(ctx, p.startupTimeout)
-	}
-	defer cancelStartup()
-	if err := p.stream.send(startupCtx, p.frame); err != nil {
+	if err := p.stream.send(ctx, p.frame); err != nil {
 		_ = p.Close(context.Background())
 		return nil, err
 	}
@@ -249,7 +235,7 @@ func (p *PreparedStream) start(ctx context.Context, waitForAcknowledgement bool)
 		go p.stream.drain(ctx, nil)
 		return p.stream, nil
 	}
-	pending, err := p.stream.awaitPromptAcknowledgement(startupCtx)
+	pending, err := p.stream.awaitPromptAcknowledgement(ctx)
 	if err != nil {
 		_ = p.Close(context.Background())
 		return nil, err
@@ -305,9 +291,7 @@ func (c *Client) Text(ctx context.Context, prompt string, opts ...RunOption) (st
 // compactOn 在一个**已经起来的** RPC 进程上做一次压缩。ownsProcess 的含义同
 // prepareStreamOn。
 func (c *Client) compactOn(ctx context.Context, proc *rpcProcess, ownsProcess bool) (*Stream, error) {
-	startupCtx, cancelStartup := c.startupContext(ctx)
-	defer cancelStartup()
-	state, err := readSessionState(startupCtx, proc, c.session)
+	state, err := readSessionState(ctx, proc, c.session)
 	if err != nil {
 		if ownsProcess {
 			_ = proc.terminate(context.Background(), c.killGrace)
@@ -616,17 +600,6 @@ func sanitizeDiagnosticFrame(line []byte) []byte {
 
 func looksLikeSessionPath(value string) bool {
 	return strings.ContainsAny(value, `/\\`) || strings.HasSuffix(value, ".jsonl")
-}
-
-func (c *Client) startupContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return startupContextWithTimeout(ctx, c.startupTimeout)
-}
-
-func startupContextWithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if timeout <= 0 {
-		return context.WithCancel(ctx)
-	}
-	return context.WithTimeout(ctx, timeout)
 }
 
 func (c *Client) startRPC(ctx context.Context) (*rpcProcess, error) {

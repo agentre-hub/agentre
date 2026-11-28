@@ -1,15 +1,11 @@
 package orgtool_svc
 
 import (
-	"time"
-
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 )
 
 type orgtoolSvc struct {
 	*agenttool.Mount
-
-	approvalTimeout time.Duration
 
 	orgQuery     OrgQuery
 	deptCommand  DeptCommand
@@ -21,8 +17,7 @@ type orgtoolSvc struct {
 var defaultOrgtool = newOrgtoolSvc()
 
 func newOrgtoolSvc() *orgtoolSvc {
-	// spike 实测 CLI 硬顶 ~285s,留 25s 余量。
-	s := &orgtoolSvc{approvalTimeout: 4 * time.Minute}
+	s := &orgtoolSvc{}
 	s.Mount = agenttool.NewMount(agenttool.KeyOrg, s.newMCPServer)
 	return s
 }

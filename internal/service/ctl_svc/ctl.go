@@ -18,7 +18,6 @@ import (
 	"errors"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
@@ -42,9 +41,8 @@ type ctlSvc struct {
 	// dispatches 登记会话间的派发关系(nil = 不登记)。
 	dispatches chat_svc.DispatchRecorder
 	// approvals / external 是写操作的两条审批通路（会话审批卡 / 桌面端弹窗队列）。
-	approvals       SessionApprovals
-	external        ExternalApprovals
-	approvalTimeout time.Duration
+	approvals SessionApprovals
+	external  ExternalApprovals
 	// endpoint 是注入会话的控制 API base URL；空 = 还没发布，不签会话凭证。
 	endpoint string
 }
@@ -54,7 +52,7 @@ var defaultCtl = newCtlSvc()
 func newCtlSvc() *ctlSvc {
 	return &ctlSvc{
 		token: mustRandToken(), sessions: agenttool.NewTokenSigner(), resources: ProductionResources(),
-		approvals: chatApprovals{}, approvalTimeout: approvalTimeout,
+		approvals: chatApprovals{},
 	}
 }
 
@@ -162,7 +160,7 @@ func (s *ctlSvc) ControlHandler() http.Handler {
 			token: s.token, sessions: s.sessions,
 			agents: s.agents, projects: s.projects, chat: s.chat, resources: s.resources, cards: s.cards, dispatches: s.dispatches,
 			conversations: s.conversationsPort(),
-			approvals:     s.approvals, external: s.external, approvalTimeout: s.approvalTimeout,
+			approvals:     s.approvals, external: s.external,
 		}
 		s.mu.RUnlock()
 		h.ServeHTTP(w, r)

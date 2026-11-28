@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/google/uuid"
@@ -165,13 +164,6 @@ func (h *ctlHandler) executeAndRespond(ctx context.Context, w http.ResponseWrite
 	return nil
 }
 
-func (h *ctlHandler) timeout() time.Duration {
-	if h.approvalTimeout > 0 {
-		return h.approvalTimeout
-	}
-	return approvalTimeout
-}
-
 // announcePending 在挂起等审批前先发 102，告诉 agrctl 去哪里批准；最终响应不带这个头。
 func announcePending(w http.ResponseWriter, where string) {
 	w.Header().Set(ApprovalPendingHeader, where)
@@ -184,21 +176,17 @@ type approvalOutcome int
 const (
 	outcomeApproved approvalOutcome = iota
 	outcomeRejected
-	outcomeTimedOut
 	outcomeGone // 调用方断开
 )
 
+// await 等审批作答，不设时限：只有作答或调用方断开（agrctl 被杀、外层超时）才结束等待。
 func (h *ctlHandler) await(ctx context.Context, ch <-chan bool) approvalOutcome {
-	timer := time.NewTimer(h.timeout())
-	defer timer.Stop()
 	select {
 	case allow := <-ch:
 		if allow {
 			return outcomeApproved
 		}
 		return outcomeRejected
-	case <-timer.C:
-		return outcomeTimedOut
 	case <-ctx.Done():
 		return outcomeGone
 	}
@@ -242,16 +230,13 @@ func (h *ctlHandler) approveInSession(w http.ResponseWriter, r *http.Request, pl
 	case outcomeRejected:
 		finish(r.Context(), "denied", "")
 		writeErr(w, http.StatusForbidden, fmt.Sprintf("rejected in session #%d", sessionID))
-	case outcomeTimedOut:
-		finish(r.Context(), "expired", "")
-		writeErr(w, http.StatusGatewayTimeout, "approval timed out")
 	case outcomeGone:
 		finish(context.Background(), "expired", "") // 请求 ctx 已死
 	}
 }
 
 // approveInDesktop 把外部调用挂到桌面端待审批队列；批准后调 run 执行并写响应（run 的 ctx
-// 脱离请求的取消：人已经批准了，调用方断开也不中止写入）。无人处理到超时即撤下，等同拒绝。
+// 脱离请求的取消：人已经批准了，调用方断开也不中止写入）。不设时限，调用方断开即撤下。
 func (h *ctlHandler) approveInDesktop(w http.ResponseWriter, r *http.Request, input blocks.CtlApprovalInput, info *agentrewire.CtlCallerInfo, run func(ctx context.Context)) {
 	if h.external == nil {
 		writeErr(w, http.StatusServiceUnavailable, "approval in the Agentre desktop is not available")
@@ -273,17 +258,6 @@ func (h *ctlHandler) approveInDesktop(w http.ResponseWriter, r *http.Request, in
 		run(context.WithoutCancel(r.Context()))
 	case outcomeRejected:
 		writeErr(w, http.StatusForbidden, "rejected in the Agentre desktop")
-	case outcomeTimedOut:
-		if !h.external.Withdraw(requestID) {
-			// 作答恰好抢在撤下之前入账：弹窗已经对用户报了成功，照它的答案办。
-			if <-ch {
-				run(context.WithoutCancel(r.Context()))
-			} else {
-				writeErr(w, http.StatusForbidden, "rejected in the Agentre desktop")
-			}
-			return
-		}
-		writeErr(w, http.StatusGatewayTimeout, "approval timed out")
 	case outcomeGone:
 		h.external.Withdraw(requestID)
 	}

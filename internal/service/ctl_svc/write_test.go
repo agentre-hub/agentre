@@ -75,7 +75,7 @@ func (f fakeCascade) CascadeImpact(context.Context, int64) (int, int, error) {
 	return f.depts, f.agents, nil
 }
 
-// fakeSessionApprovals 是会话审批卡的假网关：answer 为 nil 时永不应答（走超时）。
+// fakeSessionApprovals 是会话审批卡的假网关：answer 为 nil 时永不应答（一直挂着）。
 type fakeSessionApprovals struct {
 	mu       sync.Mutex
 	answer   *bool
@@ -129,8 +129,6 @@ type fakeExternalApprovals struct {
 	withdrawn []string
 	// autoAnswer 非 nil 时一入队就作答。
 	autoAnswer *bool
-	// answerAtDeadline 非 nil 时，撤下的那一刻发现请求刚被答了这个值。
-	answerAtDeadline *bool
 }
 
 func (f *fakeExternalApprovals) Enqueue(_ context.Context, a ExternalApproval) (<-chan bool, error) {
@@ -164,17 +162,25 @@ func (f *fakeExternalApprovals) Answer(requestID string, allow bool) error {
 func (f *fakeExternalApprovals) Withdraw(requestID string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	ch, ok := f.pending[requestID]
-	if ok && f.answerAtDeadline != nil { // 作答恰好抢在撤下之前拿到锁
-		ch <- *f.answerAtDeadline
-		ok = false
-	}
+	_, ok := f.pending[requestID]
 	delete(f.pending, requestID)
 	f.withdrawn = append(f.withdrawn, requestID)
 	return ok
 }
 
 func (f *fakeExternalApprovals) Pending() []DesktopApprovalItem { return nil }
+
+func (f *fakeExternalApprovals) queuedItems() []ExternalApproval {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]ExternalApproval(nil), f.queued...)
+}
+
+func (f *fakeExternalApprovals) withdrawnIDs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.withdrawn...)
+}
 
 // ---- fixture ----
 
@@ -228,7 +234,7 @@ func newWriteFixture() *writeFixture {
 	res.Cascade = fakeCascade{depts: 1, agents: 3}
 	f.h = &ctlHandler{
 		token: testToken, sessions: f.signer, resources: res,
-		approvals: f.session, external: f.desktop, approvalTimeout: time.Minute,
+		approvals: f.session, external: f.desktop,
 	}
 	return f
 }
@@ -613,17 +619,6 @@ func TestWrite_GivenSessionCallerWhenRejectedThenNothingWritten(t *testing.T) {
 	assert.Equal(t, []string{"denied|"}, finished)
 }
 
-func TestWrite_GivenSessionCallerWhenNobodyAnswersThenTimesOut(t *testing.T) {
-	f := newWriteFixture()
-	f.h.approvalTimeout = 50 * time.Millisecond
-	status, body, _ := realPost(t, f.h, f.signer.MintToken(7, 42), sessionWrite(t))
-	assert.Equal(t, http.StatusGatewayTimeout, status)
-	assert.JSONEq(t, `{"error":"approval timed out"}`, string(body))
-	assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).count())
-	_, _, finished := f.session.snapshot()
-	assert.Equal(t, []string{"expired|"}, finished)
-}
-
 func TestWrite_GivenSessionCallerWhenApprovedButServiceFailsThenCardSaysSo(t *testing.T) {
 	f := newWriteFixture()
 	yes := true
@@ -771,31 +766,6 @@ func TestWrite_GivenExternalCallerWhenDesktopRejectsThenNothingWritten(t *testin
 	assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).count())
 }
 
-func TestWrite_GivenExternalCallerWhenNobodyAnswersThenWithdrawnAndTimesOut(t *testing.T) {
-	f := newWriteFixture()
-	f.h.approvalTimeout = 50 * time.Millisecond
-	status, body, _ := realPost(t, f.h, testToken, externalWrite(t))
-	assert.Equal(t, http.StatusGatewayTimeout, status)
-	assert.JSONEq(t, `{"error":"approval timed out"}`, string(body))
-	require.Len(t, f.desktop.queued, 1)
-	id := f.desktop.queued[0].RequestID
-	assert.Equal(t, []string{id}, f.desktop.withdrawn, "超时即撤下，等同拒绝")
-	assert.Error(t, f.desktop.Answer(id, true), "撤下后再答无效")
-	assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).count())
-}
-
-// TestWrite_GivenDesktopAnswerLandsAtTheDeadlineThenItIsHonoured：弹窗的批准恰好在超时
-// 那一刻抢先入账——Answer 已经对用户报了成功，执行者不能再回 504、什么都不做。
-func TestWrite_GivenDesktopAnswerLandsAtTheDeadlineThenItIsHonoured(t *testing.T) {
-	f := newWriteFixture()
-	f.h.approvalTimeout = 20 * time.Millisecond
-	yes := true
-	f.desktop.answerAtDeadline = &yes
-	status, body, _ := realPost(t, f.h, testToken, externalWrite(t))
-	decodeWrite(t, status, body)
-	assert.Equal(t, int64(6), f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).onlyWrite(t, "update").Next.GetAgent().GetDepartmentId())
-}
-
 // TestWrite_GivenCallerGoneAfterApprovalThenWriteStillCompletes：人已经批准了，写入就要
 // 完整落下——agrctl 这时被杀掉，不能让一次多步写入停在半路。
 func TestWrite_GivenCallerGoneAfterApprovalThenWriteStillCompletes(t *testing.T) {
@@ -837,8 +807,68 @@ func TestWrite_GivenExternalCallerWithoutDesktopQueueThen503(t *testing.T) {
 	assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).count())
 }
 
-func TestApprovalTimeoutIsFourMinutes(t *testing.T) {
-	assert.Equal(t, 4*time.Minute, newCtlSvc().approvalTimeout, "spec 决策 12，与 orgtool 一致")
+// startPendingPost 发一个写请求并让它挂着：返回断开它的 cancel 与请求结束信号。
+func startPendingPost(t *testing.T, h http.Handler, token, body string) (context.CancelFunc, <-chan struct{}) {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/ctl/v1/resources", strings.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+	return cancel, done
+}
+
+// awaitStillPending 断言请求在一段时间内没有自行结束。
+func awaitStillPending(t *testing.T, done <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-done:
+		t.Fatal("unanswered approval ended on its own")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestWrite_GivenSessionCallerWhenNobodyAnswersThenCardWaitsUntilCallerLeaves(t *testing.T) {
+	f := newWriteFixture()
+	cancel, done := startPendingPost(t, f.h, f.signer.MintToken(7, 42), sessionWrite(t))
+	awaitStillPending(t, done)
+	_, _, finished := f.session.snapshot()
+	assert.Empty(t, finished, "the card is still waiting for an answer")
+
+	cancel() // agrctl 被杀 / 调用方断开
+	<-done
+	require.Eventually(t, func() bool {
+		_, _, finished := f.session.snapshot()
+		return len(finished) == 1
+	}, time.Second, 5*time.Millisecond)
+	_, _, finished = f.session.snapshot()
+	assert.Equal(t, []string{"expired|"}, finished)
+	assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).count())
+}
+
+func TestWrite_GivenExternalCallerWhenNobodyAnswersThenPopupWaitsUntilCallerLeaves(t *testing.T) {
+	f := newWriteFixture()
+	cancel, done := startPendingPost(t, f.h, testToken, externalWrite(t))
+	awaitStillPending(t, done)
+	queued := f.desktop.queuedItems()
+	require.Len(t, queued, 1)
+	assert.Empty(t, f.desktop.withdrawnIDs(), "the popup is still waiting for an answer")
+
+	cancel()
+	<-done
+	id := queued[0].RequestID
+	require.Eventually(t, func() bool { return len(f.desktop.withdrawnIDs()) == 1 }, time.Second, 5*time.Millisecond)
+	assert.Equal(t, []string{id}, f.desktop.withdrawnIDs())
+	assert.Zero(t, f.writer(agentrewire.CtlKind_CTL_KIND_AGENT).count())
 }
 
 // 清除 token（空值）只在确定没设置时才不算变更；状态未知（绑定设备离线）时照样出 secret 行，

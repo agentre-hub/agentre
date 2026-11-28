@@ -2,14 +2,10 @@ package ctl_svc
 
 import (
 	"context"
-	"time"
 
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/blocks"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
 )
-
-// approvalTimeout 是会话审批卡与桌面弹窗的挂起上限（spec 决策 12，与 orgtool 一致）。
-const approvalTimeout = 4 * time.Minute
 
 // ApprovalPendingHeader 是写请求挂起等审批前，执行者先发的 102 Processing 里带的头：
 // `session=<id>` 表示审批卡在该会话里，`desktop` 表示在桌面端弹窗里。agrctl 据此打印
