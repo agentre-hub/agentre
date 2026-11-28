@@ -46,6 +46,14 @@ type AgentSvc interface {
 	SetPinned(ctx context.Context, req *SetPinnedRequest) (*SetPinnedResponse, error)
 	SetMemoryEnabled(ctx context.Context, req *SetMemoryEnabledRequest) (*SetMemoryEnabledResponse, error)
 	Reorder(ctx context.Context, req *ReorderAgentsRequest) error
+	// 成员的执行设置（spec 2026-11-25），见 engine.go。
+	GetMemberEngine(ctx context.Context, req *GetMemberEngineRequest) (*MemberEngineView, error)
+	SetMemberEngine(ctx context.Context, req *SetMemberEngineRequest) (*MemberEngineView, error)
+	SetMemberExecConstraint(ctx context.Context, req *SetMemberExecConstraintRequest) (*MemberEngineView, error)
+	SetMemberSkillGrants(ctx context.Context, req *SetMemberSkillGrantsRequest) (*MemberEngineView, error)
+	ResolveMemberEngine(ctx context.Context, req *ResolveMemberEngineRequest) (*ResolveMemberEngineResponse, error)
+	// EffectiveEngine 成员生效的引擎配置实体及来源（Go 侧调用方用）；无处可用时为 nil。
+	EffectiveEngine(ctx context.Context, agentID int64) (*department_svc.EffectiveEngine, error)
 }
 
 type agentSvc struct {
@@ -134,6 +142,17 @@ func (s *agentSvc) Update(ctx context.Context, req *UpdateAgentRequest) (*Update
 			return nil, i18n.NewError(ctx, code.AgentNameDuplicated)
 		}
 	}
+	// 成员不再因「没有执行目标」而无法保存（spec 2026-11-25「成员与部门」）：只要它
+	// （或继承到的）引擎配置存在即可保存。
+	if len(req.ExecTargets) == 0 {
+		eff, err := s.effectiveEngine(ctx, existing)
+		if err != nil {
+			return nil, err
+		}
+		if eff == nil {
+			return nil, i18n.NewError(ctx, code.EngineProfileRequired)
+		}
+	}
 	targets, err := s.buildExecTargets(ctx, req.ExecTargets)
 	if err != nil {
 		return nil, err
@@ -178,14 +197,10 @@ func (s *agentSvc) applyExecTargetOrderOverride(ctx context.Context, agentID int
 }
 
 // buildExecTargets 把 UpdateAgentRequest.ExecTargets 转成仓储层的执行目标列表：
-// 校验至少一项（R15：「列表为空的 Agent 不能起会话——界面在保存时就要求至少一项」，
-// 这里是那条校验的服务端防线）、每一档的 backend 存在且启用、同一个 Agent 不重复
-// 挂同一个 backend（前端「+ 添加」面板已经靠这个不变量把「已在列表中」的选项置灰，
-// 这里是同一条不变量的服务端防线）。
+// 空列表合法（成员靠引擎配置就能保存，Update 已先确认它有生效的配置）；每一档的
+// backend 存在且启用、同一个 Agent 不重复挂同一个 backend（前端「+ 添加」面板已经靠
+// 这个不变量把「已在列表中」的选项置灰，这里是同一条不变量的服务端防线）。
 func (s *agentSvc) buildExecTargets(ctx context.Context, items []ExecTargetInputDTO) ([]*agent_entity.AgentExecTarget, error) {
-	if len(items) == 0 {
-		return nil, i18n.NewError(ctx, code.InvalidParameter)
-	}
 	// 先做不碰 DB 的结构校验（每档 backendId 有效 + 同一个 Agent 不重复挂同一个
 	// backend），全部通过之后才逐个去查 backend 是否存在且启用——避免对一个注定
 	// 因结构问题被拒的请求发出多余的 Find 调用。

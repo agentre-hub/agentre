@@ -133,6 +133,9 @@ type SessionRepo interface {
 	// daemon 实例标识,进 WHERE 做守卫:会话已改绑后老连接迟到的写入落空(不报错,同
 	// MarkRead 的「写不进也算成功」),下次重连至多重复拉取,而不会跳过新实例的开头。
 	UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier, seq int64) error
+	// UpdateEngineProfile 记录这条会话钉住的引擎配置（spec 2026-11-25 决策 10）。只碰这一列
+	// （+ updatetime）：它不在 sessionUpdateWhitelist 里，整行回写碰不到它。
+	UpdateEngineProfile(ctx context.Context, sessionID, engineProfileID int64) error
 	// ListRemoteExecSessions 列出记录了远端执行位置的活跃会话(exec_device_id > 0 且
 	// 带实例标识)。App 启动后的补齐靠它回答「该连谁」——(会话, daemon, 游标) 三者
 	// 都在这一行上,不必再回头遍历 agent / backend 才知道会话跑在哪。
@@ -794,6 +797,15 @@ func (r *sessionRepo) ListExecAgentBackendRefs(ctx context.Context) ([]SessionBa
 		Where("exec_agent_backend_id > ?", 0).
 		Find(&refs).Error
 	return refs, err
+}
+
+func (r *sessionRepo) UpdateEngineProfile(ctx context.Context, sessionID, engineProfileID int64) error {
+	return db.Ctx(ctx).Model(&chat_entity.Session{}).
+		Where("id = ? AND status = ?", sessionID, consts.ACTIVE).
+		Updates(map[string]any{
+			"engine_profile_id": engineProfileID,
+			"updatetime":        time.Now().UnixMilli(),
+		}).Error
 }
 
 func (r *sessionRepo) UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier, seq int64) error {

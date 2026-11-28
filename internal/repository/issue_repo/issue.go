@@ -102,6 +102,7 @@ func (r *issueRepo) Update(ctx context.Context, i *issue_entity.Issue) error {
 			"position":          i.Position,
 			"assignee_agent_id": i.AssigneeAgentID,
 			"agent_backend_id":  i.AgentBackendID,
+			"engine_profile_id": i.EngineProfileID,
 			"llm_provider_key":  i.LLMProviderKey,
 			"llm_model_key":     i.LLMModelKey,
 			"session_id":        i.SessionID,

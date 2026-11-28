@@ -41,6 +41,20 @@ func (m *MockAgentRepo) EXPECT() *MockAgentRepoMockRecorder {
 	return m.recorder
 }
 
+// ClearEngineProfile mocks base method.
+func (m *MockAgentRepo) ClearEngineProfile(ctx context.Context, engineProfileID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearEngineProfile", ctx, engineProfileID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearEngineProfile indicates an expected call of ClearEngineProfile.
+func (mr *MockAgentRepoMockRecorder) ClearEngineProfile(ctx, engineProfileID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearEngineProfile", reflect.TypeOf((*MockAgentRepo)(nil).ClearEngineProfile), ctx, engineProfileID)
+}
+
 // ClearLeadOfDepartment mocks base method.
 func (m *MockAgentRepo) ClearLeadOfDepartment(ctx context.Context, agentID int64) error {
 	m.ctrl.T.Helper()
@@ -68,6 +82,21 @@ func (m *MockAgentRepo) CountByBackends(ctx context.Context, backendIDs []int64)
 func (mr *MockAgentRepoMockRecorder) CountByBackends(ctx, backendIDs any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByBackends", reflect.TypeOf((*MockAgentRepo)(nil).CountByBackends), ctx, backendIDs)
+}
+
+// CountByEngineProfiles mocks base method.
+func (m *MockAgentRepo) CountByEngineProfiles(ctx context.Context, engineProfileIDs []int64) (map[int64]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountByEngineProfiles", ctx, engineProfileIDs)
+	ret0, _ := ret[0].(map[int64]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountByEngineProfiles indicates an expected call of CountByEngineProfiles.
+func (mr *MockAgentRepoMockRecorder) CountByEngineProfiles(ctx, engineProfileIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountByEngineProfiles", reflect.TypeOf((*MockAgentRepo)(nil).CountByEngineProfiles), ctx, engineProfileIDs)
 }
 
 // Create mocks base method.
@@ -171,6 +200,21 @@ func (m *MockAgentRepo) ListByDepartment(ctx context.Context, departmentID int64
 func (mr *MockAgentRepoMockRecorder) ListByDepartment(ctx, departmentID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByDepartment", reflect.TypeOf((*MockAgentRepo)(nil).ListByDepartment), ctx, departmentID)
+}
+
+// ListByEngineProfile mocks base method.
+func (m *MockAgentRepo) ListByEngineProfile(ctx context.Context, engineProfileID int64) ([]*agent_entity.Agent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByEngineProfile", ctx, engineProfileID)
+	ret0, _ := ret[0].([]*agent_entity.Agent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByEngineProfile indicates an expected call of ListByEngineProfile.
+func (mr *MockAgentRepoMockRecorder) ListByEngineProfile(ctx, engineProfileID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByEngineProfile", reflect.TypeOf((*MockAgentRepo)(nil).ListByEngineProfile), ctx, engineProfileID)
 }
 
 // ListByParent mocks base method.
@@ -286,6 +330,20 @@ func (m *MockAgentRepo) UpdateAvatar(ctx context.Context, id int64, avatarDataUR
 func (mr *MockAgentRepoMockRecorder) UpdateAvatar(ctx, id, avatarDataURL, updatetime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateAvatar", reflect.TypeOf((*MockAgentRepo)(nil).UpdateAvatar), ctx, id, avatarDataURL, updatetime)
+}
+
+// UpdateEngineSettings mocks base method.
+func (m *MockAgentRepo) UpdateEngineSettings(ctx context.Context, a *agent_entity.Agent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEngineSettings", ctx, a)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateEngineSettings indicates an expected call of UpdateEngineSettings.
+func (mr *MockAgentRepoMockRecorder) UpdateEngineSettings(ctx, a any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEngineSettings", reflect.TypeOf((*MockAgentRepo)(nil).UpdateEngineSettings), ctx, a)
 }
 
 // UpdatePlacement mocks base method.

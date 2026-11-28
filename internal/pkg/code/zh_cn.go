@@ -61,6 +61,11 @@ var zhCN = map[int]string{
 
 	OpenClawYieldFollowUpUnconfirmed: "OpenClaw 已把任务交给后续运行，但连接中断后无法确认它的状态，本轮已结束；请到 OpenClaw 会话中查看结果",
 
+	EngineProfileNotFound:                  "引擎配置不存在",
+	EngineProfileAccountDefaultUndeletable: "账号默认的引擎配置不能删除，请先把别的引擎配置设为账号默认",
+	EngineProfileRequired:                  "该成员没有可用的引擎配置：请为它选择一份，或设置部门 / 账号默认引擎",
+	EngineExecConstraintInvalid:            "「在哪跑」设置不合法：请选择任意设备、至少一个标签或至少一台设备",
+
 	AppSettingNotFound:      "设置项不存在",
 	AppSettingInvalidPort:   "端口必须是 0~65535 之间的整数",
 	AppSettingInvalidHost:   "监听地址不是合法的 IP",

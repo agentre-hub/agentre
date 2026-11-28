@@ -61,6 +61,11 @@ var enUS = map[int]string{
 
 	OpenClawYieldFollowUpUnconfirmed: "OpenClaw handed this task to a follow-up run, but its state could not be confirmed after the connection was interrupted, so this turn has ended. Check the OpenClaw session for the result",
 
+	EngineProfileNotFound:                  "Engine profile not found",
+	EngineProfileAccountDefaultUndeletable: "The account default engine profile cannot be deleted; make another profile the account default first",
+	EngineProfileRequired:                  "This member has no engine profile: choose one, or set a department or account default",
+	EngineExecConstraintInvalid:            "Invalid \"where it runs\" setting: pick any device, at least one label, or at least one device",
+
 	AppSettingNotFound:      "App setting not found",
 	AppSettingInvalidPort:   "Port must be an integer between 0 and 65535",
 	AppSettingInvalidHost:   "Listen host is not a valid IP",

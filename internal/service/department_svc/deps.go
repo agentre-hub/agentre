@@ -41,6 +41,14 @@ type AgentBackendPort interface {
 	List(ctx context.Context) ([]*agent_backend_entity.AgentBackend, error)
 }
 
+// EngineProfilePort is department_svc's narrow view of agent_backend_repo.EngineProfileRepo
+// (ISP): only the two lookups the department engine chain needs (spec 2026-11-25 决策 3).
+// agent_backend_repo.EngineProfile() satisfies it structurally.
+type EngineProfilePort interface {
+	Find(ctx context.Context, id int64) (*agent_backend_entity.EngineProfile, error)
+	FindAccountDefault(ctx context.Context) (*agent_backend_entity.EngineProfile, error)
+}
+
 // LLMProviderPort is department_svc's narrow view of llm_provider_repo.LLMProviderRepo
 // (ISP): only the listing + model lookup the org summary needs. llm_provider_repo.LLMProvider()
 // satisfies it structurally.
@@ -99,4 +107,14 @@ func (llmProviderRepoDelegate) List(ctx context.Context) ([]*llm_provider_entity
 
 func (llmProviderRepoDelegate) FindModelByKey(ctx context.Context, modelKey string) (*llm_provider_model_entity.LLMProviderModel, error) {
 	return llm_provider_repo.LLMProvider().FindModelByKey(ctx, modelKey)
+}
+
+type engineProfileRepoDelegate struct{}
+
+func (engineProfileRepoDelegate) Find(ctx context.Context, id int64) (*agent_backend_entity.EngineProfile, error) {
+	return agent_backend_repo.EngineProfile().Find(ctx, id)
+}
+
+func (engineProfileRepoDelegate) FindAccountDefault(ctx context.Context) (*agent_backend_entity.EngineProfile, error) {
+	return agent_backend_repo.EngineProfile().FindAccountDefault(ctx)
 }

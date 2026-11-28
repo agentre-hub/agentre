@@ -139,6 +139,11 @@ type Session struct {
 	// 本身（连带它的 backend 配置与技能授权），不是机器。三列由同一条专用单列
 	// 更新 UpdateExecDaemon 一并写入、一并加进 Update 的 Omit 清单，同生共死。
 	ExecAgentBackendID int64 `gorm:"column:exec_agent_backend_id;type:bigint;not null;default:0"`
+	// EngineProfileID 是这条会话钉住的引擎配置（spec 2026-11-25 决策 10）：建会话时与设备
+	// 一起钉住，此后配置的模型 / 力度改动按「跟随」规则影响后续轮次；配置被删后会话仍按它
+	// 最后的设置继续。0 = 尚未钉住。与 exec_* 列同理不在 sessionUpdateWhitelist 里，只由
+	// chat_repo.UpdateEngineProfile 窄写。
+	EngineProfileID int64 `gorm:"column:engine_profile_id;type:bigint;not null;default:0"`
 	// MemorySnapshot 是会话首个回合取下的记忆段落(spec 2026-11-11 决策 11),此后每个
 	// 回合原样接在 agent 提示词之后 —— 回退、重新生成、编辑重发、进程与应用重启都不重取。
 	// 空串 + MemorySnapshotTaken = 这条会话不带记忆(开关为关、后端不支持、设备太旧,

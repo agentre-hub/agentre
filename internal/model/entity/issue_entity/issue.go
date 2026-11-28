@@ -59,6 +59,9 @@ type Issue struct {
 	Status          int    `gorm:"column:status;type:int;not null;default:1"`
 	Createtime      int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
 	Updatetime      int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	// EngineProfileID 任务选的引擎配置（engine_profiles.id，spec 2026-11-25「看板任务」）；
+	// 0 = 不指定，从任务开会话时按新会话的规则解析。
+	EngineProfileID int64 `gorm:"column:engine_profile_id;type:bigint;not null;default:0"`
 	// SyncMeta 账号级同步元数据（R1）：任务并入账号级同步组。
 	syncmeta_entity.SyncMeta `gorm:"embedded"`
 }

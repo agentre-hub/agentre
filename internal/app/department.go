@@ -37,3 +37,15 @@ func (a *App) DeleteDepartment(req *department_svc.DeleteDepartmentRequest) (*de
 func (a *App) ReorderDepartments(req *department_svc.ReorderDepartmentsRequest) error {
 	return codedError(department_svc.Department().Reorder(a.ctx, req))
 }
+
+// GetDepartmentEngine 读部门的成员默认引擎（自己的设置、跟随时继承到的、生效的）。
+func (a *App) GetDepartmentEngine(req *department_svc.GetDepartmentEngineRequest) (*department_svc.DepartmentEngineView, error) {
+	res, err := department_svc.Department().GetDepartmentEngine(a.ctx, req)
+	return res, codedError(err)
+}
+
+// SetDepartmentEngine 设部门的成员默认引擎；0 = 跟随上级（顶层跟随账号默认）。
+func (a *App) SetDepartmentEngine(req *department_svc.SetDepartmentEngineRequest) (*department_svc.DepartmentEngineView, error) {
+	res, err := department_svc.Department().SetDepartmentEngine(a.ctx, req)
+	return res, codedError(err)
+}

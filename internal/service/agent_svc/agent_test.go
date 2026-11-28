@@ -211,19 +211,6 @@ func TestUpdateAgent(t *testing.T) {
 			assert.Error(t, err)
 		})
 
-		convey.Convey("空执行目标列表拒绝保存（R15：列表为空的 Agent 不能起会话）", func() {
-			agentMock.EXPECT().Find(gomock.Any(), int64(42)).
-				Return(&agent_entity.Agent{
-					ID: 42, Name: "Eva", AvatarColor: "agent-2",
-					DepartmentID: 2, AgentBackendID: 5, Status: consts.ACTIVE,
-					PromptJSON: "[]", SkillsJSON: "[]",
-				}, nil)
-			_, err := svc.Update(ctx, &UpdateAgentRequest{
-				ID: 42, Name: "Eva", AvatarColor: "agent-2",
-			})
-			assert.Error(t, err)
-		})
-
 		convey.Convey("重复 backend 拒绝保存", func() {
 			agentMock.EXPECT().Find(gomock.Any(), int64(42)).
 				Return(&agent_entity.Agent{

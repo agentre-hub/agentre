@@ -311,22 +311,8 @@ func (s *agentBackendSvc) create(ctx context.Context, req *CreateBackendRequest,
 	if requireOpenClaw && !b.IsOpenClaw() {
 		return nil, i18n.NewError(ctx, code.AgentBackendInvalidType)
 	}
-	if b.IsOpenClaw() {
-		normalized, err := agent_backend_entity.NormalizeOpenClawGatewayURL(b.OpenClawGatewayURL)
-		if err != nil {
-			return nil, wrapOpenClawGatewayURLErr(err)
-		}
-		b.OpenClawGatewayURL = normalized
-		if b.OpenClawSessionMode == "" {
-			b.OpenClawSessionMode = agent_backend_entity.OpenClawSessionPerAgentRESession
-		}
-	}
-	if b.IsHermes() {
-		normalized, err := agent_backend_entity.NormalizeHermesURL(b.HermesURL)
-		if err != nil {
-			return nil, i18n.NewError(ctx, code.InvalidParameter)
-		}
-		b.HermesURL = normalized
+	if err := normalizeTypeSettings(ctx, b); err != nil {
+		return nil, err
 	}
 	if err := b.Check(ctx); err != nil {
 		return nil, err
@@ -434,22 +420,8 @@ func (s *agentBackendSvc) update(ctx context.Context, req *UpdateBackendRequest,
 		return nil, deviceErr
 	}
 	existing.Updatetime = s.now()
-	if existing.IsOpenClaw() {
-		normalized, err := agent_backend_entity.NormalizeOpenClawGatewayURL(existing.OpenClawGatewayURL)
-		if err != nil {
-			return nil, wrapOpenClawGatewayURLErr(err)
-		}
-		existing.OpenClawGatewayURL = normalized
-		if existing.OpenClawSessionMode == "" {
-			existing.OpenClawSessionMode = agent_backend_entity.OpenClawSessionPerAgentRESession
-		}
-	}
-	if existing.IsHermes() {
-		normalized, err := agent_backend_entity.NormalizeHermesURL(existing.HermesURL)
-		if err != nil {
-			return nil, i18n.NewError(ctx, code.InvalidParameter)
-		}
-		existing.HermesURL = normalized
+	if err := normalizeTypeSettings(ctx, existing); err != nil {
+		return nil, err
 	}
 
 	if err := existing.Check(ctx); err != nil {
@@ -960,6 +932,29 @@ func (s *agentBackendSvc) Delete(ctx context.Context, req *DeleteBackendRequest)
 	sync_svc.NotifyDelete(ctx, syncwire.KindAgentBackend, existing.ID, existing.SyncMeta)
 	sync_svc.NotifyConfigChanged(syncwire.KindAgentBackend)
 	return &DeleteBackendResponse{}, nil
+}
+
+// normalizeTypeSettings 规范化类型专属的地址（OpenClaw Gateway / Hermes serve）并补齐
+// OpenClaw 会话模式默认值。后端与引擎配置的新建 / 更新共用这一处。
+func normalizeTypeSettings(ctx context.Context, b *agent_backend_entity.AgentBackend) error {
+	if b.IsOpenClaw() {
+		normalized, err := agent_backend_entity.NormalizeOpenClawGatewayURL(b.OpenClawGatewayURL)
+		if err != nil {
+			return wrapOpenClawGatewayURLErr(err)
+		}
+		b.OpenClawGatewayURL = normalized
+		if b.OpenClawSessionMode == "" {
+			b.OpenClawSessionMode = agent_backend_entity.OpenClawSessionPerAgentRESession
+		}
+	}
+	if b.IsHermes() {
+		normalized, err := agent_backend_entity.NormalizeHermesURL(b.HermesURL)
+		if err != nil {
+			return i18n.NewError(ctx, code.InvalidParameter)
+		}
+		b.HermesURL = normalized
+	}
+	return nil
 }
 
 // resolveProviderForSave 在 Create / Update 路径上统一处理 provider 关联：

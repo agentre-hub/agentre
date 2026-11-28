@@ -94,6 +94,15 @@ const (
 	OpenClawYieldFollowUpUnconfirmed = iota + 12040 // 让出（yielded）后等待的后续 run，在断线 / 丢帧后无法确认状态
 )
 
+// 引擎配置 12050~（spec 2026-11-25「组织成员与执行位置解耦」）：后端去掉设备成为引擎
+// 配置，成员 / 部门引用它。
+const (
+	EngineProfileNotFound                  = iota + 12050 // 引擎配置不存在或已删除
+	EngineProfileAccountDefaultUndeletable                // 账号默认的引擎配置不能删，先把别的设为账号默认
+	EngineProfileRequired                                 // 成员没有可用的引擎配置（自己没选、部门与账号默认也没有）
+	EngineExecConstraintInvalid                           // 「在哪跑」约束不合法
+)
+
 // App 设置 15000~15999
 const (
 	AppSettingNotFound      = iota + 15000 // 设置项不存在

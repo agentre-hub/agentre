@@ -399,6 +399,7 @@ func TestSessionRepo_Create(t *testing.T) {
 			"max",                  // reasoning_effort —— 草稿态选好的档位随建档一并落库(spec 2026-09-01「新建会话」)
 			int64(0), "", int64(0), // exec_device_id, exec_device_fingerprint, event_cursor —— 新建会话默认本机执行、无游标
 			int64(0),  // exec_agent_backend_id —— 新建会话默认未钉住任何一档
+			int64(0),  // engine_profile_id —— 新建会话默认未钉住引擎配置
 			"", false, // memory_snapshot, memory_snapshot_taken —— 新建会话等首个回合再取记忆快照
 			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(), // status, createtime, updatetime
 		).
@@ -1422,6 +1423,7 @@ func TestSessionRepo_Create_GivenNoConversationID_ThenMintsOne(t *testing.T) {
 			"", // reasoning_effort —— 未选档位的新建会话跟随后端配置
 			int64(0), "", int64(0),
 			int64(0),
+			int64(0),  // engine_profile_id
 			"", false, // memory_snapshot, memory_snapshot_taken
 			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
@@ -1454,6 +1456,7 @@ func TestSessionRepo_Create_GivenACallerSuppliedConversationID_ThenKeepsItVerbat
 			"", // reasoning_effort —— 未选档位的新建会话跟随后端配置
 			int64(0), "", int64(0),
 			int64(0),
+			int64(0),  // engine_profile_id
 			"", false, // memory_snapshot, memory_snapshot_taken
 			consts.ACTIVE, sqlmock.AnyArg(), sqlmock.AnyArg(),
 		).
@@ -1597,4 +1600,38 @@ func TestSessionRepo_ListForCleanup(t *testing.T) {
 		assert.Len(t, rows, 1)
 		assert.NoError(t, mock.ExpectationsWereMet())
 	})
+}
+
+// TestSessionRepo_UpdateEngineProfile 钉住会话钉引擎配置的窄写（spec 2026-11-25 决策 10）：
+// 只写 engine_profile_id（+ updatetime），与 exec_* 列一样不能靠整行回写落库。
+func TestSessionRepo_UpdateEngineProfile(t *testing.T) {
+	ctx, _, mock := testutils.Database(t)
+	repo := chat_repo.NewSession()
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions` SET `engine_profile_id`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
+		WithArgs(int64(5), sqlmock.AnyArg(), int64(42), consts.ACTIVE).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	require.NoError(t, repo.UpdateEngineProfile(ctx, 42, 5))
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestSessionRepo_UpdateKeepsEngineProfile 整行回写不得碰钉住的引擎配置：轮次开始时读出
+// 的旧实体上这一列可能还是 0，收尾整行 Save 会把首轮刚钉好的配置抹掉。
+func TestSessionRepo_UpdateKeepsEngineProfile(t *testing.T) {
+	ctx, gdb, mock := testutils.Database(t)
+	repo := chat_repo.NewSession()
+
+	row := map[string]any{"agent_status": "running", "engine_profile_id": int64(5)}
+	captureUpdatedRow(t, gdb, row)
+
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE `chat_sessions`").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, repo.Update(ctx, &chat_entity.Session{ID: 42, AgentStatus: "idle", Status: consts.ACTIVE}))
+
+	assert.Equal(t, int64(5), row["engine_profile_id"], "整行回写不得抹掉钉住的引擎配置")
+	require.NoError(t, mock.ExpectationsWereMet())
 }

@@ -36,6 +36,13 @@ type DepartmentSvc interface {
 	// CascadeImpact 统计级联删除 departmentID 会连带删掉的子部门数（不含它自己）与 Agent 数，
 	// 与 Delete 的 StrategyCascade 同一口径（审批卡据此报数）。
 	CascadeImpact(ctx context.Context, departmentID int64) (departments, agents int, err error)
+	// GetDepartmentEngine 部门的成员默认引擎、它跟随时继承到的那份、以及生效的那份。
+	GetDepartmentEngine(ctx context.Context, req *GetDepartmentEngineRequest) (*DepartmentEngineView, error)
+	// SetDepartmentEngine 设部门的成员默认引擎；0 = 跟随上级（顶层跟随账号默认）。
+	SetDepartmentEngine(ctx context.Context, req *SetDepartmentEngineRequest) (*DepartmentEngineView, error)
+	// ResolveDepartmentEngine 从 departmentID 起沿上级部门找第一份成员默认引擎，最后是账号
+	// 默认；departmentID 为 0 直接取账号默认。都没有时为 nil。见 engine.go。
+	ResolveDepartmentEngine(ctx context.Context, departmentID int64) (*EffectiveEngine, error)
 }
 
 type departmentSvc struct {
@@ -47,6 +54,7 @@ type departmentSvc struct {
 	agentExecTargets AgentExecTargetPort
 	agentBackends    AgentBackendPort
 	llmProviders     LLMProviderPort
+	engineProfiles   EngineProfilePort
 	tx               TxRunner
 }
 
@@ -56,6 +64,7 @@ var defaultDepartment DepartmentSvc = &departmentSvc{
 	agentExecTargets: agentExecTargetRepoDelegate{},
 	agentBackends:    agentBackendRepoDelegate{},
 	llmProviders:     llmProviderRepoDelegate{},
+	engineProfiles:   engineProfileRepoDelegate{},
 	tx:               dbTxRunner{},
 }
 

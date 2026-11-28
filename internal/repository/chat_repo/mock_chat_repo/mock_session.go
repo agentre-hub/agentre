@@ -486,6 +486,20 @@ func (mr *MockSessionRepoMockRecorder) UpdateContextWindow(ctx, sessionID, token
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateContextWindow", reflect.TypeOf((*MockSessionRepo)(nil).UpdateContextWindow), ctx, sessionID, tokens)
 }
 
+// UpdateEngineProfile mocks base method.
+func (m *MockSessionRepo) UpdateEngineProfile(ctx context.Context, sessionID, engineProfileID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateEngineProfile", ctx, sessionID, engineProfileID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateEngineProfile indicates an expected call of UpdateEngineProfile.
+func (mr *MockSessionRepoMockRecorder) UpdateEngineProfile(ctx, sessionID, engineProfileID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateEngineProfile", reflect.TypeOf((*MockSessionRepo)(nil).UpdateEngineProfile), ctx, sessionID, engineProfileID)
+}
+
 // UpdateEventCursor mocks base method.
 func (m *MockSessionRepo) UpdateEventCursor(ctx context.Context, sessionID int64, daemonFingerprint devicefp.Carrier, seq int64) error {
 	m.ctrl.T.Helper()

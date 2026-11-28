@@ -28,6 +28,12 @@ type DepartmentRepo interface {
 	ReorderSiblings(ctx context.Context, parentID int64, orderedIDs []int64) error
 	Delete(ctx context.Context, id int64) error
 	ReparentChildren(ctx context.Context, fromID, toParentID int64) error
+	// UpdateDefaultEngineProfile 只写部门的成员默认引擎（0 = 跟随上级）。见 engine.go。
+	UpdateDefaultEngineProfile(ctx context.Context, id, engineProfileID int64) error
+	// ListByDefaultEngineProfile 列出以这份配置为成员默认引擎的活部门。
+	ListByDefaultEngineProfile(ctx context.Context, engineProfileID int64) ([]*department_entity.Department, error)
+	// ClearDefaultEngineProfile 把以这份配置为成员默认引擎的部门改回跟随上级（配置被删时）。
+	ClearDefaultEngineProfile(ctx context.Context, engineProfileID int64) error
 }
 
 var defaultDepartment DepartmentRepo
@@ -53,7 +59,8 @@ func (r *departmentRepo) Update(ctx context.Context, d *department_entity.Depart
 	// 迁移前已存在、还没有标识的历史行在下一次落库时补齐（JIT），已有标识的行
 	// 原样保留（R1：终身不变）。
 	d.EnsureSyncID()
-	return db.Ctx(ctx).Save(d).Error
+	// 成员默认引擎只由 UpdateDefaultEngineProfile 写，整行回写不碰它。
+	return db.Ctx(ctx).Omit("default_engine_profile_id").Save(d).Error
 }
 
 func (r *departmentRepo) Find(ctx context.Context, id int64) (*department_entity.Department, error) {

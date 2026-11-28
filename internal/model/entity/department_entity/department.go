@@ -25,6 +25,9 @@ type Department struct {
 	Status      int    `gorm:"column:status;type:int;not null;default:1"`
 	Createtime  int64  `gorm:"column:createtime;type:bigint;not null;default:0"`
 	Updatetime  int64  `gorm:"column:updatetime;type:bigint;not null;default:0"`
+	// DefaultEngineProfileID 成员默认引擎（engine_profiles.id，spec 2026-11-25 决策 3）：
+	// 本部门成员没选引擎配置时用它；0 = 跟随上级部门，顶层部门跟随账号默认。
+	DefaultEngineProfileID int64 `gorm:"column:default_engine_profile_id;type:bigint;not null;default:0"`
 	// SyncMeta 账号级同步元数据（R1，366 行）。
 	syncmeta_entity.SyncMeta `gorm:"embedded"`
 }

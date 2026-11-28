@@ -60,6 +60,16 @@ type Agent struct {
 	// MemoryEnabled 该 Agent 的会话是否带上记忆、能否写记忆。默认开（决策 17），迁移
 	// 也把已有的 Agent 一并设为开；零值的新行靠列默认值落成开。
 	MemoryEnabled bool `gorm:"column:memory_enabled;type:boolean;not null;default:1"`
+
+	// EngineProfileID 成员引用的引擎配置（engine_profiles.id，spec 2026-11-25 决策 3）；
+	// 0 = 跟随所在部门的成员默认引擎，沿上级部门向上，最后是账号默认。
+	EngineProfileID int64 `gorm:"column:engine_profile_id;type:bigint;not null;default:0"`
+	// ExecConstraintJSON 「在哪跑」约束（决策 4，见 engine.go 的 ExecConstraint）；空 / {} = 任意设备。
+	ExecConstraintJSON string `gorm:"column:exec_constraint_json;type:text;not null;default:'{}'"`
+	// SkillGrantsRuntime / SkillGrantsJSON 技能授权与授权时生效的运行时类型（决策 9）：技能包
+	// ID 按运行时区分，换到另一种运行时的引擎配置后，这份授权整体失效（见 SkillGrantsFor）。
+	SkillGrantsRuntime string `gorm:"column:skill_grants_runtime;type:text;not null;default:''"`
+	SkillGrantsJSON    string `gorm:"column:skill_grants_json;type:text;not null;default:'[]'"`
 }
 
 func (*Agent) TableName() string { return "agents" }

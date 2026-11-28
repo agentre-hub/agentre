@@ -41,6 +41,20 @@ func (m *MockDepartmentRepo) EXPECT() *MockDepartmentRepoMockRecorder {
 	return m.recorder
 }
 
+// ClearDefaultEngineProfile mocks base method.
+func (m *MockDepartmentRepo) ClearDefaultEngineProfile(ctx context.Context, engineProfileID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearDefaultEngineProfile", ctx, engineProfileID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ClearDefaultEngineProfile indicates an expected call of ClearDefaultEngineProfile.
+func (mr *MockDepartmentRepoMockRecorder) ClearDefaultEngineProfile(ctx, engineProfileID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearDefaultEngineProfile", reflect.TypeOf((*MockDepartmentRepo)(nil).ClearDefaultEngineProfile), ctx, engineProfileID)
+}
+
 // Create mocks base method.
 func (m *MockDepartmentRepo) Create(ctx context.Context, d *department_entity.Department) error {
 	m.ctrl.T.Helper()
@@ -114,6 +128,21 @@ func (mr *MockDepartmentRepoMockRecorder) List(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockDepartmentRepo)(nil).List), ctx)
 }
 
+// ListByDefaultEngineProfile mocks base method.
+func (m *MockDepartmentRepo) ListByDefaultEngineProfile(ctx context.Context, engineProfileID int64) ([]*department_entity.Department, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByDefaultEngineProfile", ctx, engineProfileID)
+	ret0, _ := ret[0].([]*department_entity.Department)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByDefaultEngineProfile indicates an expected call of ListByDefaultEngineProfile.
+func (mr *MockDepartmentRepoMockRecorder) ListByDefaultEngineProfile(ctx, engineProfileID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByDefaultEngineProfile", reflect.TypeOf((*MockDepartmentRepo)(nil).ListByDefaultEngineProfile), ctx, engineProfileID)
+}
+
 // ListByParent mocks base method.
 func (m *MockDepartmentRepo) ListByParent(ctx context.Context, parentID int64) ([]*department_entity.Department, error) {
 	m.ctrl.T.Helper()
@@ -184,4 +213,18 @@ func (m *MockDepartmentRepo) Update(ctx context.Context, d *department_entity.De
 func (mr *MockDepartmentRepoMockRecorder) Update(ctx, d any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockDepartmentRepo)(nil).Update), ctx, d)
+}
+
+// UpdateDefaultEngineProfile mocks base method.
+func (m *MockDepartmentRepo) UpdateDefaultEngineProfile(ctx context.Context, id, engineProfileID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDefaultEngineProfile", ctx, id, engineProfileID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateDefaultEngineProfile indicates an expected call of UpdateDefaultEngineProfile.
+func (mr *MockDepartmentRepoMockRecorder) UpdateDefaultEngineProfile(ctx, id, engineProfileID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDefaultEngineProfile", reflect.TypeOf((*MockDepartmentRepo)(nil).UpdateDefaultEngineProfile), ctx, id, engineProfileID)
 }

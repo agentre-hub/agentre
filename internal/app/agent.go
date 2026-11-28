@@ -57,6 +57,37 @@ func (a *App) SetAgentMemoryEnabled(req *agent_svc.SetMemoryEnabledRequest) (*ag
 	return res, codedError(err)
 }
 
+// GetMemberEngine 读成员的执行设置：引用的引擎配置、继承到 / 生效的那份、「在哪跑」约束、
+// 技能授权（有效与失效两组）。
+func (a *App) GetMemberEngine(req *agent_svc.GetMemberEngineRequest) (*agent_svc.MemberEngineView, error) {
+	res, err := agent_svc.Agent().GetMemberEngine(a.ctx, req)
+	return res, codedError(err)
+}
+
+// SetMemberEngine 设成员引用的引擎配置；0 = 跟随部门。
+func (a *App) SetMemberEngine(req *agent_svc.SetMemberEngineRequest) (*agent_svc.MemberEngineView, error) {
+	res, err := agent_svc.Agent().SetMemberEngine(a.ctx, req)
+	return res, codedError(err)
+}
+
+// SetMemberExecConstraint 设成员的「在哪跑」约束（任意设备 / 带标签 / 指定设备）。
+func (a *App) SetMemberExecConstraint(req *agent_svc.SetMemberExecConstraintRequest) (*agent_svc.MemberEngineView, error) {
+	res, err := agent_svc.Agent().SetMemberExecConstraint(a.ctx, req)
+	return res, codedError(err)
+}
+
+// SetMemberSkillGrants 整份替换成员的技能授权（按生效运行时记录）。
+func (a *App) SetMemberSkillGrants(req *agent_svc.SetMemberSkillGrantsRequest) (*agent_svc.MemberEngineView, error) {
+	res, err := agent_svc.Agent().SetMemberSkillGrants(a.ctx, req)
+	return res, codedError(err)
+}
+
+// ResolveMemberEngine 成员生效的引擎配置，以及它从哪一级继承来。
+func (a *App) ResolveMemberEngine(req *agent_svc.ResolveMemberEngineRequest) (*agent_svc.ResolveMemberEngineResponse, error) {
+	res, err := agent_svc.Agent().ResolveMemberEngine(a.ctx, req)
+	return res, codedError(err)
+}
+
 // ListAgentSkillPacks 返回某 agent 名下 agentBackendID 这一档执行目标可见的技能包
 // 目录(推荐 + 发现 + 已授权)——R15e「一档一块」：发现来源与授权都钉死在这一档，
 // 不与 Agent 名下别的档合并（任务 12：组织架构页技能节改成一档一块之后，每块各自

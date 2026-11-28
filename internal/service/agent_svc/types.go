@@ -124,3 +124,58 @@ type SetMemoryEnabledResponse struct {
 	ID      int64 `json:"id"`
 	Enabled bool  `json:"enabled"`
 }
+
+// ExecConstraintDTO 成员「在哪跑」约束：mode = any / labels / devices；labels 模式下设备须带
+// 全部所选标签，devices 模式下只在这几台设备（规范指纹）上跑。
+type ExecConstraintDTO struct {
+	Mode    string   `json:"mode"`
+	Labels  []string `json:"labels"`
+	Devices []string `json:"devices"`
+}
+
+// GetMemberEngineRequest 读成员的执行设置。
+type GetMemberEngineRequest struct {
+	AgentID int64 `json:"agentId" binding:"required"`
+}
+
+// SetMemberEngineRequest 设成员引用的引擎配置；EngineProfileID 0 = 跟随部门。
+type SetMemberEngineRequest struct {
+	AgentID         int64 `json:"agentId" binding:"required"`
+	EngineProfileID int64 `json:"engineProfileId"`
+}
+
+// SetMemberExecConstraintRequest 设成员的「在哪跑」约束。
+type SetMemberExecConstraintRequest struct {
+	AgentID    int64             `json:"agentId" binding:"required"`
+	Constraint ExecConstraintDTO `json:"constraint"`
+}
+
+// SetMemberSkillGrantsRequest 整份替换成员的技能授权（继承 / 强制开 / 强制关：不在列表里 = 继承）。
+// 传入只含有效授权的列表即「一键移除失效授权」。
+type SetMemberSkillGrantsRequest struct {
+	AgentID int64                          `json:"agentId" binding:"required"`
+	Skills  []department_svc.AgentSkillDTO `json:"skills"`
+}
+
+// MemberEngineView 成员的执行设置。EngineProfileID 是成员自己的引用（0 = 跟随）；Inherited
+// 是跟随时会落到的那份（选择弹层第一项「跟随 <部门> · <配置名>」），Effective 是现在生效的
+// 那份。SkillGrants 是与生效运行时对得上的授权，InvalidSkillGrants 是对不上、待移除的那些。
+type MemberEngineView struct {
+	AgentID            int64                               `json:"agentId"`
+	EngineProfileID    int64                               `json:"engineProfileId"`
+	Constraint         ExecConstraintDTO                   `json:"constraint"`
+	SkillGrants        []department_svc.AgentSkillDTO      `json:"skillGrants"`
+	InvalidSkillGrants []department_svc.AgentSkillDTO      `json:"invalidSkillGrants"`
+	Inherited          *department_svc.EffectiveEngineView `json:"inherited"`
+	Effective          *department_svc.EffectiveEngineView `json:"effective"`
+}
+
+// ResolveMemberEngineRequest 解析成员生效的引擎配置。
+type ResolveMemberEngineRequest struct {
+	AgentID int64 `json:"agentId" binding:"required"`
+}
+
+// ResolveMemberEngineResponse 生效的引擎配置及它从哪一级继承来；无处可用时 Effective 为 nil。
+type ResolveMemberEngineResponse struct {
+	Effective *department_svc.EffectiveEngineView `json:"effective"`
+}

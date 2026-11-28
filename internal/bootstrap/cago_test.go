@@ -14,6 +14,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/project_location_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/session_dispatch_entity"
@@ -21,6 +22,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	"github.com/agentre-hub/agentre/internal/pkg/paths"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/project_location_repo"
 	"github.com/agentre-hub/agentre/internal/repository/session_dispatch_repo"
 	"github.com/agentre-hub/agentre/internal/repository/session_issue_link_repo"
@@ -114,19 +116,20 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"llm_provider_models":        {"model_key", "model_id"},
 		"agent_backends":             {"model_key", "sync_id", "device_fingerprint", "sync_origin_fingerprint"},
 		"agent_backend_cli_overlays": {"backend_sync_id", "agentred_fingerprint", "cli_path", "sync_origin_fingerprint"},
-		"agents":                     {"sync_origin_fingerprint", "memory_enabled"},
+		"engine_profiles":            {"type", "name", "llm_provider_key", "model_key", "env_json", "reasoning_effort", "config_json", "is_account_default", "status", "sync_id", "sync_origin_fingerprint"},
+		"agents":                     {"sync_origin_fingerprint", "memory_enabled", "engine_profile_id", "exec_constraint_json", "skill_grants_runtime", "skill_grants_json"},
 		"agent_exec_targets":         {"sync_origin_fingerprint"},
-		"departments":                {"sync_origin_fingerprint"},
+		"departments":                {"sync_origin_fingerprint", "default_engine_profile_id"},
 		"projects":                   {"sync_origin_fingerprint"},
 		"project_agents":             {"sync_origin_fingerprint"},
 		// device_id 是由指纹解析出的本地缓存(实体包注释),写入路径显式带这一列——
 		// 它一旦缺席,整张表就只读不可写。
 		"project_locations":   {"device_id", "device_fingerprint", "sync_origin_fingerprint"},
-		"chat_sessions":       {"model_key", "exec_agent_backend_id", "cwd", "exec_device_fingerprint", "conversation_id", "memory_snapshot", "memory_snapshot_taken"},
+		"chat_sessions":       {"model_key", "exec_agent_backend_id", "engine_profile_id", "cwd", "exec_device_fingerprint", "conversation_id", "memory_snapshot", "memory_snapshot_taken"},
 		"chat_messages":       {"first_token_ms", "tokens_per_sec", "device_fingerprint"},
 		"chat_message_blocks": {"message_id", "idx", "type", "tool_call_id", "codec", "data"},
 		// 任务并入账号级同步组，三张表各带六列同步元数据；issues 另有执行归属三列。
-		"issues":       {"agent_backend_id", "llm_provider_key", "llm_model_key", "sync_id", "sync_origin_fingerprint"},
+		"issues":       {"agent_backend_id", "engine_profile_id", "llm_provider_key", "llm_model_key", "sync_id", "sync_origin_fingerprint"},
 		"labels":       {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
 		"issue_labels": {"sync_id", "sync_account_id", "sync_version", "sync_updated_at", "sync_origin_fingerprint", "sync_deleted_at"},
 		"memories":     {"owner_kind", "owner_id", "summary", "prev_summary", "state", "changed_at", "sync_id", "sync_origin_fingerprint"},
@@ -161,6 +164,8 @@ func TestInitCreatesOnlyCurrentDatabaseSchema(t *testing.T) {
 		"project_agents":             {"sync_origin"},
 		"project_locations":          {"daemon_fingerprint", "sync_origin"},
 		"chat_sessions":              {"exec_daemon_fingerprint"},
+		// 引擎配置不带设备：设备字段与 CLI 路径都不属于它（决策 2 / 13）。
+		"engine_profiles": {"device_fingerprint", "cli_path"},
 	} {
 		present := realColumns(t, gormDB, table)
 		for _, column := range columns {
@@ -972,5 +977,54 @@ func TestInitLetsASessionBeLinkedToAnIssue(t *testing.T) {
 	}
 	if rows, _ := repo.ListByIssues(ctx, []int64{20}); len(rows) != 0 {
 		t.Fatalf("ListByIssues(20) after DeleteBySession(3) = %+v, want empty", rows)
+	}
+}
+
+// TestInitLetsAnEngineProfileBeTheAccountDefault 证明全新库上引擎配置真能落库，且账号默认
+// 能在两份配置之间移动：「先清后写」与部分唯一索引（至多一份活的账号默认）只有真 SQLite
+// 才判得了——sqlmock 那边只验 SQL 拼写。
+func TestInitLetsAnEngineProfileBeTheAccountDefault(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AGENTRE_DATA_DIR", dataDir)
+	t.Setenv("AGENTRE_ENV", "test")
+
+	prev := agent_backend_repo.EngineProfile()
+	agent_backend_repo.RegisterEngineProfile(nil)
+	t.Cleanup(func() { agent_backend_repo.RegisterEngineProfile(prev) })
+
+	runtime, err := Init(context.Background())
+	if err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+
+	repo := agent_backend_repo.EngineProfile()
+	if repo == nil {
+		t.Fatal("agent_backend_repo.EngineProfile() = nil after Init; bootstrap forgot to RegisterEngineProfile")
+	}
+	ctx := context.Background()
+	first := &agent_backend_entity.EngineProfile{Type: "claudecode", Name: "Claude Code", IsAccountDefault: true, Status: 1}
+	second := &agent_backend_entity.EngineProfile{Type: "codex", Name: "Codex", Sandbox: "read-only", Status: 1}
+	for _, p := range []*agent_backend_entity.EngineProfile{first, second} {
+		if err := repo.Create(ctx, p); err != nil {
+			t.Fatalf("Create(%s) error = %v", p.Name, err)
+		}
+	}
+	if err := repo.SetAccountDefault(ctx, second.ID); err != nil {
+		t.Fatalf("SetAccountDefault() error = %v", err)
+	}
+	def, err := repo.FindAccountDefault(ctx)
+	if err != nil || def == nil {
+		t.Fatalf("FindAccountDefault() = %v, %v", def, err)
+	}
+	if def.ID != second.ID || def.Sandbox != "read-only" {
+		t.Fatalf("account default = id %d sandbox %q, want id %d sandbox read-only", def.ID, def.Sandbox, second.ID)
+	}
+	var marked int64
+	if err := db.Default().Raw("SELECT COUNT(*) FROM engine_profiles WHERE is_account_default = 1").Scan(&marked).Error; err != nil {
+		t.Fatalf("count defaults: %v", err)
+	}
+	if marked != 1 {
+		t.Fatalf("rows marked account default = %d, want 1", marked)
 	}
 }

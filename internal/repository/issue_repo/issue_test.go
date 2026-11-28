@@ -86,18 +86,19 @@ func TestIssueList_LabelFilter(t *testing.T) {
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
 
-// TestIssueUpdate 钉住 Update 写下的列：执行归属三列与 sync_id 都在里面 —— 少写一列
+// TestIssueUpdate 钉住 Update 写下的列：执行归属各列（含引擎配置引用）与 sync_id 都在里面 —— 少写一列
 // 就是「表单存了等于没存」，而这类遗漏在别处不会让任何用例变红。
 func TestIssueUpdate(t *testing.T) {
 	ctx, mock, repo := setupIssueRepo(t)
 	mock.ExpectBegin()
-	mock.ExpectExec("UPDATE `issues` SET `agent_backend_id`=\\?,`agent_status`=\\?,`assignee_agent_id`=\\?,`body`=\\?,`closed_at`=\\?,`llm_model_key`=\\?,`llm_provider_key`=\\?,`position`=\\?,`project_id`=\\?,`session_id`=\\?,`stage`=\\?,`state`=\\?,`sync_id`=\\?,`title`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
+	mock.ExpectExec("UPDATE `issues` SET `agent_backend_id`=\\?,`agent_status`=\\?,`assignee_agent_id`=\\?,`body`=\\?,`closed_at`=\\?,`engine_profile_id`=\\?,`llm_model_key`=\\?,`llm_provider_key`=\\?,`position`=\\?,`project_id`=\\?,`session_id`=\\?,`stage`=\\?,`state`=\\?,`sync_id`=\\?,`title`=\\?,`updatetime`=\\? WHERE id = \\? AND status = \\?").
 		WithArgs(
 			int64(11),                    // agent_backend_id
 			issue_entity.AgentStatusIdle, // agent_status
 			int64(3),                     // assignee_agent_id
 			"body",                       // body
 			int64(0),                     // closed_at
+			int64(21),                    // engine_profile_id
 			"gpt-5",                      // llm_model_key
 			"openai",                     // llm_provider_key
 			float64(0),                   // position
@@ -123,6 +124,7 @@ func TestIssueUpdate(t *testing.T) {
 		AgentStatus:     issue_entity.AgentStatusIdle,
 		AssigneeAgentID: 3,
 		AgentBackendID:  11,
+		EngineProfileID: 21,
 		LLMProviderKey:  "openai",
 		LLMModelKey:     "gpt-5",
 		Status:          consts.ACTIVE,

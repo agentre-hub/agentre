@@ -210,6 +210,60 @@ func (mr *MockAgentBackendPortMockRecorder) List(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockAgentBackendPort)(nil).List), ctx)
 }
 
+// MockEngineProfilePort is a mock of EngineProfilePort interface.
+type MockEngineProfilePort struct {
+	ctrl     *gomock.Controller
+	recorder *MockEngineProfilePortMockRecorder
+	isgomock struct{}
+}
+
+// MockEngineProfilePortMockRecorder is the mock recorder for MockEngineProfilePort.
+type MockEngineProfilePortMockRecorder struct {
+	mock *MockEngineProfilePort
+}
+
+// NewMockEngineProfilePort creates a new mock instance.
+func NewMockEngineProfilePort(ctrl *gomock.Controller) *MockEngineProfilePort {
+	mock := &MockEngineProfilePort{ctrl: ctrl}
+	mock.recorder = &MockEngineProfilePortMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockEngineProfilePort) EXPECT() *MockEngineProfilePortMockRecorder {
+	return m.recorder
+}
+
+// Find mocks base method.
+func (m *MockEngineProfilePort) Find(ctx context.Context, id int64) (*agent_backend_entity.EngineProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Find", ctx, id)
+	ret0, _ := ret[0].(*agent_backend_entity.EngineProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Find indicates an expected call of Find.
+func (mr *MockEngineProfilePortMockRecorder) Find(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockEngineProfilePort)(nil).Find), ctx, id)
+}
+
+// FindAccountDefault mocks base method.
+func (m *MockEngineProfilePort) FindAccountDefault(ctx context.Context) (*agent_backend_entity.EngineProfile, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindAccountDefault", ctx)
+	ret0, _ := ret[0].(*agent_backend_entity.EngineProfile)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindAccountDefault indicates an expected call of FindAccountDefault.
+func (mr *MockEngineProfilePortMockRecorder) FindAccountDefault(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindAccountDefault", reflect.TypeOf((*MockEngineProfilePort)(nil).FindAccountDefault), ctx)
+}
+
 // MockLLMProviderPort is a mock of LLMProviderPort interface.
 type MockLLMProviderPort struct {
 	ctrl     *gomock.Controller

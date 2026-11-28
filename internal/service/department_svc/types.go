@@ -139,3 +139,36 @@ type ReorderDepartmentsRequest struct {
 	ParentID   int64   `json:"parentId"`
 	OrderedIDs []int64 `json:"orderedIds"`
 }
+
+// EffectiveEngineView 一名成员 / 一个部门生效的引擎配置，以及它从哪一级继承来
+// （Source：member / department / account_default）。Source 为 department 时
+// SourceDepartmentID / Name 是提供它的那个部门（界面写「跟随 <部门名>」）。
+type EffectiveEngineView struct {
+	EngineProfileID      int64  `json:"engineProfileId"`
+	EngineProfileName    string `json:"engineProfileName"`
+	RuntimeType          string `json:"runtimeType"`
+	Source               string `json:"source"`
+	SourceDepartmentID   int64  `json:"sourceDepartmentId"`
+	SourceDepartmentName string `json:"sourceDepartmentName"`
+}
+
+// GetDepartmentEngineRequest 读部门的成员默认引擎。
+type GetDepartmentEngineRequest struct {
+	DepartmentID int64 `json:"departmentId" binding:"required"`
+}
+
+// SetDepartmentEngineRequest 设部门的成员默认引擎；EngineProfileID 0 = 跟随上级。
+type SetDepartmentEngineRequest struct {
+	DepartmentID    int64 `json:"departmentId" binding:"required"`
+	EngineProfileID int64 `json:"engineProfileId"`
+}
+
+// DepartmentEngineView 部门的成员默认引擎：EngineProfileID 是它自己的设置（0 = 跟随），
+// Inherited 是跟随上级时会落到的那份（选择弹层第一项「跟随上级部门 / 跟随账号默认」），
+// Effective 是现在生效的那份。没有任何可用配置时两者为 nil。
+type DepartmentEngineView struct {
+	DepartmentID    int64                `json:"departmentId"`
+	EngineProfileID int64                `json:"engineProfileId"`
+	Inherited       *EffectiveEngineView `json:"inherited"`
+	Effective       *EffectiveEngineView `json:"effective"`
+}

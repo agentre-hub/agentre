@@ -26,6 +26,8 @@ type AgentRepo interface {
 	// 截断成一档。要么给出完整列表（这里），要么明说不动列表（UpdateRow）。
 	UpdateWithTargets(ctx context.Context, a *agent_entity.Agent, targets []*agent_entity.AgentExecTarget) error
 	// UpdateRow 只落 Agent 这一行，不动它的执行目标列表（同步落地专用，见实现注释）。
+	// 它与 UpdateWithTargets 都不写执行设置四列（engineSettingsColumns），那几列只由
+	// UpdateEngineSettings 写。
 	UpdateRow(ctx context.Context, a *agent_entity.Agent) error
 	Find(ctx context.Context, id int64) (*agent_entity.Agent, error)
 	FindByName(ctx context.Context, name string) (*agent_entity.Agent, error)
@@ -44,6 +46,15 @@ type AgentRepo interface {
 	ClearLeadOfDepartment(ctx context.Context, agentID int64) error
 	Delete(ctx context.Context, id int64) error
 	ReorderSiblings(ctx context.Context, departmentID, parentAgentID int64, orderedIDs []int64) error
+	// UpdateEngineSettings 只写成员的执行设置：引擎配置引用、「在哪跑」约束、技能授权
+	// 及其运行时（+ updatetime）。见 engine.go。
+	UpdateEngineSettings(ctx context.Context, a *agent_entity.Agent) error
+	// ListByEngineProfile 列出直接引用这份引擎配置的活成员（删除确认要列出受影响者）。
+	ListByEngineProfile(ctx context.Context, engineProfileID int64) ([]*agent_entity.Agent, error)
+	// ClearEngineProfile 把引用这份配置的成员一律改回跟随部门（配置被删时）。
+	ClearEngineProfile(ctx context.Context, engineProfileID int64) error
+	// CountByEngineProfiles 统计每份配置被多少个活成员直接引用。
+	CountByEngineProfiles(ctx context.Context, engineProfileIDs []int64) (map[int64]int64, error)
 }
 
 var defaultAgent AgentRepo
@@ -76,7 +87,7 @@ func (r *agentRepo) Create(ctx context.Context, a *agent_entity.Agent) error {
 // 成单元素列表——那会把对端配好的多档列表冲掉。
 func (r *agentRepo) UpdateRow(ctx context.Context, a *agent_entity.Agent) error {
 	a.EnsureSyncID()
-	return db.Ctx(ctx).Save(a).Error
+	return db.Ctx(ctx).Omit(engineSettingsColumns...).Save(a).Error
 }
 
 // UpdateWithTargets 见 AgentRepo 接口注释。
@@ -85,7 +96,7 @@ func (r *agentRepo) UpdateWithTargets(ctx context.Context, a *agent_entity.Agent
 	// 原样保留（R1：终身不变）。
 	a.EnsureSyncID()
 	return db.Ctx(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Save(a).Error; err != nil {
+		if err := tx.Omit(engineSettingsColumns...).Save(a).Error; err != nil {
 			return err
 		}
 		return replaceExecTargets(tx, a.ID, targets)

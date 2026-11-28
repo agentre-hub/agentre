@@ -131,6 +131,7 @@ func Init(ctx context.Context) (*Runtime, error) {
 	// 注入 repository 默认实现，service 层调 llm_provider_repo.LLMProvider() 直接拿到 GORM 版。
 	llm_provider_repo.RegisterLLMProvider(llm_provider_repo.NewLLMProvider())
 	agent_backend_repo.RegisterAgentBackend(agent_backend_repo.NewAgentBackend())
+	agent_backend_repo.RegisterEngineProfile(agent_backend_repo.NewEngineProfile())
 	app_setting_repo.RegisterAppSetting(app_setting_repo.NewAppSetting())
 	department_repo.RegisterDepartment(department_repo.NewDepartment())
 	agent_repo.RegisterAgent(agent_repo.NewAgent())

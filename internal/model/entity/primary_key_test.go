@@ -33,6 +33,7 @@ func allEntities() []any {
 	return []any{
 		&agent_backend_entity.AgentBackend{},
 		&agent_backend_entity.CLIOverlay{},
+		&agent_backend_entity.EngineProfile{},
 		&agent_entity.Agent{},
 		&agent_entity.AgentExecTarget{},
 		&agent_entity.AgentExecTargetOverride{},
