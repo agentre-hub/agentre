@@ -312,6 +312,20 @@ func (d *Daemon) registerProtobufMethods() {
 			return protobufHealthPingResponse(&result), nil
 		})
 
+	deviceFactsHandlers := handlers.NewDeviceFactsHandlers(d.deviceFacts)
+	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_DEVICE_FACTS),
+		func() *agentrewire.DeviceFactsRequest { return &agentrewire.DeviceFactsRequest{} },
+		func(ctx context.Context, request *agentrewire.DeviceFactsRequest) (*agentrewire.DeviceFactsResponse, error) {
+			if err := requireProtobufAuth(ctx); err != nil {
+				return nil, err
+			}
+			response, err := deviceFactsHandlers.Facts(ctx, request)
+			if err != nil {
+				return nil, protobufError(err)
+			}
+			return response, nil
+		})
+
 	ccFetcher := d.opts.CCUsageFetcher
 	if ccFetcher == nil {
 		ccFetcher = ccoauth.NewLocalFetcher()

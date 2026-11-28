@@ -72,6 +72,9 @@ var enUS = map[int]string{
 	ProjectDefaultDeviceNoPath: "The default device must be a device that has a path in this project",
 	LLMProviderReachInvalid:    "Invalid \"who can reach\" setting: pick any device, or at least one device",
 
+	DeviceFactsDeviceNotFound:    "Device not found: only this device or a paired device can be refreshed",
+	DeviceFactsDeviceUnreachable: "This device cannot be reached right now, so its status could not be read",
+
 	AppSettingNotFound:      "App setting not found",
 	AppSettingInvalidPort:   "Port must be an integer between 0 and 65535",
 	AppSettingInvalidHost:   "Listen host is not a valid IP",

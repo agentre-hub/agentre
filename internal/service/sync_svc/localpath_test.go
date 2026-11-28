@@ -204,3 +204,29 @@ func TestReportLocalPathsNowPackageEntry_GivenNoSvc_ThenNoop(t *testing.T) {
 
 	require.NoError(t, ReportLocalPathsNow(context.Background()))
 }
+
+// TestLocalPathSnapshot_GivenLoggedIn_ThenSameSnapshotAsTheReport 设备情况带上本机项目
+// 路径,用的是与本机路径上报同一份快照(同一条换账号边界、同一套过滤),且不写本地库。
+func TestLocalPathSnapshot_GivenLoggedIn_ThenSameSnapshotAsTheReport(t *testing.T) {
+	h := newHarness(t, true)
+	registerProjects(t, []*project_entity.Project{
+		projectRowForAccount("mine", "/Users/me/mine", 7),
+		projectRowForAccount("theirs", "/Users/me/other", 99),
+		projectRow("missing", "", true),
+	})
+
+	items, err := h.svc.LocalPathSnapshot(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []syncwire.LocalPathItem{{ProjectSyncID: "mine", Path: "/Users/me/mine"}}, items)
+	assert.Empty(t, h.transport.localPathReports, "取快照不是上报")
+}
+
+// TestLocalPathSnapshot_GivenLoggedOut_ThenEmpty 未登录时没有账号可归属,快照为空。
+func TestLocalPathSnapshot_GivenLoggedOut_ThenEmpty(t *testing.T) {
+	h := newHarness(t, false)
+	registerProjects(t, []*project_entity.Project{projectRow("p", "/Users/me/p", false)})
+
+	items, err := h.svc.LocalPathSnapshot(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, items)
+}

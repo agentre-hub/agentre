@@ -46,6 +46,7 @@ var methodScopes = map[agentrewire.RpcMethod]Scope{
 	agentrewire.RpcMethod_RPC_METHOD_RUNTIME_CAPABILITIES:    ScopeRead,
 	agentrewire.RpcMethod_RPC_METHOD_HEALTH_PING:             ScopeRead,
 	agentrewire.RpcMethod_RPC_METHOD_CLI_MODELS_LIST:         ScopeRead,
+	agentrewire.RpcMethod_RPC_METHOD_DEVICE_FACTS:            ScopeRead,
 
 	// chat: start, continue, steer, stop, answer questions, per-session overrides.
 	agentrewire.RpcMethod_RPC_METHOD_RUNTIME_RUN:                  ScopeChat,

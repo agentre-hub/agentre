@@ -136,6 +136,9 @@ type service struct {
 	// 重连跳过重连窗口（DropAccountChannel）。
 	channelCancel    context.CancelFunc
 	channelRedialNow bool
+	// connectListeners 是账号级实时通道每次拨号成功时要通知的旁听者
+	// (AccountChannelObserver)。
+	connectListeners []func(ctx context.Context)
 	// doneCh 在轮询循环（连同它带起来的实时通道）真的退出之后关闭。Stop 等它：
 	// 一个「已经返回、后台却还在写」的 Stop 是句空话，测试也就无从在停机之后
 	// 如实读状态。

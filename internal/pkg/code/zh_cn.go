@@ -72,6 +72,9 @@ var zhCN = map[int]string{
 	ProjectDefaultDeviceNoPath: "默认设备必须是在这个项目里配了路径的设备",
 	LLMProviderReachInvalid:    "「谁能连到」设置不合法：请选择任意设备，或至少一台设备",
 
+	DeviceFactsDeviceNotFound:    "设备不存在：只能刷新本机或已配对的设备",
+	DeviceFactsDeviceUnreachable: "连不上这台设备，暂时读不到它的情况",
+
 	AppSettingNotFound:      "设置项不存在",
 	AppSettingInvalidPort:   "端口必须是 0~65535 之间的整数",
 	AppSettingInvalidHost:   "监听地址不是合法的 IP",

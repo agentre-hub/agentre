@@ -42,6 +42,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/transcript_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/devicefacts"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/claudecode"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/protowire"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/runtimes/remote/wire"
@@ -56,6 +57,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/port_forward_repo"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
@@ -94,6 +96,11 @@ type Options struct {
 	// 集成测试传入 stub 屏蔽真实网络 / 真实 keychain。
 	CCUsageFetcher handlers.CCUsageFetcher
 
+	// DeviceFactsRuntimes 替换设备情况里的运行时探测(四种已知 CLI 的路径 / 版本 /
+	// 登录态)。留空 → devicefacts.DefaultRuntimeProbe;测试传入替身,免得真的去跑
+	// 本机 CLI 的 --version。
+	DeviceFactsRuntimes func(ctx context.Context) []syncwire.RuntimeFact
+
 	// directAddressReachable decides whether another machine can reach a direct
 	// address host; nil means reachableFromAnotherMachine. Unexported on purpose:
 	// only this package's tests replace it, so a daemon bound to 127.0.0.1 can
@@ -110,6 +117,9 @@ type Daemon struct {
 	ratelim        *pairing.RateLimiter
 	auth           *auth.AuthHandlers
 	engineSnapshot *enginesnapshot.Manager
+	// deviceFacts 是这台机器的设备情况:device.facts 读它,连上中继 / 快照变化 /
+	// 周期检查时它决定要不要报给账号 server。
+	deviceFacts *devicefacts.Reporter
 
 	// db is agentred's own SQLite handle (session durability: daemon_sessions
 	// + the transcript tables chat_messages / chat_message_blocks /
@@ -948,7 +958,10 @@ func New(opts Options) (*Daemon, error) {
 		State:       d.state,
 		ServerURL:   d.relayServerURL,
 		AccessToken: d.currentAccessToken,
+		// 账号引擎可能变了:ACP 命令能否解析、服务型引擎有没有凭据要重新核对。
+		OnApplied: func() { go func() { _ = d.deviceFacts.CheckForChange(context.Background()) }() },
 	})
+	d.deviceFacts = d.newDeviceFactsReporter()
 	d.catchup = handlers.NewSessionCatchupHandlers(handlers.SessionCatchupDeps{
 		Sessions:          d.sessionStore,
 		DurableFrames:     durableFrameReader{db: gormDB},
@@ -1233,7 +1246,12 @@ func (d *Daemon) startEngineSnapshotPulls(ctx context.Context) {
 		// reason PullAsync is: a slow or stuck account server must not block
 		// relay registration or an in-flight round.
 		go d.directReconciler.reconcileOnce(ctx)
+		// 连上账号中继就整份报一次设备情况(规格「上报时机」)。失败只记日志,由
+		// 下一次触发重试 —— server 可能还没有这个端点。
+		go func() { _ = d.deviceFacts.Connected(ctx) }()
 	}, nil)
+	// 本机探测结果变了(装了 / 升级了 CLI、登录态变化)就报一次;内容没变不发请求。
+	go d.deviceFacts.Run(ctx, devicefacts.ChangeCheckInterval)
 	// 账号信号(决策 13)不再是一条独立连接:它现在是同一条中继连接上的保留通道,
 	// 由 serveRelayChannels → serveAccountSignal 消费,天然只在 auth.account 握手
 	// 成功之后才可能出现——不需要再像旧的 /v1/account/channel 那样额外等

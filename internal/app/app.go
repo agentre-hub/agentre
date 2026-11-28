@@ -156,6 +156,8 @@ func (a *App) Startup(ctx context.Context) {
 		})
 	}
 	bootstrap.SyncBoot(context.Background())
+	// 本机设备情况的周期变化检查:装了 / 升级了 CLI、登录态变了就报给 server。
+	bootstrap.DeviceFactsBoot(context.Background())
 
 	// 本机写入五类资源（provider/model、backend、project、department、agent）成功后
 	// 就喊一声 config:changed，组织页 / 提供方设置 / 后端设置 / 侧边栏据此就地重拉。

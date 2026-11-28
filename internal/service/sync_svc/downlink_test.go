@@ -2,6 +2,7 @@ package sync_svc
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -240,4 +241,42 @@ func TestDropAccountChannel_GivenNoLiveChannel_IsSafe(t *testing.T) {
 	h := newHarness(t, true)
 	h.svc.DropAccountChannel()
 	h.svc.DropAccountChannel()
+}
+
+// TestStart_GivenAccountChannelConnects_NotifiesConnectListeners 连上账号中继(首次与
+// 每一次重连)要告诉旁听者:设备情况据此整份上报一次(规格「上报时机」)。拨号失败
+// 不算连上。
+func TestStart_GivenAccountChannelConnects_NotifiesConnectListeners(t *testing.T) {
+	h := newHarness(t, true)
+	first := make(chan localsync.AccountChannelFrame)
+	close(first)
+	second := make(chan localsync.AccountChannelFrame)
+	h.withAccountChannel(func(attempt int) (<-chan localsync.AccountChannelFrame, error) {
+		switch attempt {
+		case 1:
+			return nil, errors.New("relay unreachable")
+		case 2:
+			return first, nil
+		}
+		return second, nil
+	})
+	h.svc.channelRetryWait = immediateRetry
+	connects := make(chan struct{}, 8)
+	h.svc.OnAccountChannelConnected(func(context.Context) { connects <- struct{}{} })
+
+	h.svc.Start(context.Background())
+	t.Cleanup(h.svc.Stop)
+
+	for i, why := range []string{"首次连上", "重连之后"} {
+		select {
+		case <-connects:
+		case <-time.After(3 * time.Second):
+			t.Fatalf("第 %d 次连上没有通知旁听者(%s)", i+1, why)
+		}
+	}
+	select {
+	case <-connects:
+		t.Fatal("拨号失败那一次不该算连上")
+	case <-time.After(100 * time.Millisecond):
+	}
 }

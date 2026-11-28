@@ -113,6 +113,12 @@ const (
 	LLMProviderReachInvalid                   // 供应商「谁能连到」取值不合法
 )
 
+// 设备情况 12070~（同一份 spec「设备与设备情况上报」）：设备页读取 / 刷新设备上报的情况。
+const (
+	DeviceFactsDeviceNotFound    = iota + 12070 // 要刷新的设备不是本机，也不是已配对的设备
+	DeviceFactsDeviceUnreachable                // 已配对的设备此刻连不上，读不到它的情况
+)
+
 // App 设置 15000~15999
 const (
 	AppSettingNotFound      = iota + 15000 // 设置项不存在

@@ -110,6 +110,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
   case runtimeInjectSubagentEvents // = 80
   case runtimeListSessionProcesses // = 81
   case runtimeKillSessionProcess // = 82
+  case deviceFacts // = 83
   case UNRECOGNIZED(Int)
 
   public init() {
@@ -201,6 +202,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     case 80: self = .runtimeInjectSubagentEvents
     case 81: self = .runtimeListSessionProcesses
     case 82: self = .runtimeKillSessionProcess
+    case 83: self = .deviceFacts
     default: self = .UNRECOGNIZED(rawValue)
     }
   }
@@ -290,6 +292,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     case .runtimeInjectSubagentEvents: return 80
     case .runtimeListSessionProcesses: return 81
     case .runtimeKillSessionProcess: return 82
+    case .deviceFacts: return 83
     case .UNRECOGNIZED(let i): return i
     }
   }
@@ -379,6 +382,7 @@ public nonisolated enum Agentre_Wire_RpcMethod: SwiftProtobuf.Enum, Swift.CaseIt
     .runtimeInjectSubagentEvents,
     .runtimeListSessionProcesses,
     .runtimeKillSessionProcess,
+    .deviceFacts,
   ]
 
 }
@@ -1667,6 +1671,122 @@ public nonisolated struct Agentre_Wire_HealthPingResponse: Sendable {
   /// injected commit. See AuthAccountResponse.daemon_commit — same value, same
   /// meaning, and the same "never upgradable when empty" rule.
   public var daemonCommit: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// device.facts reads this machine's device facts: which known runtimes are
+/// installed (version, path, below the minimum, Claude Code / Codex native login
+/// state), whether each account ACP engine's command resolves, whether each
+/// Hermes / OpenClaw engine has a credential on this machine, and the installed
+/// skill packs per runtime. It is how a desktop that is not logged in (or that
+/// wants an immediate answer) reads a paired agentred directly; the same facts
+/// otherwise reach the account server as syncwire.DeviceFactsReport. No field
+/// carries a credential, token or environment value.
+public nonisolated struct Agentre_Wire_DeviceFactsRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// refresh re-probes now instead of answering the last collected facts; a
+  /// logged-in daemon also reports the fresh facts to the account server.
+  public var refresh: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentre_Wire_DeviceFactsResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// When the facts were collected, unix milliseconds.
+  public var collectedAtMs: Int64 = 0
+
+  public var runtimes: [Agentre_Wire_DeviceRuntimeFact] = []
+
+  public var acpEngines: [Agentre_Wire_DeviceACPEngineFact] = []
+
+  public var serviceEngines: [Agentre_Wire_DeviceServiceEngineFact] = []
+
+  public var skillPacks: [Agentre_Wire_DeviceSkillPacks] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentre_Wire_DeviceRuntimeFact: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// The runtime type: claudecode / codex / piagent / antigravity.
+  public var runtime: String = String()
+
+  public var found: Bool = false
+
+  public var version: String = String()
+
+  public var path: String = String()
+
+  /// Empty when the runtime has no minimum version.
+  public var minimumVersion: String = String()
+
+  public var belowMinimum: Bool = false
+
+  /// Claude Code and Codex only: "loggedIn" / "loggedOut" / "unknown".
+  public var nativeLogin: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentre_Wire_DeviceACPEngineFact: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var engineSyncID: String = String()
+
+  public var resolvable: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentre_Wire_DeviceServiceEngineFact: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var engineSyncID: String = String()
+
+  /// hermes or openclaw.
+  public var runtime: String = String()
+
+  /// Whether this machine holds the credential; never the value.
+  public var credentialPresent: Bool = false
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+public nonisolated struct Agentre_Wire_DeviceSkillPacks: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var runtime: String = String()
+
+  public var packIds: [String] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -7473,7 +7593,7 @@ public nonisolated let Agentre_Wire_Extensions_protocol_version = SwiftProtobuf.
 fileprivate nonisolated let _protobuf_package = "agentre.wire"
 
 nonisolated extension Agentre_Wire_RpcMethod: SwiftProtobuf._ProtoNameProviding {
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RPC_METHOD_UNSPECIFIED\0\u{1}RPC_METHOD_AUTH_ACCOUNT\0\u{1}RPC_METHOD_SESSION_LIST\0\u{1}RPC_METHOD_SESSION_ATTACH\0\u{1}RPC_METHOD_SESSION_PULL\0\u{1}RPC_METHOD_SESSION_PENDING_WAITERS\0\u{1}RPC_METHOD_SESSION_DELETE\0\u{1}RPC_METHOD_SET_MODEL_TARGET\0\u{1}RPC_METHOD_RUNTIME_CAPABILITIES\0\u{1}RPC_METHOD_RUNTIME_STEER\0\u{1}RPC_METHOD_RUNTIME_CANCEL_STEER\0\u{1}RPC_METHOD_RUNTIME_DRAIN_PENDING\0\u{1}RPC_METHOD_RUNTIME_ABORT\0\u{1}RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK\0\u{1}RPC_METHOD_RUNTIME_SET_PERMISSION_MODE\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_ANSWER\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION\0\u{1}RPC_METHOD_RUNTIME_RUN\0\u{1}RPC_METHOD_RUNTIME_GOAL_GET\0\u{1}RPC_METHOD_RUNTIME_GOAL_SET\0\u{1}RPC_METHOD_RUNTIME_GOAL_CLEAR\0\u{1}RPC_METHOD_TERMINAL_OPEN\0\u{1}RPC_METHOD_TERMINAL_WRITE\0\u{1}RPC_METHOD_TERMINAL_RESIZE\0\u{1}RPC_METHOD_TERMINAL_CLOSE\0\u{1}RPC_METHOD_MCP_PROXY\0\u{1}RPC_METHOD_PROJECT_SET_LOCAL_PATH\0\u{1}RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH\0\u{1}RPC_METHOD_SKILLS_CATALOG\0\u{1}RPC_METHOD_REMOTE_FS_LIST_DIR\0\u{1}RPC_METHOD_REMOTE_FS_MKDIR\0\u{1}RPC_METHOD_WORKSPACE_FS_LIST_DIR\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_CHANGES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES\0\u{1}RPC_METHOD_WORKSPACE_FS_READ_FILE\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT\0\u{1}RPC_METHOD_WORKSPACE_FS_SEARCH_FILES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_STATE\0\u{1}RPC_METHOD_AUTH_PAIR\0\u{1}RPC_METHOD_AUTH_CONNECT\0\u{1}RPC_METHOD_AUTH_REVOKE\0\u{1}RPC_METHOD_LLM_UPSERT\0\u{1}RPC_METHOD_LLM_DELETE\0\u{1}RPC_METHOD_LLM_LIST\0\u{1}RPC_METHOD_ENGINE_TEST\0\u{1}RPC_METHOD_ENGINE_DISCOVER\0\u{1}RPC_METHOD_ENGINE_SCAN\0\u{1}RPC_METHOD_CLI_RESOLVE_PATH\0\u{1}RPC_METHOD_CLI_PROBE\0\u{1}RPC_METHOD_HEALTH_PING\0\u{1}RPC_METHOD_CLAUDE_CODE_USAGE\0\u{1}RPC_METHOD_SKILLS_LIST\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_SCAN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_OPEN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_TURNS\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE\0\u{1}RPC_METHOD_ACTIVITY_ROLLUP\0\u{1}RPC_METHOD_SET_SESSION_REASONING_EFFORT\0\u{1}RPC_METHOD_AGENTRED_SELF_UPDATE\0\u{1}RPC_METHOD_SESSION_COUNTS\0\u{1}RPC_METHOD_SKILLS_COMMANDS\0\u{1}RPC_METHOD_PORT_FORWARD_LIST\0\u{1}RPC_METHOD_PORT_FORWARD_CREATE\0\u{1}RPC_METHOD_PORT_FORWARD_SET_ENABLED\0\u{1}RPC_METHOD_PORT_FORWARD_DELETE\0\u{1}RPC_METHOD_PORT_FORWARD_OPEN\0\u{1}RPC_METHOD_PORT_FORWARD_WRITE\0\u{1}RPC_METHOD_PORT_FORWARD_CLOSE\0\u{1}RPC_METHOD_PORT_FORWARD_ACK\0\u{1}RPC_METHOD_AUTH_DIRECT\0\u{1}RPC_METHOD_BACKEND_CREDENTIAL_STATUS\0\u{1}RPC_METHOD_OPENCLAW_TOKEN_SET\0\u{1}RPC_METHOD_HERMES_AUTH_PROVIDERS\0\u{1}RPC_METHOD_HERMES_LOGIN\0\u{1}RPC_METHOD_HERMES_LOGOUT\0\u{1}RPC_METHOD_BACKEND_CONNECTION_TEST\0\u{1}RPC_METHOD_TOOL_APPROVAL_ANSWER\0\u{1}RPC_METHOD_CLI_MODELS_LIST\0\u{1}RPC_METHOD_RUNTIME_SET_CLI_MODEL\0\u{1}RPC_METHOD_SET_SESSION_CLI_MODEL\0\u{1}RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS\0\u{1}RPC_METHOD_RUNTIME_LIST_SESSION_PROCESSES\0\u{1}RPC_METHOD_RUNTIME_KILL_SESSION_PROCESS\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0RPC_METHOD_UNSPECIFIED\0\u{1}RPC_METHOD_AUTH_ACCOUNT\0\u{1}RPC_METHOD_SESSION_LIST\0\u{1}RPC_METHOD_SESSION_ATTACH\0\u{1}RPC_METHOD_SESSION_PULL\0\u{1}RPC_METHOD_SESSION_PENDING_WAITERS\0\u{1}RPC_METHOD_SESSION_DELETE\0\u{1}RPC_METHOD_SET_MODEL_TARGET\0\u{1}RPC_METHOD_RUNTIME_CAPABILITIES\0\u{1}RPC_METHOD_RUNTIME_STEER\0\u{1}RPC_METHOD_RUNTIME_CANCEL_STEER\0\u{1}RPC_METHOD_RUNTIME_DRAIN_PENDING\0\u{1}RPC_METHOD_RUNTIME_ABORT\0\u{1}RPC_METHOD_RUNTIME_STOP_BACKGROUND_TASK\0\u{1}RPC_METHOD_RUNTIME_SET_PERMISSION_MODE\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_ANSWER\0\u{1}RPC_METHOD_RUNTIME_SUBMIT_TOOL_PERMISSION\0\u{1}RPC_METHOD_RUNTIME_RUN\0\u{1}RPC_METHOD_RUNTIME_GOAL_GET\0\u{1}RPC_METHOD_RUNTIME_GOAL_SET\0\u{1}RPC_METHOD_RUNTIME_GOAL_CLEAR\0\u{1}RPC_METHOD_TERMINAL_OPEN\0\u{1}RPC_METHOD_TERMINAL_WRITE\0\u{1}RPC_METHOD_TERMINAL_RESIZE\0\u{1}RPC_METHOD_TERMINAL_CLOSE\0\u{1}RPC_METHOD_MCP_PROXY\0\u{1}RPC_METHOD_PROJECT_SET_LOCAL_PATH\0\u{1}RPC_METHOD_PROJECT_CLEAR_LOCAL_PATH\0\u{1}RPC_METHOD_SKILLS_CATALOG\0\u{1}RPC_METHOD_REMOTE_FS_LIST_DIR\0\u{1}RPC_METHOD_REMOTE_FS_MKDIR\0\u{1}RPC_METHOD_WORKSPACE_FS_LIST_DIR\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_CHANGES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_BRANCHES\0\u{1}RPC_METHOD_WORKSPACE_FS_READ_FILE\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_FILE_CONTENT\0\u{1}RPC_METHOD_WORKSPACE_FS_SEARCH_FILES\0\u{1}RPC_METHOD_WORKSPACE_FS_GIT_STATE\0\u{1}RPC_METHOD_AUTH_PAIR\0\u{1}RPC_METHOD_AUTH_CONNECT\0\u{1}RPC_METHOD_AUTH_REVOKE\0\u{1}RPC_METHOD_LLM_UPSERT\0\u{1}RPC_METHOD_LLM_DELETE\0\u{1}RPC_METHOD_LLM_LIST\0\u{1}RPC_METHOD_ENGINE_TEST\0\u{1}RPC_METHOD_ENGINE_DISCOVER\0\u{1}RPC_METHOD_ENGINE_SCAN\0\u{1}RPC_METHOD_CLI_RESOLVE_PATH\0\u{1}RPC_METHOD_CLI_PROBE\0\u{1}RPC_METHOD_HEALTH_PING\0\u{1}RPC_METHOD_CLAUDE_CODE_USAGE\0\u{1}RPC_METHOD_SKILLS_LIST\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_SCAN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_OPEN\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_TURNS\0\u{1}RPC_METHOD_TRANSCRIPT_IMPORT_EXECUTE\0\u{1}RPC_METHOD_ACTIVITY_ROLLUP\0\u{1}RPC_METHOD_SET_SESSION_REASONING_EFFORT\0\u{1}RPC_METHOD_AGENTRED_SELF_UPDATE\0\u{1}RPC_METHOD_SESSION_COUNTS\0\u{1}RPC_METHOD_SKILLS_COMMANDS\0\u{1}RPC_METHOD_PORT_FORWARD_LIST\0\u{1}RPC_METHOD_PORT_FORWARD_CREATE\0\u{1}RPC_METHOD_PORT_FORWARD_SET_ENABLED\0\u{1}RPC_METHOD_PORT_FORWARD_DELETE\0\u{1}RPC_METHOD_PORT_FORWARD_OPEN\0\u{1}RPC_METHOD_PORT_FORWARD_WRITE\0\u{1}RPC_METHOD_PORT_FORWARD_CLOSE\0\u{1}RPC_METHOD_PORT_FORWARD_ACK\0\u{1}RPC_METHOD_AUTH_DIRECT\0\u{1}RPC_METHOD_BACKEND_CREDENTIAL_STATUS\0\u{1}RPC_METHOD_OPENCLAW_TOKEN_SET\0\u{1}RPC_METHOD_HERMES_AUTH_PROVIDERS\0\u{1}RPC_METHOD_HERMES_LOGIN\0\u{1}RPC_METHOD_HERMES_LOGOUT\0\u{1}RPC_METHOD_BACKEND_CONNECTION_TEST\0\u{1}RPC_METHOD_TOOL_APPROVAL_ANSWER\0\u{1}RPC_METHOD_CLI_MODELS_LIST\0\u{1}RPC_METHOD_RUNTIME_SET_CLI_MODEL\0\u{1}RPC_METHOD_SET_SESSION_CLI_MODEL\0\u{1}RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS\0\u{1}RPC_METHOD_RUNTIME_LIST_SESSION_PROCESSES\0\u{1}RPC_METHOD_RUNTIME_KILL_SESSION_PROCESS\0\u{1}RPC_METHOD_DEVICE_FACTS\0")
 }
 
 nonisolated extension Agentre_Wire_AgentredSelfUpdateRejectReason: SwiftProtobuf._ProtoNameProviding {
@@ -9579,6 +9699,256 @@ nonisolated extension Agentre_Wire_HealthPingResponse: SwiftProtobuf.Message, Sw
     if lhs.dbSizeBytes != rhs.dbSizeBytes {return false}
     if lhs.daemonVersion != rhs.daemonVersion {return false}
     if lhs.daemonCommit != rhs.daemonCommit {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_DeviceFactsRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeviceFactsRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}refresh\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.refresh) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.refresh != false {
+      try visitor.visitSingularBoolField(value: self.refresh, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_DeviceFactsRequest, rhs: Agentre_Wire_DeviceFactsRequest) -> Bool {
+    if lhs.refresh != rhs.refresh {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_DeviceFactsResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeviceFactsResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}collected_at_ms\0\u{1}runtimes\0\u{3}acp_engines\0\u{3}service_engines\0\u{3}skill_packs\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.collectedAtMs) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.runtimes) }()
+      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.acpEngines) }()
+      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.serviceEngines) }()
+      case 5: try { try decoder.decodeRepeatedMessageField(value: &self.skillPacks) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.collectedAtMs != 0 {
+      try visitor.visitSingularInt64Field(value: self.collectedAtMs, fieldNumber: 1)
+    }
+    if !self.runtimes.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.runtimes, fieldNumber: 2)
+    }
+    if !self.acpEngines.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.acpEngines, fieldNumber: 3)
+    }
+    if !self.serviceEngines.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.serviceEngines, fieldNumber: 4)
+    }
+    if !self.skillPacks.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.skillPacks, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_DeviceFactsResponse, rhs: Agentre_Wire_DeviceFactsResponse) -> Bool {
+    if lhs.collectedAtMs != rhs.collectedAtMs {return false}
+    if lhs.runtimes != rhs.runtimes {return false}
+    if lhs.acpEngines != rhs.acpEngines {return false}
+    if lhs.serviceEngines != rhs.serviceEngines {return false}
+    if lhs.skillPacks != rhs.skillPacks {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_DeviceRuntimeFact: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeviceRuntimeFact"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}runtime\0\u{1}found\0\u{1}version\0\u{1}path\0\u{3}minimum_version\0\u{3}below_minimum\0\u{3}native_login\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.runtime) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.found) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.version) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.path) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.minimumVersion) }()
+      case 6: try { try decoder.decodeSingularBoolField(value: &self.belowMinimum) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.nativeLogin) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.runtime.isEmpty {
+      try visitor.visitSingularStringField(value: self.runtime, fieldNumber: 1)
+    }
+    if self.found != false {
+      try visitor.visitSingularBoolField(value: self.found, fieldNumber: 2)
+    }
+    if !self.version.isEmpty {
+      try visitor.visitSingularStringField(value: self.version, fieldNumber: 3)
+    }
+    if !self.path.isEmpty {
+      try visitor.visitSingularStringField(value: self.path, fieldNumber: 4)
+    }
+    if !self.minimumVersion.isEmpty {
+      try visitor.visitSingularStringField(value: self.minimumVersion, fieldNumber: 5)
+    }
+    if self.belowMinimum != false {
+      try visitor.visitSingularBoolField(value: self.belowMinimum, fieldNumber: 6)
+    }
+    if !self.nativeLogin.isEmpty {
+      try visitor.visitSingularStringField(value: self.nativeLogin, fieldNumber: 7)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_DeviceRuntimeFact, rhs: Agentre_Wire_DeviceRuntimeFact) -> Bool {
+    if lhs.runtime != rhs.runtime {return false}
+    if lhs.found != rhs.found {return false}
+    if lhs.version != rhs.version {return false}
+    if lhs.path != rhs.path {return false}
+    if lhs.minimumVersion != rhs.minimumVersion {return false}
+    if lhs.belowMinimum != rhs.belowMinimum {return false}
+    if lhs.nativeLogin != rhs.nativeLogin {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_DeviceACPEngineFact: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeviceACPEngineFact"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}engine_sync_id\0\u{1}resolvable\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.engineSyncID) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.resolvable) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.engineSyncID.isEmpty {
+      try visitor.visitSingularStringField(value: self.engineSyncID, fieldNumber: 1)
+    }
+    if self.resolvable != false {
+      try visitor.visitSingularBoolField(value: self.resolvable, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_DeviceACPEngineFact, rhs: Agentre_Wire_DeviceACPEngineFact) -> Bool {
+    if lhs.engineSyncID != rhs.engineSyncID {return false}
+    if lhs.resolvable != rhs.resolvable {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_DeviceServiceEngineFact: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeviceServiceEngineFact"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}engine_sync_id\0\u{1}runtime\0\u{3}credential_present\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.engineSyncID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.runtime) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.credentialPresent) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.engineSyncID.isEmpty {
+      try visitor.visitSingularStringField(value: self.engineSyncID, fieldNumber: 1)
+    }
+    if !self.runtime.isEmpty {
+      try visitor.visitSingularStringField(value: self.runtime, fieldNumber: 2)
+    }
+    if self.credentialPresent != false {
+      try visitor.visitSingularBoolField(value: self.credentialPresent, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_DeviceServiceEngineFact, rhs: Agentre_Wire_DeviceServiceEngineFact) -> Bool {
+    if lhs.engineSyncID != rhs.engineSyncID {return false}
+    if lhs.runtime != rhs.runtime {return false}
+    if lhs.credentialPresent != rhs.credentialPresent {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_DeviceSkillPacks: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".DeviceSkillPacks"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}runtime\0\u{3}pack_ids\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.runtime) }()
+      case 2: try { try decoder.decodeRepeatedStringField(value: &self.packIds) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.runtime.isEmpty {
+      try visitor.visitSingularStringField(value: self.runtime, fieldNumber: 1)
+    }
+    if !self.packIds.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.packIds, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_DeviceSkillPacks, rhs: Agentre_Wire_DeviceSkillPacks) -> Bool {
+    if lhs.runtime != rhs.runtime {return false}
+    if lhs.packIds != rhs.packIds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

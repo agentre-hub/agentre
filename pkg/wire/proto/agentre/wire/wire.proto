@@ -128,6 +128,7 @@ enum RpcMethod {
   RPC_METHOD_RUNTIME_INJECT_SUBAGENT_EVENTS = 80;
   RPC_METHOD_RUNTIME_LIST_SESSION_PROCESSES = 81;
   RPC_METHOD_RUNTIME_KILL_SESSION_PROCESS = 82;
+  RPC_METHOD_DEVICE_FACTS = 83;
 }
 
 message WireFrame {
@@ -431,6 +432,55 @@ message HealthPingResponse {
   // injected commit. See AuthAccountResponse.daemon_commit — same value, same
   // meaning, and the same "never upgradable when empty" rule.
   string daemon_commit = 7;
+}
+
+// device.facts reads this machine's device facts: which known runtimes are
+// installed (version, path, below the minimum, Claude Code / Codex native login
+// state), whether each account ACP engine's command resolves, whether each
+// Hermes / OpenClaw engine has a credential on this machine, and the installed
+// skill packs per runtime. It is how a desktop that is not logged in (or that
+// wants an immediate answer) reads a paired agentred directly; the same facts
+// otherwise reach the account server as syncwire.DeviceFactsReport. No field
+// carries a credential, token or environment value.
+message DeviceFactsRequest {
+  // refresh re-probes now instead of answering the last collected facts; a
+  // logged-in daemon also reports the fresh facts to the account server.
+  bool refresh = 1;
+}
+message DeviceFactsResponse {
+  // When the facts were collected, unix milliseconds.
+  int64 collected_at_ms = 1;
+  repeated DeviceRuntimeFact runtimes = 2;
+  repeated DeviceACPEngineFact acp_engines = 3;
+  repeated DeviceServiceEngineFact service_engines = 4;
+  repeated DeviceSkillPacks skill_packs = 5;
+}
+message DeviceRuntimeFact {
+  // The runtime type: claudecode / codex / piagent / antigravity.
+  string runtime = 1;
+  bool found = 2;
+  string version = 3;
+  string path = 4;
+  // Empty when the runtime has no minimum version.
+  string minimum_version = 5;
+  bool below_minimum = 6;
+  // Claude Code and Codex only: "loggedIn" / "loggedOut" / "unknown".
+  string native_login = 7;
+}
+message DeviceACPEngineFact {
+  string engine_sync_id = 1;
+  bool resolvable = 2;
+}
+message DeviceServiceEngineFact {
+  string engine_sync_id = 1;
+  // hermes or openclaw.
+  string runtime = 2;
+  // Whether this machine holds the credential; never the value.
+  bool credential_present = 3;
+}
+message DeviceSkillPacks {
+  string runtime = 1;
+  repeated string pack_ids = 2;
 }
 
 // AgentredSelfUpdateRequest asks the daemon to upgrade its own binary and then

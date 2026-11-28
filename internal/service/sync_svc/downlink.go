@@ -516,12 +516,31 @@ func (s *service) watchAccountChannel(ctx context.Context) {
 			}
 			continue
 		}
+		s.notifyChannelConnected(ctx)
 		s.syncOnceForSignal(ctx, "connected")
 		s.consumeAccountSignals(dialCtx, signals)
 		cancel()
 		if !s.waitBeforeRedial(ctx) {
 			return
 		}
+	}
+}
+
+// OnAccountChannelConnected 见 AccountChannelObserver。
+func (s *service) OnAccountChannelConnected(fn func(ctx context.Context)) {
+	s.mu.Lock()
+	s.connectListeners = append(s.connectListeners, fn)
+	s.mu.Unlock()
+}
+
+// notifyChannelConnected 在后台通知每一个旁听者:它们做的事(探测、上报)不能拖住
+// 这条通道的下行。
+func (s *service) notifyChannelConnected(ctx context.Context) {
+	s.mu.Lock()
+	listeners := append([]func(context.Context){}, s.connectListeners...)
+	s.mu.Unlock()
+	for _, fn := range listeners {
+		go fn(ctx)
 	}
 }
 

@@ -10,11 +10,13 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/devicefacts"
 	"github.com/agentre-hub/agentre/internal/pkg/cagoenvelope"
 	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
@@ -36,6 +38,9 @@ type Options struct {
 	AccessToken func() string
 	HTTPClient  HTTPDoer
 	Logf        func(format string, args ...any)
+	// OnApplied runs after every successfully applied snapshot (the account's
+	// engines may have changed, so device facts re-check). Nil means no-op.
+	OnApplied func()
 }
 
 // Manager owns the latest successful account snapshot. Providers are persisted
@@ -47,6 +52,7 @@ type Manager struct {
 	accessToken func() string
 	httpClient  HTTPDoer
 	logf        func(format string, args ...any)
+	onApplied   func()
 
 	pullMu sync.Mutex
 	mu     sync.RWMutex
@@ -84,7 +90,7 @@ func New(opts Options) *Manager {
 	}
 	return &Manager{
 		state: opts.State, serverURL: opts.ServerURL, accessToken: opts.AccessToken,
-		httpClient: client, logf: logf, paths: map[string]string{},
+		httpClient: client, logf: logf, onApplied: opts.OnApplied, paths: map[string]string{},
 		backends: map[string]Backend{},
 	}
 }
@@ -214,6 +220,9 @@ func (m *Manager) Pull(ctx context.Context) error {
 	m.backends = backends
 	m.ready = true
 	m.mu.Unlock()
+	if m.onApplied != nil {
+		m.onApplied()
+	}
 	return nil
 }
 
@@ -251,6 +260,29 @@ func (m *Manager) ResolveBackendConfig(backendSyncID string) (Backend, bool) {
 	}
 	b.AgentBackendConfig = cloneBackendConfig(b.AgentBackendConfig)
 	return b, true
+}
+
+// Engines lists the account backends that carry device facts — ACP, Hermes and
+// OpenClaw — sorted by sync ID. Snapshot entries carry no type, so each is
+// recognized by the config key only its type sets (acpCommand, hermesUrl,
+// openclawGatewayUrl; see syncwire.AgentBackendConfig). Empty before the first
+// successful snapshot.
+func (m *Manager) Engines() []devicefacts.Engine {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]devicefacts.Engine, 0, len(m.backends))
+	for syncID, b := range m.backends {
+		switch {
+		case strings.TrimSpace(b.ACPCommand) != "":
+			out = append(out, devicefacts.Engine{SyncID: syncID, Runtime: "acp", ACPCommand: b.ACPCommand})
+		case strings.TrimSpace(b.HermesURL) != "":
+			out = append(out, devicefacts.Engine{SyncID: syncID, Runtime: "hermes", HermesURL: b.HermesURL})
+		case strings.TrimSpace(b.OpenClawGatewayURL) != "":
+			out = append(out, devicefacts.Engine{SyncID: syncID, Runtime: "openclaw"})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].SyncID < out[j].SyncID })
+	return out
 }
 
 // cloneBackendConfig deep-copies the mutable fields (the argv slice and the

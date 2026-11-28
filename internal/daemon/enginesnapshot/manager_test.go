@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/daemon/state"
+	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/devicefacts"
 )
 
 const (
@@ -339,3 +340,54 @@ func TestManager_GivenLoggedOutDaemon_WhenResolvingCLIPath_ThenLeavesPairedDeskt
 // serveAccountSignal 消费后直接调 Manager.PullAsync——所以本包没有 websocket 拨号测试。
 // 那条路由行为的测试见 internal/daemon/daemon_test.go 的
 // TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEngineSnapshotWithoutTouchingTheRPCRegistry。
+
+// Given 快照里有 ACP、Hermes、OpenClaw 与普通 CLI 后端,When 设备情况要列账号引擎,
+// Then 只交出有设备事实的三类,类型按各自独有的配置键认出(快照条目不带 type),
+// 且每次成功应用快照之后通知一次,设备情况据此重新核对。
+func TestManager_GivenBackendsInSnapshot_WhenListingEngines_ThenServiceAndACPEnginesAreTypedAndApplyIsAnnounced(t *testing.T) {
+	st := loggedInState(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, snapshotBodyWithBackends("provider-1", "k", "", []map[string]any{
+			{"backend_sync_id": "acp-1", "config": map[string]any{"acpCommand": "gemini", "acpArgs": []string{"--acp"}}},
+			{"backend_sync_id": "hermes-1", "config": map[string]any{"hermesUrl": "http://hermes.local:8642"}},
+			{"backend_sync_id": "openclaw-1", "config": map[string]any{"openclawGatewayUrl": "ws://gw.local"}},
+			{"backend_sync_id": "claude-1", "config": map[string]any{"defaultModel": "opus"}},
+		}))
+	}))
+	t.Cleanup(server.Close)
+
+	var applied atomic.Int32
+	manager := New(Options{
+		State:       st,
+		ServerURL:   func() string { return server.URL },
+		AccessToken: func() string { return testAccessToken },
+		HTTPClient:  server.Client(),
+		OnApplied:   func() { applied.Add(1) },
+	})
+	assert.Empty(t, manager.Engines(), "快照拉到之前没有账号引擎")
+
+	require.NoError(t, manager.Pull(context.Background()))
+	assert.Equal(t, int32(1), applied.Load())
+	assert.Equal(t, []devicefacts.Engine{
+		{SyncID: "acp-1", Runtime: "acp", ACPCommand: "gemini"},
+		{SyncID: "hermes-1", Runtime: "hermes", HermesURL: "http://hermes.local:8642"},
+		{SyncID: "openclaw-1", Runtime: "openclaw"},
+	}, manager.Engines())
+}
+
+// 拉取失败不算一次应用:设备情况不必为一份没变的快照重探。
+func TestManager_GivenFailedPull_ThenApplyIsNotAnnounced(t *testing.T) {
+	st := loggedInState(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	var applied atomic.Int32
+	manager := New(Options{
+		State: st, ServerURL: func() string { return server.URL }, AccessToken: func() string { return testAccessToken },
+		HTTPClient: server.Client(), OnApplied: func() { applied.Add(1) },
+	})
+	require.Error(t, manager.Pull(context.Background()))
+	assert.Equal(t, int32(0), applied.Load())
+}

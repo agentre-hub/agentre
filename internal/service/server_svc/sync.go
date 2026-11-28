@@ -133,6 +133,37 @@ func (s *service) ReportLocalPaths(ctx context.Context, items []syncwire.LocalPa
 	})
 }
 
+// ---------- 上报组：设备情况 ----------
+
+// DeviceFactsReporter 是设备情况的上报口,本包的 ServerSvc 实现满足它。
+//
+// 刻意不并进 ServerSvc:那是一张宽接口,别的包里有逐方法手写的测试替身,多一个方法就要
+// 它们一起改;设备情况的消费方(device_facts_svc)只需要这一个方法,由 bootstrap 取出
+// 装配。
+type DeviceFactsReporter interface {
+	ReportDeviceFacts(ctx context.Context, report *syncwire.DeviceFactsReport) error
+}
+
+// ReportDeviceFacts 把这台桌面端的设备情况整份上报给 server(规格「设备情况上报」);
+// 未登录不发任何请求。server 还没有这个端点时就是一个 404 错误,调用方下次触发时重试。
+// 情况里有本机路径,不进日志。
+func (s *service) ReportDeviceFacts(ctx context.Context, report *syncwire.DeviceFactsReport) error {
+	if err := s.requireLogin(ctx); err != nil {
+		return err
+	}
+	return s.withAuth(ctx, func(ctx context.Context) error {
+		var env envelope[struct{}]
+		_, doErr := s.getClient().do(ctx, http.MethodPost, syncwire.PathDeviceFacts, report, &env)
+		if doErr != nil {
+			return doErr
+		}
+		if env.Code != 0 {
+			return fmt.Errorf("server: report device facts rejected with code %d", env.Code)
+		}
+		return nil
+	})
+}
+
 // ---------- 头像 ----------
 
 type putAvatarReq struct {

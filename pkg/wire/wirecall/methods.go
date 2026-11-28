@@ -290,3 +290,6 @@ var HermesLogout = Define[*agentrewire.HermesLogoutRequest](agentrewire.RpcMetho
 
 var BackendConnectionTest = Define[*agentrewire.BackendConnectionTestRequest](agentrewire.RpcMethod_RPC_METHOD_BACKEND_CONNECTION_TEST,
 	func() *agentrewire.BackendConnectionTestResponse { return &agentrewire.BackendConnectionTestResponse{} })
+
+var DeviceFacts = Define[*agentrewire.DeviceFactsRequest](agentrewire.RpcMethod_RPC_METHOD_DEVICE_FACTS,
+	func() *agentrewire.DeviceFactsResponse { return &agentrewire.DeviceFactsResponse{} })

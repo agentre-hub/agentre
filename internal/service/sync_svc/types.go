@@ -62,6 +62,22 @@ type AccountChannelDialer interface {
 	DialAccountChannel(ctx context.Context) (<-chan localsync.AccountChannelFrame, error)
 }
 
+// AccountChannelObserver 是「连上账号中继」的旁听口,本包的引擎实现满足它。设备情况
+// 在每一次(重)连上时整份上报一次(规格「设备与设备情况上报 › 上报时机」),由
+// bootstrap 把它接上。刻意不并进 SyncSvc:那是一张宽接口,别处有逐方法的测试替身。
+type AccountChannelObserver interface {
+	// OnAccountChannelConnected 登记一个旁听者:账号级实时通道每一次拨号成功(首次与
+	// 重连一视同仁)都在后台调它一次,拨号失败不调。fn 拿到的是引擎的长期 ctx。
+	OnAccountChannelConnected(fn func(ctx context.Context))
+}
+
+// LocalPathSnapshotter 交出「本机为哪些项目配了路径」的整份快照,本包的引擎实现满足
+// 它。设备情况上报带上这份快照(规格「上报的内容」末项),用的是与本机路径上报同一条
+// 换账号边界(R13a)与同一套过滤,不另写一份。未登录时为空。
+type LocalPathSnapshotter interface {
+	LocalPathSnapshot(ctx context.Context) ([]syncwire.LocalPathItem, error)
+}
+
 // LocalChange 是一次本地增删改的同步侧描述。域服务在改动**落库成功之后**交出它，
 // 由同步层决定入队与上行；同步层的任何失败都不回传给域服务（R8）。
 type LocalChange struct {

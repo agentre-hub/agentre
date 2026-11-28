@@ -106,6 +106,15 @@ func localPathSnapshotFingerprint(items []syncwire.LocalPathItem) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// LocalPathSnapshot 见 LocalPathSnapshotter:与本机路径上报同一份快照,未登录时为空。
+func (s *service) LocalPathSnapshot(ctx context.Context) ([]syncwire.LocalPathItem, error) {
+	accountID, _, _, _, ok := s.account(ctx)
+	if !ok {
+		return []syncwire.LocalPathItem{}, nil
+	}
+	return s.buildLocalPathSnapshot(ctx, accountID)
+}
+
 // ReportLocalPathsNow 见 SyncSvc 接口注释（规格 2026-08-21 决策 4）。
 //
 // 它就是 reportLocalPathsOnce，只是从轮询之外多开了一个调用点：内容指纹、跳过

@@ -42,7 +42,9 @@ func InitServer(ctx context.Context) error {
 	// （server 的 user_id 跨 server 不唯一，见 sync_account_entity）。
 	sync_account_repo.RegisterSyncAccount(sync_account_repo.NewSyncAccount())
 	syncstate_repo.RegisterSyncState(syncstate_repo.NewSyncState())
-	sync_svc.SetDefault(sync_svc.New(svc))
+	syncSvc := sync_svc.New(svc)
+	sync_svc.SetDefault(syncSvc)
+	initDeviceFacts(svc, syncSvc)
 	logger.Ctx(ctx).Debug("bootstrap.InitServer: services initialized",
 		zap.Bool("hasServerURL", baseURL != ""))
 	return nil
