@@ -114,10 +114,7 @@ function ctx(op: string, text: string): Line {
 beforeEach(() => {
   nextId = 1;
   localStorage.clear();
-  useChatSidebarStore.setState({
-    changesScope: "session",
-    showIgnored: false,
-  });
+  useChatSidebarStore.setState({ showIgnored: false });
   // 工作根是每会话一条的运行期状态:不在这里清掉,上一个用例设过的根会跟着
   // 进下一个用例,把它的重放归属判到别的根上。
   useSessionRootStore.setState({ bySession: {} });

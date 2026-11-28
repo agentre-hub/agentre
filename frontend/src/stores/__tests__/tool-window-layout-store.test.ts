@@ -311,7 +311,7 @@ describe("tool-window-layout-store", () => {
       expect(shownWindows()).toEqual(["directory"]);
     });
 
-    it("Given 旧侧栏存着「变更」档位与「显示忽略项」, When 升级, Then 两项偏好保留", async () => {
+    it("Given 旧侧栏存着「变更」档位与「显示忽略项」, When 升级, Then「显示忽略项」保留、已去掉的档位不读回", async () => {
       persistLegacy({
         open: true,
         activeTab: "changes",
@@ -320,7 +320,10 @@ describe("tool-window-layout-store", () => {
       });
       await rehydrate();
       await useChatSidebarStore.persist.rehydrate();
-      expect(useChatSidebarStore.getState().changesScope).toBe("uncommitted");
+      expect(
+        (useChatSidebarStore.getState() as Record<string, unknown>)
+          .changesScope,
+      ).toBeUndefined();
       expect(useChatSidebarStore.getState().showIgnored).toBe(true);
     });
   });

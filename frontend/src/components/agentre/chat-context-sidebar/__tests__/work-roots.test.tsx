@@ -52,7 +52,6 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
     gitStateMock(sessionId, root),
 }));
 
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useSessionRootStore } from "@/stores/session-root-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
@@ -65,42 +64,6 @@ import type { chat_svc } from "../../../../../wailsjs/go/models";
 
 const CWD = "/Users/me/proj";
 const WT = "/Users/me/proj-ia";
-
-type Msg = chat_svc.ChatMessage;
-
-function userMsg(id: number): Msg {
-  return {
-    id,
-    role: "user",
-    blocks: [{ type: "text", text: "do it" }],
-  } as unknown as Msg;
-}
-
-function editBlock(path: string, plus = 3, minus = 1): unknown {
-  return {
-    type: "tool_use",
-    toolName: "Edit",
-    toolInput: { file_path: path },
-    canonical: {
-      kind: "file.edit",
-      fileEdit: {
-        files: [{ path, kind: "modified", hunks: [], plus, minus }],
-      },
-    },
-  };
-}
-
-function assistantMsg(id: number, blocks: unknown[]): Msg {
-  return { id, role: "assistant", blocks } as unknown as Msg;
-}
-
-/** 两个根都被改过：主仓库两个文件、worktree 一个文件（最后一次写入落在主仓库）。 */
-const twoRootMessages: Msg[] = [
-  userMsg(1),
-  assistantMsg(2, [editBlock(`${WT}/internal/turn.go`)]),
-  userMsg(3),
-  assistantMsg(4, [editBlock(`${CWD}/a.go`), editBlock(`${CWD}/docs/b.md`)]),
-];
 
 function root(
   path: string,
@@ -175,7 +138,7 @@ function renderSidebar(
   return render(
     <ChatContextToolWindows
       sessionId={7}
-      messages={twoRootMessages}
+      messages={[] as chat_svc.ChatMessage[]}
       activeMessageId={null}
       onJumpToMessage={() => {}}
       cwd={CWD}
@@ -196,10 +159,6 @@ async function pickRoot(path: string) {
 beforeEach(() => {
   localStorage.clear();
   showOnly("directory");
-  useChatSidebarStore.setState({
-    changesScope: "session",
-    showIgnored: false,
-  });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionRootStore.setState({ bySession: {} });
   useSessionStatusStore.getState().__reset();
@@ -327,21 +286,22 @@ describe("换根时在途的分支状态响应", () => {
 });
 
 describe("变更行的本机操作跟着当前工作根走", () => {
-  it("Given the session is rooted at the worktree, When a session change row is revealed, Then the absolute target is built from that worktree and not from the session cwd", async () => {
+  it("Given the session is rooted at the worktree, When an uncommitted change row is revealed, Then the absolute target is built from that worktree and not from the session cwd", async () => {
     const user = userEvent.setup();
     showOnly("changes");
-    useChatSidebarStore.setState({ changesScope: "session" });
+    gitChangesMock.mockImplementation((_sessionId: number, root: string) =>
+      Promise.resolve(changesView(root === WT ? ["internal/turn.go"] : [])),
+    );
     renderSidebar();
     await pickRoot(WT);
 
-    // 切到 worktree 之后这一档只剩 worktree 里的那一个文件。
     await waitFor(() =>
-      expect(screen.getByTestId("change-row")).toHaveAttribute(
+      expect(screen.getByTestId("git-row")).toHaveAttribute(
         "data-path",
         "internal/turn.go",
       ),
     );
-    const row = screen.getByTestId("change-row");
+    const row = screen.getByTestId("git-row");
 
     await user.click(
       within(row).getByRole("button", { name: /more actions/i }),
@@ -353,42 +313,5 @@ describe("变更行的本机操作跟着当前工作根走", () => {
 
     // cwd 与工作根同名文件同路径:少了这条断言,把工作根换回会话 cwd 也照样绿。
     expect(revealPathMock).toHaveBeenCalledWith(`${WT}/internal/turn.go`);
-  });
-});
-
-describe("嵌在主根里的 worktree（Windows 路径）", () => {
-  // Given Windows 会话的主根里嵌着一个 worktree（反斜杠路径）,
-  // When 「本次会话」按主根列行,
-  // Then worktree 里的文件归 worktree，不在主根的行里重复出现。
-  it("Given a worktree nested in a Windows primary root, When the session changes list the primary root, Then the worktree's files stay out of it", async () => {
-    const WIN_CWD = "C:\\code\\app";
-    const WIN_WT = "C:\\code\\app\\.worktrees\\feat";
-    workRootsMock.mockResolvedValue([
-      root(WIN_CWD, "app", { isPrimary: true, aiHere: true }),
-      root(WIN_WT, "feat", { isWorktree: true }),
-    ]);
-    showOnly("changes");
-    useChatSidebarStore.setState({ changesScope: "session" });
-    renderSidebar({
-      cwd: WIN_CWD,
-      messages: [
-        userMsg(1),
-        assistantMsg(2, [
-          editBlock(`${WIN_WT}\\x.go`),
-          editBlock(`${WIN_CWD}\\a.go`),
-        ]),
-      ],
-    });
-    await waitFor(() =>
-      expect(useSessionRootStore.getState().bySession[7]?.roots).toHaveLength(
-        2,
-      ),
-    );
-
-    await waitFor(() =>
-      expect(
-        screen.getAllByTestId("change-row").map((r) => r.dataset.path),
-      ).toEqual(["a.go"]),
-    );
   });
 });

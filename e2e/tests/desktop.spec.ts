@@ -247,8 +247,9 @@ test.describe("right tool windows", () => {
     const changesButton = strip.getByRole("button", { name: "Changes", exact: true });
     await changesButton.click();
     await expect(changesButton).toHaveAttribute("aria-pressed", "true");
+    // 「变更」只列 git 未提交；刚提交过的仓库是干净的。
     await expect(
-      page.getByRole("region", { name: "Changes" }).getByText("No files have been changed by tools in this session"),
+      page.getByRole("region", { name: "Changes" }).getByText("The working tree is clean, nothing uncommitted"),
     ).toBeVisible();
 
     const directoryButton = strip.getByRole("button", { name: "Directory", exact: true });

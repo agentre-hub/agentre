@@ -1,144 +1,49 @@
 import { useTranslation } from "react-i18next";
 
-import { cn } from "@agentre-hub/agentre-ui";
-
-import type { ChangesScope } from "@/stores/chat-sidebar-store";
-
-import { handleTablistKeyDown } from "./tablist-keydown";
-
-import type { ChangeRow } from "../derive";
-
 import { GitView } from "./git-view";
-import {
-  SessionChangesView,
-  type RemovedRootGroup,
-} from "./session-changes-view";
+import { PanelNotice } from "./panel-feedback";
 import type { GitChangesState } from "./use-git-changes";
 
 type Props = {
   sessionId: number;
-  /** 「本次会话」档的行，由消息派生（零后端调用）。 */
-  rows: ChangeRow[];
-  /** 已被移除的工作根里「本次会话」改过的文件（「本次会话」档末尾的划掉分组）。 */
-  removedGroups?: RemovedRootGroup[];
   cwd: string;
   remote: boolean;
-  /** 已生效的档位：非 git 仓库 / 无工作目录时调用方已把它钳到「本次会话」。 */
-  scope: ChangesScope;
-  onScopeChange: (scope: ChangesScope) => void;
-  /** 「未提交」档是否有意义；为 false 时那一档整个不渲染（spec 决策 11）。 */
-  uncommittedAvailable: boolean;
+  /** 会话有一个 git 工作目录；为 false（不是 git 仓库或没有工作目录）时只给一句说明。 */
+  gitAvailable: boolean;
   git: GitChangesState;
   onRetry: () => void;
-  onJumpToTurn: (turn: number) => void;
 };
 
 /**
- * ChangesPanel 是「变更」页的外壳：第二行是 `本次会话 / 未提交` 两档胶囊，下面
- * 是当前档的内容区（两档都是扁平列表，行的形态统一，spec 决策 12）。
+ * ChangesPanel 是「变更」工具窗的内容：工作区相对 HEAD 还没提交的文件，一份扁平
+ * 列表。
  *
- * 两档口径不同是有意为之（决策 2）：「本次会话」回答工具改了什么、纯消息派生；
- * 「未提交」回答工作区还有什么没提交、走 git。非 git 仓库时「未提交」失去意义，
- * 该行只剩一档而不是留一个空页（决策 11）。
+ * 它只读 git，不从消息里按工具名派生——AI 常用 Bash / python 写文件，按工具名认出
+ * 来的清单是残缺的，与 git 并列只会给出两个对不上的数字。没有 git 工作区时也就
+ * 无从列出，给一句说明而不是空白。
  */
 export function ChangesPanel({
   sessionId,
-  rows,
-  removedGroups,
   cwd,
   remote,
-  scope,
-  onScopeChange,
-  uncommittedAvailable,
+  gitAvailable,
   git,
   onRetry,
-  onJumpToTurn,
 }: Props) {
   const { t } = useTranslation();
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-8 shrink-0 items-center gap-1.5 px-2">
-        <div
-          role="tablist"
-          aria-label={t("chatContext.changes.scope.label")}
-          className="inline-flex shrink-0 gap-0.5"
-          onKeyDown={(e) =>
-            handleTablistKeyDown<ChangesScope>(e, onScopeChange)
-          }
-        >
-          <ScopeTab
-            value="session"
-            label={t("chatContext.changes.scope.session")}
-            active={scope === "session"}
-            onClick={() => onScopeChange("session")}
-          />
-          {uncommittedAvailable ? (
-            <ScopeTab
-              value="uncommitted"
-              label={t("chatContext.changes.scope.uncommitted")}
-              active={scope === "uncommitted"}
-              onClick={() => onScopeChange("uncommitted")}
-            />
-          ) : null}
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        {scope === "session" ? (
-          <SessionChangesView
-            sessionId={sessionId}
-            rows={rows}
-            removedGroups={removedGroups}
-            cwd={cwd}
-            remote={remote}
-            onJumpToTurn={onJumpToTurn}
-          />
-        ) : (
-          <GitView
-            sessionId={sessionId}
-            cwd={cwd}
-            remote={remote}
-            state={git}
-            onRetry={onRetry}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * 胶囊组与既有的两档胶囊同形（圆角胶囊、自然宽度，而不是等宽 flex-1），
- * whitespace-nowrap，侧栏被拖窄到 190px 时不换行。
- */
-function ScopeTab({
-  value,
-  label,
-  active,
-  onClick,
-}: {
-  value: ChangesScope;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      data-value={value}
-      aria-selected={active}
-      tabIndex={active ? 0 : -1}
-      onClick={onClick}
-      className={cn(
-        "rounded-full px-2 py-0.5 text-3xs whitespace-nowrap transition-colors",
-        "focus-visible:focus-outline",
-        // 分段控件：当前档是按钮填充，其余透明、悬停出底——不靠外框圈成一组。
-        active
-          ? "bg-button-fill font-semibold text-foreground"
-          : "text-muted-foreground hover:bg-accent/60 hover:on-accent",
+    <div className="min-h-0 flex-1 overflow-auto">
+      {gitAvailable ? (
+        <GitView
+          sessionId={sessionId}
+          cwd={cwd}
+          remote={remote}
+          state={git}
+          onRetry={onRetry}
+        />
+      ) : (
+        <PanelNotice text={t("chatContext.changes.notARepo")} />
       )}
-    >
-      {label}
-    </button>
+    </div>
   );
 }

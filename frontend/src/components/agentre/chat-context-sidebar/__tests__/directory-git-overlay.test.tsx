@@ -133,10 +133,7 @@ function renderSidebar() {
 beforeEach(() => {
   localStorage.clear();
   showOnly("directory");
-  useChatSidebarStore.setState({
-    changesScope: "session",
-    showIgnored: false,
-  });
+  useChatSidebarStore.setState({ showIgnored: false });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   openPathMock.mockReset();
@@ -354,7 +351,7 @@ describe("目录页的 git 状态叠加：取数与去重（ChatContextToolWindo
     expect(stripButton("Changes")).not.toHaveTextContent("3");
   });
 
-  it("does not fetch again when the 未提交 scope is opened afterwards: both pages share one snapshot", async () => {
+  it("does not fetch again when the Changes window is opened afterwards: both windows share one snapshot", async () => {
     listDirMock.mockResolvedValue(listing([entry("turn.go")]));
     gitChangesMock.mockResolvedValue(
       changesView([change({ path: "turn.go" })]),
@@ -365,7 +362,6 @@ describe("目录页的 git 状态叠加：取数与去重（ChatContextToolWindo
     await waitFor(() => expect(gitChangesMock).toHaveBeenCalledTimes(1));
 
     await userEvent.click(stripButton("Changes"));
-    await userEvent.click(screen.getByRole("tab", { name: "Uncommitted" }));
     // 目录与「变更」两个工具窗此刻都显示着这个文件。
     await waitFor(() => expect(screen.getAllByText("turn.go")).toHaveLength(2));
     expect(gitChangesMock).toHaveBeenCalledTimes(1);

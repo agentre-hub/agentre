@@ -108,25 +108,12 @@
     },
     "changes": {
       "label": "变更",
-      "scope": {
-        "label": "变更范围",
-        "session": "本次会话",
-        "uncommitted": "未提交"
-      },
-      "empty": "本会话还没有工具改动过文件",
-      "listAria": "本次会话改动的文件",
-      "status": {
-        "created": "新建",
-        "modified": "已修改",
-        "deleted": "已删除",
-        "written": "已写入"
-      }
+      "notARepo": "这个目录不是 git 仓库，无法列出改动"
     },
     "row": {
       "menu": "更多操作",
       "preview": "预览",
       "previewInNewTab": "在新标签页预览",
-      "jumpToTurn": "跳到对应轮次",
       "openWith": "用默认应用打开",
       "reveal": "在文件管理器中显示",
       "revealFailed": "在文件管理器中显示失败",
@@ -145,8 +132,7 @@
       "followed": "已跟随 AI 切到 worktree {{name}}",
       "followedRepo": "已跟随 AI 切到主仓库 {{name}}",
       "stay": "留在 {{name}}",
-      "removed": "worktree {{name}} 已被移除，回到 {{main}}",
-      "removedGroup": "{{name}}（已移除）"
+      "removed": "worktree {{name}} 已被移除，回到 {{main}}"
     },
     "gitStatus": {
       "ahead": "领先上游 {{count}} 个提交",

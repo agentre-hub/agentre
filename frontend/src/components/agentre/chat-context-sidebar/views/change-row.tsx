@@ -17,29 +17,20 @@ type Props = {
   name: string;
   /** 目录后缀；根目录下的文件为空串。 */
   dir: string;
-  /** 首列状态符号的字母与配色，两档共用 git-rows 的那一份映射。 */
+  /** 首列状态符号的字母与配色（git-rows 的那一份映射）。 */
   meta: GitStatusMeta;
   /** 状态的文字标签：字母对读屏隐藏，语义由它承担。 */
   statusLabel: string;
   plus: number;
   minus: number;
   title?: string;
-  /**
-   * 行属于一个已被移除的工作根（spec「worktree 被移除」）：名称与目录划掉；预览
-   * 标签绑这个根（`previewRoot`），而磁盘上已没有它，本机动作一律不提供——单击
-   * 只开预览，Diff 来自对话记录。
-   */
-  removedRoot?: string;
-  /** 仅「本次会话」档：跳到该文件最后被改动的轮次。 */
-  onJumpToTurn?: () => void;
   testId: string;
   rowData?: Record<string, string | undefined>;
 };
 
 /**
- * ChangeRowView 是「变更」页两档唯一的行渲染实现（spec 决策 12：变更天然跨目录，
- * 两档都是扁平列表、形态统一）。收敛到一处是刻意的：两档此前各写一遍行，状态
- * 字母列、目录后缀的截断方向与 `±N` 角标的取舍就会各自漂移。
+ * ChangeRowView 是「变更」页的行渲染（spec 决策 12：变更天然跨目录，扁平列表）：
+ * 状态字母列、从头截断的目录后缀与 `±N` 角标。
  *
  * 行的交互语义仍全部来自 SidebarRow：单击开临时预览标签、双击转常驻、⋯ 与右键
  * 是同一份菜单。
@@ -57,26 +48,20 @@ export function ChangeRowView({
   plus,
   minus,
   title,
-  removedRoot,
-  onJumpToTurn,
   testId,
   rowData,
 }: Props) {
-  const removed = removedRoot !== undefined;
   return (
     <SidebarRow
       sessionId={sessionId}
-      cwd={removed ? removedRoot : cwd}
-      remote={remote || removed}
-      previewRoot={removedRoot}
-      nameClassName={removed ? "line-through opacity-70" : undefined}
+      cwd={cwd}
+      remote={remote}
       sourceMode={sourceMode}
       kind="file"
       path={path}
       name={name}
       depth={0}
       title={title ?? path}
-      onJumpToTurn={onJumpToTurn}
       // 扁平行的首列是状态字母，占住图标列，没有展开箭头槽位。
       lead={
         <>
@@ -103,10 +88,7 @@ export function ChangeRowView({
           */}
           <span
             dir="rtl"
-            className={cn(
-              "min-w-0 flex-1 shrink-[9999] truncate text-left font-mono text-3xs opacity-55",
-              removed && "line-through",
-            )}
+            className="min-w-0 flex-1 shrink-[9999] truncate text-left font-mono text-3xs opacity-55"
           >
             {dir}
           </span>

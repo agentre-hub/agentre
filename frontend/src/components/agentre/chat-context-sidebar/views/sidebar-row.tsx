@@ -39,16 +39,11 @@ type Props = {
   /** 会话工作目录；空串表示会话没有工作目录（本机能力随之消失）。 */
   cwd: string;
   remote: boolean;
-  /** 行来自哪个模式：决定预览标签的首视图，也决定有没有「跳到对应轮次」。 */
+  /** 行来自哪个模式：决定预览标签的首视图。 */
   sourceMode: PreviewSourceMode;
   kind: "file" | "dir";
   /** 行的路径：相对当前工作根；没有工作根时是工具调用给的原始路径。 */
   path: string;
-  /**
-   * 预览标签绑定的工作根；缺省 = 会话当前工作根（useSessionRoot 的规范形，主根为
-   * 空串）。只有不属于当前根的行（已移除分组）才需要显式给出。
-   */
-  previewRoot?: string;
   /** 显示名（basename、目录名，或链压缩行的末段）。 */
   name: string;
   /**
@@ -74,8 +69,6 @@ type Props = {
   chainPrefix?: string;
   depth: number;
   title?: string;
-  /** 仅「本次会话」档的文件行：跳到该文件最后被改动的轮次。 */
-  onJumpToTurn?: () => void;
   /** 仅目录行。 */
   expanded?: boolean;
   onToggle?: () => void;
@@ -98,7 +91,7 @@ type Props = {
 };
 
 /**
- * SidebarRow 是「本次会话 / 未提交 / 目录」三个来源唯一的行渲染实现。
+ * SidebarRow 是「变更 / 目录」两个来源唯一的行渲染实现。
  *
  * 收敛到一处是刻意的：三种来源此前各写一遍行，点击语义因此长期分叉（变更跳轮次、
  * Git 打开文件、目录不可点）。现在单击语义只有一份——文件行单击去哪由
@@ -114,14 +107,12 @@ export function SidebarRow({
   sourceMode,
   kind,
   path,
-  previewRoot: previewRootProp,
   name,
   nameChildren,
   nameClassName,
   chainPrefix,
   depth,
   title,
-  onJumpToTurn,
   expanded = false,
   onToggle,
   rowKey,
@@ -152,7 +143,7 @@ export function SidebarRow({
   // 行的路径相对会话当前工作根（cwd 即它）：预览标签绑定打开时的这个根，之后
   // 再切根也不改变它。主根以规范形（空串）绑定，与转录链接打开的是同一个标签。
   const sessionRootArg = useSessionRootArg(sessionId);
-  const previewRoot = previewRootProp ?? sessionRootArg;
+  const previewRoot = sessionRootArg;
   const openAction = useFileSettingsStore((s) => s.settings.openAction);
   const openFile = useOpenFile(cwd);
   const revealFile = useRevealFile(cwd);
@@ -231,7 +222,6 @@ export function SidebarRow({
         );
       }
     },
-    onJumpToTurn: onJumpToTurn ?? null,
     onOpenWith: () => openFile(path),
     onReveal: () => revealFile(path),
     onCopy: copy,

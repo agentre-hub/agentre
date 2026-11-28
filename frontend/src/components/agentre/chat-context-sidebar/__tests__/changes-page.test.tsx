@@ -49,11 +49,7 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
   ) => gitChangesMock(sessionId, scope, baseRef),
 }));
 
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
-import {
-  selectActivePreviewTab,
-  useFilePreviewTabsStore,
-} from "@/stores/file-preview-tabs-store";
+import { useFilePreviewTabsStore } from "@/stores/file-preview-tabs-store";
 import { useChatStreamsStore } from "@/stores/chat-streams-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
@@ -114,8 +110,9 @@ function assistantMsg(id: number, blocks: unknown[]): Msg {
 }
 
 /**
- * 一份典型的会话：内部改了两个文件（其中一个是全量写入）、还往 /tmp 写过一份
- * 补丁（工作根之外，不该进列表）。
+ * 一份典型的会话：工具经 Edit / Write 改过三个文件。「变更」不再从这些消息派生
+ * 任何东西——AI 常用 Bash / python 写文件，按工具名认出来的清单是残缺的；列表与
+ * 角标只认 git 工作区。
  */
 const messages: Msg[] = [
   userMsg(1),
@@ -172,20 +169,9 @@ function changeRow(path: string): HTMLElement {
   return found;
 }
 
-function scopeTabs(): string[] {
-  const group = screen.getByRole("tablist", { name: "Change scope" });
-  return within(group)
-    .getAllByRole("tab")
-    .map((el) => el.textContent ?? "");
-}
-
 beforeEach(() => {
   localStorage.clear();
   showOnly("changes");
-  useChatSidebarStore.setState({
-    changesScope: "session",
-    showIgnored: false,
-  });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   useChatStreamsStore.setState({ streams: new Map() });
@@ -197,7 +183,10 @@ beforeEach(() => {
 });
 
 describe("「变更」工具窗 · 图标条", () => {
-  it("图标条上是大纲 / 变更 / 网页预览 / 目录 / 关联 / 会话信息 / 终端七个工具窗，Git 不是其中之一；变更带当前档的文件数", () => {
+  it("图标条上是大纲 / 变更 / 网页预览 / 目录 / 关联 / 会话信息 / 终端七个工具窗，Git 不是其中之一；变更带未提交的文件数", async () => {
+    gitChangesMock.mockResolvedValue(
+      changesView([{ path: "a.go" }, { path: "b.go" }]),
+    );
     renderSidebar();
 
     const toolbar = screen.getByRole("toolbar", { name: "Tool windows" });
@@ -217,11 +206,13 @@ describe("「变更」工具窗 · 图标条", () => {
     expect(within(toolbar).queryByRole("button", { name: /^git/i })).toBeNull();
 
     expect(stripButton("Changes")).toHaveAttribute("aria-pressed", "true");
-    // 角标与标题的数字是当前档（本次会话）的文件数：/tmp 的那次写入不算数。
-    expect(
-      within(stripButton("Changes")).getByTestId("tool-window-badge"),
-    ).toHaveTextContent("3");
-    expect(changesHeading()).toHaveTextContent(/^Changes3$/);
+    // 角标与标题的数字是 git 未提交的文件数，与消息里 Edit / Write 过几个文件无关。
+    await waitFor(() =>
+      expect(
+        within(stripButton("Changes")).getByTestId("tool-window-badge"),
+      ).toHaveTextContent("2"),
+    );
+    expect(changesHeading()).toHaveTextContent(/^Changes2$/);
   });
 
   it("Given 图标条, When 在图标上按 ↓ / ↑ / Home / End, Then 焦点在图标之间移动并回绕，不改变显示状态", async () => {
@@ -255,51 +246,27 @@ describe("「变更」工具窗 · 图标条", () => {
   });
 });
 
-describe("「变更」页 · 本次会话档", () => {
-  it("默认停在「本次会话」，按变动规模列出工具改过的文件，不为这一档打后端", () => {
+describe("「变更」页只有工作区未提交这一份清单", () => {
+  it("Given 工具在消息里 Edit / Write 过文件, When 打开「变更」, Then 没有档位切换，列的是 git 未提交的文件而不是消息派生的行", async () => {
+    gitChangesMock.mockResolvedValue(
+      changesView([
+        { path: "internal/a.go", status: "modified", added: 2 },
+        { path: "scripts/gen.py", status: "untracked" },
+      ]),
+    );
     renderSidebar();
 
-    expect(scopeTabs()).toEqual(["This session", "Uncommitted"]);
-    expect(screen.getByRole("tab", { name: "This session" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-
-    const rows = screen.getAllByTestId("change-row");
-    expect(rows.map((el) => el.getAttribute("data-path"))).toEqual([
-      "internal/service/chat_svc/turn.go",
-      "README.md",
-      "docs/gone.md",
-    ]);
+    await screen.findByText("a.go");
+    expect(gitChangesMock).toHaveBeenCalledWith(7, "uncommitted", "");
+    expect(screen.queryByRole("tablist", { name: "Change scope" })).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryAllByTestId("change-row")).toHaveLength(0);
+    // Bash / python 写出来的文件与 Edit 改的文件一样在列。
+    expect(changeRow("scripts/gen.py")).toBeInTheDocument();
+    expect(screen.queryByText("turn.go")).toBeNull();
   });
 
-  it("Given 「本次会话 / 未提交」两档, When 在当前档上按方向键, Then 切到另一档且焦点跟过去，只有当前档在 Tab 序列里", async () => {
-    const user = userEvent.setup();
-    renderSidebar();
-
-    const session = screen.getByRole("tab", { name: "This session" });
-    expect(session).toHaveAttribute("tabindex", "0");
-    expect(screen.getByRole("tab", { name: "Uncommitted" })).toHaveAttribute(
-      "tabindex",
-      "-1",
-    );
-
-    session.focus();
-    await user.keyboard("{ArrowRight}");
-    expect(useChatSidebarStore.getState().changesScope).toBe("uncommitted");
-    // 焦点留在档位组里，不冒泡出「变更」工具窗。
-    expect(isToolWindowShown("changes")).toBe(true);
-    expect(screen.getByRole("tab", { name: "Uncommitted" })).toHaveFocus();
-
-    await user.keyboard("{ArrowLeft}");
-    expect(useChatSidebarStore.getState().changesScope).toBe("session");
-    expect(screen.getByRole("tab", { name: "This session" })).toHaveFocus();
-  });
-
-  it("正在跑的那一轮改到的文件当场进列表，不必等轮次落定", () => {
-    // 在流的内容不在 messages 里：发送那一刻插进去的 assistant 是空占位，整轮的
-    // 块都住在 chat-streams-store，落定时才被真正的消息替换。只读 messages 的话
-    // AI 改文件的**整个过程**中这一页都写着「本会话还没有工具改动过文件」。
+  it("Given 正在跑的那一轮 Edit 了一个文件, When git 还没报告它, Then 它不会凭消息进列表", async () => {
     useChatStreamsStore.getState().openStream({
       name: "chat:7:live",
       sessionId: 7,
@@ -313,141 +280,41 @@ describe("「变更」页 · 本次会话档", () => {
         99,
         editBlock("live/only.go", "modified", 8, 2) as never,
       );
-
     renderSidebar();
 
-    const row = changeRow("live/only.go");
-    expect(within(row).getByText("only.go")).toBeInTheDocument();
-    expect(changesHeading()).toHaveTextContent(/^Changes4$/);
-  });
-
-  it("行是扁平的：basename 主显 + 目录后缀，右端是本会话累计的 ±N", () => {
-    renderSidebar();
-
-    const turn = changeRow("internal/service/chat_svc/turn.go");
-    expect(within(turn).getByText("turn.go")).toBeInTheDocument();
     expect(
-      within(turn).getByText("internal/service/chat_svc"),
+      await screen.findByText(/the working tree is clean/i),
     ).toBeInTheDocument();
-    expect(within(turn).getByText("+12")).toBeInTheDocument();
-    expect(within(turn).getByText("−3")).toBeInTheDocument();
-  });
-
-  it("四种状态各有字母与文字标签，全量写入自成一类而不是新建或修改", () => {
-    renderSidebar();
-
-    const expected: Array<[string, string, string]> = [
-      ["internal/service/chat_svc/turn.go", "M", "Modified"],
-      ["docs/gone.md", "D", "Deleted"],
-      ["README.md", "W", "Written"],
-    ];
-    for (const [path, letter, label] of expected) {
-      const row = changeRow(path);
-      const mark = row.querySelector("[data-status-letter]");
-      expect(mark).toHaveTextContent(letter);
-      expect(mark).toHaveAttribute("aria-hidden", "true");
-      expect(within(row).getByText(label)).toBeInTheDocument();
-    }
-    // 「写入」不冒充新建：Created 这个标签在整页都不出现。
-    expect(screen.queryByText("Created")).toBeNull();
-  });
-
-  it("工作根之外的路径不进列表，即使工具真的写过它", () => {
-    renderSidebar();
-
-    expect(screen.queryByText("patch.diff")).toBeNull();
-  });
-
-  it("单击一行开出预览标签，来源模式是「本次会话」", async () => {
-    const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderSidebar();
-
-    await user.click(
-      within(changeRow("README.md")).getByRole("button", {
-        name: /README\.md/,
-      }),
-    );
-
-    expect(
-      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 7),
-    ).toMatchObject({ path: "README.md", sourceMode: "session" });
-  });
-
-  it("本会话没有任何工具改动时给一句空态，而不是空白", () => {
-    renderSidebar({ messages: [userMsg(1)] });
-
-    expect(
-      screen.getByText("No files have been changed by tools in this session"),
-    ).toBeInTheDocument();
-    expect(screen.queryAllByTestId("change-row")).toHaveLength(0);
-  });
-});
-
-describe("「变更」页 · 未提交档", () => {
-  it("一次点击切到「未提交」：走 git、行同形，tab 角标换成该档的文件数", async () => {
-    const user = userEvent.setup({ pointerEventsCheck: 0 });
-    gitChangesMock.mockResolvedValue(
-      changesView([
-        { path: "internal/a.go", status: "modified", added: 2 },
-        { path: "b.md", status: "untracked" },
-      ]),
-    );
-    renderSidebar();
-
-    await user.click(screen.getByRole("tab", { name: "Uncommitted" }));
-
-    await screen.findByText("a.go");
-    expect(gitChangesMock).toHaveBeenCalledWith(7, "uncommitted", "");
-    expect(screen.queryAllByTestId("change-row")).toHaveLength(0);
-
-    const row = changeRow("internal/a.go");
-    expect(row.querySelector("[data-status-letter]")).toHaveTextContent("M");
-    expect(within(row).getByText("internal")).toBeInTheDocument();
-    expect(within(row).getByText("+2")).toBeInTheDocument();
-
-    await waitFor(() =>
-      expect(changesHeading()).toHaveTextContent(/^Changes2$/),
-    );
-  });
-
-  it("选中的档随会话侧栏状态记住", async () => {
-    const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderSidebar();
-
-    await user.click(screen.getByRole("tab", { name: "Uncommitted" }));
-
-    expect(useChatSidebarStore.getState().changesScope).toBe("uncommitted");
-    expect(localStorage.getItem("chat-sidebar-state")).toContain(
-      '"changesScope":"uncommitted"',
-    );
+    expect(screen.queryByText("only.go")).toBeNull();
   });
 });
 
 describe("「变更」页 · 非 git 仓库与无工作目录", () => {
-  it("非 git 仓库只剩「本次会话」一档，消息派生的行照常在", async () => {
+  it("Given 会话目录不是 git 仓库, When 打开「变更」, Then 给一句说明、没有角标，也不列消息派生的行", async () => {
     gitChangesMock.mockResolvedValue(changesView([], { notARepo: true }));
     renderSidebar();
 
-    await waitFor(() => expect(scopeTabs()).toEqual(["This session"]));
-    expect(screen.getAllByTestId("change-row").length).toBeGreaterThan(0);
+    expect(
+      await screen.findByText(
+        "This folder isn't a git repository, so changes can't be listed",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).toBeNull();
+    expect(screen.queryAllByTestId("change-row")).toHaveLength(0);
+    expect(
+      within(stripButton("Changes")).queryByTestId("tool-window-badge"),
+    ).toBeNull();
   });
 
-  it("持久化在「未提交」档的会话进了非 git 仓库时钳回「本次会话」，不留空页", async () => {
-    useChatSidebarStore.setState({ changesScope: "uncommitted" });
-    gitChangesMock.mockResolvedValue(changesView([], { notARepo: true }));
-    renderSidebar();
-
-    await waitFor(() => expect(scopeTabs()).toEqual(["This session"]));
-    expect(screen.getByRole("tab", { name: "This session" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-  });
-
-  it("会话没有工作目录时同样只剩一档，且完全不打后端", () => {
+  it("Given 会话没有工作目录, When 打开「变更」, Then 同一句说明，且完全不打后端", () => {
     renderSidebar({ cwd: "" });
 
-    expect(scopeTabs()).toEqual(["This session"]);
+    expect(
+      screen.getByText(
+        "This folder isn't a git repository, so changes can't be listed",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("tab")).toBeNull();
     expect(gitChangesMock).not.toHaveBeenCalled();
   });
 });

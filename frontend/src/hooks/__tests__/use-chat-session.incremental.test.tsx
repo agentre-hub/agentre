@@ -14,7 +14,6 @@ import {
 } from "../../../wailsjs/go/app/App";
 import { deriveBackgroundTasks } from "@/components/agentre/background-tasks/derive";
 import { useTurnSettledCleanup } from "@/components/agentre/chat-panel/use-turn-settled-cleanup";
-import { deriveSessionChanges } from "@/components/agentre/chat-context-sidebar/derive";
 import { deriveTaskProgress } from "@/components/agentre/task-progress/derive";
 import { useChatStreamsStore } from "@/stores/chat-streams-store";
 import { useSessionConnStore } from "@/stores/session-conn-store";
@@ -155,8 +154,6 @@ function serve(...dbs: FakeDb[]): void {
 
 // ─── 夹具:一条跨窗口的会话 ─────────────────────────────────────────────────
 
-const ROOT = "/repo";
-
 function bgAgent(status: string) {
   return {
     type: "tool_use",
@@ -253,7 +250,6 @@ function finishTurn(db: FakeDb): void {
 
 function derivedViews(messages: ChatMessage[]) {
   return {
-    changes: deriveSessionChanges(messages, ROOT),
     tasks: deriveBackgroundTasks(messages, []),
     progress: deriveTaskProgress(messages, []),
   };
@@ -428,7 +424,7 @@ describe("useChatSession incremental reload (spec 2026-11-05 decision 4)", () =>
     ]);
   });
 
-  it("Given derived views over the whole session, When the turn-end reload merges, Then changes, background tasks and task progress equal a full reload", async () => {
+  it("Given derived views over the whole session, When the turn-end reload merges, Then background tasks and task progress equal a full reload", async () => {
     const { merged, full } = await incrementalMatchesFull(
       async (db, reload) => {
         finishTurn(db);
@@ -439,8 +435,7 @@ describe("useChatSession incremental reload (spec 2026-11-05 decision 4)", () =>
     );
     const got = derivedViews(merged);
     expect(got).toEqual(derivedViews(full));
-    // 参照答案本身不是空的:三个视图都看到了窗口外的旧消息与新追加的一轮。
-    expect(got.changes.map((c) => c.path).sort()).toEqual(["a.ts", "b.ts"]);
+    // 参照答案本身不是空的:两个视图都看到了窗口外的旧消息与新追加的一轮。
     expect(got.tasks.map((t) => [t.toolUseId, t.status])).toEqual([
       ["tu-bg", "completed"],
     ]);

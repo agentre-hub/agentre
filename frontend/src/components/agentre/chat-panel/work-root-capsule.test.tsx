@@ -18,8 +18,6 @@ import {
   type WorkRoot,
 } from "@/stores/session-root-store";
 
-import { WorkRootChangeCountsContext } from "../chat-context-sidebar/context-windows";
-
 import { ChatPanelHeader } from "./chat-panel-header";
 
 const CWD = "/work/demo-app";
@@ -76,27 +74,25 @@ function session(cwd: string): ChatSessionDetail {
 const apply = (roots: WorkRoot[]) =>
   act(() => useSessionRootStore.getState().applyRoots(7, CWD, roots));
 
-function renderHeader(cwd = CWD, counts = new Map<string, number>()) {
+function renderHeader(cwd = CWD) {
   return render(
     <TooltipProvider>
-      <WorkRootChangeCountsContext.Provider value={counts}>
-        <ChatPanelHeader
-          session={session(cwd)}
-          showNewSessionPrompt={false}
-          title="dark mode"
-          status="idle"
-          topline={null}
-          agentName="Claude Code"
-          metaTail=""
-          backgroundTasks={[]}
-          onClearCompletedTasks={() => {}}
-          canStop={false}
-          onStop={() => {}}
-          onRename={() => {}}
-          onCopyLaunchCommand={() => {}}
-          onDelete={() => {}}
-        />
-      </WorkRootChangeCountsContext.Provider>
+      <ChatPanelHeader
+        session={session(cwd)}
+        showNewSessionPrompt={false}
+        title="dark mode"
+        status="idle"
+        topline={null}
+        agentName="Claude Code"
+        metaTail=""
+        backgroundTasks={[]}
+        onClearCompletedTasks={() => {}}
+        canStop={false}
+        onStop={() => {}}
+        onRename={() => {}}
+        onCopyLaunchCommand={() => {}}
+        onDelete={() => {}}
+      />
     </TooltipProvider>,
   );
 }
@@ -156,18 +152,12 @@ describe("标题栏工作根胶囊 · 呈现", () => {
 
 describe("标题栏工作根胶囊 · 下拉", () => {
   // Given 两个根、AI 在 worktree、当前是 worktree, When 打开下拉, Then 每行有名称、
-  // 主仓库 / worktree、路径与本次会话变更数；当前根打勾，AI 所在根标「AI 在这里」，
-  // 底部是开着的「跟随 AI 切换」。
-  it("lists every root with kind, path, change count, the current check and where the agent is", async () => {
+  // 主仓库 / worktree 与路径，不带变更数（按工具名数出来的数字不可信，已去掉）；
+  // 当前根打勾，AI 所在根标「AI 在这里」，底部是开着的「跟随 AI 切换」。
+  it("lists every root with kind, path, the current check and where the agent is, without a change count", async () => {
     const user = userEvent.setup();
     apply([MAIN_ROOT(), WT_ROOT(true)]);
-    renderHeader(
-      CWD,
-      new Map([
-        [CWD, 0],
-        [WT, 5],
-      ]),
-    );
+    renderHeader();
     await user.click(capsule());
     const menu = await screen.findByRole("menu");
 
@@ -178,9 +168,7 @@ describe("标题栏工作根胶囊 · 下拉", () => {
     expect(rows[0]).toHaveTextContent(CWD);
     expect(rows[0]).not.toHaveAttribute("aria-current");
     expect(rows[0]).not.toHaveTextContent("Agent is here");
-    expect(within(rows[0]).getByTestId("work-root-count")).toHaveTextContent(
-      "0",
-    );
+    expect(within(menu).queryAllByTestId("work-root-count")).toHaveLength(0);
 
     expect(rows[1]).toHaveTextContent("dark-mode");
     expect(rows[1]).toHaveTextContent("worktree");
@@ -189,9 +177,6 @@ describe("标题栏工作根胶囊 · 下拉", () => {
     expect(within(rows[1]).getByTestId("work-root-check")).toBeInTheDocument();
     expect(within(rows[0]).queryByTestId("work-root-check")).toBeNull();
     expect(rows[1]).toHaveTextContent("Agent is here");
-    expect(within(rows[1]).getByTestId("work-root-count")).toHaveTextContent(
-      "5",
-    );
 
     const follow = within(menu).getByRole("menuitemcheckbox", {
       name: "Follow the agent",

@@ -50,7 +50,6 @@ vi.mock("@/../wailsjs/go/app/App", () => ({
   ) => gitChangesMock(sessionId, scope, baseRef),
 }));
 
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
 import {
   selectActivePreviewTab,
   useFilePreviewTabsStore,
@@ -132,13 +131,7 @@ function changesBadge(): string | null {
 
 beforeEach(() => {
   localStorage.clear();
-  // 「未提交」是「变更」工具窗内的第二档（决策 2）：「变更」工具窗显示，档位
-  // 停在「未提交」。
   showOnly("changes");
-  useChatSidebarStore.setState({
-    changesScope: "uncommitted",
-    showIgnored: false,
-  });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   openPathMock.mockReset();
@@ -150,7 +143,7 @@ beforeEach(() => {
   sonnerMocks.toast.error.mockReset();
 });
 
-describe("「变更」页 · 未提交档", () => {
+describe("「变更」页 · 未提交的文件", () => {
   it("asks for the uncommitted scope on entering the tab and renders flat rows", async () => {
     gitChangesMock.mockResolvedValue(
       changesView([
@@ -240,8 +233,8 @@ describe("「变更」页 · 未提交档", () => {
   });
 
   it("keeps the uncommitted count on the Changes icon while the Changes window is hidden", async () => {
-    // spec「图标条」：角标数字为变更工具窗当前档位的文件数——用户故事 2「侧栏关着
-    // 也能看到改了几个文件」，所以档位停在「未提交」时，变更窗收着也照样取数。
+    // 角标数字是未提交的文件数——「侧栏关着也能看到改了几个文件」，所以变更窗
+    // 收着也照样取数。
     showOnly("outline");
     gitChangesMock.mockResolvedValue(
       changesView([{ path: "a.go" }, { path: "b.go" }, { path: "c.go" }]),
@@ -275,15 +268,6 @@ describe("「变更」页 · 未提交档", () => {
     );
 
     await waitFor(() => expect(changesBadge()).toBeNull());
-  });
-
-  it("makes no git call at all while only the Outline window is open and Changes sits on the session tier", async () => {
-    showOnly("outline");
-    useChatSidebarStore.setState({ changesScope: "session" });
-    renderSidebar({});
-
-    await screen.findByRole("region", { name: "Outline" });
-    expect(gitChangesMock).not.toHaveBeenCalled();
   });
 
   it("notes truncation with the actual number of listed files", async () => {
@@ -386,7 +370,7 @@ describe("「变更」页 · 未提交档", () => {
   });
 });
 
-describe("「变更」页 · 未提交档的空态、错误与自动重拉", () => {
+describe("「变更」页 · 空态、错误与自动重拉", () => {
   it("shows the clean-working-tree copy when nothing is uncommitted", async () => {
     renderSidebar({});
 

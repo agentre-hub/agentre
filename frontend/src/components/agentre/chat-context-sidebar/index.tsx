@@ -10,8 +10,6 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { useChatSidebarStore } from "@/stores/chat-sidebar-store";
-import { useSessionLiveBlocks } from "@/stores/chat-streams-store";
 import { useFileSettingsStore } from "@/stores/file-settings-store";
 import { useSessionRoot } from "@/stores/session-root-store";
 import {
@@ -42,13 +40,11 @@ import {
   SessionInfoToolWindowEntry,
   TerminalToolWindowEntry,
   WebPreviewToolWindowEntry,
-  WorkRootChangeCountsContext,
   type ChatContextData,
 } from "./context-windows";
-import { deriveOutline, deriveSessionChanges } from "./derive";
+import { deriveOutline } from "./derive";
 import { useGitChanges } from "./views/use-git-changes";
 import { useGitState } from "./views/use-git-state";
-import type { RemovedRootGroup } from "./views/session-changes-view";
 import { useSessionRootSync } from "./views/use-session-root-sync";
 
 type Msg = chat_svc.ChatMessage;
@@ -112,9 +108,6 @@ function ChatContextToolWindowsImpl({
   children,
 }: Props) {
   const { t } = useTranslation();
-  const changesScope = useChatSidebarStore((s) => s.changesScope);
-  const setChangesScope = useChatSidebarStore((s) => s.setChangesScope);
-  const changesShown = useToolWindowLayout(selectIsToolWindowShown("changes"));
   const directoryShown = useToolWindowLayout(
     selectIsToolWindowShown("directory"),
   );
@@ -134,75 +127,7 @@ function ChatContextToolWindowsImpl({
   const workRoot = sessionRoot.current;
   const root = sessionRoot.rootArg;
 
-  // 正在跑的那一轮的块还没进 messages（发送时插的 assistant 是空占位，落定才被
-  // 真正的消息替换），它们住在 chat-streams-store。「变更」读的是**会话级**
-  // 事实，用户轮 / 自主续轮 / 后台活动轮的在流一并收进来 —— 只读 messages 就等于
-  // AI 改文件的整个过程里这一页恒为空。只订阅块集合 —— 文字 delta 不改变哪个
-  // 文件被改过，不该让下面的派生每帧重扫。
-  const liveBlocks = useSessionLiveBlocks(sessionId);
-
   const outline = React.useMemo(() => deriveOutline(messages), [messages]);
-  const roots = sessionRoot.roots;
-  const removedRoots = sessionRoot.removed;
-  // 每个根之外的其它根（含已移除的）：嵌在它里面的那些（主 checkout 里的 worktree）
-  // 由 deriveSessionChanges 按与行同一套、认分隔符的归属判定挑出——那些文件归最深的
-  // 根，不在外层根的「本次会话」里重复出现，各根的数字也就不重叠。
-  const nestedIn = React.useMemo(() => {
-    const all = [...roots, ...removedRoots].map((r) => r.path);
-    return (path: string) => all.filter((p) => p !== path);
-  }, [roots, removedRoots]);
-  // 「本次会话」的行只从 canonical 块派生，当前工作根之外的路径在这里就被挡掉
-  // （spec「归属过滤」）——不读 git，因此与有没有提交无关。
-  const sessionChanges = React.useMemo(
-    () =>
-      deriveSessionChanges(messages, workRoot, liveBlocks, nestedIn(workRoot)),
-    [messages, workRoot, liveBlocks, nestedIn],
-  );
-
-  // 标题栏胶囊下拉里每个根各自的变更数：与行用的是同一个派生函数，数字因此和
-  // 切过去之后看到的行数一致。
-  const changeCounts = React.useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const r of roots) {
-      counts.set(
-        r.path,
-        deriveSessionChanges(messages, r.path, liveBlocks, nestedIn(r.path))
-          .length,
-      );
-    }
-    return counts;
-  }, [messages, roots, liveBlocks, nestedIn]);
-
-  // 已被移除的根（spec「worktree 被移除」）：它们「本次会话」改过的文件仍列出来，
-  // 划掉显示、可点开看对话记录里的 diff；没有改动的根不占一个空分组。
-  const removedGroups = React.useMemo<RemovedRootGroup[]>(
-    () =>
-      removedRoots
-        .map((r) => ({
-          root: r,
-          rows: deriveSessionChanges(
-            messages,
-            r.path,
-            liveBlocks,
-            nestedIn(r.path),
-          ),
-        }))
-        .filter((g) => g.rows.length > 0),
-    [messages, removedRoots, liveBlocks, nestedIn],
-  );
-
-  const turnToMessageId = React.useMemo(() => {
-    const m = new Map<number, number>();
-    let turn = 0;
-    for (const msg of messages) {
-      if (msg.role === "user") {
-        turn += 1;
-        m.set(turn, msg.id);
-      }
-    }
-    return m;
-  }, [messages]);
-
   // messageIdToTurnUserId 把任意 message id 映射回它所在 turn 的 user 消息 id，
   // 让 outline 高亮在「问–答」整段区间内都锚定在同一行，直到下一个 user 消息出现。
   const messageIdToTurnUserId = React.useMemo(() => {
@@ -220,17 +145,14 @@ function ChatContextToolWindowsImpl({
       ? (messageIdToTurnUserId.get(activeMessageId) ?? null)
       : null;
 
-  // git 取数挂在这一层：「变更」的「未提交」档、它的角标、以及「目录」的状态
-  // 叠加要的是同一份快照，共用一个 hook 实例就只会有一次在途请求。只在用得上时
-  // 打后端：「变更」或「目录」显示时，以及「变更」停在「未提交」档时——图标条
-  // 角标是当前档的文件数，变更窗收着也要有（spec「图标条」、用户故事 2）。
+  // git 取数挂在这一层：「变更」的列表、图标条上的角标与「目录」的状态叠加要的
+  // 是同一份快照，共用一个 hook 实例就只会有一次在途请求。角标是未提交的文件数，
+  // 变更窗收着也要有（「侧栏关着也能看到改了几个文件」），所以会话页在就取数。
   const git = useGitChanges({
     sessionId,
     cwd,
     root,
-    enabled:
-      !hidden &&
-      (changesShown || directoryShown || changesScope === "uncommitted"),
+    enabled: !hidden,
   });
 
   // 分支状态只有「目录」那一行需要（决策 7），因此只在它显示时取数。
@@ -241,21 +163,10 @@ function ChatContextToolWindowsImpl({
     enabled: !hidden && directoryShown,
   });
 
-  // 「未提交」档只在这个会话真有一个 git 工作目录时才存在（决策 11）：非 git
-  // 仓库下它失去意义，只剩「本次会话」一档，而不是留一个空页。持久化的档位落在
-  // 一个不存在的档上时同样钳回「本次会话」。
-  const uncommittedAvailable = cwd !== "" && !git.notARepo;
-  const scope = uncommittedAvailable ? changesScope : "session";
-  // 「变更」的数字是**当前档**的文件数；「未提交」档的数据尚未就绪时为 null。
-  const changesCount = scope === "session" ? sessionChanges.length : git.count;
-
-  const onJumpToTurn = React.useCallback(
-    (turn: number) => {
-      const mid = turnToMessageId.get(turn);
-      if (mid != null) onJumpToMessage(mid);
-    },
-    [turnToMessageId, onJumpToMessage],
-  );
+  // 只有会话真有一个 git 工作目录时才列得出变动；不是 git 仓库或没有工作目录时
+  // 「变更」给一句说明，角标不显示（git.count 此时为 null）。
+  const gitAvailable = cwd !== "" && !git.notARepo;
+  const changesCount = git.count;
 
   // 「关联」四组数据在这一层取一次：窗口收起时图标条也要它的提醒圆点与标题数量。
   const relations = useSessionRelations({ sessionId, enabled: !hidden });
@@ -287,14 +198,9 @@ function ChatContextToolWindowsImpl({
       outline,
       activeOutlineId: resolvedActiveId,
       onJumpToMessage,
-      onJumpToTurn,
       workRoot,
       root,
-      sessionChanges,
-      removedGroups,
-      scope,
-      onScopeChange: setChangesScope,
-      uncommittedAvailable,
+      gitAvailable,
       git,
       gitState,
       relations,
@@ -311,14 +217,9 @@ function ChatContextToolWindowsImpl({
       outline,
       resolvedActiveId,
       onJumpToMessage,
-      onJumpToTurn,
       workRoot,
       root,
-      sessionChanges,
-      removedGroups,
-      scope,
-      setChangesScope,
-      uncommittedAvailable,
+      gitAvailable,
       git,
       gitState,
       relations,
@@ -403,11 +304,9 @@ function ChatContextToolWindowsImpl({
 
   return (
     <ChatContextDataContext.Provider value={data}>
-      <WorkRootChangeCountsContext.Provider value={changeCounts}>
-        <ToolWindowLayout windows={windows} hidden={hidden}>
-          {children}
-        </ToolWindowLayout>
-      </WorkRootChangeCountsContext.Provider>
+      <ToolWindowLayout windows={windows} hidden={hidden}>
+        {children}
+      </ToolWindowLayout>
     </ChatContextDataContext.Provider>
   );
 }

@@ -1,7 +1,5 @@
 import * as React from "react";
 
-import type { ChangesScope } from "@/stores/chat-sidebar-store";
-
 import { RelationsToolWindow } from "../tool-windows/relations-tool-window";
 import {
   SessionInfoToolWindow,
@@ -11,13 +9,12 @@ import { TerminalToolWindow } from "../tool-windows/terminal-tool-window";
 import type { SessionRelations } from "../tool-windows/use-session-relations";
 import { WebPreviewToolWindow } from "../tool-windows/web-preview-tool-window";
 
-import type { ChangeRow, OutlineItem } from "./derive";
+import type { OutlineItem } from "./derive";
 import { ChangesPanel } from "./views/changes-panel";
 import { DirectoryPanel } from "./views/directory-panel";
 import { OutlineView } from "./views/outline-view";
 import type { GitChanges } from "./views/use-git-changes";
 import type { GitState } from "./views/use-git-state";
-import type { RemovedRootGroup } from "./views/session-changes-view";
 
 /**
  * 大纲 / 变更 / 目录三个工具窗共享的会话级事实，由 ChatContextToolWindows 算一次。
@@ -35,18 +32,12 @@ export type ChatContextData = {
   /** 转录当前所在那一轮的用户消息 id；大纲据此高亮并跟随滚动。 */
   activeOutlineId: number | null;
   onJumpToMessage: (messageId: number) => void;
-  onJumpToTurn: (turn: number) => void;
   /** 会话当前工作根的绝对路径（没有工作目录时为空串）。 */
   workRoot: string;
   /** 当前工作根的绑定实参（主根 = 空串，见 useSessionRoot）。 */
   root: string;
-  sessionChanges: ChangeRow[];
-  /** 已被移除的工作根里「本次会话」改过的文件，按根分组。 */
-  removedGroups: RemovedRootGroup[];
-  /** 已生效的「变更」档位（非 git 仓库时已钳到「本次会话」）。 */
-  scope: ChangesScope;
-  onScopeChange: (scope: ChangesScope) => void;
-  uncommittedAvailable: boolean;
+  /** 会话有一个 git 工作目录（「变更」才列得出东西）。 */
+  gitAvailable: boolean;
   git: GitChanges;
   gitState: GitState | null;
   /** 「关联」工具窗的四组数据：图标条上的提醒圆点、标题栏数量与窗口读同一份。 */
@@ -59,15 +50,6 @@ export type ChatContextData = {
 
 export const ChatContextDataContext =
   React.createContext<ChatContextData | null>(null);
-
-/**
- * 每个工作根下「本次会话」的变更数（按根的绝对路径查），给标题栏工作根胶囊的下拉
- * 用。它与「变更」工具窗的行出自同一个派生函数，由 ChatContextToolWindows 算一次；
- * 标题栏在它的子树里（编辑区），因此经 context 取，不再算第二遍。
- */
-export const WorkRootChangeCountsContext = React.createContext<
-  ReadonlyMap<string, number>
->(new Map());
 
 function useChatContextData(): ChatContextData {
   const data = React.useContext(ChatContextDataContext);
@@ -104,22 +86,17 @@ export function OutlineToolWindow() {
   );
 }
 
-/** 「变更」工具窗：本次会话 / 未提交两档。 */
+/** 「变更」工具窗：工作区未提交的文件。 */
 export function ChangesToolWindow() {
   const d = useChatContextData();
   return (
     <ChangesPanel
       sessionId={d.sessionId}
-      rows={d.sessionChanges}
-      removedGroups={d.removedGroups}
       cwd={d.workRoot}
       remote={d.remote}
-      scope={d.scope}
-      onScopeChange={d.onScopeChange}
-      uncommittedAvailable={d.uncommittedAvailable}
+      gitAvailable={d.gitAvailable}
       git={d.git.state}
       onRetry={d.git.reload}
-      onJumpToTurn={d.onJumpToTurn}
     />
   );
 }

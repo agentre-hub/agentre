@@ -51,6 +51,13 @@ const appMocks = vi.hoisted(() => ({
     tooLarge: false,
   }),
   WorkspaceFsGitFileContent: vi.fn(),
+  // 「变更」的角标是未提交文件数，对话页在就取数（变更窗收着也一样）。
+  WorkspaceFsGitChanges: vi.fn().mockResolvedValue({
+    notARepo: true,
+    baseRef: "",
+    truncated: false,
+    changes: [],
+  }),
   WorkspaceFsGitState: vi.fn().mockResolvedValue({
     branch: "",
     worktree: "",
