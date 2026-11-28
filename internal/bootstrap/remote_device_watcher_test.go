@@ -353,3 +353,26 @@ func TestRemoteDeviceWatcherBoot_ThenReplaysEverythingOnce(t *testing.T) {
 		t.Fatalf("startAll=%d allReplays=%d, want 1 and 1", w.startAll, spy.all)
 	}
 }
+
+type spyFactsOnline struct{ devices []int64 }
+
+func (s *spyFactsOnline) DeviceOnline(_ context.Context, id int64) { s.devices = append(s.devices, id) }
+
+func TestFactsOnDeviceOnline_GivenWatcherHeartbeats_ThenReadsFactsOnlyOnTheOfflineToOnlineEdge(t *testing.T) {
+	spy := &spyFactsOnline{}
+	var got []watcher.StateEvent
+	emit := factsOnDeviceOnline(watcher.EmitterFunc(func(p watcher.StateEvent) { got = append(got, p) }), spy, func(f func()) { f() })
+
+	emit.Emit(watcher.StateEvent{ID: 7, Online: true})  // 上线:读一次
+	emit.Emit(watcher.StateEvent{ID: 7, Online: true})  // 心跳:不读
+	emit.Emit(watcher.StateEvent{ID: 7, Online: false}) // 掉线
+	emit.Emit(watcher.StateEvent{ID: 7, Online: true})  // 再上线:再读一次
+	emit.Emit(watcher.StateEvent{ID: 8, Online: false})
+
+	if !reflect.DeepEqual(spy.devices, []int64{7, 7}) {
+		t.Fatalf("facts reads = %v, want [7 7]", spy.devices)
+	}
+	if len(got) != 5 {
+		t.Fatalf("the original emitter must see every event, got %d", len(got))
+	}
+}

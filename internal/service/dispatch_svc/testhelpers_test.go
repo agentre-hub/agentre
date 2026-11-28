@@ -31,11 +31,13 @@ const (
 
 // world 是一次测试里桌面端看得到的全部事实与意图；mock 端口都从这里取数。
 type world struct {
-	selfErr    error
-	account    []dispatch_svc.AccountDevice
-	accountOK  bool
-	paired     []dispatch_svc.PairedDevice
-	reports    map[devicefp.Carrier]*syncwire.DeviceFactsReport
+	selfErr   error
+	account   []dispatch_svc.AccountDevice
+	accountOK bool
+	paired    []dispatch_svc.PairedDevice
+	reports   map[devicefp.Carrier]*syncwire.DeviceFactsReport
+	// factsPort 非空时替换按 reports 回答的 mock,让测试接上真实的设备情况缓存。
+	factsPort  dispatch_svc.Facts
 	order      []dispatch_svc.DevicePref
 	localFirst bool
 
@@ -155,8 +157,12 @@ func (w *world) svc(t *testing.T) dispatch_svc.DispatchSvc {
 		return w.sessions[id], nil
 	}).AnyTimes()
 
+	var factsPort dispatch_svc.Facts = facts
+	if w.factsPort != nil {
+		factsPort = w.factsPort
+	}
 	return dispatch_svc.New(dispatch_svc.Deps{
-		Devices: devices, Facts: facts, Prefs: prefs, Engines: engines,
+		Devices: devices, Facts: factsPort, Prefs: prefs, Engines: engines,
 		Providers: providers, Projects: projects, Sessions: sessions,
 	})
 }

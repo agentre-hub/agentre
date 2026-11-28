@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
@@ -13,6 +14,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/keychain"
 	"github.com/agentre-hub/agentre/internal/repository/remote_device_repo"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc"
+	"github.com/agentre-hub/agentre/internal/service/device_facts_svc"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
 	watcher "github.com/agentre-hub/agentre/internal/service/remote_device_watcher_svc"
 	"github.com/agentre-hub/agentre/internal/service/server_svc"
@@ -137,6 +139,7 @@ func (a *providerRecorderAdapter) RecordDeviceBuild(deviceID int64, version, com
 // 顺带把 watcher 反向挂到 remote_device_svc。emit 必须非 nil(调用方强契约)。
 func InitRemoteDeviceWatcher(_ context.Context, emit watcher.Emitter) {
 	emit = replayOnDeviceOnline(emit)
+	emit = factsOnDeviceOnline(emit, deviceFactsOnline{}, func(f func()) { go f() })
 	devSvc := remote_device_svc.Default()
 	svc := watcher.New(
 		&repoAdapter{inner: remote_device_repo.PairedAgentred()},
@@ -218,6 +221,39 @@ func replayOnDeviceOnline(next watcher.Emitter) watcher.Emitter {
 		}
 		if p.Online {
 			pendingDeleteReplay.Device(p.ID)
+		}
+	})
+}
+
+// factsOnline 是「一台 agentred 上线,读它的设备情况记进缓存」的窄口(device_facts_svc)。
+type factsOnline interface {
+	DeviceOnline(ctx context.Context, deviceID int64)
+}
+
+type deviceFactsOnline struct{}
+
+func (deviceFactsOnline) DeviceOnline(ctx context.Context, id int64) {
+	if s := device_facts_svc.Default(); s != nil {
+		s.DeviceOnline(ctx, id)
+	}
+}
+
+// factsOnDeviceOnline 在 watcher 报告某台设备由离线变在线时读它的设备情况(缓存的一路
+// 来源)。watcher 在线时每次探活都会再发一次在线事件,只认「不在线 → 在线」那一下,心跳
+// 不触发 RPC。读用 spawn 放到后台,不挡界面事件。
+func factsOnDeviceOnline(next watcher.Emitter, facts factsOnline, spawn func(func())) watcher.Emitter {
+	var mu sync.Mutex
+	online := map[int64]bool{}
+	return watcher.EmitterFunc(func(p watcher.StateEvent) {
+		if next != nil {
+			next.Emit(p)
+		}
+		mu.Lock()
+		edge := p.Online && !online[p.ID]
+		online[p.ID] = p.Online
+		mu.Unlock()
+		if edge {
+			spawn(func() { facts.DeviceOnline(context.Background(), p.ID) })
 		}
 	})
 }

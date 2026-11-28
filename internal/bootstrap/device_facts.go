@@ -26,7 +26,11 @@ func initDeviceFacts(server server_svc.ServerSvc, syncSvc sync_svc.SyncSvc) {
 	if snapshotter, ok := syncSvc.(sync_svc.LocalPathSnapshotter); ok {
 		deps.LocalPaths = snapshotter.LocalPathSnapshot
 	}
-	facts := device_facts_svc.New(device_facts_svc.WithSelf(device_facts_svc.NewSelfReporter(deps)))
+	opts := []device_facts_svc.Option{device_facts_svc.WithSelf(device_facts_svc.NewSelfReporter(deps))}
+	if reader, ok := server.(server_svc.DeviceFactsReader); ok {
+		opts = append(opts, device_facts_svc.WithServer(reader))
+	}
+	facts := device_facts_svc.New(opts...)
 	device_facts_svc.SetDefault(facts)
 	if observer, ok := syncSvc.(sync_svc.AccountChannelObserver); ok {
 		observer.OnAccountChannelConnected(facts.AccountChannelConnected)

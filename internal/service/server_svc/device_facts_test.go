@@ -71,3 +71,56 @@ func TestReportDeviceFacts(t *testing.T) {
 		So(called, ShouldBeFalse)
 	})
 }
+
+// factsReader 取出设备情况读取口:与上报口一样不在 ServerSvc 上。
+func factsReader(svc server_svc.ServerSvc) server_svc.DeviceFactsReader {
+	return svc.(server_svc.DeviceFactsReader)
+}
+
+func TestListDeviceFacts(t *testing.T) {
+	Convey("ListDeviceFacts GET 账号下全部设备的最后一次上报", t, func() {
+		var gotPath, gotMethod string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath, gotMethod = r.URL.Path, r.Method
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":0,"msg":"ok","data":{"devices":[` +
+				`{"device_id":7,"fingerprint":"sha256:box","name":"box","kind":"agentred","reported":true,"reported_at":1800,"report":{"collected_at":1700}},` +
+				`{"device_id":8,"fingerprint":"sha256:new","kind":"desktop","reported":false,"report":null}]}}`))
+		}))
+		defer srv.Close()
+
+		svc, mRepo, _ := setupServerSvc(t, srv.URL)
+		mRepo.EXPECT().Get(gomock.Any()).Return(loggedInState(srv.URL), nil)
+
+		list, err := factsReader(svc).ListDeviceFacts(context.Background())
+		So(err, ShouldBeNil)
+		So(gotMethod, ShouldEqual, http.MethodGet)
+		So(gotPath, ShouldEqual, syncwire.PathDeviceFactsList)
+		So(list.Devices, ShouldHaveLength, 2)
+		So(list.Devices[0].ReportedAt, ShouldEqual, 1800)
+		So(list.Devices[0].Report.CollectedAt, ShouldEqual, 1700)
+		So(list.Devices[1].Reported, ShouldBeFalse)
+	})
+
+	Convey("server 还没有这个端点(404)时返回错误,由调用方保留缓存", t, func() {
+		srv := httptest.NewServer(http.NotFoundHandler())
+		defer srv.Close()
+		svc, mRepo, _ := setupServerSvc(t, srv.URL)
+		mRepo.EXPECT().Get(gomock.Any()).Return(loggedInState(srv.URL), nil).AnyTimes()
+
+		_, err := factsReader(svc).ListDeviceFacts(context.Background())
+		So(err, ShouldNotBeNil)
+	})
+
+	Convey("未登录时一个网络请求都不发", t, func() {
+		called := false
+		srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+		defer srv.Close()
+		svc, mRepo, _ := setupServerSvc(t, srv.URL)
+		mRepo.EXPECT().Get(gomock.Any()).Return(&server_state_entity.ServerState{ID: 1}, nil)
+
+		_, err := factsReader(svc).ListDeviceFacts(context.Background())
+		So(err, ShouldNotBeNil)
+		So(called, ShouldBeFalse)
+	})
+}

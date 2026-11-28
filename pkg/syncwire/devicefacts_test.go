@@ -143,3 +143,28 @@ func namesSecret(name string) bool {
 	}
 	return false
 }
+
+func TestDeviceFactsRead_PathsAndResponseContract(t *testing.T) {
+	assert.Equal(t, "/v1/devices/facts", syncwire.PathDeviceFactsList)
+	assert.Equal(t, "/v1/devices/42/facts", syncwire.PathDeviceFactsOf(42))
+
+	list := syncwire.DeviceFactsList{Devices: []syncwire.DeviceFactsEntry{{
+		DeviceID: 7, Fingerprint: "sha256:box", Name: "box", Kind: "agentred",
+		DeviceFactsResponse: syncwire.DeviceFactsResponse{Reported: true, ReportedAt: 1800, Report: &syncwire.DeviceFactsReport{CollectedAt: 1700}},
+	}, {DeviceID: 8, Fingerprint: "sha256:new", Kind: "desktop"}}}
+	raw, err := json.Marshal(list)
+	require.NoError(t, err)
+	var generic map[string]any
+	require.NoError(t, json.Unmarshal(raw, &generic))
+	first := generic["devices"].([]any)[0].(map[string]any)
+	for _, key := range []string{"device_id", "fingerprint", "name", "kind", "reported", "reported_at", "report"} {
+		assert.Contains(t, first, key)
+	}
+
+	one, err := json.Marshal(syncwire.DeviceFactsResponse{Reported: true, ReportedAt: 5, Report: &syncwire.DeviceFactsReport{}})
+	require.NoError(t, err)
+	assert.Contains(t, string(one), `"reported":true`)
+	assert.Contains(t, string(one), `"report":`)
+
+	assert.Empty(t, secretShapedFields(reflect.TypeOf(syncwire.DeviceFactsList{}), "DeviceFactsList"))
+}

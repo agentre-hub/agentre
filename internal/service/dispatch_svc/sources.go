@@ -90,15 +90,28 @@ func (devicesSource) Paired(ctx context.Context) ([]PairedDevice, error) {
 	return out, nil
 }
 
+// NewCachedFacts 让派发读一份设备情况缓存（device_facts_svc.List 只读缓存、从不发 RPC），
+// 上报时间随 Facts.CollectedAt 一并交给判定。
+func NewCachedFacts(svc device_facts_svc.DeviceFactsSvc) Facts { return cachedFacts{svc: svc} }
+
+// factsSource 读进程默认的设备情况服务（生产装配）；未装配时没有任何情况。
 type factsSource struct{}
 
 func (factsSource) Reports(ctx context.Context) map[devicefp.Carrier]*syncwire.DeviceFactsReport {
-	out := map[devicefp.Carrier]*syncwire.DeviceFactsReport{}
 	svc := device_facts_svc.Default()
 	if svc == nil {
-		return out
+		return map[devicefp.Carrier]*syncwire.DeviceFactsReport{}
 	}
-	views, err := svc.List(ctx)
+	return cachedFacts{svc: svc}.Reports(ctx)
+}
+
+type cachedFacts struct {
+	svc device_facts_svc.DeviceFactsSvc
+}
+
+func (c cachedFacts) Reports(ctx context.Context) map[devicefp.Carrier]*syncwire.DeviceFactsReport {
+	out := map[devicefp.Carrier]*syncwire.DeviceFactsReport{}
+	views, err := c.svc.List(ctx)
 	if err != nil {
 		return out
 	}

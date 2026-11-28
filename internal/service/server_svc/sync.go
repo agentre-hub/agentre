@@ -164,6 +164,36 @@ func (s *service) ReportDeviceFacts(ctx context.Context, report *syncwire.Device
 	})
 }
 
+// DeviceFactsReader 是读账号下各设备最后一次上报的口(与 DeviceFactsReporter 同理不并进
+// ServerSvc)。
+type DeviceFactsReader interface {
+	ListDeviceFacts(ctx context.Context) (syncwire.DeviceFactsList, error)
+}
+
+// ListDeviceFacts 读账号下全部设备最后一次上报与上报时间;未登录不发请求。server 不可达
+// 或还没有这个端点(404)就是一个错误,调用方据此保留已缓存的情况。
+func (s *service) ListDeviceFacts(ctx context.Context) (syncwire.DeviceFactsList, error) {
+	if err := s.requireLogin(ctx); err != nil {
+		return syncwire.DeviceFactsList{}, err
+	}
+	var out syncwire.DeviceFactsList
+	err := s.withAuth(ctx, func(ctx context.Context) error {
+		var env envelope[syncwire.DeviceFactsList]
+		if _, doErr := s.getClient().do(ctx, http.MethodGet, syncwire.PathDeviceFactsList, nil, &env); doErr != nil {
+			return doErr
+		}
+		if env.Code != 0 {
+			return fmt.Errorf("server: list device facts rejected with code %d", env.Code)
+		}
+		out = env.Data
+		return nil
+	})
+	if err != nil {
+		return syncwire.DeviceFactsList{}, err
+	}
+	return out, nil
+}
+
 // ---------- 头像 ----------
 
 type putAvatarReq struct {

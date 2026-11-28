@@ -1,5 +1,7 @@
 package syncwire
 
+import "strconv"
+
 // ── 设备情况上报(设备 → server)─────────────────────────────────────────────
 //
 // 设备情况是**事实**,不是意图:由设备自己探测、自己上报,server 按设备只留最后一次
@@ -13,6 +15,46 @@ package syncwire
 // PathDeviceFacts 是设备上报自身情况的 server 端点:POST,请求体是 DeviceFactsReport,
 // 用设备自己的账号凭据认证(上报的是哪台设备由凭据决定,不由请求体决定)。
 const PathDeviceFacts = "/v1/devices/facts"
+
+// ── 设备情况读取(server → 桌面端 / agrctl)────────────────────────────────────
+//
+// server 按设备只留最后一次上报与上报时间;离线的设备仍交出它最后一份上报与那个时间。
+// 读取用账号凭据认证,只返回这个账号自己的设备。
+
+// PathDeviceFactsList 是读账号下全部设备最后一次上报的 server 端点:GET,应答
+// DeviceFactsList。与上报端点同一路径、方法不同。
+const PathDeviceFactsList = "/v1/devices/facts"
+
+// PathDeviceFactsOf 是读一台设备最后一次上报的 server 端点:GET,应答
+// DeviceFactsResponse。deviceID 是 server 的设备 ID。
+func PathDeviceFactsOf(deviceID int64) string {
+	return "/v1/devices/" + strconv.FormatInt(deviceID, 10) + "/facts"
+}
+
+// DeviceFactsResponse 是单台设备的读取应答。Reported=false 表示它还没上报过(Report
+// 为 nil)。ReportedAt 是 server 收到最后一份上报的时刻(Unix 毫秒),界面据此写「多久
+// 之前的情况」;Report.CollectedAt 是设备探测完成的时刻。
+type DeviceFactsResponse struct {
+	Reported   bool               `json:"reported"`
+	ReportedAt int64              `json:"reported_at,omitempty"`
+	Report     *DeviceFactsReport `json:"report"`
+}
+
+// DeviceFactsEntry 是列表应答里的一台设备:身份加它最后一次上报。
+type DeviceFactsEntry struct {
+	DeviceID    int64  `json:"device_id"`
+	Fingerprint string `json:"fingerprint"`
+	Name        string `json:"name"`
+	// Kind 是 desktop 或 agentred。
+	Kind string `json:"kind"`
+	DeviceFactsResponse
+}
+
+// DeviceFactsList 是账号下全部设备(不含 cli)的最后一次上报,没上报过的设备也在
+// (Reported=false)。
+type DeviceFactsList struct {
+	Devices []DeviceFactsEntry `json:"devices"`
+}
 
 // Claude Code 与 Codex 的原生登录态。取值与 dispatch.NativeLogin 逐字相同,设备报上来
 // 的值原样交给派发函数。
