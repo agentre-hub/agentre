@@ -62,14 +62,14 @@ const serverSnapshot = `{
 }`
 
 // dispatchPlanJSON is /v1/workspace/dispatch-target for agent verifier: its one
-// tier is cc-verify on the agentred verify-box.
+// eligible device is the agentred verify-box, running engine profile cc-verify.
 const dispatchPlanJSON = `{
-  "agent_sync_id": "` + verifierSyncID + `",
-  "tiers": [{"rank": 1, "backend_sync_id": "` + ccVerifySyncID + `", "device_id": 7, "device_name": "verify-box",
-    "backend_type": "claudecode", "kind": "agentred", "availability": "available", "current": true}],
-  "chosen": {"device_fingerprint": "` + verifyBoxFP + `", "device_id": 7, "device_name": "verify-box",
-    "backend_sync_id": "` + ccVerifySyncID + `", "backend_type": "claudecode", "kind": "agentred"},
-  "projects": []
+  "found": true,
+  "engine": {"sync_id": "` + ccVerifySyncID + `", "name": "cc-verify", "runtime": "claudecode"},
+  "devices": [{"device_id": 7, "device_fingerprint": "` + verifyBoxFP + `", "device_name": "verify-box",
+    "kind": "agentred", "eligible": true, "chosen": true}],
+  "chosen": {"device_fingerprint": "` + verifyBoxFP + `", "device_name": "verify-box",
+    "kind": "agentred", "engine_sync_id": "` + ccVerifySyncID + `", "runtime": "claudecode"}
 }`
 
 func envelope(data string) []byte {

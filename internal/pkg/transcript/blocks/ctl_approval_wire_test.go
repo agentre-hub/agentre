@@ -38,3 +38,14 @@ func TestNewCtlApprovalChange(t *testing.T) {
 		{Field: "departmentId", After: &after}, {Field: "token", Secret: true},
 	}}, got)
 }
+
+func TestCtlKindNames_GivenEveryResourceKind_ThenEachHasAName(t *testing.T) {
+	for _, kind := range []agentrewire.CtlKind{
+		agentrewire.CtlKind_CTL_KIND_AGENT, agentrewire.CtlKind_CTL_KIND_DEPARTMENT, agentrewire.CtlKind_CTL_KIND_PROJECT,
+		agentrewire.CtlKind_CTL_KIND_PROVIDER, agentrewire.CtlKind_CTL_KIND_MODEL, agentrewire.CtlKind_CTL_KIND_BACKEND,
+		agentrewire.CtlKind_CTL_KIND_ENGINE, agentrewire.CtlKind_CTL_KIND_MEMORY,
+	} {
+		assert.NotEmpty(t, CtlKindNames[kind], kind.String())
+	}
+	assert.Equal(t, "engine", CtlKindNames[agentrewire.CtlKind_CTL_KIND_ENGINE])
+}

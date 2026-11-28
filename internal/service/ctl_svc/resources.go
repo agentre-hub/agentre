@@ -93,12 +93,6 @@ func (r Resources) ready() bool {
 // kindNames 是错误消息里的资源名，与 agrctl 的资源名一致（与 agentred 的审批卡同一份）。
 var kindNames = blocks.CtlKindNames
 
-func init() {
-	// 引擎配置是 ctl 的资源类型之一（取代 backend），审批卡与错误消息按同一张表叫它 engine。
-	// 共享表在 internal/pkg/transcript/blocks（不在本任务的路径内），这里先补上这一项。
-	kindNames[agentrewire.CtlKind_CTL_KIND_ENGINE] = "engine"
-}
-
 // errUnknownKind 是请求里的资源类型不认识（含未指定）。
 type errUnknownKind agentrewire.CtlKind
 

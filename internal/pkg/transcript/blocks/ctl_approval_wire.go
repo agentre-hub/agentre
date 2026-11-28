@@ -18,6 +18,7 @@ var CtlKindNames = map[agentrewire.CtlKind]string{
 	agentrewire.CtlKind_CTL_KIND_PROVIDER:   "provider",
 	agentrewire.CtlKind_CTL_KIND_MODEL:      "model",
 	agentrewire.CtlKind_CTL_KIND_BACKEND:    "backend",
+	agentrewire.CtlKind_CTL_KIND_ENGINE:     "engine",
 	agentrewire.CtlKind_CTL_KIND_MEMORY:     "memory",
 }
 

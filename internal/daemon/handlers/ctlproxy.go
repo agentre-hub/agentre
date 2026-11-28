@@ -262,7 +262,7 @@ type ctlSendBody struct {
 	Effort         string             `json:"effort,omitempty"`
 	PermissionMode string             `json:"permissionMode,omitempty"`
 	Device         string             `json:"device,omitempty"`
-	Backend        string             `json:"backend,omitempty"`
+	Engine         string             `json:"engine,omitempty"`
 }
 
 func (r ctlSendBody) continuing() bool { return strings.TrimSpace(r.ConversationID) != "" }

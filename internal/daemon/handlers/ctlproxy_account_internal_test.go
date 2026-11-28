@@ -43,8 +43,9 @@ type accountServer struct {
 func (s *accountServer) Post(_ context.Context, path string, body []byte) (int, []byte, error) {
 	switch path {
 	case serverResourcesPath:
-		var req agentrewire.CtlRequest
-		_ = json.Unmarshal(body, &req)
+		if strings.Contains(string(body), "CTL_KIND_ENGINE") {
+			return http.StatusOK, []byte(`{"list":{"items":[{"engine":{"id":2,"name":"codex-alt","syncId":"EN-2","runtime":"codex"}}]}}`), nil
+		}
 		return http.StatusOK, []byte(`{"list":{"items":[{"agent":{"id":4,"name":"reviewer","syncId":"AG-4","backendIds":["9"]}}]}}`), nil
 	case "/v1/saved-sessions":
 		var saved map[string]string
@@ -64,9 +65,11 @@ func (s *accountServer) Get(_ context.Context, path string) (int, []byte, error)
 		chosen := s.chosen
 		s.mu.Unlock()
 		plan := map[string]any{
-			"tiers": []map[string]any{{"backend_sync_id": "BE-9", "device_id": 2, "device_name": "build-box", "backend_type": "codex", "kind": "agentred", "availability": "available"}},
-			"chosen": map[string]any{"device_fingerprint": chosen, "device_name": "build-box", "backend_sync_id": "BE-9",
-				"backend_type": "codex", "kind": "agentred", "cwd": "/srv"},
+			"found":   true,
+			"engine":  map[string]any{"sync_id": "EN-9", "name": "codex-main", "runtime": "codex"},
+			"devices": []map[string]any{{"device_id": 2, "device_fingerprint": chosen, "device_name": "build-box", "kind": "agentred", "eligible": true}},
+			"chosen": map[string]any{"device_fingerprint": chosen, "device_name": "build-box", "engine_sync_id": "EN-9",
+				"runtime": "codex", "kind": "agentred", "cwd": "/srv"},
 		}
 		raw, _ := json.Marshal(map[string]any{"code": 0, "msg": "ok", "data": plan})
 		return http.StatusOK, raw, nil
@@ -185,13 +188,28 @@ func TestCtlProxy_GivenConsoleOwnedSend_WhenTheAgentRunsOnAnotherDevice_ThenThis
 	assert.Equal(t, out.ConversationID, runs[0].GetConversationId())
 	assert.Equal(t, "AG-4", runs[0].GetAgentSyncId())
 	assert.Equal(t, "审一下 PR 42", runs[0].GetUserText())
-	assert.Equal(t, "BE-9", runs[0].GetBackend().GetSyncId())
+	assert.Equal(t, "EN-9", runs[0].GetEngineProfileSyncId())
+	assert.Equal(t, "codex", runs[0].GetBackend().GetType())
 	assert.Equal(t, []string{"fp:" + accountTestToken}, who, "the child is filed under this agentred's own account identity")
 	assert.Equal(t, []string{accountTestToken}, w.relay.Credentials(), "the relay and auth.account carry this agentred's device token")
 	assert.Equal(t, []map[string]string{{
 		"device_fingerprint": accountTestBox, "peer_fingerprint": "fp:" + accountTestToken, "conversation_id": out.ConversationID,
 	}}, w.server.savedBodies(), "the child is saved to the account, so the console lists it")
 	assert.Zero(t, w.selfDials)
+}
+
+// Given a console-owned send that names an engine, When it is dispatched, Then the engine is resolved
+// and the dispatch plan is asked for it (it is not silently dropped on the way to the account peer).
+func TestCtlProxy_GivenConsoleOwnedSend_WhenItNamesAnEngine_ThenThePlanIsAskedForThatEngine(t *testing.T) {
+	w := newAccountWorld(t, accountTestBox)
+
+	status, got, _ := postCtl(t, w.proxy.URL+"/ctl/v1/send", w.token, `{"agent":"reviewer","text":"hi","engine":"codex-alt"}`)
+
+	require.Equal(t, http.StatusOK, status, got)
+	w.server.mu.Lock()
+	defer w.server.mu.Unlock()
+	require.NotEmpty(t, w.server.plans)
+	assert.Contains(t, w.server.plans[0], "engine_sync_id=EN-2")
 }
 
 func TestCtlProxy_GivenConsoleOwnedSend_WhenTheAgentRunsOnThisAgentred_ThenItStartsInProcessWithoutDialingItselfThroughTheRelay(t *testing.T) {

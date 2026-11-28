@@ -48,10 +48,7 @@ type SendInput struct {
 	Title   string
 	Device  string
 	// Engine 是本会话换用的引擎配置（名字或 id，仅新会话）；空 = 成员生效的那份。
-	Engine string
-	// Backend 已废弃且不再被读：agentred 的控制台代理（internal/daemon/handlers/ctlproxy_console.go）
-	// 还在填它，那一侧迁到 Engine 之后删掉这一格。
-	Backend  string
+	Engine   string
 	Isolated bool
 
 	Model, CLIModel, Effort, PermissionMode string
@@ -388,10 +385,12 @@ func (a *Client) startSession(ctx context.Context, in SendInput) (Reply, error) 
 	if title == "" {
 		title = deriveTitle(in.Text)
 	}
-	// 运行时类型暂时仍走旧的 backend 字段（协议切换前对端据它建这一轮），引擎配置由同步标识指明。
+	// 运行时类型与账号配置暂时仍走旧的 backend 字段（协议切换前 agentred 据 {type, sync_id} 从快照
+	// 补全这一轮的供应商 / 模型 / 力度；引擎配置的同步标识沿用其组内最小那条后端的 sync_id），
+	// 引擎配置另由 EngineProfileSyncId 指明。
 	req := &agentrewire.RuntimeRunRequest{
 		ConversationId: id, Title: title, AgentSyncId: agent.GetSyncId(), ProjectSyncId: projectSync,
-		Cwd: choice.Cwd, Backend: &agentrewire.AgentBackend{Type: choice.Runtime}, EngineProfileSyncId: choice.EngineSyncID,
+		Cwd: choice.Cwd, Backend: &agentrewire.AgentBackend{Type: choice.Runtime, SyncId: choice.EngineSyncID}, EngineProfileSyncId: choice.EngineSyncID,
 	}
 	a.fillTurn(req, conn, in, model)
 	if choice.Kind == "agentred" && choice.Runtime == "piagent" {

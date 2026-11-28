@@ -181,7 +181,7 @@ func (p *ctlProxy) serveConsoleSend(w http.ResponseWriter, r *http.Request, owne
 func (r ctlSendBody) input() ctlaccount.SendInput {
 	in := ctlaccount.SendInput{
 		Text: r.Text, Images: r.Images, Session: strings.TrimSpace(r.ConversationID), Steer: r.Steer,
-		Agent: strings.TrimSpace(r.Agent), AgentID: r.AgentID, Title: r.Title, Device: r.Device, Backend: r.Backend,
+		Agent: strings.TrimSpace(r.Agent), AgentID: r.AgentID, Title: r.Title, Device: r.Device, Engine: r.Engine,
 		Isolated: r.Isolated, Model: r.Model, CLIModel: r.CLIModel, Effort: r.Effort, PermissionMode: r.PermissionMode,
 	}
 	if r.ProjectID > 0 {
