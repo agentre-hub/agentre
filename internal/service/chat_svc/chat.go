@@ -277,6 +277,8 @@ func (c *activeTurnControl) gracefulAborter() (agentruntime.Aborter, bool) {
 
 type chatSvc struct {
 	emitter Emitter
+	// cliModels 是「模型与上次不同」提示读 CLI 模型目录的来源；nil = agent_backend_svc 的默认服务。
+	cliModels cliModelSource
 	// sessionEvents 是 emitter 上的订阅能力(只有 NewFanoutEmitter 才实现)。
 	// nil 表示没有装配扇出 —— SubscribeSessionEvents 返回已关闭通道,调用方不阻塞。
 	sessionEvents SessionEventSubscriber

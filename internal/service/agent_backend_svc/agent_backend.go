@@ -50,6 +50,8 @@ var errOpenClawTokenSlotMissing = errors.New("openclaw token slot requires a bac
 // AgentBackendSvc Agent 后端应用服务。
 type AgentBackendSvc interface {
 	ListCLIModels(ctx context.Context, req *ListCLIModelsRequest) (*ListCLIModelsResponse, error)
+	// ListEngineProfileCLIModels 是 ListCLIModels 的引擎配置形态：按配置 × 设备查 CLI 目录。
+	ListEngineProfileCLIModels(ctx context.Context, req *ListEngineProfileCLIModelsRequest) (*ListCLIModelsResponse, error)
 	List(ctx context.Context, req *ListBackendsRequest) (*ListBackendsResponse, error)
 	Create(ctx context.Context, req *CreateBackendRequest) (*CreateBackendResponse, error)
 	CreateOpenClaw(ctx context.Context, req *CreateBackendRequest, token string) (*CreateBackendResponse, error)

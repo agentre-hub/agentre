@@ -9,11 +9,13 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/service/chat_svc/sessionengine"
+	"github.com/agentre-hub/agentre/internal/service/dispatch_svc"
 	"github.com/agentre-hub/agentre/internal/service/exec_target_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 
 	cagoblocks "github.com/cago-frame/agents/agent/blocks"
 
+	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"go.uber.org/zap"
@@ -150,6 +152,12 @@ func (s *chatSvc) runFreshPeerSession(
 	if err != nil {
 		return nil, err
 	}
+	// 发起方选定了这台设备（与可选的「这次改用」引擎配置）：先复核本机自己通过派发，通过才
+	// 建会话；不通过在建任何东西之前把原因返回发起方，绝不另挑设备或另选配置。
+	pick, err := s.authorizePeerFresh(ctx, agentID, projectID, params.EngineProfileSyncID)
+	if err != nil {
+		return nil, err
+	}
 	// 号是对端铸的(v5/v7 都可能),本机派生不出来 —— 它随建行一起落进
 	// chat_sessions.conversation_id,此后这条对话的 attach / pull / 控制请求都靠
 	// 那一列的唯一索引寻址得到本机这一行,进程重启也不会丢。
@@ -163,6 +171,8 @@ func (s *chatSvc) runFreshPeerSession(
 		ReasoningEffort:       params.ReasoningEffort,
 		CLIModelMode:          params.CLIModelMode,
 		CLIModel:              params.CLIModel,
+		ExecDevice:            pick.device,
+		EngineProfileID:       pick.engineProfileID,
 		EmitTurnStartedBypass: true,
 		peerSource:            source.messageSource(),
 		peerBlocks:            userBlocks,
@@ -475,3 +485,51 @@ func decodePeerUserBlocks(userText string, in []cagoblocks.StoredBlock) ([]cagob
 // (config:changed)时重拉;对端把新对话派到这台机器上跑(R17)时三者都不发生,
 // 那条对话于是迟迟不出现在「随手对话」/ 项目组里,直到用户碰巧做了点别的。
 const SessionsChangedEvent = "chat:sessions-changed"
+
+// peerFreshPick 是复核通过后第一轮要钉住的：引擎配置（0 = 成员生效的那份）与设备（恒为本机）。
+type peerFreshPick struct {
+	engineProfileID int64
+	device          devicefp.Carrier
+}
+
+// authorizePeerFresh 复核发起方为新会话选定的「这台设备 + 引擎配置」：本机对「成员 + 配置 +
+// 项目」通过共享派发规则才放行，随后第一轮按手动指定本机钉住，不再经自动挑选。配置以账号级
+// 同步身份过线（两台机器的本地 ID 不同）；空 = 成员生效的那份。不通过时返回带本机原因的
+// *NoEligibleDeviceError —— 只含本机一项：别的设备不是这一轮的候选。
+func (s *chatSvc) authorizePeerFresh(ctx context.Context, agentID, projectID int64, profileSyncID string) (peerFreshPick, error) {
+	var profileID int64
+	if profileSyncID = strings.TrimSpace(profileSyncID); profileSyncID != "" {
+		id, err := syncstate_repo.SyncState().FindLocalID(ctx, syncwire.KindEngineProfile, profileSyncID)
+		if err != nil {
+			return peerFreshPick{}, operationFailedWithCause(ctx, err, zap.String("engineProfileSyncId", profileSyncID))
+		}
+		if id <= 0 {
+			return peerFreshPick{}, i18n.NewError(ctx, code.EngineProfileNotFound)
+		}
+		profileID = id
+	}
+	dispatcher := dispatch_svc.Dispatch()
+	if dispatcher == nil {
+		return peerFreshPick{}, operationFailedWithCause(ctx, errors.New("dispatch service unavailable"), zap.Int64("agentId", agentID))
+	}
+	self := selfFingerprint()
+	req := &dispatch_svc.PlanRequest{AgentID: agentID, ProjectID: projectID, EngineProfileID: profileID, ManualDevice: self}
+	verr := dispatcher.ValidateManual(ctx, req)
+	if verr == nil {
+		return peerFreshPick{engineProfileID: profileID, device: self}, nil
+	}
+	plan, err := dispatcher.Plan(ctx, req)
+	if err != nil || plan == nil {
+		return peerFreshPick{}, verr
+	}
+	var mine []*dispatch_svc.DeviceResult
+	for _, d := range plan.Devices {
+		if d != nil && d.Fingerprint == self {
+			mine = append(mine, d)
+		}
+	}
+	if len(mine) == 0 {
+		return peerFreshPick{}, verr
+	}
+	return peerFreshPick{}, newNoEligibleDeviceError(ctx, &dispatch_svc.Plan{Devices: mine})
+}

@@ -458,6 +458,10 @@ type RunParams struct {
 	// 的 CLI 路径），线上据此另带一份不含设备的引擎配置与单列的 CLI 路径；0 = 这一轮只有
 	// Backend（浏览器派发、钉在旧后端行上的会话）。
 	EngineProfileID int64 `json:"engineProfileId,omitempty"`
+	// EngineProfileSyncID 是桌面端派到另一台桌面端的新会话点名的「这次改用」引擎配置的账号级
+	// 同步身份（两台机器的本地 ID 不同，只有同步身份能对上）。接收方复核自己对「成员 + 这份
+	// 配置 + 项目」通过派发后照此钉住执行，绝不重挑；空 = 成员生效的那份。
+	EngineProfileSyncID string `json:"engineProfileSyncId,omitempty"`
 }
 
 // MCPProxyRequest 是 daemon→desktop 隧道里一次 MCP HTTP 请求的封装。daemon 把 CLI 子进程

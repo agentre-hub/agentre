@@ -8629,9 +8629,17 @@ type RuntimeRunRequest struct {
 	// profile's runtime type (per runtime type and device, not per backend).
 	// Empty = resolve the CLI from PATH. Read together with engine_profile; an
 	// executor with an authoritative account snapshot still replaces it.
-	CliPath       string `protobuf:"bytes,31,opt,name=cli_path,json=cliPath,proto3" json:"cli_path,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	CliPath string `protobuf:"bytes,31,opt,name=cli_path,json=cliPath,proto3" json:"cli_path,omitempty"`
+	// engine_profile_sync_id names the engine profile a desktop-to-desktop first
+	// turn should run on ("run on this profile instead"), by its account-level sync
+	// id because local profile ids differ between machines. Distinct from
+	// engine_profile, which carries a full profile for the executor to build the
+	// turn from. The receiving desktop re-validates that it passes dispatch for the
+	// member + this profile + project and then runs exactly that profile pinned to
+	// itself; it never re-picks. Empty = the member's effective profile.
+	EngineProfileSyncId string `protobuf:"bytes,32,opt,name=engine_profile_sync_id,json=engineProfileSyncId,proto3" json:"engine_profile_sync_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *RuntimeRunRequest) Reset() {
@@ -8877,6 +8885,13 @@ func (x *RuntimeRunRequest) GetEngineProfile() *EngineProfile {
 func (x *RuntimeRunRequest) GetCliPath() string {
 	if x != nil {
 		return x.CliPath
+	}
+	return ""
+}
+
+func (x *RuntimeRunRequest) GetEngineProfileSyncId() string {
+	if x != nil {
+		return x.EngineProfileSyncId
 	}
 	return ""
 }
@@ -21501,8 +21516,7 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x05tools\x18\x04 \x03(\tR\x05tools\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xed\n" +
-	"\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa2\v\n" +
 	"\x11RuntimeRunRequest\x124\n" +
 	"\abackend\x18\x01 \x01(\v2\x1a.agentre.wire.AgentBackendR\abackend\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\x03R\aagentId\x12'\n" +
@@ -21538,7 +21552,8 @@ const file_agentre_wire_wire_proto_rawDesc = "" +
 	"\x0ecli_model_mode\x18\x1c \x01(\tR\fcliModelMode\x12\x1b\n" +
 	"\tcli_model\x18\x1d \x01(\tR\bcliModel\x12B\n" +
 	"\x0eengine_profile\x18\x1e \x01(\v2\x1b.agentre.wire.EngineProfileR\rengineProfile\x12\x19\n" +
-	"\bcli_path\x18\x1f \x01(\tR\acliPath\x1aA\n" +
+	"\bcli_path\x18\x1f \x01(\tR\acliPath\x123\n" +
+	"\x16engine_profile_sync_id\x18  \x01(\tR\x13engineProfileSyncId\x1aA\n" +
 	"\x13EnabledPluginsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\xb2\x02\n" +

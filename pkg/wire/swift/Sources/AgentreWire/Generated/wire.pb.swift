@@ -3550,6 +3550,18 @@ public nonisolated struct Agentre_Wire_RuntimeRunRequest: @unchecked Sendable {
     set {_uniqueStorage()._cliPath = newValue}
   }
 
+  /// engine_profile_sync_id names the engine profile a desktop-to-desktop first
+  /// turn should run on ("run on this profile instead"), by its account-level sync
+  /// id because local profile ids differ between machines. Distinct from
+  /// engine_profile, which carries a full profile for the executor to build the
+  /// turn from. The receiving desktop re-validates that it passes dispatch for the
+  /// member + this profile + project and then runs exactly that profile pinned to
+  /// itself; it never re-picks. Empty = the member's effective profile.
+  public var engineProfileSyncID: String {
+    get {_storage._engineProfileSyncID}
+    set {_uniqueStorage()._engineProfileSyncID = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -13032,7 +13044,7 @@ nonisolated extension Agentre_Wire_MCPServer: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeRunRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}backend\0\u{3}agent_id\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}cwd\0\u{1}title\0\u{3}agent_sync_id\0\u{3}system_prompt\0\u{3}provider_session_id\0\u{3}fresh_session\0\u{3}user_text\0\u{3}user_blocks\0\u{1}history\0\u{1}compact\0\u{3}fork_anchor\0\u{3}permission_mode\0\u{3}collaboration_mode\0\u{3}mcp_servers\0\u{3}enabled_plugins\0\u{3}llm_provider_key\0\u{3}llm_model_key\0\u{3}source_device\0\u{3}source_device_name\0\u{3}project_sync_id\0\u{3}reasoning_effort\0\u{3}desktop_ctl_token\0\u{3}desktop_session_id\0\u{3}cli_model_mode\0\u{3}cli_model\0\u{3}engine_profile\0\u{3}cli_path\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}backend\0\u{3}agent_id\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}cwd\0\u{1}title\0\u{3}agent_sync_id\0\u{3}system_prompt\0\u{3}provider_session_id\0\u{3}fresh_session\0\u{3}user_text\0\u{3}user_blocks\0\u{1}history\0\u{1}compact\0\u{3}fork_anchor\0\u{3}permission_mode\0\u{3}collaboration_mode\0\u{3}mcp_servers\0\u{3}enabled_plugins\0\u{3}llm_provider_key\0\u{3}llm_model_key\0\u{3}source_device\0\u{3}source_device_name\0\u{3}project_sync_id\0\u{3}reasoning_effort\0\u{3}desktop_ctl_token\0\u{3}desktop_session_id\0\u{3}cli_model_mode\0\u{3}cli_model\0\u{3}engine_profile\0\u{3}cli_path\0\u{3}engine_profile_sync_id\0")
 
   fileprivate class _StorageClass {
     var _backend: Agentre_Wire_AgentBackend? = nil
@@ -13066,6 +13078,7 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
     var _cliModel: String = String()
     var _engineProfile: Agentre_Wire_EngineProfile? = nil
     var _cliPath: String = String()
+    var _engineProfileSyncID: String = String()
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -13107,6 +13120,7 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
       _cliModel = source._cliModel
       _engineProfile = source._engineProfile
       _cliPath = source._cliPath
+      _engineProfileSyncID = source._engineProfileSyncID
     }
   }
 
@@ -13156,6 +13170,7 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
         case 29: try { try decoder.decodeSingularStringField(value: &_storage._cliModel) }()
         case 30: try { try decoder.decodeSingularMessageField(value: &_storage._engineProfile) }()
         case 31: try { try decoder.decodeSingularStringField(value: &_storage._cliPath) }()
+        case 32: try { try decoder.decodeSingularStringField(value: &_storage._engineProfileSyncID) }()
         default: break
         }
       }
@@ -13261,6 +13276,9 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
       if !_storage._cliPath.isEmpty {
         try visitor.visitSingularStringField(value: _storage._cliPath, fieldNumber: 31)
       }
+      if !_storage._engineProfileSyncID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._engineProfileSyncID, fieldNumber: 32)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -13301,6 +13319,7 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
         if _storage._cliModel != rhs_storage._cliModel {return false}
         if _storage._engineProfile != rhs_storage._engineProfile {return false}
         if _storage._cliPath != rhs_storage._cliPath {return false}
+        if _storage._engineProfileSyncID != rhs_storage._engineProfileSyncID {return false}
         return true
       }
       if !storagesAreEqual {return false}

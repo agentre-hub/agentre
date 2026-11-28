@@ -184,15 +184,18 @@ func (s *service) RunFresh(ctx context.Context, req RunFreshRequest) (wire.RunAc
 		return wire.RunAck{}, err
 	}
 	return out.RunFresh(ctx, wire.RunParams{
-		ConversationID:  conversationID,
-		AgentSyncID:     agent.SyncID,
-		Cwd:             cwd,
-		Title:           req.Title,
-		UserText:        req.UserText,
-		PermissionMode:  req.PermissionMode,
-		LLMProviderKey:  req.ProviderKey,
-		LLMModelKey:     req.ModelKey,
-		ReasoningEffort: req.ReasoningEffort,
+		ConversationID:      conversationID,
+		AgentSyncID:         agent.SyncID,
+		Cwd:                 cwd,
+		Title:               req.Title,
+		UserText:            req.UserText,
+		PermissionMode:      req.PermissionMode,
+		LLMProviderKey:      req.ProviderKey,
+		LLMModelKey:         req.ModelKey,
+		ReasoningEffort:     req.ReasoningEffort,
+		CLIModelMode:        req.CLIModelMode,
+		CLIModel:            req.CLIModel,
+		EngineProfileSyncID: req.EngineProfileSyncID,
 		// 本机的承载者身份在这里换角色:这一轮由本机**发起**交给对端桌面执行,
 		// 对端会把它当发起方记在会话上,而不是当承载者去解析机器名。
 		SourceDevice: devicefp.Initiator(fp),

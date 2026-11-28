@@ -37,6 +37,15 @@ type fakeDispatch struct {
 	plan *dispatch_svc.Plan
 	err  error
 	reqs []dispatch_svc.PlanRequest
+	// validateErr / validated 是 ValidateManual 的应答与收到的请求。
+	validateErr error
+	validated   []dispatch_svc.PlanRequest
+}
+
+// ValidateManual 记下收到的请求，答 validateErr。
+func (f *fakeDispatch) ValidateManual(_ context.Context, req *dispatch_svc.PlanRequest) error {
+	f.validated = append(f.validated, *req)
+	return f.validateErr
 }
 
 func (f *fakeDispatch) Plan(_ context.Context, req *dispatch_svc.PlanRequest) (*dispatch_svc.Plan, error) {

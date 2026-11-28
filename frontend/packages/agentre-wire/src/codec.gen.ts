@@ -405,6 +405,13 @@ export interface RunParams extends WireObject {
    * Backend（浏览器派发、钉在旧后端行上的会话）。
    */
   engineProfileId?: number;
+
+  /**
+   * EngineProfileSyncID 是桌面端派到另一台桌面端的新会话点名的「这次改用」引擎配置的账号级
+   * 同步身份（两台机器的本地 ID 不同，只有同步身份能对上）。接收方复核自己对「成员 + 这份
+   * 配置 + 项目」通过派发后照此钉住执行，绝不重挑；空 = 成员生效的那份。
+   */
+  engineProfileSyncId?: string;
 }
 
 export function decodeRunParams(v: unknown): RunParams {
@@ -454,6 +461,10 @@ export function decodeRunParams(v: unknown): RunParams {
       "RunParams.desktopSessionId",
     );
     o.engineProfileId = optNum(o.engineProfileId, "RunParams.engineProfileId");
+    o.engineProfileSyncId = optStr(
+      o.engineProfileSyncId,
+      "RunParams.engineProfileSyncId",
+    );
   });
 }
 

@@ -82,6 +82,13 @@ type RunFreshRequest struct {
 	// 那对瞬态 ModelTarget 同一条规则，仅新建会话（这条派发本就恒为新建）随首条消息
 	// 过线；空串 = 跟随对端那一档 backend 的配置。
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	// CLIModelMode / CLIModel 是草稿态的 CLI 模型三态选择，同一条规则原样过线。
+	CLIModelMode string `json:"cliModelMode,omitempty"`
+	CLIModel     string `json:"cliModel,omitempty"`
+	// EngineProfileSyncID 是「这次改用」的引擎配置的账号级同步身份（本地 ID 在两台机器上
+	// 不同）；空 = 对端按成员生效的那份。Fingerprint 是用户选定的设备：对端复核自己通过后
+	// 照此执行，不通过把原因返回，绝不重挑。
+	EngineProfileSyncID string `json:"engineProfileSyncId,omitempty"`
 }
 
 // AttachRequest 是「接入对端一条会话并开始接收实时流」（R19 / R6）的入参。

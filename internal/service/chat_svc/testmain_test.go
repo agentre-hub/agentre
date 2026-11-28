@@ -40,6 +40,9 @@ func (noCLIPathOverrides) Find(context.Context, string, devicefp.Carrier) (*devi
 // legacyDispatch 把派发答成「选中桥刚答出的那份配置所在的设备」（手动指定时就是那台）。
 type legacyDispatch struct{ dispatch_svc.DispatchSvc }
 
+// ValidateManual：旧夹具里的设备都算通过（要验复核本身的用例注册自己的派发）。
+func (legacyDispatch) ValidateManual(context.Context, *dispatch_svc.PlanRequest) error { return nil }
+
 func (legacyDispatch) Plan(_ context.Context, req *dispatch_svc.PlanRequest) (*dispatch_svc.Plan, error) {
 	device := sessionenginetest.DeviceOf(req.EngineProfileID)
 	if req.ManualDevice != "" {

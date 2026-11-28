@@ -11,9 +11,16 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/device_pref_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/syncmeta_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/mock_agentruntime"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo/mock_agent_backend_repo"
+	"github.com/agentre-hub/agentre/internal/repository/device_pref_repo"
+	"github.com/agentre-hub/agentre/internal/repository/device_pref_repo/mock_device_pref_repo"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/remote_device_svc/mock_remote_device_svc"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -126,5 +133,76 @@ func TestListCLIModelsOverlay(t *testing.T) {
 		path = "/second/claude"
 		_, err = svc.ListCLIModels(ctx, &ListCLIModelsRequest{BackendID: 7})
 		require.NoError(t, err)
+	})
+}
+
+func TestListEngineProfileCLIModels(t *testing.T) {
+	profile := &agent_backend_entity.EngineProfile{ID: 31, Type: "claudecode", Status: consts.ACTIVE, EnvJSON: "{}"}
+	setup := func(t *testing.T) (context.Context, *agentBackendSvc, *mock_agent_backend_repo.MockEngineProfileRepo, *mock_device_pref_repo.MockCLIPathRepo, *mock_agentruntime.MockCLIModelQuerier) {
+		ctx, _, _, _, _, svc := setupSvcTest(t)
+		ctrl := gomock.NewController(t)
+		profiles := mock_agent_backend_repo.NewMockEngineProfileRepo(ctrl)
+		paths := mock_device_pref_repo.NewMockCLIPathRepo(ctrl)
+		prevProfiles, prevPaths := agent_backend_repo.EngineProfile(), device_pref_repo.CLIPath()
+		agent_backend_repo.RegisterEngineProfile(profiles)
+		device_pref_repo.RegisterCLIPath(paths)
+		t.Cleanup(func() {
+			agent_backend_repo.RegisterEngineProfile(prevProfiles)
+			device_pref_repo.RegisterCLIPath(prevPaths)
+		})
+		querier := mock_agentruntime.NewMockCLIModelQuerier(ctrl)
+		svc.cliModelQuerier = querier
+		return ctx, svc, profiles, paths, querier
+	}
+	Convey("Given an engine profile pinned on this machine, When listing CLI models, Then the catalog is queried with the profile's settings and this device's CLI path", t, func() {
+		ctx, svc, profiles, paths, querier := setup(t)
+		profiles.EXPECT().FindAnyStatus(ctx, int64(31)).Return(profile, nil)
+		paths.EXPECT().Find(ctx, "claudecode", devicefp.Carrier("sha256:self")).Return(&device_pref_entity.CLIPathOverride{CLIPath: "/dev/claude"}, nil)
+		querier.EXPECT().QueryCLIModels(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req agentruntime.CLIModelQueryRequest) (agentruntime.CLIModelCatalog, error) {
+			require.Equal(t, "/dev/claude", req.Backend.CLIPath)
+			require.Equal(t, "claudecode", req.Backend.Type)
+			return agentruntime.CLIModelCatalog{Models: []agentruntime.CLIModel{{Value: "sonnet"}}, EffectiveValue: "sonnet"}, nil
+		})
+		prev := remote_device_svc.Default()
+		rd := mock_remote_device_svc.NewMockRemoteDeviceSvc(gomock.NewController(t))
+		rd.EXPECT().DeviceFingerprint().Return(devicefp.Carrier("sha256:self"), nil).AnyTimes()
+		remote_device_svc.SetDefault(rd)
+		t.Cleanup(func() { remote_device_svc.SetDefault(prev) })
+		got, err := svc.ListEngineProfileCLIModels(ctx, &ListEngineProfileCLIModelsRequest{EngineProfileID: 31})
+		require.NoError(t, err)
+		So(got.Error, ShouldBeEmpty)
+		So(got.Models, ShouldHaveLength, 1)
+		So(got.EffectiveValue, ShouldEqual, "sonnet")
+	})
+	Convey("Given a profile pinned on another machine, When listing, Then the remote querier runs with that device's path and no local CLI is touched", t, func() {
+		ctx, svc, profiles, paths, _ := setup(t)
+		remote := mock_agentruntime.NewMockCLIModelQuerier(gomock.NewController(t))
+		svc.remoteCLIModelQuerier = remote
+		fp := devicefp.Carrier("sha256:remote")
+		profiles.EXPECT().FindAnyStatus(ctx, int64(31)).Return(profile, nil)
+		paths.EXPECT().Find(ctx, "claudecode", fp).Return(&device_pref_entity.CLIPathOverride{CLIPath: "/remote/claude"}, nil)
+		remote.EXPECT().QueryCLIModels(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req agentruntime.CLIModelQueryRequest) (agentruntime.CLIModelCatalog, error) {
+			require.Equal(t, fp, req.Backend.DeviceFingerprint)
+			require.Equal(t, "/remote/claude", req.Backend.CLIPath)
+			return agentruntime.CLIModelCatalog{Models: []agentruntime.CLIModel{{Value: "remote-only"}}}, nil
+		})
+		got, err := svc.ListEngineProfileCLIModels(ctx, &ListEngineProfileCLIModelsRequest{EngineProfileID: 31, Device: fp})
+		require.NoError(t, err)
+		So(got.Models[0].Value, ShouldEqual, "remote-only")
+	})
+	Convey("Given a deleted profile a session is still pinned to, When listing, Then it still answers; an unknown id is rejected", t, func() {
+		ctx, svc, profiles, paths, querier := setup(t)
+		deleted := *profile
+		deleted.Status = consts.DELETE
+		profiles.EXPECT().FindAnyStatus(ctx, int64(31)).Return(&deleted, nil)
+		profiles.EXPECT().FindAnyStatus(ctx, int64(99)).Return(nil, nil)
+		paths.EXPECT().Find(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+		querier.EXPECT().QueryCLIModels(gomock.Any(), gomock.Any()).Return(agentruntime.CLIModelCatalog{}, nil)
+		_, err := svc.ListEngineProfileCLIModels(ctx, &ListEngineProfileCLIModelsRequest{EngineProfileID: 31})
+		require.NoError(t, err)
+		_, err = svc.ListEngineProfileCLIModels(ctx, &ListEngineProfileCLIModelsRequest{EngineProfileID: 99})
+		So(err, ShouldNotBeNil)
+		_, err = svc.ListEngineProfileCLIModels(ctx, &ListEngineProfileCLIModelsRequest{})
+		So(err, ShouldNotBeNil)
 	})
 }

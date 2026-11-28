@@ -95,6 +95,11 @@ type UseChatActionsOptions = {
   modelKey: string;
   cliModelMode?: string;
   cliModel?: string;
+  /**
+   * 草稿态「这次改用」的引擎配置的账号级同步身份（本地 ID 在两台桌面端上不同）。派到另一台
+   * 桌面端时随首条消息过线，对端复核自己通过后照此执行；省略 = 对端按成员生效的那份。
+   */
+  engineProfileSyncId?: string;
   /** 草稿态选中的思考力度；空串 = 跟随后端配置。仅新建会话随首条消息落库。 */
   reasoningEffort: string;
   /** 新建会话建成（首发 / /goal 起头）后调用：瞬态 ModelTarget 此刻才随会话落库。 */
@@ -153,6 +158,7 @@ function useChatActions({
   modelKey,
   cliModelMode,
   cliModel,
+  engineProfileSyncId,
   reasoningEffort,
   recordDraftTarget,
   editing,
@@ -204,6 +210,10 @@ function useChatActions({
             permissionModeOverride ??
             (isModeSwitchable ? permissionModeValue : ""),
           ...(providerKey ? { providerKey, modelKey } : {}),
+          ...(cliModelMode ? { cliModelMode, cliModel: cliModel ?? "" } : {}),
+          // 选定的设备就是 fingerprint；引擎配置与会话级覆盖随同过线，对端复核通过后照此
+          // 执行、不通过把原因返回（上面的 catch 把它显示成 notice），绝不重挑。
+          ...(engineProfileSyncId ? { engineProfileSyncId } : {}),
           // 派到另一台桌面端的新对话同样只在这一次（恒为新建）随首条消息过线，
           // 与上面那对瞬态 ModelTarget 同一条规则。
           ...(reasoningEffort ? { reasoningEffort } : {}),

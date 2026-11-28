@@ -152,3 +152,20 @@ func TestBackendProtoRoundTripPreservesACPLaunchFields(t *testing.T) {
 	require.Empty(t, zeroed.ACPCommand)
 	require.Empty(t, zeroed.ACPArgs)
 }
+
+// Given 发起端派到另一台桌面端的新会话点名了「这次改用」的引擎配置（只知道它的账号级同步
+// 身份：本地 ID 在两台机器上不同），When 翻上线再翻回来，Then 同步身份不丢；没点名时为空。
+func TestRunParamsProtobufCarriesEngineProfileSyncID(t *testing.T) {
+	pb, err := RunRequestToProto(wire.RunParams{ConversationID: convID(42), EngineProfileSyncID: "profile-sync-31"})
+	require.NoError(t, err)
+	require.Equal(t, "profile-sync-31", pb.GetEngineProfileSyncId())
+	require.Nil(t, pb.GetEngineProfile(), "只点名、不带配置内容：不能冒充执行端按配置建后端的那份引擎配置")
+
+	got, err := RunRequestFromProto(pb)
+	require.NoError(t, err)
+	require.Equal(t, "profile-sync-31", got.EngineProfileSyncID)
+
+	pb, err = RunRequestToProto(wire.RunParams{ConversationID: convID(42)})
+	require.NoError(t, err)
+	require.Empty(t, pb.GetEngineProfileSyncId())
+}

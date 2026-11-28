@@ -1072,6 +1072,14 @@ message RuntimeRunRequest {
   // Empty = resolve the CLI from PATH. Read together with engine_profile; an
   // executor with an authoritative account snapshot still replaces it.
   string cli_path = 31;
+  // engine_profile_sync_id names the engine profile a desktop-to-desktop first
+  // turn should run on ("run on this profile instead"), by its account-level sync
+  // id because local profile ids differ between machines. Distinct from
+  // engine_profile, which carries a full profile for the executor to build the
+  // turn from. The receiving desktop re-validates that it passes dispatch for the
+  // member + this profile + project and then runs exactly that profile pinned to
+  // itself; it never re-picks. Empty = the member's effective profile.
+  string engine_profile_sync_id = 32;
 }
 message RuntimeRunResponse {
   string conversation_id = 1;

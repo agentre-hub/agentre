@@ -539,12 +539,7 @@ func (t *turnRun) finalize(ctx context.Context) {
 		// 目录只用于解析所选别名；实际使用值始终来自这一轮的 RunResult。远端后端的目录
 		// 由 ListCLIModels 按后端所在设备路由，本机与远端同一条判据。CLI 报的正是所选值
 		// 时无需解析，也不为此起查询进程。
-		var models []agentruntime.CLIModel
-		catalog, err := agent_backend_svc.AgentBackend().ListCLIModels(ctx, &agent_backend_svc.ListCLIModelsRequest{BackendID: t.be.ID})
-		catalogKnown := err == nil && catalog != nil && catalog.Error == ""
-		if catalogKnown {
-			models = catalog.Models
-		}
+		models, catalogKnown := t.cliModelCatalog(ctx)
 		if notice := cliModelDeviation(t.req, t.result.Model, models, catalogKnown); notice != nil {
 			finalBlocks = append(finalBlocks, *notice)
 		}
@@ -850,4 +845,33 @@ func applySubagentSnapshot(b *transcriptblocks.SubagentStateBlock, done agentrun
 	b.LastToolName, b.ToolUses = info.LastToolName, info.ToolUses
 	b.TotalTokens, b.DurationMs = info.TotalTokens, info.DurationMs
 	b.Origin, b.ChildSessionID, b.Isolated, b.FinalText = info.Origin, info.ChildSessionID, info.Isolated, info.FinalText
+}
+
+// cliModelSource 是「这一轮模型与上次不同」提示读 CLI 模型目录的口子。
+type cliModelSource interface {
+	ListCLIModels(ctx context.Context, req *agent_backend_svc.ListCLIModelsRequest) (*agent_backend_svc.ListCLIModelsResponse, error)
+	ListEngineProfileCLIModels(ctx context.Context, req *agent_backend_svc.ListEngineProfileCLIModelsRequest) (*agent_backend_svc.ListCLIModelsResponse, error)
+}
+
+// cliModelCatalog 取本轮后端所在设备上的 CLI 模型目录；known=false 表示没取到（查询失败或
+// CLI 报了错），调用方据此不下偏差结论。钉了引擎配置的一轮后端是配置摊成的视图（ID 为零，
+// 不是 agent_backends 的一行），按（配置, 设备）查；旧后端行上的会话照旧按后端 ID 查。
+func (t *turnRun) cliModelCatalog(ctx context.Context) (models []agentruntime.CLIModel, known bool) {
+	var src cliModelSource = agent_backend_svc.AgentBackend()
+	if t.svc != nil && t.svc.cliModels != nil {
+		src = t.svc.cliModels
+	}
+	var (
+		catalog *agent_backend_svc.ListCLIModelsResponse
+		err     error
+	)
+	if t.req.EngineProfileID > 0 {
+		catalog, err = src.ListEngineProfileCLIModels(ctx, &agent_backend_svc.ListEngineProfileCLIModelsRequest{EngineProfileID: t.req.EngineProfileID, Device: t.be.DeviceFingerprint})
+	} else {
+		catalog, err = src.ListCLIModels(ctx, &agent_backend_svc.ListCLIModelsRequest{BackendID: t.be.ID})
+	}
+	if err != nil || catalog == nil || catalog.Error != "" {
+		return nil, false
+	}
+	return catalog.Models, true
 }

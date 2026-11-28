@@ -128,20 +128,26 @@ func TestPeerSvc_GivenFreshDispatch_WhenRunFresh_ThenResolvesAgentAndCwdAndRetur
 		assert.Equal(t, "provider-key", p.LLMProviderKey, "the transient provider target must cross the desktop peer boundary")
 		assert.Equal(t, "model-key", p.LLMModelKey, "the transient fixed model target must cross the desktop peer boundary")
 		assert.Equal(t, "xhigh", p.ReasoningEffort, "草稿态选的思考力度与那对 ModelTarget 同一条路过桌面端边界")
+		assert.Equal(t, "profile-sync-31", p.EngineProfileSyncID, "「这次改用」的引擎配置以同步身份过线，接收方照此执行不重挑")
+		assert.Equal(t, "fixed", p.CLIModelMode, "会话级 CLI 模型选择整份过线")
+		assert.Equal(t, "opus", p.CLIModel)
 		assert.Equal(t, devicefp.Initiator("sha256:local-desktop"), p.SourceDevice, "self fingerprint must travel as the source device")
 		return &chat_svc.SendResponse{SessionID: 42}, nil
 	}})
 	svc, _ := newTestSvc(t, url)
 
 	ack, err := svc.RunFresh(context.Background(), peer_svc.RunFreshRequest{
-		Fingerprint:     "sha256:peer-desktop",
-		AgentID:         3,
-		ProjectID:       9,
-		Title:           "帮我看看这个项目",
-		UserText:        "帮我看看这个项目",
-		ProviderKey:     "provider-key",
-		ModelKey:        "model-key",
-		ReasoningEffort: "xhigh",
+		Fingerprint:         "sha256:peer-desktop",
+		AgentID:             3,
+		ProjectID:           9,
+		Title:               "帮我看看这个项目",
+		UserText:            "帮我看看这个项目",
+		ProviderKey:         "provider-key",
+		ModelKey:            "model-key",
+		ReasoningEffort:     "xhigh",
+		EngineProfileSyncID: "profile-sync-31",
+		CLIModelMode:        "fixed",
+		CLIModel:            "opus",
 	})
 	require.NoError(t, err)
 	assert.NoError(t, conversationid.Validate(ack.ConversationID),
