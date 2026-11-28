@@ -109,7 +109,7 @@ func startTurnDrain(a *claudeActive) (chan claudecode.Event, chan agentruntime.E
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		drainStream(&ccChanStream{ch: frames}, evOut, &agentruntime.RunResult{}, a, nil)
+		drainStream(&ccChanStream{ch: frames}, evOut, &agentruntime.RunResult{}, a)
 		close(evOut)
 	}()
 	return frames, evOut, func() {

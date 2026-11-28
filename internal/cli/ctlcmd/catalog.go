@@ -95,7 +95,7 @@ func (c *catalog) get(kind agentrewire.CtlKind, id int64) (*agentrewire.CtlResou
 	return resp.GetGet().GetResource(), nil
 }
 
-// write 发一次写请求。要审批的写入由执行者挂起到有人作答（或超时）；挂起前它先发一个
+// write 发一次写请求。要审批的写入由执行者挂起到有人作答（或调用方断开）；挂起前它先发一个
 // 102，这里据此在 stderr 打印 waiting 行——请求本身不成立时执行者直接报错，不会有这一行。
 func (c *catalog) write(req *agentrewire.CtlWriteRequest, stderr io.Writer) (*agentrewire.CtlWriteResponse, error) {
 	ctx := httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{

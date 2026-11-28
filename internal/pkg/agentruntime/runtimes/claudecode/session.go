@@ -37,9 +37,9 @@ type ccSessionHandle interface {
 	// CLI 回 control_response 后 Session 收到 result 帧让本轮 Turn 自然返 done,
 	// **子进程保留**。失败时 runner 走 Close + cache.Remove 兜底。
 	Interrupt(ctx context.Context) error
-	// Kill 硬杀子进程(SIGKILL)。用于 startup 看门狗在「turn 起步后迟迟无帧」(典型:
-	// CLI 卡 MCP 初始化连不上 gateway)时强制收尾 —— Interrupt/Close 的优雅路径对卡在
-	// socket 上、不读 stdin 的 CLI 无效, 只有 SIGKILL 能让 drainStream 解阻塞。
+	// Kill 硬杀子进程(SIGKILL)。CLISessionPool 优雅关闭超出宽限期后的升级口 ——
+	// Interrupt/Close 的优雅路径对卡在 socket 上、不读 stdin 的 CLI 无效, 只有 SIGKILL
+	// 能让 drainStream 解阻塞。
 	Kill(ctx context.Context) error
 	// SetPermissionMode 写一帧 control_request{subtype:"set_permission_mode"}
 	// 让 CLI 在两个 Turn 之间切换 permission mode。mode 取
@@ -111,9 +111,8 @@ func (a *ccClientAdapter) Interrupt(ctx context.Context) error {
 	return a.sess.Interrupt(ctx)
 }
 
-// Kill 硬杀底层子进程(SIGKILL)。runtime 的 startup 看门狗在「turn 起步后迟迟无帧」
-// 时调用 —— 优雅 Interrupt/Close 对卡在 socket 上的 CLI 无效, 只有 SIGKILL 能保证
-// drainStream 解阻塞收尾。
+// Kill 硬杀底层子进程(SIGKILL)。CLISessionPool 优雅关闭超出宽限期后调用 —— 优雅
+// Interrupt/Close 对卡在 socket 上的 CLI 无效, 只有 SIGKILL 能保证 drainStream 解阻塞收尾。
 func (a *ccClientAdapter) Kill(_ context.Context) error {
 	if a.sess == nil {
 		return nil
@@ -283,8 +282,9 @@ func claudeEffectiveModel(req agentruntime.RunRequest) string {
 
 func ccBuildClientOpts(spec ccLaunchSpec, binary string) []claudecode.Option {
 	env := spec.Env
-	// 注入 MCP server 时拉长 CLI 的 MCP 工具调用超时:orgtool 写操作会同步挂起
-	// 等用户审批(approvalTimeout=4min),默认 60s 撑不住。值为毫秒。
+	// 注入 MCP server 时拉长 CLI 的 MCP 工具调用超时:orgtool 等写工具会同步挂起等用户
+	// 审批,审批不设时限,CLI 默认 60s 撑不住。MCP_TOOL_TIMEOUT 取 CLI 接受的最大值
+	// (配置校验 ^\d{1,9}$,约 11.6 天,仍在 Node 定时器上限内)。值为毫秒。
 	if len(spec.Req.MCPServers) > 0 {
 		merged := make(map[string]string, len(env)+2)
 		maps.Copy(merged, env)
@@ -292,7 +292,7 @@ func ccBuildClientOpts(spec ccLaunchSpec, binary string) []claudecode.Option {
 			merged["MCP_TIMEOUT"] = "600000"
 		}
 		if _, ok := merged["MCP_TOOL_TIMEOUT"]; !ok {
-			merged["MCP_TOOL_TIMEOUT"] = "600000"
+			merged["MCP_TOOL_TIMEOUT"] = "999999999"
 		}
 		env = merged
 	}

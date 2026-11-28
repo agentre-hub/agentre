@@ -38,9 +38,8 @@ type ctlHandler struct {
 	// dispatches 登记会话间的派发关系(nil = 不登记),见 dispatch.go。
 	dispatches chat_svc.DispatchRecorder
 	// approvals 在会话里出审批卡；external 是桌面端弹窗的待审批队列（nil = 不可用）。
-	approvals       SessionApprovals
-	external        ExternalApprovals
-	approvalTimeout time.Duration
+	approvals SessionApprovals
+	external  ExternalApprovals
 }
 
 func (h *ctlHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -43,7 +43,7 @@ func nested(ev claudecode.Event, parent string) claudecode.Event {
 func drainLocations(hooks *httpgateway.HookLocations, frames ...claudecode.Event) (map[string]agentruntime.ToolCall, map[string]agentruntime.ToolResult) {
 	a := &claudeActive{handle: &fakeCCHandle{}, sessionUUID: "uuid-loc", hookLocs: hooks}
 	out := make(chan agentruntime.Event, 64)
-	drainStream(&eventCCStream{events: frames}, out, &agentruntime.RunResult{}, a, nil)
+	drainStream(&eventCCStream{events: frames}, out, &agentruntime.RunResult{}, a)
 	close(out)
 	calls := map[string]agentruntime.ToolCall{}
 	results := map[string]agentruntime.ToolResult{}

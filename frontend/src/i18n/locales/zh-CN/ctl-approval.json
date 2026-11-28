@@ -4,7 +4,7 @@
     "queuePosition": "第 {{index}} 个，共 {{total}} 个待审批",
     "callerPid": "pid {{pid}}",
     "unknownCaller": "外部程序",
-    "autoRejectHint": "不处理的话 4 分钟后自动拒绝；关闭弹窗等同拒绝。",
+    "closeRejectsHint": "关闭弹窗等同拒绝。",
     "reject": "拒绝",
     "approve": "批准",
     "approveDelete": "批准删除",

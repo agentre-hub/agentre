@@ -52,7 +52,7 @@ func newMemoryRig(t *testing.T) *memoryRig {
 	res.Memory = r.mem
 	r.h = &ctlHandler{
 		token: testToken, sessions: r.signer, resources: res,
-		approvals: r.sessions, external: r.desktop, approvalTimeout: time.Minute,
+		approvals: r.sessions, external: r.desktop,
 	}
 	return r
 }

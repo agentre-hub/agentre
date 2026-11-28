@@ -3,7 +3,6 @@ package orgtool_svc
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
@@ -27,7 +26,6 @@ func (s *orgtoolSvc) newMCPServer() *agenttool.Server {
 		},
 		Read: map[string]agenttool.ReadHandler{"org_get": s.handleOrgGet},
 		Write: &agenttool.WriteGate{
-			Timeout: func() time.Duration { return s.approvalTimeout },
 			Begin: func(ctx context.Context, sessionID int64, requestID, tool string, input map[string]any) (<-chan bool, error) {
 				return s.approval.BeginToolApproval(ctx, sessionID, &blocks.ToolApprovalBlock{
 					ToolKey: agenttool.KeyOrg, RequestID: requestID, ToolName: tool, ToolInput: input, Status: "pending",

@@ -511,7 +511,6 @@ done
 		}),
 		WithKillGrace(100*time.Millisecond),
 	)
-	client.startupTimeout = 5 * time.Second
 	ctx, cancel := context.WithCancel(context.Background())
 	prepared, err := client.PrepareStream(ctx, "hello", RunCaptureUserAnchor())
 	require.NoError(t, err)

@@ -60,8 +60,6 @@ const (
 	// ctl_svc 的同名常量同值。只由本代理写:调用方自带的同名头在转发前一律去掉。
 	ctlBindToolCallHeader   = "Agentre-Ctl-Bind-Tool-Call"
 	ctlBindBackgroundHeader = "Agentre-Ctl-Bind-Background"
-	// ctlApprovalTimeout 与桌面端会话审批卡一致(spec 决策 12)。
-	ctlApprovalTimeout = 4 * time.Minute
 	// ctlMaxBody 是请求正文上限:一次写入只是一份资源文档。
 	ctlMaxBody = 1 << 20
 	// ctlSendBindWait 是 send --wait 在父轮里还找不到那条 shell 调用时,转发前最多等它出现
@@ -87,8 +85,6 @@ type CtlProxyDeps struct {
 	// Tunnel 解出发起会话的那条桌面端连接(daemon.tunnelTargetFor);nil = 不在线。
 	Tunnel func(peer devicefp.Initiator, conversationID string) NotifierPort
 	Server CtlServerPort
-	// ApprovalTimeout 是控制台会话审批卡的挂起上限;0 = 4 分钟。
-	ApprovalTimeout time.Duration
 	// SendBindWait 是 send --wait 转发前等它那条 shell 调用出现的上限;0 = ctlSendBindWait。
 	SendBindWait time.Duration
 	// Cards 是父转录里子代理卡的写入口:承载一次已绑定 send 的连接断开时,经它给卡收尾
@@ -115,9 +111,6 @@ type ctlProxy struct{ deps CtlProxyDeps }
 
 // NewCtlProxyHandler 返回挂在 daemon gateway /ctl/ 上的 ctl 代理。
 func NewCtlProxyHandler(deps CtlProxyDeps) http.Handler {
-	if deps.ApprovalTimeout <= 0 {
-		deps.ApprovalTimeout = ctlApprovalTimeout
-	}
 	if deps.SendBindWait <= 0 {
 		deps.SendBindWait = ctlSendBindWait
 	}
@@ -392,10 +385,6 @@ func (p *ctlProxy) approveConsoleWrite(w http.ResponseWriter, r *http.Request, o
 		// agrctl 走了(被杀 / 轮次中止):卡就此作废,请求 ctx 已死,落库用新的。
 		owner.turn.resolveApproval(context.WithoutCancel(ctx), requestID, "expired", "")
 		log.Info("handlers.ctlProxy.approveConsoleWrite: caller gone")
-	case !answered:
-		owner.turn.resolveApproval(ctx, requestID, "expired", "")
-		log.Info("handlers.ctlProxy.approveConsoleWrite: approval timed out")
-		writeCtlErr(w, http.StatusGatewayTimeout, "approval timed out")
 	case !allow:
 		owner.turn.resolveApproval(ctx, requestID, "denied", "")
 		log.Info("handlers.ctlProxy.approveConsoleWrite: rejected")
@@ -467,16 +456,13 @@ func (p *ctlProxy) previewConsoleWrite(w http.ResponseWriter, ctx context.Contex
 	return preview, true
 }
 
-// awaitAnswer 等作答到超时、调用方断开或这一轮收口。没等到时撤下卡,再收一次:作答可能
+// awaitAnswer 等作答到调用方断开或这一轮收口为止,不设时限。没等到时撤下卡,再收一次:作答可能
 // 恰好在撤下之前投进了 channel —— 控制台已经收到「成功」,这一票不能丢。收口的那一轮
 // 不在此列:它的卡已经记成 expired,收口之后的作答 AnswerToolApproval 一律不收。
 func (p *ctlProxy) awaitAnswer(ctx context.Context, ch <-chan bool, requestID string, ended <-chan struct{}) (allow, answered bool) {
-	timer := time.NewTimer(p.deps.ApprovalTimeout)
-	defer timer.Stop()
 	select {
 	case allow = <-ch:
 		return allow, true
-	case <-timer.C:
 	case <-ctx.Done():
 	case <-ended:
 		p.deps.Sessions.endWait(requestID)

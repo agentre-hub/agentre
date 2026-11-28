@@ -36,15 +36,15 @@ type claudeActive struct {
 	// CLI 自主跑的一轮)和后台 subagent 活动轮。它们占着 pkg/claudecode.Session 的
 	// 活跃槽位:期间新起的 user turn 虽已把 user 帧写进 stdin,但真 CLI 要等当前轮
 	// result 之后才为它起 init(2.1.216 抓帧实证),所以 user turn 在这段时间内
-	// **一帧都收不到**。startup 看门狗必须据此暂停计时,否则会把一个健康、正忙的
-	// 子进程当成「起步即卡死」硬杀(sess-1950)。
+	// **一帧都收不到** —— 此时子进程是忙,不是卡死(sess-1950)。空闲清扫据此认为
+	// 会话在忙。
 	outOfBand atomic.Int32
 	// mainThreadOutOfBand 是 outOfBand 中**占着 CLI 主线**的那一部分 —— 只有自主续轮
 	// 算数。区别只在后台 subagent 活动轮:它跑的是子 agent 的内部循环,CLI 主线此刻
 	// 空闲,用户新消息该正正经经起一轮(Session.currentTurn 会让位给排队的 user Turn,
 	// 见 sess-2974 分支),而不是插进那个子 agent 的上下文里被它的工具循环吞掉。
 	//
-	// 「主线是否忙」和「帧流是否被占着」是两个问题:看门狗与空闲清扫问的是后者
+	// 「主线是否忙」和「帧流是否被占着」是两个问题:空闲清扫问的是后者
 	// (outOfBand),Steer 问的是前者(mainThreadBusy)。
 	mainThreadOutOfBand atomic.Int32
 	// turnSeq 会话级轮计数器:每次 Run(用户轮)入口 / 自主续轮入口 / 后台 subagent
@@ -110,7 +110,7 @@ func (a *claudeActive) setPermissionModeSnapshot(mode string) {
 }
 
 // enterOutOfBand / leaveOutOfBand 圈住一轮**主线**带外轮(自主续轮)的 drain 期。
-// outOfBandActive 供 startup 看门狗判定「此刻没帧是因为帧流被带外轮占着」;
+// outOfBandActive 判定「此刻帧流被带外轮占着」(空闲清扫 / Abort 据此认为会话在忙);
 // mainThreadBusy 另外据此判定「此刻插话进得去」(见 Runtime.Steer)。
 func (a *claudeActive) enterOutOfBand() {
 	a.outOfBand.Add(1)
@@ -123,7 +123,7 @@ func (a *claudeActive) leaveOutOfBand() {
 }
 
 // enterSubagentActivity / leaveSubagentActivity 圈住一轮后台 subagent 活动轮的
-// drain 期。它同样占着帧流(看门狗要据此暂停计时、空闲清扫要据此认为会话忙),
+// drain 期。它同样占着帧流(空闲清扫要据此认为会话忙),
 // 但**不占主线** —— 见 mainThreadOutOfBand 的注释。
 func (a *claudeActive) enterSubagentActivity() { a.outOfBand.Add(1) }
 func (a *claudeActive) leaveSubagentActivity() { a.outOfBand.Add(-1) }

@@ -531,7 +531,7 @@ type fakeCCHandle struct {
 	// respondedResults 非 nil 时记录 RespondToControl 收到的结果(control_request
 	// 自动放行路径在后台 goroutine 里回包,单测经 channel 同步观察)。
 	respondedResults chan claudecode.PermissionResult
-	// killed 非 nil 时, Kill 会 close 它(once) —— blockingCCStream 等在上面模拟
+	// killed 非 nil 时, Kill 会 close 它(once) —— busyUntilCCStream 等在上面模拟
 	// 「子进程被 SIGKILL → stream 解阻塞结束」。killCalls 原子计数 Kill 调用次数。
 	killed    chan struct{}
 	killOnce  sync.Once
@@ -623,38 +623,27 @@ func (s *eventCCStream) Next() bool {
 func (s *eventCCStream) Event() claudecode.Event { return s.events[s.idx-1] }
 func (s *eventCCStream) SessionID() string       { return "" }
 
-// blockingCCStream 模拟「子进程起步后卡死、一帧不吐」:Next() 阻塞到 killed 关闭
-// (即 Kill 把子进程 SIGKILL 掉 → stdout EOF)才返 false 结束。无任何事件。
-type blockingCCStream struct{ killed chan struct{} }
-
-func (s *blockingCCStream) Next() bool {
-	<-s.killed
-	return false
-}
-func (s *blockingCCStream) Event() claudecode.Event { return claudecode.Event{} }
-func (s *blockingCCStream) SessionID() string       { return "" }
-
-// TestRun_StartupWatchdogKillsWedgedTurn 钉死 startup 看门狗:turn 起步后
-// startupTimeout 内一帧都没有(子进程卡 MCP 初始化), 必须硬杀子进程让 drainStream
-// 解阻塞, 并把 RunResult.StopErr 收成 errStartupTimeout —— 而不是永久挂起。
-func TestRun_StartupWatchdogKillsWedgedTurn(t *testing.T) {
-	Convey("turn 起步后 startupTimeout 内无帧 → 硬杀子进程并以 errStartupTimeout 收尾", t, func() {
+// TestRun_SilentStartupIsNotKilled 钉死「不替用户设起步时限」:turn 起步后 CLI 很久都
+// 没有首帧(MCP 初始化慢、机器负载高)也不是 Agentre 判死的理由 —— 子进程不被杀,首帧
+// 来了就照常跑完;真卡住时由用户点停止收口。
+func TestRun_SilentStartupIsNotKilled(t *testing.T) {
+	Convey("turn 起步后迟迟无帧 → 不杀子进程,等它自己出帧收尾", t, func() {
 		killed := make(chan struct{})
-		h := &fakeCCHandle{id: "wedged", killed: killed, stream: &blockingCCStream{killed: killed}}
+		released := make(chan struct{})
+		h := &fakeCCHandle{id: "slow-start", killed: killed, stream: &busyUntilCCStream{released: released, killed: killed}}
 		restore := SetSessionFactoryForTest(func(ccLaunchSpec) (ccSessionHandle, error) {
 			return h, nil
 		})
 		defer restore()
 
 		r := New()
-		r.startupTimeout = 50 * time.Millisecond
 		ctx := context.Background()
 
-		events, result, err := r.Run(ctx, agentruntime.RunRequest{
+		events, _, err := r.Run(ctx, agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
 			SessionID: 77,
 			Cwd:       t.TempDir(),
-			UserText:  "hang on mcp init",
+			UserText:  "slow mcp init",
 		})
 		So(err, ShouldBeNil)
 
@@ -666,13 +655,17 @@ func TestRun_StartupWatchdogKillsWedgedTurn(t *testing.T) {
 		}()
 		select {
 		case <-done:
+			t.Fatal("silent turn ended on its own before the CLI produced anything")
+		case <-time.After(200 * time.Millisecond):
+		}
+		close(released)
+		select {
+		case <-done:
 		case <-time.After(3 * time.Second):
-			t.Fatal("Run events channel 没关闭 —— 看门狗没能杀掉卡死的 turn")
+			t.Fatal("Run events channel 没关闭")
 		}
 
-		So(atomic.LoadInt32(&h.killCalls), ShouldEqual, 1)
-		So(result.StopErr, ShouldNotBeNil)
-		So(errors.Is(result.StopErr, errStartupTimeout), ShouldBeTrue)
+		So(atomic.LoadInt32(&h.killCalls), ShouldEqual, 0)
 		r.CloseAllSessions(ctx)
 	})
 }
@@ -705,14 +698,11 @@ func (s *busyUntilCCStream) SessionID() string       { return "" }
 // user turn 在自主续轮结束前 **一帧都收不到**。这不是卡死:子进程健康、正在为自主轮
 // 正常产出。
 //
-// 但 startup 看门狗只认「本 turn 起步后 startupTimeout 内无帧」,分不清「卡死」和
-// 「排在自主续轮后面」。自主续轮跑超过 startupTimeout(生产默认 120s;sess-1950 的
-// 自主轮跑了 3m35s)时,它会 **硬杀一个健康的子进程**:user turn 以 errStartupTimeout
-// 失败,正在流的自主续轮也被腰斩(readLoop 拿 EOF → 活跃轮 channel 被 close)。
-//
-// 期望:自主续轮在飞期间,看门狗不得杀子进程。
+// 曾经的 startup 看门狗分不清「卡死」和「排在自主续轮后面」,自主轮跑久了就硬杀健康
+// 子进程(user turn 失败,正在流的自主续轮也被腰斩)。看门狗已删除;这里继续钉住
+// 「排队的 user turn 等多久都不杀子进程」。
 func TestRun_UserTurnQueuedBehindAutonomousTurnIsNotStartupKilled(t *testing.T) {
-	Convey("自主续轮在飞时排队的 user turn 不该被 startup 看门狗硬杀", t, func() {
+	Convey("自主续轮在飞时排队的 user turn 不该被硬杀", t, func() {
 		killed := make(chan struct{})
 		autoDone := make(chan struct{})
 		// 自主续轮仍在流:AutonomousTurns 已吐出一轮,其 Events 尚未 close。
@@ -737,10 +727,9 @@ func TestRun_UserTurnQueuedBehindAutonomousTurnIsNotStartupKilled(t *testing.T) 
 		defer restore()
 
 		r := New()
-		r.startupTimeout = 100 * time.Millisecond
 		ctx := context.Background()
 
-		events, result, err := r.Run(ctx, agentruntime.RunRequest{
+		events, _, err := r.Run(ctx, agentruntime.RunRequest{
 			Backend:   &agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode)},
 			SessionID: 1950,
 			Cwd:       t.TempDir(),
@@ -758,7 +747,7 @@ func TestRun_UserTurnQueuedBehindAutonomousTurnIsNotStartupKilled(t *testing.T) 
 			}
 		}()
 
-		// 自主续轮比 startupTimeout 跑得久(生产里 3m35s vs 120s)。
+		// 自主续轮跑了一阵(sess-1950 生产里 3m35s)。
 		go func() {
 			time.Sleep(300 * time.Millisecond)
 			close(autoEvents) // 自主轮自然收尾
@@ -780,7 +769,6 @@ func TestRun_UserTurnQueuedBehindAutonomousTurnIsNotStartupKilled(t *testing.T) 
 
 		// 核心断言:健康的子进程不该被杀 —— 杀了它就等于腰斩正在流的自主续轮。
 		So(atomic.LoadInt32(&h.killCalls), ShouldEqual, 0)
-		So(errors.Is(result.StopErr, errStartupTimeout), ShouldBeFalse)
 		r.CloseAllSessions(ctx)
 	})
 }

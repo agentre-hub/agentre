@@ -61,9 +61,8 @@ func newRecordingApproval() *recordingApproval {
 	return &recordingApproval{ch: make(chan bool, 1), execOut: "已执行"}
 }
 
-func (a *recordingApproval) gate(timeout time.Duration) *WriteGate {
+func (a *recordingApproval) gate() *WriteGate {
 	return &WriteGate{
-		Timeout: func() time.Duration { return timeout },
 		Begin: func(_ context.Context, sessionID int64, requestID, tool string, input map[string]any) (<-chan bool, error) {
 			a.mu.Lock()
 			a.begins = append(a.begins, beginCall{sessionID: sessionID, requestID: requestID, tool: tool, input: input})
@@ -225,7 +224,7 @@ func TestServer_TokenAuthorizesOnlyItsOwnResource(t *testing.T) {
 		apv := newRecordingApproval()
 		srv := orgLikeServer(func(_ context.Context, id int64) (*agent_entity.Agent, error) {
 			return agentWithTool(id, KeyOrg, true), nil
-		}, apv.gate(time.Minute))
+		}, apv.gate())
 		apv.ch <- true
 		w := call(srv, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_create_agent","arguments":{"sessionId":100}}}`, srv.MintToken(7, 99))
 
@@ -388,7 +387,7 @@ func TestServer_ToolDispatch(t *testing.T) {
 
 		Convey("When 工具名不在注册表里, Then -32601 unknown tool 且不登记审批", func() {
 			apv := newRecordingApproval()
-			srv := orgLikeServer(enabled, apv.gate(time.Minute))
+			srv := orgLikeServer(enabled, apv.gate())
 			w := call(srv, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"not_an_org_tool"}}`, srv.MintToken(7, 99))
 			So(w.Code, ShouldEqual, http.StatusOK)
 			So(w.Body.String(), ShouldContainSubstring, "unknown tool")
@@ -413,7 +412,7 @@ func TestServer_WriteApprovalGate(t *testing.T) {
 	Convey("Given 一个写工具调用挂在审批闸门上", t, func() {
 		Convey("When 用户批准, Then 执行并以 approved 收尾,结果回给 agent", func() {
 			apv := newRecordingApproval()
-			srv := orgLikeServer(enabled, apv.gate(time.Minute))
+			srv := orgLikeServer(enabled, apv.gate())
 			apv.ch <- true
 			w := call(srv, writeBody, srv.MintToken(7, 99))
 
@@ -434,7 +433,7 @@ func TestServer_WriteApprovalGate(t *testing.T) {
 
 		Convey("When 用户拒绝, Then 不执行,以 denied 收尾并告知 agent", func() {
 			apv := newRecordingApproval()
-			srv := orgLikeServer(enabled, apv.gate(time.Minute))
+			srv := orgLikeServer(enabled, apv.gate())
 			apv.ch <- false
 			w := call(srv, writeBody, srv.MintToken(7, 99))
 
@@ -449,7 +448,7 @@ func TestServer_WriteApprovalGate(t *testing.T) {
 		Convey("When 批准后执行报业务错, Then 仍是 approved 终态,错误进结果供 agent 纠错", func() {
 			apv := newRecordingApproval()
 			apv.execErr = errors.New("循环挂载")
-			srv := orgLikeServer(enabled, apv.gate(time.Minute))
+			srv := orgLikeServer(enabled, apv.gate())
 			apv.ch <- true
 			w := call(srv, writeBody, srv.MintToken(7, 99))
 
@@ -460,22 +459,36 @@ func TestServer_WriteApprovalGate(t *testing.T) {
 			So(finishes[0].result, ShouldContainSubstring, "执行失败: 循环挂载")
 		})
 
-		Convey("When 用户一直不应答, Then 超时以 expired 收尾且不执行", func() {
+		Convey("When 用户一直不应答, Then 审批卡一直挂着不自行过期,也不执行", func() {
 			apv := newRecordingApproval()
-			srv := orgLikeServer(enabled, apv.gate(30*time.Millisecond))
-			w := call(srv, writeBody, srv.MintToken(7, 99))
+			srv := orgLikeServer(enabled, apv.gate())
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			req := httptest.NewRequest("POST", "/mcp/x/", strings.NewReader(writeBody)).WithContext(ctx)
+			req.Header.Set("Authorization", "Bearer "+srv.MintToken(7, 99))
+			done := make(chan struct{})
+			go func() {
+				srv.ServeHTTP(httptest.NewRecorder(), req)
+				close(done)
+			}()
 
-			So(w.Body.String(), ShouldContainSubstring, "审批超时")
-			_, finishes, execs := apv.snapshot()
+			select {
+			case <-done:
+				t.Fatal("unanswered approval ended on its own")
+			case <-time.After(200 * time.Millisecond):
+			}
+			begins, finishes, execs := apv.snapshot()
+			So(len(begins), ShouldEqual, 1)
+			So(finishes, ShouldBeEmpty)
 			So(execs, ShouldBeEmpty)
-			So(len(finishes), ShouldEqual, 1)
-			So(finishes[0].status, ShouldEqual, "expired")
+			cancel()
+			<-done
 		})
 
 		Convey("When 审批通道开不出来(无活跃 turn), Then -32000 审批通道不可用,不挂起", func() {
 			apv := newRecordingApproval()
 			apv.beginErr = errors.New("no active turn")
-			srv := orgLikeServer(enabled, apv.gate(time.Minute))
+			srv := orgLikeServer(enabled, apv.gate())
 			w := call(srv, writeBody, srv.MintToken(7, 99))
 
 			So(w.Code, ShouldEqual, http.StatusOK)
@@ -487,7 +500,7 @@ func TestServer_WriteApprovalGate(t *testing.T) {
 
 		Convey("When 请求在挂起中被中断, Then 用未取消的 ctx 以 expired 收尾", func() {
 			apv := newRecordingApproval()
-			srv := orgLikeServer(enabled, apv.gate(time.Minute))
+			srv := orgLikeServer(enabled, apv.gate())
 			ctx, cancel := context.WithCancel(context.Background())
 			req := httptest.NewRequest("POST", "/mcp/x/", strings.NewReader(writeBody)).WithContext(ctx)
 			req.Header.Set("Authorization", "Bearer "+srv.MintToken(7, 99))

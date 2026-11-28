@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
@@ -31,7 +30,6 @@ func (s *hooktoolSvc) newMCPServer() *agenttool.Server {
 			"hook_get":  s.handleGet,
 		},
 		Write: &agenttool.WriteGate{
-			Timeout: func() time.Duration { return s.approvalTimeout },
 			Begin: func(ctx context.Context, sessionID int64, requestID, tool string, input map[string]any) (<-chan bool, error) {
 				return s.approval.BeginToolApproval(ctx, sessionID, &blocks.ToolApprovalBlock{
 					ToolKey: agenttool.KeyHook, RequestID: requestID, ToolName: tool, ToolInput: input, Status: "pending",

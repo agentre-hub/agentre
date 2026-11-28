@@ -6,7 +6,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"go.uber.org/mock/gomock"
 
@@ -19,7 +18,7 @@ import (
 )
 
 // writeSvc 构造一个全新的 orgtoolSvc(不碰 Default() 单例),接齐写工具审批所需的全部 5
-// 个依赖。approvalTimeout 默认给 4min,需要超时用例的测试自己改小。
+// 个依赖。
 type writeDeps struct {
 	lookup *mock_orgtool_svc.MockAgentLookup
 	query  *mock_orgtool_svc.MockOrgQuery
@@ -157,27 +156,6 @@ func TestOrgApproval_Denied(t *testing.T) {
 
 		So(w.Code, ShouldEqual, http.StatusOK)
 		So(w.Body.String(), ShouldContainSubstring, "用户拒绝")
-	})
-}
-
-func TestOrgApproval_Timeout(t *testing.T) {
-	Convey("不应答 → 超时 → Finish(expired) + result 含「审批超时」", t, func() {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-		s, d := newWriteSvc(ctrl)
-		s.approvalTimeout = 50 * time.Millisecond
-		d.lookup.EXPECT().Find(gomock.Any(), int64(7)).Return(orgEnabledAgent(7), nil)
-
-		beginCh(d, 99) // 返回 channel 但故意不 push,触发超时分支
-		d.apv.EXPECT().FinishToolApproval(gomock.Any(), int64(99), gomock.Any(), "expired", gomock.Any()).Return(nil)
-
-		token := s.Server().MintToken(7, 99)
-		w, done := callWrite(s, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"org_create_department","arguments":{"name":"x"}}}`, token)
-
-		<-done
-
-		So(w.Code, ShouldEqual, http.StatusOK)
-		So(w.Body.String(), ShouldContainSubstring, "审批超时")
 	})
 }
 

@@ -71,7 +71,8 @@ type WebSocketDialer interface {
 }
 
 const (
-	// ReadyTimeout bounds the wait for `gateway.ready` after the upgrade.
+	// ReadyTimeout bounds the connection probe's wait for `gateway.ready` (the
+	// settings "test connection" check). Turns set no such limit; see WaitReady.
 	ReadyTimeout   = 60 * time.Second
 	httpTimeout    = 15 * time.Second
 	dialTimeout    = 15 * time.Second

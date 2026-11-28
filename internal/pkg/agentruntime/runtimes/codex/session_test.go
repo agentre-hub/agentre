@@ -92,6 +92,10 @@ func TestBuildLaunchSpec_MCPServers(t *testing.T) {
 			So(spec.config, ShouldContain, `mcp_servers.group.enabled_tools=["group_send","group_invite"]`)
 			So(spec.config, ShouldContain, `mcp_servers.group.default_tools_approval_mode="approve"`)
 		})
+
+		Convey("Then the MCP tool call is not cut off by Codex's default per-call timeout (approvals wait indefinitely)", func() {
+			So(spec.config, ShouldContain, `mcp_servers.group.tool_timeout_sec=999999`)
+		})
 	})
 
 	Convey("Given RunRequest 不带 MCPServers(回归)", t, func() {

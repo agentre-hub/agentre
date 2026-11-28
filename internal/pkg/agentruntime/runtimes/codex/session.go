@@ -430,6 +430,9 @@ func opensSandboxNetwork(req agentruntime.RunRequest) bool {
 // workspaceWriteNetworkConfig 打开 workspace-write 沙箱的网络访问。
 const workspaceWriteNetworkConfig = "sandbox_workspace_write.network_access=true"
 
+// mcpToolTimeoutSec 是注入的 MCP server 单次工具调用的上限(秒),取一个实际不会触到的值。
+const mcpToolTimeoutSec = "999999"
+
 func buildMCPServerConfig(specs []agentruntime.MCPServerSpec) []string {
 	if len(specs) == 0 {
 		return nil
@@ -443,6 +446,9 @@ func buildMCPServerConfig(specs []agentruntime.MCPServerSpec) []string {
 		}
 		prefix := "mcp_servers." + tomlKey(name)
 		out = append(out, prefix+".url="+strconv.Quote(url))
+		// Agentre 的写工具会挂起等用户审批,审批不设时限;Codex 默认按单次调用 60s 截断,
+		// 这里放宽到约 11.6 天(与 claudecode 的 MCP_TOOL_TIMEOUT 同量级)。
+		out = append(out, prefix+".tool_timeout_sec="+mcpToolTimeoutSec)
 		if len(s.Headers) > 0 {
 			keys := make([]string, 0, len(s.Headers))
 			for k := range s.Headers {

@@ -84,6 +84,35 @@ func TestRPCConn_CallPairsResponseByStringID(t *testing.T) {
 	})
 }
 
+// TestRPCConn_WaitReadyWaitsForSlowGateway pins that Agentre imposes no limit on
+// how long a gateway may take to send gateway.ready: a slow `hermes serve`
+// start is not a failure, and only the caller ending the turn stops the wait.
+func TestRPCConn_WaitReadyWaitsForSlowGateway(t *testing.T) {
+	// Given a gateway that has not yet sent gateway.ready,
+	conn := newRPCConn((&scriptedTransport{}).write)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+
+	// When Agentre waits for it with a caller context that has no deadline,
+	go func() { result <- conn.WaitReady(ctx) }()
+
+	// Then the wait does not end on its own,
+	select {
+	case err := <-result:
+		t.Fatalf("WaitReady gave up on a slow gateway: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	// and the caller's cancellation is what ends it.
+	cancel()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("WaitReady ignored the caller's cancellation")
+	}
+}
+
 func TestRPCConn_EventsAndGatewayReady(t *testing.T) {
 	Convey("Given a codec", t, func() {
 		conn := newRPCConn((&scriptedTransport{}).write)

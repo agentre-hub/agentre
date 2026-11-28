@@ -332,14 +332,14 @@ func (f *fakeApprovalSink) snapshot() ([]transcriptblocks.ToolApprovalBlock, []r
 
 const previewResponse = `{"write":{"id":3,"name":"openrouter","changes":[{"op":"CTL_OP_UPDATE","kind":"CTL_KIND_PROVIDER","id":3,"name":"openrouter","fields":[{"field":"name","before":"old","after":"openrouter"},{"field":"apiKey","secret":true}]}]}}`
 
-func consoleOwned(t *testing.T, server CtlServerPort, timeout time.Duration) (*CtlSessions, *fakeApprovalSink, string, *httptest.Server) {
+func consoleOwned(t *testing.T, server CtlServerPort) (*CtlSessions, *fakeApprovalSink, string, *httptest.Server) {
 	t.Helper()
 	c := NewCtlSessions(func() string { return "http://gw" }).WithAnswerAuth(anyCaller)
 	c.bind(ctlTestRID, "sha256:browser", ctlTestConversation, DesktopCtlSession{}, false)
 	sink := newFakeSink()
 	c.attachTurn(ctlTestRID, sink)
 	h := NewCtlProxyHandler(CtlProxyDeps{
-		Sessions: c, Server: server, ApprovalTimeout: timeout,
+		Sessions: c, Server: server,
 		Tunnel: func(devicefp.Initiator, string) NotifierPort {
 			t.Error("a console-owned session is never tunneled to a desktop")
 			return nil
@@ -352,7 +352,7 @@ func consoleOwned(t *testing.T, server CtlServerPort, timeout time.Duration) (*C
 
 func TestCtlProxy_GivenConsoleOwnedSession_WhenReading_ThenServerAnswersDirectly(t *testing.T) {
 	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, `{"list":{"items":[]}}` }}
-	_, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	_, sink, tok, srv := consoleOwned(t, server)
 
 	status, got, waiting := postCtl(t, srv.URL+"/ctl/v1/resources", tok, listBody(t))
 
@@ -386,7 +386,7 @@ func TestCtlProxy_GivenConsoleOwnedSession_WhenSending_ThenTheServerIsNeverAsked
 }
 
 func TestCtlProxy_GivenSessionToken_WhenCallingAControlOnlyVerb_Then403(t *testing.T) {
-	_, _, tok, srv := consoleOwned(t, &fakeCtlServer{}, time.Minute)
+	_, _, tok, srv := consoleOwned(t, &fakeCtlServer{})
 	for _, path := range []string{"/ctl/v1/answer-permission", "/ctl/v1/stop"} {
 		status, _, _ := postCtl(t, srv.URL+path, tok, `{}`)
 		assert.Equal(t, http.StatusForbidden, status, path)
@@ -395,7 +395,7 @@ func TestCtlProxy_GivenSessionToken_WhenCallingAControlOnlyVerb_Then403(t *testi
 
 func TestCtlProxy_GivenConsoleOwnedWrite_WhenApproved_ThenCardShowsServerPreviewAndServerWrites(t *testing.T) {
 	server := &fakeCtlServer{answer: func(path string) (int, string) { return 200, previewResponse }}
-	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	c, sink, tok, srv := consoleOwned(t, server)
 
 	done := make(chan ctlResult, 1)
 	go func() { done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t)) }()
@@ -455,7 +455,7 @@ func TestCtlProxy_GivenCallerGoneAfterApproval_ThenCommitIsNotCanceled(t *testin
 			canceled <- false
 		}
 	}
-	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	c, sink, tok, srv := consoleOwned(t, server)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/ctl/v1/resources", strings.NewReader(writeBody(t)))
@@ -482,7 +482,7 @@ func TestCtlProxy_GivenApprovedWriteFails_ThenCardSaysSoAndErrorIsRelayed(t *tes
 		}
 		return http.StatusConflict, `{"error":"name already taken"}`
 	}}
-	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	c, sink, tok, srv := consoleOwned(t, server)
 
 	done := make(chan ctlResult, 1)
 	go func() { done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t)) }()
@@ -501,7 +501,7 @@ func TestCtlProxy_GivenApprovedWriteFails_ThenCardSaysSoAndErrorIsRelayed(t *tes
 
 func TestCtlProxy_GivenConsoleOwnedWrite_WhenRejected_Then403AndCardDenied(t *testing.T) {
 	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
-	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	c, sink, tok, srv := consoleOwned(t, server)
 
 	done := make(chan ctlResult, 1)
 	go func() { done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t)) }()
@@ -519,28 +519,49 @@ func TestCtlProxy_GivenConsoleOwnedWrite_WhenRejected_Then403AndCardDenied(t *te
 	assert.Equal(t, []resolvedApproval{{requestID, "denied", ""}}, resolved)
 }
 
-func TestCtlProxy_GivenConsoleOwnedWrite_WhenNobodyAnswers_Then504AndCardExpired(t *testing.T) {
+func TestCtlProxy_GivenConsoleOwnedWrite_WhenNobodyAnswers_ThenCardWaitsUntilCallerLeaves(t *testing.T) {
 	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
-	c, sink, tok, srv := consoleOwned(t, server, 50*time.Millisecond)
+	c, sink, tok, srv := consoleOwned(t, server)
 
-	res := ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/ctl/v1/resources", strings.NewReader(writeBody(t)))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
 	requestID := <-sink.begunC
 
-	assert.Equal(t, http.StatusGatewayTimeout, res.status)
-	assert.JSONEq(t, `{"error":"approval timed out"}`, res.body)
+	select {
+	case <-done:
+		t.Fatal("unanswered approval ended on its own")
+	case <-time.After(200 * time.Millisecond):
+	}
 	_, resolved := sink.snapshot()
+	assert.Empty(t, resolved, "the card is still waiting for an answer")
+	assert.Equal(t, []string{requestID}, pendingIDs(c))
+
+	cancel() // agrctl 被杀 / 调用方断开
+	<-done
+	require.Eventually(t, func() bool {
+		_, resolved := sink.snapshot()
+		return len(resolved) == 1
+	}, time.Second, 5*time.Millisecond)
+	_, resolved = sink.snapshot()
 	assert.Equal(t, []resolvedApproval{{requestID, "expired", ""}}, resolved)
-	_, err := c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
-		ConversationId: ctlTestConversation, RequestId: requestID, Allow: true,
-	})
-	assert.Error(t, err, "an expired card cannot be answered")
+	assert.Equal(t, []string{"/v1/ctl/resources?preview=1"}, server.paths(), "an unanswered write never reaches the server")
 }
 
 // 轮次收口时还挂着的卡已经在转录里记成 expired：此后控制台再批准，不能照样提交 server
-// ——转录说「过期」、server 却写了。agrctl 也不该干等 4 分钟。
+// ——转录说「过期」、server 却写了。agrctl 也不该一直干等。
 func TestCtlProxy_GivenTurnEndsWhileCardPending_ThenConflictAndLateAnswerIsRejected(t *testing.T) {
 	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
-	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	c, sink, tok, srv := consoleOwned(t, server)
 
 	done := make(chan ctlResult, 1)
 	go func() { done <- ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t)) }()
@@ -563,7 +584,7 @@ func TestCtlProxy_GivenTurnEndsWhileCardPending_ThenConflictAndLateAnswerIsRejec
 
 func TestCtlProxy_GivenPreviewRefused_ThenNoCardAndServerErrorRelayed(t *testing.T) {
 	server := &fakeCtlServer{answer: func(string) (int, string) { return http.StatusNotFound, `{"error":"provider 3 not found"}` }}
-	_, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	_, sink, tok, srv := consoleOwned(t, server)
 
 	status, got, waiting := postCtl(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t))
 	assert.Equal(t, http.StatusNotFound, status)
@@ -587,7 +608,7 @@ func TestCtlProxy_GivenNoActiveTurn_WhenWriting_ThenConflictWithoutAnnouncing(t 
 }
 
 func TestCtlProxy_GivenServerUnreachable_ThenServiceUnavailable(t *testing.T) {
-	_, _, tok, srv := consoleOwned(t, &fakeCtlServer{err: ErrCtlServerUnavailable}, time.Minute)
+	_, _, tok, srv := consoleOwned(t, &fakeCtlServer{err: ErrCtlServerUnavailable})
 	status, got, _ := postCtl(t, srv.URL+"/ctl/v1/resources", tok, listBody(t))
 	assert.Equal(t, http.StatusServiceUnavailable, status)
 	assert.Contains(t, got, "signed in")
@@ -761,7 +782,7 @@ func TestCtlProxy_GivenFailuresOnEveryRoute_ThenNoTokenOrSecretIsLogged(t *testi
 		req.Header.Set("Authorization", "Bearer "+tok)
 		h.ServeHTTP(httptest.NewRecorder(), req)
 	}
-	_, _, consoleTok, srv := consoleOwned(t, &fakeCtlServer{err: errors.New("dial tcp: refused")}, time.Minute)
+	_, _, consoleTok, srv := consoleOwned(t, &fakeCtlServer{err: errors.New("dial tcp: refused")})
 	_, _, _ = postCtl(t, srv.URL+"/ctl/v1/resources", consoleTok, writeBody(t))
 
 	require.NotZero(t, logs.Len(), "the failures are logged")
@@ -781,21 +802,32 @@ func TestCtlProxy_GivenFailuresOnEveryRoute_ThenNoTokenOrSecretIsLogged(t *testi
 func TestCtlProxy_GivenConsoleOwnedCascadeDelete_ThenCardStatesCascadeCounts(t *testing.T) {
 	const cascadePreview = `{"write":{"id":4,"name":"infra","changes":[{"op":"CTL_OP_DELETE","kind":"CTL_KIND_DEPARTMENT","id":4,"name":"infra","note":"also deletes 2 sub-departments and 1 agent"}]}}`
 	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, cascadePreview }}
-	_, sink, tok, srv := consoleOwned(t, server, 500*time.Millisecond)
+	c, sink, tok, srv := consoleOwned(t, server)
 	body, err := protojson.Marshal(&agentrewire.CtlRequest{Op: &agentrewire.CtlRequest_Write{Write: &agentrewire.CtlWriteRequest{
 		Op: agentrewire.CtlOp_CTL_OP_DELETE, Kind: agentrewire.CtlKind_CTL_KIND_DEPARTMENT, Id: 4, Cascade: true,
 		Caller: agentrewire.CtlCaller_CTL_CALLER_SESSION, Command: "agrctl delete department infra --cascade",
 	}}})
 	require.NoError(t, err)
 
-	go func() { _, _, _ = postCtl(t, srv.URL+"/ctl/v1/resources", tok, string(body)) }()
-	<-sink.begunC
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, _ = postCtl(t, srv.URL+"/ctl/v1/resources", tok, string(body))
+	}()
+	requestID := <-sink.begunC
 
 	begun, _ := sink.snapshot()
 	input, err := transcriptblocks.ParseCtlApprovalInput(begun[0].ToolInput)
 	require.NoError(t, err)
 	require.Len(t, input.Changes, 1)
 	assert.Equal(t, &transcriptblocks.CtlApprovalCascade{Departments: 2, Agents: 1}, input.Changes[0].Cascade)
+
+	// 审批不会自行过期:拒绝掉这张卡,让挂着的请求收尾。
+	_, err = c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
+		ConversationId: ctlTestConversation, RequestId: requestID, Allow: false,
+	})
+	require.NoError(t, err)
+	<-done
 }
 
 func pendingIDs(c *CtlSessions) []string {
@@ -809,7 +841,7 @@ func pendingIDs(c *CtlSessions) []string {
 
 func TestCtlSessions_GivenOpenApprovalCard_WhenListed_ThenCarriesFieldsAndDropsAfterAnswer(t *testing.T) {
 	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
-	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	c, sink, tok, srv := consoleOwned(t, server)
 	assert.Empty(t, c.PendingApprovals(ctlTestConversation))
 
 	before := time.Now().Unix()
@@ -839,18 +871,9 @@ func TestCtlSessions_GivenOpenApprovalCard_WhenListed_ThenCarriesFieldsAndDropsA
 	assert.Empty(t, pendingIDs(c), "an answered card is no longer listed")
 }
 
-func TestCtlSessions_GivenOpenApprovalCard_WhenItTimesOut_ThenNoLongerListed(t *testing.T) {
-	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
-	c, sink, tok, srv := consoleOwned(t, server, 50*time.Millisecond)
-	res := ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t))
-	<-sink.begunC
-	assert.Equal(t, http.StatusGatewayTimeout, res.status)
-	assert.Empty(t, pendingIDs(c))
-}
-
 func TestCtlSessions_GivenTurnEnded_WhenCardStillOpen_ThenNoLongerListed(t *testing.T) {
 	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
-	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
+	c, sink, tok, srv := consoleOwned(t, server)
 	go func() { _ = ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t)) }()
 	<-sink.begunC
 	require.Len(t, pendingIDs(c), 1)
@@ -861,8 +884,12 @@ func TestCtlSessions_GivenTurnEnded_WhenCardStillOpen_ThenNoLongerListed(t *test
 // 会话里的 agent 只有会话级 token:它到不了任何回答审批的入口,自己会话的也一样。
 func TestCtlProxy_GivenSessionToken_WhenAnsweringItsOwnApproval_ThenRefusedAndCardStaysPending(t *testing.T) {
 	server := &fakeCtlServer{answer: func(string) (int, string) { return 200, previewResponse }}
-	c, sink, tok, srv := consoleOwned(t, server, time.Minute)
-	go func() { _ = ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t)) }()
+	c, sink, tok, srv := consoleOwned(t, server)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = ctlPost(t, srv.URL+"/ctl/v1/resources", tok, writeBody(t))
+	}()
 	requestID := <-sink.begunC
 
 	body := `{"conversationId":"` + ctlTestConversation + `","requestId":"` + requestID + `","allow":true}`
@@ -872,6 +899,13 @@ func TestCtlProxy_GivenSessionToken_WhenAnsweringItsOwnApproval_ThenRefusedAndCa
 		assert.Equal(t, http.StatusForbidden, status, path)
 	}
 	assert.Equal(t, []string{requestID}, pendingIDs(c))
+
+	// 审批不会自行过期:由控制台拒绝掉,让挂着的请求收尾。
+	_, err := c.AnswerToolApproval(context.Background(), &agentrewire.ToolApprovalAnswerRequest{
+		ConversationId: ctlTestConversation, RequestId: requestID, Allow: false,
+	})
+	require.NoError(t, err)
+	<-done
 }
 
 func TestCtlSessions_GivenGoneRequest_WhenAnswered_ThenNotFoundError(t *testing.T) {

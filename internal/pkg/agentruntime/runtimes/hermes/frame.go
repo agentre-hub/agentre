@@ -10,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 )
@@ -191,10 +190,9 @@ func (c *rpcConn) Err() error {
 }
 
 // WaitReady blocks until the gateway.ready frame arrives, the transport dies, or
-// ctx/the ready timeout elapses. Nothing may be assumed before this frame.
+// ctx ends. Nothing may be assumed before this frame. Agentre sets no limit of its
+// own: a slow gateway start is not a failure, the user stopping the turn is.
 func (c *rpcConn) WaitReady(ctx context.Context) error {
-	timer := time.NewTimer(gatewayReadyTimeout)
-	defer timer.Stop()
 	select {
 	case <-c.ready:
 		return nil
@@ -207,8 +205,6 @@ func (c *rpcConn) WaitReady(ctx context.Context) error {
 		return errSessionClosed
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-timer.C:
-		return errors.New("hermes gateway: timed out waiting for gateway.ready")
 	}
 }
 

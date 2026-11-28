@@ -1,15 +1,11 @@
 package hooktool_svc
 
 import (
-	"time"
-
 	"github.com/agentre-hub/agentre/internal/pkg/agenttool"
 )
 
 type hooktoolSvc struct {
 	*agenttool.Mount
-
-	approvalTimeout time.Duration
 
 	hooks       HookService
 	agentLookup AgentLookup
@@ -19,8 +15,7 @@ type hooktoolSvc struct {
 var defaultHooktool = newHooktoolSvc()
 
 func newHooktoolSvc() *hooktoolSvc {
-	// 与 orgtool 一致:留 CLI 硬顶余量。
-	s := &hooktoolSvc{approvalTimeout: 4 * time.Minute}
+	s := &hooktoolSvc{}
 	s.Mount = agenttool.NewMount(agenttool.KeyHook, s.newMCPServer)
 	return s
 }
