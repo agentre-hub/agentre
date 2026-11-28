@@ -18,7 +18,7 @@ import (
 //	<Pi 配置目录>/extensions/agentre-provider.js
 //
 // 父进程与所有子进程都会自动加载它，provider 定义每会话经
-// agentruntime.PiAgentProviderRegistryEnvKey 下发，密钥仍只在 env。
+// agentruntime.PiAgentProviderRegistryEnvKey 下发，env 里只有网关 token，没有真实密钥。
 const childProviderExtensionFileName = "agentre-provider.js"
 
 // childProviderExtensionSource 是安装的静态扩展源码：不含供应商、密钥与会话信息，只读注册表

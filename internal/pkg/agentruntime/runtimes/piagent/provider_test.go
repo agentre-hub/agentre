@@ -42,7 +42,7 @@ func TestMaterializeProviderExtension_WritesContentHashedFile(t *testing.T) {
 	}
 	for _, tc := range tcs {
 		t.Run(tc.name, func(t *testing.T) {
-			path, err := MaterializeProviderExtension(tc.cfg)
+			path, err := MaterializeProviderExtension(tc.cfg, "http://127.0.0.1:60080")
 			if err != nil {
 				t.Fatalf("MaterializeProviderExtension: %v", err)
 			}
@@ -58,7 +58,7 @@ func TestMaterializeProviderExtension_WritesContentHashedFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read: %v", err)
 			}
-			source, err := agentruntime.PiAgentProviderExtension(tc.cfg)
+			source, err := agentruntime.PiAgentProviderExtension(tc.cfg, "http://127.0.0.1:60080")
 			if err != nil {
 				t.Fatalf("PiAgentProviderExtension: %v", err)
 			}
@@ -76,14 +76,14 @@ func TestMaterializeProviderExtension_WritesContentHashedFile(t *testing.T) {
 func TestMaterializeProviderExtension_Idempotent(t *testing.T) {
 	t.Setenv("AGENTRE_DATA_DIR", t.TempDir())
 	cfg := testProviderCfg("prov-x", "ProvX", "https://x.example", string(llm_provider_entity.TypeOpenAIChat), "gpt-4o")
-	p1, err := MaterializeProviderExtension(cfg)
+	p1, err := MaterializeProviderExtension(cfg, "http://127.0.0.1:60080")
 	if err != nil {
 		t.Fatalf("materialize: %v", err)
 	}
 	if _, err := os.Stat(p1); err != nil {
 		t.Fatalf("file missing: %v", err)
 	}
-	p2, err := MaterializeProviderExtension(cfg)
+	p2, err := MaterializeProviderExtension(cfg, "http://127.0.0.1:60080")
 	if err != nil || p2 != p1 {
 		t.Fatalf("not idempotent: p1=%s p2=%s err=%v", p1, p2, err)
 	}
@@ -94,11 +94,11 @@ func TestMaterializeProviderExtension_DifferentSourceDifferentPath(t *testing.T)
 	base := func(modelID string) *agentruntime.EffectiveLLMConfig {
 		return testProviderCfg("prov-y", "ProvY", "https://y.example", string(llm_provider_entity.TypeOpenAIResponse), modelID)
 	}
-	p1, err := MaterializeProviderExtension(base("model-one"))
+	p1, err := MaterializeProviderExtension(base("model-one"), "http://127.0.0.1:60080")
 	if err != nil {
 		t.Fatalf("materialize: %v", err)
 	}
-	p2, err := MaterializeProviderExtension(base("model-two"))
+	p2, err := MaterializeProviderExtension(base("model-two"), "http://127.0.0.1:60080")
 	if err != nil {
 		t.Fatalf("materialize: %v", err)
 	}

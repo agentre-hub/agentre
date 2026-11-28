@@ -139,7 +139,7 @@ func (cliProber) Run(ctx context.Context, b *agent_backend_entity.AgentBackend, 
 		return "", err
 	}
 	model := resolveCLIProbeModel(b, deps)
-	extensions, env, model, err := buildPiAgentProviderProbe(ctx, b, env, model)
+	extensions, env, model, err := buildPiAgentProviderProbe(ctx, b, env, model, deps)
 	if err != nil {
 		return "", err
 	}
@@ -163,11 +163,11 @@ func (cliProber) Run(ctx context.Context, b *agent_backend_entity.AgentBackend, 
 // agent-backend.md §2.3 不变量：Test 与 chat run 同一装配规则，不漂移）：
 //   - provider 必须存在且 active（仿 builtinProber 的校验）；
 //   - 物化 provider 扩展（piagent.MaterializeProviderExtension，与 chat run 同源）；
-//   - env 在 agentruntime.BuildPiAgentEnv 产出的 base 之上叠加 AGENTRE_PI_API_KEY_*；
+//   - env 在 agentruntime.BuildPiAgentEnv 产出的 base 之上叠加会话网关 token（真实 key 不进 Pi）；
 //   - --model 覆盖为 agentre-<key>/<model>（盖掉默认空串）。
 //
 // 未绑定供应商的 piagent 保持现状：原样返回入参，不注入任何东西。
-func buildPiAgentProviderProbe(ctx context.Context, b *agent_backend_entity.AgentBackend, env map[string]string, model string) (extensions []string, envOut map[string]string, modelOut string, err error) {
+func buildPiAgentProviderProbe(ctx context.Context, b *agent_backend_entity.AgentBackend, env map[string]string, model string, deps ProbeDeps) (extensions []string, envOut map[string]string, modelOut string, err error) {
 	if b == nil || !b.IsPiAgent() || b.LLMProviderKey == "" {
 		return nil, env, model, nil
 	}
@@ -190,7 +190,7 @@ func buildPiAgentProviderProbe(ctx context.Context, b *agent_backend_entity.Agen
 	if err != nil {
 		return nil, env, model, err
 	}
-	extPath, err := piagent.MaterializeProviderExtension(cfg)
+	extPath, err := piagent.MaterializeProviderExtension(cfg, deps.GatewayURL)
 	if err != nil {
 		return nil, env, model, err
 	}
@@ -198,7 +198,11 @@ func buildPiAgentProviderProbe(ctx context.Context, b *agent_backend_entity.Agen
 	if err != nil {
 		return nil, env, model, err
 	}
-	return []string{extPath}, agentruntime.BuildPiAgentProviderEnv(env, cfg), providerModel, nil
+	envOut, err = agentruntime.BuildPiAgentProviderEnv(env, cfg, agentruntime.CLIDeps{Token: deps.Token, GatewayURL: deps.GatewayURL})
+	if err != nil {
+		return nil, env, model, err
+	}
+	return []string{extPath}, envOut, providerModel, nil
 }
 
 // effectiveLLMForProbe 装配 Test 连通性用的执行侧配置：经 llm_provider_svc.ResolveTarget

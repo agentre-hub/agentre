@@ -1081,17 +1081,24 @@ func TestTestBackend_NoProvider(t *testing.T) {
 	})
 }
 
-func TestTestBackend_PiAgentBoundSkipsGateway(t *testing.T) {
-	convey.Convey("piagent 绑 provider 且 gateway 未注入 → 不进 gateway 分支，直接调 prober（piagent 不走 gateway，连通性测真实 provider）", t, func() {
+func TestTestBackend_PiAgentBoundUsesGateway(t *testing.T) {
+	convey.Convey("piagent 绑 provider 且 gateway 在跑 → 签临时 token 交给 prober，真实 key 不下发给 Pi", t, func() {
 		ctx, _, providerMock, _, proberMock, svc := setupSvcTest(t)
-		// gateway 保持 nil；旧逻辑会在 `!IsBuiltin() && LLMProviderKey != ""`
-		// 分支报 GatewayUnavailable，piagent 绑定后应不再进该分支。
-		providerMock.EXPECT().FindByKey(gomock.Any(), "key-pi").Return(activeProvider("key-pi"), nil)
+		svc.gateway = &fakeBackendGateway{
+			status: httpgateway.GatewayStatus{State: "running"},
+			url:    "http://127.0.0.1:60080",
+			token:  "tok-pi",
+		}
+		providerMock.EXPECT().FindByKey(gomock.Any(), "key-pi").Return(activeProvider("key-pi"), nil).AnyTimes()
 		// piagent 绑定时必须能解析出启用默认模型，否则校验直接拒绝。
-		expectDefaultModelResolution(providerMock, "key-pi", 1)
+		expectDefaultModelResolution(providerMock, "key-pi", 2)
+		var gotDeps ProbeDeps
 		proberMock.EXPECT().
 			Run(gomock.Any(), gomock.AssignableToTypeOf(&agent_backend_entity.AgentBackend{}), gomock.Any()).
-			Return("pong", nil)
+			DoAndReturn(func(_ context.Context, _ *agent_backend_entity.AgentBackend, deps ProbeDeps) (string, error) {
+				gotDeps = deps
+				return "pong", nil
+			})
 
 		res, err := svc.Test(ctx, &TestBackendRequest{
 			Type:           string(agent_backend_entity.TypePiAgent),
@@ -1102,6 +1109,24 @@ func TestTestBackend_PiAgentBoundSkipsGateway(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, res)
 		assert.True(t, res.OK)
+		assert.Equal(t, "tok-pi", gotDeps.Token)
+		assert.Equal(t, "http://127.0.0.1:60080", gotDeps.GatewayURL)
+	})
+
+	convey.Convey("piagent 绑 provider 且 gateway 未注入 → soft failure，不调 prober（没有网关就没有可用凭据）", t, func() {
+		ctx, _, providerMock, _, _, svc := setupSvcTest(t)
+		providerMock.EXPECT().FindByKey(gomock.Any(), "key-pi").Return(activeProvider("key-pi"), nil)
+		expectDefaultModelResolution(providerMock, "key-pi", 1)
+
+		res, err := svc.Test(ctx, &TestBackendRequest{
+			Type:           string(agent_backend_entity.TypePiAgent),
+			Name:           "pi",
+			LLMProviderKey: "key-pi",
+		})
+
+		assert.NoError(t, err)
+		assert.NotNil(t, res)
+		assert.False(t, res.OK)
 	})
 }
 

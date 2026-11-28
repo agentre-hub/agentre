@@ -355,7 +355,7 @@ func safePiResponseCommand(command string) (string, bool) {
 // ModelID 为空（保存时已拦截，此处仅兜底）时沿用现状：返回零值不报错，不注入模型也不物化扩展。
 // 模型名（Type 不可识别 / 模型空）出错一律显式返回，不静默吞掉后走无绑定运行。
 // cfg 是执行侧解析结果（EffectiveLLMConfig v1 seam）：模型 id 取解析出的 ModelID。
-func providerRunConfig(cfg *agentruntime.EffectiveLLMConfig, env map[string]string) (model string, extPath string, err error) {
+func providerRunConfig(cfg *agentruntime.EffectiveLLMConfig, gatewayURL string, env map[string]string) (model string, extPath string, err error) {
 	if cfg == nil {
 		return "", "", nil
 	}
@@ -371,7 +371,7 @@ func providerRunConfig(cfg *agentruntime.EffectiveLLMConfig, env map[string]stri
 	// 扩展与 --model 必须出自同一个 effectiveModel(都用 cfg):PiAgentProviderExtension
 	// 渲染的 registerProvider 只声明 models:[<cfg.ModelID>]。扩展按内容哈希落盘。
 	// env 是本次运行下发给 pi 的覆盖：子进程扩展要装到同一份 env 解析出的 Pi 配置目录。
-	extPath, err = MaterializeProviderExtension(cfg)
+	extPath, err = MaterializeProviderExtension(cfg, gatewayURL)
 	if err != nil {
 		return "", "", err
 	}
@@ -433,7 +433,7 @@ var sessionFactory = func(req agentruntime.RunRequest, env map[string]string, cw
 	var providerExtPath string
 	if req.Effective != nil {
 		var err error
-		model, providerExtPath, err = providerRunConfig(req.Effective, env)
+		model, providerExtPath, err = providerRunConfig(req.Effective, req.GatewayURL, env)
 		if err != nil {
 			return nil, err
 		}

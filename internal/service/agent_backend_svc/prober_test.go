@@ -240,6 +240,9 @@ func TestBuiltinProber_PassesProviderModelToAgent(t *testing.T) {
 	})
 }
 
+// piProbeDeps 是绑定供应商的 Pi 连通性探测拿到的会话网关（真实 key 只在网关里）。
+var piProbeDeps = ProbeDeps{GatewayURL: "http://127.0.0.1:60080", Token: "gw-probe-token"}
+
 func TestBuildPiAgentProviderProbe(t *testing.T) {
 	Convey("Given a piagent backend bound to an active provider", t, func() {
 		ctrl := gomock.NewController(t)
@@ -263,11 +266,11 @@ func TestBuildPiAgentProviderProbe(t *testing.T) {
 			&llm_provider_model_entity.LLMProviderModel{ModelKey: "mk-pi", ModelID: "deepseek-v3", Enabled: llm_provider_model_entity.EnabledOn, Status: consts.ACTIVE},
 			nil).AnyTimes()
 
-		Convey("When assembling the probe params Then the provider extension is materialized, env gets the API key and model is agentre-<key>/<model>", func() {
+		Convey("When assembling the probe params Then the provider extension is materialized, env gets the gateway token (not the API key) and model is agentre-<key>/<model>", func() {
 			exts, envOut, modelOut, err := buildPiAgentProviderProbe(context.Background(), &agent_backend_entity.AgentBackend{
 				Type:           string(agent_backend_entity.TypePiAgent),
 				LLMProviderKey: "key-pi",
-			}, map[string]string{"BASE": "1"}, "")
+			}, map[string]string{"BASE": "1"}, "", piProbeDeps)
 
 			So(err, ShouldBeNil)
 			So(modelOut, ShouldEqual, "agentre-key-pi/deepseek-v3")
@@ -279,11 +282,17 @@ func TestBuildPiAgentProviderProbe(t *testing.T) {
 			So(statErr, ShouldBeNil)
 			// env 在 agentruntime.BuildPiAgentEnv 产出的 base 之上叠加 APIKey，不改入参 map。
 			So(envOut["BASE"], ShouldEqual, "1")
-			So(envOut["AGENTRE_PI_API_KEY_keypi"], ShouldEqual, "sk-pi-1")
-			// 决策 #4：扩展文件只含 $ENV_VAR 引用，绝不含明文 APIKey。
+			So(envOut["AGENTRE_GATEWAY_TOKEN"], ShouldEqual, "gw-probe-token")
+			// 真实 key 不进 Pi：env 键值与扩展文件都不含它，扩展指向网关而不是上游。
+			for k, v := range envOut {
+				So(k, ShouldNotStartWith, "AGENTRE_PI_API_KEY_")
+				So(v, ShouldNotContainSubstring, "sk-pi-1")
+			}
 			raw, readErr := os.ReadFile(ext) //nolint:gosec // test-owned temp path
 			So(readErr, ShouldBeNil)
 			So(strings.Contains(string(raw), "sk-pi-1"), ShouldBeFalse)
+			So(string(raw), ShouldContainSubstring, "http://127.0.0.1:60080/v1")
+			So(string(raw), ShouldNotContainSubstring, "pi.example")
 		})
 	})
 
@@ -318,18 +327,18 @@ func TestBuildPiAgentProviderProbe(t *testing.T) {
 				Type:           string(agent_backend_entity.TypePiAgent),
 				LLMProviderKey: "key-pi",
 				LLMModelKey:    "mk-fixed",
-			}, map[string]string{"BASE": "1"}, "")
+			}, map[string]string{"BASE": "1"}, "", piProbeDeps)
 			So(err, ShouldBeNil)
 			So(modelOut, ShouldEqual, "agentre-key-pi/deepseek-r2")
 		})
 	})
 
 	Convey("Given an unbound piagent backend", t, func() {
-		Convey("When assembling the probe params Then everything stays as today: no extensions, no API key env, model untouched", func() {
+		Convey("When assembling the probe params Then everything stays as today: no extensions, no gateway/API key env, model untouched", func() {
 			env := map[string]string{"BASE": "1"}
 			exts, envOut, modelOut, err := buildPiAgentProviderProbe(context.Background(), &agent_backend_entity.AgentBackend{
 				Type: string(agent_backend_entity.TypePiAgent),
-			}, env, "")
+			}, env, "", piProbeDeps)
 
 			So(err, ShouldBeNil)
 			So(exts, ShouldBeNil)
@@ -350,7 +359,7 @@ func TestBuildPiAgentProviderProbe(t *testing.T) {
 			_, _, _, err := buildPiAgentProviderProbe(context.Background(), &agent_backend_entity.AgentBackend{
 				Type:           string(agent_backend_entity.TypePiAgent),
 				LLMProviderKey: "key-pi",
-			}, map[string]string{}, "")
+			}, map[string]string{}, "", piProbeDeps)
 			So(err, ShouldNotBeNil)
 		})
 
@@ -367,7 +376,7 @@ func TestBuildPiAgentProviderProbe(t *testing.T) {
 			_, _, _, err := buildPiAgentProviderProbe(context.Background(), &agent_backend_entity.AgentBackend{
 				Type:           string(agent_backend_entity.TypePiAgent),
 				LLMProviderKey: "key-pi",
-			}, map[string]string{}, "")
+			}, map[string]string{}, "", piProbeDeps)
 			So(err, ShouldNotBeNil)
 		})
 	})
@@ -393,7 +402,7 @@ func TestBuildPiAgentProviderProbe(t *testing.T) {
 			_, _, _, err := buildPiAgentProviderProbe(context.Background(), &agent_backend_entity.AgentBackend{
 				Type:           string(agent_backend_entity.TypePiAgent),
 				LLMProviderKey: "key-pi",
-			}, map[string]string{}, "")
+			}, map[string]string{}, "", piProbeDeps)
 			So(err, ShouldNotBeNil)
 			So(err.Error(), ShouldContainSubstring, "key-pi")
 		})

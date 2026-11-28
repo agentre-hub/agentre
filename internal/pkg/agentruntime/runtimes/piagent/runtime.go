@@ -228,8 +228,8 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 		logger.Ctx(ctx).Error("piagent runtime: BuildPiAgentEnv failed", zap.Int64("sessionID", req.SessionID), zap.Error(err))
 		return nil, err
 	}
-	// 绑定供应商：APIKey 空视为配置错误（消息只含 provider key，不含密钥）；
-	// 否则把 AGENTRE_PI_API_KEY_* 注入本次子进程 env（密钥永不落盘）。
+	// 绑定供应商：APIKey 空视为配置错误（消息只含 provider key，不含密钥）；Pi 自己只拿会话
+	// 网关 token 与网关地址（真实 key 只在网关里），没有网关同样是配置错误、不 spawn。
 	// Effective 在 CLI 登录态也会以 Mode=native 的非 nil 配置下发，因此必须按
 	// ProviderKey 判断是否真的绑定了 Agentre Provider，不能把非 nil 等同于已绑定。
 	if effective := req.Effective; effective != nil {
@@ -237,7 +237,10 @@ func (r *Runtime) PrepareRun(ctx context.Context, req agentruntime.RunRequest) (
 			if strings.TrimSpace(effective.APIKey) == "" {
 				return nil, fmt.Errorf("piagent runtime: provider %q has empty APIKey", providerKey)
 			}
-			env = agentruntime.BuildPiAgentProviderEnv(env, effective)
+			env, err = agentruntime.BuildPiAgentProviderEnv(env, effective, agentruntime.CLIDeps{Token: req.GatewayToken, GatewayURL: req.GatewayURL})
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	if req.SessionID > 0 {

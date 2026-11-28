@@ -11,6 +11,9 @@ import (
 )
 
 // testProviderKey 是 UUID 形态的稳定键：带 '-'，env 键名里必须去掉。
+// testGatewayURL 是测试用会话网关根地址。
+const testGatewayURL = "http://127.0.0.1:60080"
+
 const testProviderKey = "9a3b2c1d-4e5f-6a7b-8c9d-0e1f2a3b4c5d"
 
 // testProviderConfig 构造一条 provider-default 执行侧配置（EffectiveLLMConfig v1 seam）。
@@ -23,23 +26,6 @@ func testProviderConfig(typ, modelID string) *EffectiveLLMConfig {
 		ModelID:       modelID,
 		ContextWindow: 200000,
 		MaxOutput:     8192,
-	}
-}
-
-func TestPiAgentProviderEnvKey_SanitizesProviderKey(t *testing.T) {
-	cases := []struct {
-		name string
-		key  string
-		want string
-	}{
-		{"uuid 去 '-'", testProviderKey, "AGENTRE_PI_API_KEY_9a3b2c1d4e5f6a7b8c9d0e1f2a3b4c5d"},
-		{"空 key 退化为前缀", "", "AGENTRE_PI_API_KEY_"},
-		{"非字母数字全部剔除", "A-B!C_d.1", "AGENTRE_PI_API_KEY_ABCd1"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, PiAgentProviderEnvKey(tc.key))
-		})
 	}
 }
 
@@ -110,13 +96,14 @@ func decodeProviderConfig(t *testing.T, raw string) providerConfigPayload {
 
 func TestPiAgentProviderConfigJSON_APIMappingByProviderType(t *testing.T) {
 	cases := []struct {
-		name string
-		typ  string
-		api  string
+		name    string
+		typ     string
+		api     string
+		baseURL string
 	}{
-		{"anthropic → anthropic-messages", string(llm_provider_entity.TypeAnthropic), "anthropic-messages"},
-		{"openai-chat → openai-completions", string(llm_provider_entity.TypeOpenAIChat), "openai-completions"},
-		{"openai-response → openai-responses", string(llm_provider_entity.TypeOpenAIResponse), "openai-responses"},
+		{"anthropic → anthropic-messages", string(llm_provider_entity.TypeAnthropic), "anthropic-messages", testGatewayURL},
+		{"openai-chat → openai-completions", string(llm_provider_entity.TypeOpenAIChat), "openai-completions", testGatewayURL + "/v1"},
+		{"openai-response → openai-responses", string(llm_provider_entity.TypeOpenAIResponse), "openai-responses", testGatewayURL + "/v1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -125,15 +112,17 @@ func TestPiAgentProviderConfigJSON_APIMappingByProviderType(t *testing.T) {
 			cfg.BaseURL = "https://proxy.example.com"
 			cfg.APIKey = "sk-plaintext-secret"
 
-			raw, err := piAgentProviderConfigJSON(cfg)
+			raw, err := piAgentProviderConfigJSON(cfg, testGatewayURL)
 			require.NoError(t, err)
 			got := decodeProviderConfig(t, raw)
 
 			assert.Equal(t, "My Compat", got.Name)
-			assert.Equal(t, "https://proxy.example.com", got.BaseURL)
+			// Pi 只连会话网关（不连上游）：anthropic 用网关根，openai 系带 /v1。
+			assert.Equal(t, tc.baseURL, got.BaseURL)
+			assert.NotContains(t, raw, "proxy.example.com")
 			assert.Equal(t, tc.api, got.API)
-			// 密钥只进 env：config 里只留 $ENV 引用，明文绝不落进下发给 Pi 的任何文本。
-			assert.Equal(t, "$AGENTRE_PI_API_KEY_9a3b2c1d4e5f6a7b8c9d0e1f2a3b4c5d", got.APIKey)
+			// config 里只留网关 token 的 $ENV 引用，真实密钥绝不落进下发给 Pi 的任何文本。
+			assert.Equal(t, "$AGENTRE_GATEWAY_TOKEN", got.APIKey)
 			assert.NotContains(t, raw, "sk-plaintext-secret")
 
 			require.Len(t, got.Models, 1)
@@ -148,32 +137,37 @@ func TestPiAgentProviderConfigJSON_APIMappingByProviderType(t *testing.T) {
 	}
 }
 
-// TestPiAgentProviderConfigJSON_BlankBaseURLRendersTypeDefault 钉死「Base URL 留空 = 走该类型
-// 默认端点」：Pi 的自定义模型对空 baseUrl 直接报错（不回落默认值），所以下发的 config
-// 必须带上 agentre 已知的默认端点，而不是 "baseUrl":""。
-func TestPiAgentProviderConfigJSON_BlankBaseURLRendersTypeDefault(t *testing.T) {
+// TestPiAgentProviderConfigJSON_GatewayBaseURL 钉死网关地址的拼法：尾部斜杠与已带 /v1 都不重复，
+// 上游 BaseURL（留空与否）不影响下发值；没有网关地址时不渲染（不退回直连）。
+func TestPiAgentProviderConfigJSON_GatewayBaseURL(t *testing.T) {
 	cases := []struct {
 		name    string
 		typ     string
-		baseURL string
+		gateway string
 		want    string
 	}{
-		{"anthropic empty", string(llm_provider_entity.TypeAnthropic), "", "https://api.anthropic.com"},
-		{"anthropic whitespace", string(llm_provider_entity.TypeAnthropic), "  ", "https://api.anthropic.com"},
-		{"openai-chat empty", string(llm_provider_entity.TypeOpenAIChat), "", "https://api.openai.com/v1"},
-		{"openai-response whitespace", string(llm_provider_entity.TypeOpenAIResponse), " \t", "https://api.openai.com/v1"},
+		{"anthropic trailing slash", string(llm_provider_entity.TypeAnthropic), "http://gw:1/", "http://gw:1"},
+		{"openai-chat adds v1", string(llm_provider_entity.TypeOpenAIChat), "http://gw:1", "http://gw:1/v1"},
+		{"openai-response keeps v1", string(llm_provider_entity.TypeOpenAIResponse), "http://gw:1/v1/", "http://gw:1/v1"},
 	}
 	for _, tc := range cases {
-		t.Run("Given a "+tc.name+" base URL, when the Pi provider config is rendered, then baseUrl is the type default", func(t *testing.T) {
+		t.Run("Given "+tc.name+", when the Pi provider config is rendered, then baseUrl is the gateway", func(t *testing.T) {
 			cfg := testProviderConfig(tc.typ, "m-1")
-			cfg.BaseURL = tc.baseURL
+			cfg.BaseURL = ""
 
-			raw, err := piAgentProviderConfigJSON(cfg)
+			raw, err := piAgentProviderConfigJSON(cfg, tc.gateway)
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.want, decodeProviderConfig(t, raw).BaseURL)
 		})
 	}
+
+	t.Run("Given no gateway URL, when rendered, then it errors instead of falling back to the upstream", func(t *testing.T) {
+		cfg := testProviderConfig(string(llm_provider_entity.TypeAnthropic), "m-1")
+		cfg.BaseURL = "https://upstream.example"
+		_, err := piAgentProviderConfigJSON(cfg, "  ")
+		require.Error(t, err)
+	})
 }
 
 func TestPiAgentProviderConfigJSON_OmitsZeroWindowAndMaxTokensButKeepsCost(t *testing.T) {
@@ -182,7 +176,7 @@ func TestPiAgentProviderConfigJSON_OmitsZeroWindowAndMaxTokensButKeepsCost(t *te
 	cfg.MaxOutput = 0
 	cfg.BaseURL = "http://localhost:8080/v1"
 
-	raw, err := piAgentProviderConfigJSON(cfg)
+	raw, err := piAgentProviderConfigJSON(cfg, testGatewayURL)
 	require.NoError(t, err)
 	var payload struct {
 		Models []map[string]any `json:"models"`
@@ -204,9 +198,9 @@ func TestPiAgentProviderExtension_RegistersProviderWithTheConfigJSON(t *testing.
 	cfg := testProviderConfig(string(llm_provider_entity.TypeAnthropic), "claude-sonnet-4")
 	cfg.APIKey = "sk-plaintext-secret"
 
-	config, err := piAgentProviderConfigJSON(cfg)
+	config, err := piAgentProviderConfigJSON(cfg, testGatewayURL)
 	require.NoError(t, err)
-	src, err := PiAgentProviderExtension(cfg)
+	src, err := PiAgentProviderExtension(cfg, testGatewayURL)
 	require.NoError(t, err)
 
 	assert.Equal(t,
@@ -214,7 +208,7 @@ func TestPiAgentProviderExtension_RegistersProviderWithTheConfigJSON(t *testing.
 		src)
 	assert.NotContains(t, src, "sk-plaintext-secret")
 
-	registry, err := piAgentProviderRegistryJSON(cfg)
+	registry, err := piAgentProviderRegistryJSON(cfg, testGatewayURL)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"agentre-`+testProviderKey+`": `+config+`}`, registry)
 }
@@ -222,7 +216,7 @@ func TestPiAgentProviderExtension_RegistersProviderWithTheConfigJSON(t *testing.
 func TestPiAgentProviderRegistryJSON_KeysConfigByAgentreProviderName(t *testing.T) {
 	cfg := testProviderConfig(string(llm_provider_entity.TypeOpenAIResponse), "deepseek-flash")
 
-	raw, err := piAgentProviderRegistryJSON(cfg)
+	raw, err := piAgentProviderRegistryJSON(cfg, testGatewayURL)
 	require.NoError(t, err)
 
 	var registry map[string]json.RawMessage
@@ -230,7 +224,7 @@ func TestPiAgentProviderRegistryJSON_KeysConfigByAgentreProviderName(t *testing.
 	require.Len(t, registry, 1)
 	config, ok := registry["agentre-"+testProviderKey]
 	require.True(t, ok, "注册表键必须与 --model 的 provider 段一致")
-	expected, err := piAgentProviderConfigJSON(cfg)
+	expected, err := piAgentProviderConfigJSON(cfg, testGatewayURL)
 	require.NoError(t, err)
 	assert.JSONEq(t, expected, string(config))
 }
@@ -241,19 +235,19 @@ func TestPiAgentProviderExtension_Errors(t *testing.T) {
 	t.Run("未知 Type", func(t *testing.T) {
 		cfg := *base
 		cfg.ProviderType = "deepseek"
-		_, err := PiAgentProviderExtension(&cfg)
+		_, err := PiAgentProviderExtension(&cfg, testGatewayURL)
 		require.Error(t, err)
 	})
 
 	t.Run("ModelID 为空", func(t *testing.T) {
 		cfg := *base
 		cfg.ModelID = ""
-		_, err := PiAgentProviderExtension(&cfg)
+		_, err := PiAgentProviderExtension(&cfg, testGatewayURL)
 		require.Error(t, err)
 	})
 
 	t.Run("nil config", func(t *testing.T) {
-		_, err := PiAgentProviderExtension(nil)
+		_, err := PiAgentProviderExtension(nil, testGatewayURL)
 		require.Error(t, err)
 	})
 }
@@ -262,35 +256,64 @@ func TestBuildPiAgentProviderEnv(t *testing.T) {
 	base := map[string]string{"FOO": "bar", "AGENTRE_PI_MCP_CONFIG": "/tmp/cfg.json"}
 	cfg := testProviderConfig(string(llm_provider_entity.TypeAnthropic), "m")
 	cfg.APIKey = "sk-secret-123"
-	env := BuildPiAgentProviderEnv(base, cfg)
-	// 含 base 全部键，新增 env 键 → APIKey。
+	deps := CLIDeps{Token: "gw-token-1", GatewayURL: testGatewayURL}
+
+	env, err := BuildPiAgentProviderEnv(base, cfg, deps)
+	require.NoError(t, err)
 	assert.Equal(t, "bar", env["FOO"])
 	assert.Equal(t, "/tmp/cfg.json", env["AGENTRE_PI_MCP_CONFIG"])
-	assert.Equal(t, "sk-secret-123", env["AGENTRE_PI_API_KEY_9a3b2c1d4e5f6a7b8c9d0e1f2a3b4c5d"])
+	// 只有网关 token，没有真实 key：任何 env 键或值都不含它，也没有旧的 per-provider key 变量。
+	assert.Equal(t, "gw-token-1", env[PiAgentGatewayTokenEnvKey])
+	for k, v := range env {
+		assert.NotContains(t, v, "sk-secret-123", k)
+		assert.NotContains(t, k, "AGENTRE_PI_API_KEY_")
+	}
 	// 子进程继承不到父进程的 --extension（pi 只显式接受 --extension），provider 定义只能靠
-	// 这个注册表 env 到达 subagent；与扩展源码同源、同样只带 $ENV 引用。
-	expectedConfig, err := piAgentProviderConfigJSON(cfg)
+	// 这个注册表 env 到达 subagent；与扩展源码同源，指向网关、只带 $ENV 引用。
+	expectedConfig, err := piAgentProviderConfigJSON(cfg, testGatewayURL)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"agentre-`+testProviderKey+`": `+expectedConfig+`}`, env[PiAgentProviderRegistryEnvKey])
-	assert.NotContains(t, env[PiAgentProviderRegistryEnvKey], "sk-secret-123")
+	assert.Contains(t, env[PiAgentProviderRegistryEnvKey], testGatewayURL)
+	ext, err := PiAgentProviderExtension(cfg, testGatewayURL)
+	require.NoError(t, err)
+	assert.NotContains(t, ext, "sk-secret-123")
 	// 不改入参 map。
-	assert.NotContains(t, base, "AGENTRE_PI_API_KEY_9a3b2c1d4e5f6a7b8c9d0e1f2a3b4c5d")
+	assert.NotContains(t, base, PiAgentGatewayTokenEnvKey)
 	assert.NotContains(t, base, PiAgentProviderRegistryEnvKey)
 
 	// nil config 退化为纯副本，不注入 env 键。
-	envNil := BuildPiAgentProviderEnv(base, nil)
+	envNil, err := BuildPiAgentProviderEnv(base, nil, CLIDeps{})
+	require.NoError(t, err)
 	assert.Equal(t, "bar", envNil["FOO"])
-	assert.NotContains(t, envNil, "AGENTRE_PI_API_KEY_")
+	assert.NotContains(t, envNil, PiAgentGatewayTokenEnvKey)
 	assert.NotContains(t, envNil, PiAgentProviderRegistryEnvKey)
 }
 
-func TestBuildPiAgentProviderEnv_UnresolvedModelInjectsAPIKeyWithoutRegistry(t *testing.T) {
+func TestBuildPiAgentProviderEnv_RequiresGateway(t *testing.T) {
+	cfg := testProviderConfig(string(llm_provider_entity.TypeOpenAIChat), "m")
+	cfg.APIKey = "sk-secret-123"
+	for name, deps := range map[string]CLIDeps{
+		"no token":   {GatewayURL: testGatewayURL},
+		"no gateway": {Token: "gw-token-1"},
+		"neither":    {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env, err := BuildPiAgentProviderEnv(map[string]string{"FOO": "bar"}, cfg, deps)
+			require.Error(t, err)
+			assert.Nil(t, env)
+			assert.NotContains(t, err.Error(), "sk-secret-123")
+		})
+	}
+}
+
+func TestBuildPiAgentProviderEnv_UnresolvedModelInjectsTokenWithoutRegistry(t *testing.T) {
 	// 没解析出 ModelID 时没有可注册的模型（注册表里的 provider 必须带 models），只注入
-	// APIKey —— 这种配置本来也不会下发 agentre-<key>/<model> 给子进程。
+	// 网关 token —— 这种配置本来也不会下发 agentre-<key>/<model> 给子进程。
 	cfg := testProviderConfig(string(llm_provider_entity.TypeOpenAIChat), "")
 	cfg.APIKey = "sk-secret-123"
 
-	env := BuildPiAgentProviderEnv(map[string]string{"FOO": "bar"}, cfg)
-	assert.Equal(t, "sk-secret-123", env[PiAgentProviderEnvKey(testProviderKey)])
+	env, err := BuildPiAgentProviderEnv(map[string]string{"FOO": "bar"}, cfg, CLIDeps{Token: "gw-token-1", GatewayURL: testGatewayURL})
+	require.NoError(t, err)
+	assert.Equal(t, "gw-token-1", env[PiAgentGatewayTokenEnvKey])
 	assert.NotContains(t, env, PiAgentProviderRegistryEnvKey)
 }

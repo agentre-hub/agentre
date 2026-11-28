@@ -541,10 +541,9 @@ func (s *agentBackendSvc) test(ctx context.Context, req *TestBackendRequest, tra
 	deps := ProbeDeps{}
 	// claudecode / codex 且关联了 provider → 经 gateway 走临时 token；
 	// 未关联 provider → 不签 token，让 CLI 直接用 claude/codex login 状态。
-	// piagent 不走 gateway（直接连 provider BaseURL，见 buildPiAgentProviderProbe），
-	// 即使绑定供应商也不进此分支。
+	// piagent 绑定供应商同样只拿 gateway token（真实 key 不进 Pi，见 buildPiAgentProviderProbe）。
 	// antigravity 只探 `agy --version`，同样不签 token。
-	if !entity.IsBuiltin() && !entity.IsPiAgent() && !entity.IsAntigravity() && entity.LLMProviderKey != "" {
+	if !entity.IsBuiltin() && !entity.IsAntigravity() && entity.LLMProviderKey != "" {
 		if s.gateway == nil {
 			return &TestBackendResponse{OK: false, Message: i18n.NewError(ctx, code.AgentBackendGatewayUnavailable).Error()}, nil
 		}

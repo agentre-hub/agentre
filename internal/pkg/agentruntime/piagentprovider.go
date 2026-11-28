@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
-	"github.com/agentre-hub/agentre/internal/pkg/llmurl"
 )
 
 // PiAgentProviderRegistryEnvKey 是子进程 provider 注册表 env 的键名：Agentre 每会话注入
@@ -34,21 +33,23 @@ func piProviderAPIByType(t string) (string, bool) {
 	}
 }
 
-// sanitizeProviderKey 去掉 providerKey 中的非字母数字字符（如 UUID 的 '-'），
-// 使拼出的 env 变量名合法。provider 注册名 / --model 值仍用原始 key（见下）。
-func sanitizeProviderKey(s string) string {
-	return strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			return r
-		}
-		return -1
-	}, s)
-}
+// PiAgentGatewayTokenEnvKey 是承载会话网关 token 的 env 键名（与 claudecode 的 hook 子进程
+// 同名）：provider 配置的 apiKey 只以 "$AGENTRE_GATEWAY_TOKEN" 引用它。真实供应商 key 不进入
+// Pi 进程树，只在网关转发时换上。
+const PiAgentGatewayTokenEnvKey = "AGENTRE_GATEWAY_TOKEN"
 
-// PiAgentProviderEnvKey 返回 provider 扩展子进程 env 里承载 APIKey 的键名：
-// "AGENTRE_PI_API_KEY_" + providerKey（去非字母数字），保证 env 变量名合法。
-func PiAgentProviderEnvKey(providerKey string) string {
-	return "AGENTRE_PI_API_KEY_" + sanitizeProviderKey(providerKey)
+// piAgentGatewayBaseURL 返回 Pi 对该类型供应商应使用的网关 baseUrl：anthropic SDK 自己拼
+// /v1/messages，所以用网关根；openai 系 SDK 拼 /chat/completions、/responses，网关路由是
+// /v1/...，所以要带 /v1（与 BuildCodexConfig 同口径）。
+func piAgentGatewayBaseURL(providerType, gatewayURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(gatewayURL), "/")
+	if llm_provider_entity.ProviderType(providerType) == llm_provider_entity.TypeAnthropic {
+		return base
+	}
+	if !strings.HasSuffix(base, "/v1") {
+		base += "/v1"
+	}
+	return base
 }
 
 // piAgentProviderName 返回 provider 在 pi 里的注册名：扩展源码（--extension）与注册表 env
@@ -110,11 +111,14 @@ type piProviderConfig struct {
 //
 // contextWindow / maxTokens 为 0 时省略字段；每个 model 固定带 cost（全 0），避免绑定模型
 // id 与用户 ~/.pi/agent 撞名时 pi 0.83.0 模型合并崩溃（provider-composer.js
-// applyModelOverride 读 model.cost.tiers）。APIKey 只以 "$<env 键>" 引用，明文密钥不进入
-// 返回值，也就不会落进任何下发给 Pi 的文本。
-func piAgentProviderConfigJSON(cfg *EffectiveLLMConfig) (string, error) {
+// applyModelOverride 读 model.cost.tiers）。apiKey 只以 "$AGENTRE_GATEWAY_TOKEN" 引用会话网关
+// token，真实供应商 key 不进入返回值，也就不会落进任何下发给 Pi 的文本。
+func piAgentProviderConfigJSON(cfg *EffectiveLLMConfig, gatewayURL string) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("agentruntime: effective config is nil")
+	}
+	if strings.TrimSpace(gatewayURL) == "" {
+		return "", fmt.Errorf("agentruntime: pi provider needs the Agentre gateway URL")
 	}
 	api, ok := piProviderAPIByType(cfg.ProviderType)
 	if !ok {
@@ -131,10 +135,10 @@ func piAgentProviderConfigJSON(cfg *EffectiveLLMConfig) (string, error) {
 	encoder.SetEscapeHTML(false)
 	err := encoder.Encode(piProviderConfig{
 		Name: cfg.ProviderName,
-		// Pi 的自定义模型不接受空 baseUrl（不回落默认值），留空按类型解析成默认端点。
-		BaseURL: llmurl.EffectiveBaseURL(cfg.ProviderType, cfg.BaseURL),
+		// Pi 只认网关：上游端点与真实 key 都在网关里，按 token 的目标转发。
+		BaseURL: piAgentGatewayBaseURL(cfg.ProviderType, gatewayURL),
 		API:     api,
-		APIKey:  "$" + PiAgentProviderEnvKey(cfg.ProviderKey),
+		APIKey:  "$" + PiAgentGatewayTokenEnvKey,
 		Models: []piProviderModel{{
 			ID:        model,
 			Name:      model,
@@ -153,8 +157,8 @@ func piAgentProviderConfigJSON(cfg *EffectiveLLMConfig) (string, error) {
 }
 
 // piAgentProviderRegistryJSON 渲染子进程注册表 env 的值 {"agentre-<key>": <config>}。
-func piAgentProviderRegistryJSON(cfg *EffectiveLLMConfig) (string, error) {
-	config, err := piAgentProviderConfigJSON(cfg)
+func piAgentProviderRegistryJSON(cfg *EffectiveLLMConfig, gatewayURL string) (string, error) {
+	config, err := piAgentProviderConfigJSON(cfg, gatewayURL)
 	if err != nil {
 		return "", err
 	}
@@ -163,12 +167,12 @@ func piAgentProviderRegistryJSON(cfg *EffectiveLLMConfig) (string, error) {
 
 // PiAgentProviderExtension 渲染注入 Pi 的 provider 扩展源码（纯文本 JS）：
 // 调用 pi.registerProvider 注册 "agentre-<key>"，config 与子进程注册表同源
-// （piAgentProviderConfigJSON），APIKey 只以 $ENV_VAR 引用，密钥本身绝不落入扩展源。
+// （piAgentProviderConfigJSON），apiKey 只以 $AGENTRE_GATEWAY_TOKEN 引用，baseUrl 是会话网关，真实密钥绝不落入扩展源。
 //
 // cfg 是执行侧解析结果（EffectiveLLMConfig v1 seam）：模型 id / 窗口 / 最大输出
 // 取解析值，Provider 名称 / BaseURL / Type 取连接信息。
-func PiAgentProviderExtension(cfg *EffectiveLLMConfig) (string, error) {
-	config, err := piAgentProviderConfigJSON(cfg)
+func PiAgentProviderExtension(cfg *EffectiveLLMConfig, gatewayURL string) (string, error) {
+	config, err := piAgentProviderConfigJSON(cfg, gatewayURL)
 	if err != nil {
 		return "", err
 	}
@@ -178,20 +182,26 @@ func PiAgentProviderExtension(cfg *EffectiveLLMConfig) (string, error) {
 
 // BuildPiAgentProviderEnv 返回 base 的副本，并注入 provider 的两个 env 键，供 pi 进程及其
 // 子进程（subagent）使用；不改入参 map：
-//   - APIKey → AGENTRE_PI_API_KEY_<key>，扩展源码与注册表都只引用它；
+//   - 会话网关 token → PiAgentGatewayTokenEnvKey，扩展源码与注册表的 apiKey 都只引用它；
 //   - provider config → PiAgentProviderRegistryEnvKey，让子进程自己也注册 provider。
-func BuildPiAgentProviderEnv(base map[string]string, cfg *EffectiveLLMConfig) map[string]string {
+//
+// 真实供应商 key 永不进入 env：绑定了供应商却没有网关 URL / token 时返回错误，而不是退回
+// 直连（Pi 进程树里没有可直连的凭据）。
+func BuildPiAgentProviderEnv(base map[string]string, cfg *EffectiveLLMConfig, deps CLIDeps) (map[string]string, error) {
 	out := make(map[string]string, len(base)+2)
 	maps.Copy(out, base)
 	if cfg == nil || cfg.ProviderKey == "" {
-		return out
+		return out, nil
 	}
-	out[PiAgentProviderEnvKey(cfg.ProviderKey)] = cfg.APIKey
+	if strings.TrimSpace(deps.GatewayURL) == "" || strings.TrimSpace(deps.Token) == "" {
+		return nil, fmt.Errorf("agentruntime: pi provider %q needs the Agentre gateway: make sure the local gateway is running", cfg.ProviderKey)
+	}
+	out[PiAgentGatewayTokenEnvKey] = deps.Token
 	// 渲染不出 config（没解析出模型 / Type 不支持）时不注入注册表：registerProvider 不接受
 	// 空 models，这种配置本来也不会下发 agentre-<key>/<model>。真正的失败由 providerRunConfig
 	// 在同一条路径上显式返回。
-	if registry, err := piAgentProviderRegistryJSON(cfg); err == nil {
+	if registry, err := piAgentProviderRegistryJSON(cfg, deps.GatewayURL); err == nil {
 		out[PiAgentProviderRegistryEnvKey] = registry
 	}
-	return out
+	return out, nil
 }

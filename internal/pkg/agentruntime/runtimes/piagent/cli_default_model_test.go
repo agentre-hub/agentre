@@ -79,8 +79,9 @@ func TestPiCLIEffectiveModel(t *testing.T) {
 	Convey("Given 绑定了 Agentre 供应商的 pi 后端", t, func() {
 		Convey("When 还有一份后端默认模型 Then 该值被忽略,仍下发 provider 模型", func() {
 			So(launchModelOf(t, agentruntime.RunRequest{
-				Backend:   piBackend("zhipu/glm-5.3"),
-				Effective: boundProvider(),
+				Backend:    piBackend("zhipu/glm-5.3"),
+				Effective:  boundProvider(),
+				GatewayURL: "http://127.0.0.1:60080",
 			}), ShouldEqual, "agentre-provabc/deepseek-v3")
 		})
 	})

@@ -30,8 +30,8 @@ func SetProviderExtensionWriterForTest(fn func(string) (string, error)) func() {
 // 探测（agent_backend_svc prober）共用同一入口，保证 Test 与 chat path 不漂移。扩展文件
 // 只含 $ENV_VAR 的 apiKey 引用、不含密钥，无需按会话清理，也不设 0600。
 // cfg 是执行侧解析结果（EffectiveLLMConfig v1 seam），模型 id / 窗口 / 最大输出取解析值。
-func MaterializeProviderExtension(cfg *agentruntime.EffectiveLLMConfig) (string, error) {
-	source, err := agentruntime.PiAgentProviderExtension(cfg)
+func MaterializeProviderExtension(cfg *agentruntime.EffectiveLLMConfig, gatewayURL string) (string, error) {
+	source, err := agentruntime.PiAgentProviderExtension(cfg, gatewayURL)
 	if err != nil {
 		return "", err
 	}
