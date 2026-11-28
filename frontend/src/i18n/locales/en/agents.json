@@ -16,12 +16,6 @@
   "modelTargetPicker": {
     "special": {
       "chat": "Follow agent binding"
-    },
-    "syncDialog": {
-      "title": "Sync provider to device",
-      "description": "Sync {{provider}} and its model catalog to the target device.",
-      "confirmation": "This copies the provider API key to the target device. Confirm before continuing.",
-      "confirm": "Confirm sync"
     }
   },
   "providerPill": {

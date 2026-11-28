@@ -478,9 +478,6 @@ func (l *coldPathLease) Client() client.ProtobufConnection {
 }
 func (l *coldPathLease) Closed() <-chan struct{} { return l.conn }
 func (l *coldPathLease) Release()                { l.releases.Add(1) }
-func (l *coldPathLease) LLMUpsert(context.Context, *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
-	return &agentrewire.LLMUpsertResponse{}, nil
-}
 func (l *coldPathLease) SelfUpdate(context.Context, *agentrewire.AgentredSelfUpdateRequest) (*agentrewire.AgentredSelfUpdateResponse, error) {
 	return &agentrewire.AgentredSelfUpdateResponse{}, nil
 }
@@ -518,9 +515,6 @@ type raceLease struct {
 func (l *raceLease) Client() client.ProtobufConnection { return &noopDaemonClient{} }
 func (l *raceLease) Closed() <-chan struct{}           { return l.conn }
 func (l *raceLease) Release()                          { l.releases.Add(1) }
-func (l *raceLease) LLMUpsert(context.Context, *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
-	return &agentrewire.LLMUpsertResponse{}, nil
-}
 func (l *raceLease) SelfUpdate(context.Context, *agentrewire.AgentredSelfUpdateRequest) (*agentrewire.AgentredSelfUpdateResponse, error) {
 	return &agentrewire.AgentredSelfUpdateResponse{}, nil
 }

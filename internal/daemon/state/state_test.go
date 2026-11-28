@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
@@ -90,13 +91,13 @@ func TestStateLoadSave(t *testing.T) {
 		convey.Convey("Given a complete engine snapshot, replacing providers deletes absent keys and persists the new catalog", func() {
 			st, _ := Load(dir)
 			st.Mutate(func(s *State) {
-				s.LLMProviders["removed"] = LLMProviderMeta{Name: "old", APIKey: "old-key"}
+				s.LLMProviders["removed"] = LLMProviderMeta{Name: "old"}
 			})
 			require.NoError(t, st.Save())
 
 			replacement := map[string]LLMProviderMeta{
 				"provider-1": {
-					Name: "Anthropic", Type: "anthropic", BaseURL: "https://api.example", APIKey: "new-key",
+					Name: "Anthropic", Type: "anthropic", BaseURL: "https://api.example",
 					DefaultModelKey: "model-1",
 					Models:          []LLMModelMeta{{ModelKey: "model-1", ModelID: "claude-1", Name: "Claude", Enabled: true}},
 				},
@@ -112,12 +113,12 @@ func TestStateLoadSave(t *testing.T) {
 
 		convey.Convey("Given state.json cannot be replaced, replacing providers keeps the previous in-memory and on-disk map", func() {
 			st, _ := Load(dir)
-			previous := map[string]LLMProviderMeta{"provider-old": {Name: "Old", APIKey: "old-key"}}
+			previous := map[string]LLMProviderMeta{"provider-old": {Name: "Old"}}
 			st.Mutate(func(s *State) { s.LLMProviders = previous })
 			require.NoError(t, st.Save())
 			require.NoError(t, os.Mkdir(filepath.Join(dir, "state.json.tmp"), 0o700))
 
-			err := st.ReplaceLLMProviders(map[string]LLMProviderMeta{"provider-new": {Name: "New", APIKey: "new-key"}})
+			err := st.ReplaceLLMProviders(map[string]LLMProviderMeta{"provider-new": {Name: "New"}})
 			require.Error(t, err)
 			assert.Equal(t, previous, st.Snapshot().LLMProviders)
 
@@ -239,6 +240,9 @@ func TestLogout_KeepsOnlyMachineLocalState(t *testing.T) {
 		"Listen":             true, // 运行时监听配置
 		"PairedPeers":        true, // LAN 配对：R19 说 logout 回到「只有配对」的状态
 		"Preferences":        true, // 本机偏好（日志级别、配对码 TTL…）
+		// 用 `agentred llm add` 在这台机器上加的供应商：用户在这台机器上的明确操作，
+		// 不来自账号，也不随账号走（规格「agentred：按需租用」最后一条）。
+		"LocalLLMProviders": true,
 	}
 
 	before := fullyPopulatedState(t)
@@ -274,8 +278,8 @@ func TestLogout_ClearsTheAccountServerURLAndItsProviderSnapshot(t *testing.T) {
 			assert.Empty(t, st.AccountServerURL)
 		})
 		convey.Convey("so does the provider snapshot pulled from that account", func() {
-			// enginesnapshot 从账号拉下来的整份配置，含 API key：一台已经离开账号的
-			// 机器上不该留着上一个账号的凭证（R19）。
+			// enginesnapshot 从账号拉下来的供应商元数据：一台已经离开账号的机器上
+			// 不该留着上一个账号的配置（R19）。
 			assert.Empty(t, st.LLMProviders)
 		})
 		convey.Convey("but the LAN pairings stay: logout returns to the pairing-only state", func() {
@@ -308,7 +312,8 @@ func fullyPopulatedState(t *testing.T) *State {
 		s.AccountServerURL = "https://a.example"
 		s.Listen = ListenPrefs{LanHost: "0.0.0.0", LanPort: 7456}
 		s.PairedPeers = map[string]PairedPeer{"desktop": {DeviceName: "mac", DeviceToken: "t"}}
-		s.LLMProviders = map[string]LLMProviderMeta{"p": {Name: "OpenAI", APIKey: "sk-secret"}}
+		s.LLMProviders = map[string]LLMProviderMeta{"p": {Name: "OpenAI"}}
+		s.LocalLLMProviders = map[string]LocalLLMProvider{"local": {LLMProviderMeta: LLMProviderMeta{Name: "Ollama"}, APIKey: "local-key"}}
 		s.Preferences = Preferences{LogLevel: "info", LogRotateMB: 50}
 		s.AccountID = "account-a"
 		s.Credential = AccountCredential{DeviceID: 1, AccessToken: "a", RefreshToken: "r"}
@@ -518,4 +523,92 @@ func TestState_Snapshot_GivenBackendCredentials_WhenTheSnapshotIsMutated_ThenThe
 
 	assert.Contains(t, st.Snapshot().BackendCredentials, "agentre.openclaw.backend.sync-1.token")
 	assert.Contains(t, st.Snapshot().HermesIdentities, "http://127.0.0.1:9119")
+}
+
+// ── 供应商 key 不落盘:快照只有元数据,本地添加的供应商自成一节 ───────────────
+
+// Given 升级前的 state.json 里账号供应商带着 apiKey(旧快照与「同步到设备」都写这里),
+// When 新版本第一次 Load,Then 盘上那份 key 被清掉、元数据保留 —— 之后的 key 一律走租约。
+func TestLoad_GivenLegacyProviderKeysOnDisk_WhenLoaded_ThenTheyArePurgedFromStateJSON(t *testing.T) {
+	dir := setupStateTest(t)
+	legacy := `{"schemaVersion":1,"daemonInstanceUUID":"uuid-legacy","listen":{"lanHost":"0.0.0.0","lanPort":7456},` +
+		`"pairedPeers":{},"llmProviders":{"p1":{"name":"Anthropic","type":"anthropic","baseURL":"https://api.example",` +
+		`"apiKey":"sk-legacy-secret","model":"","modelRoutes":null,"defaultModelKey":"m1","updatedAt":1}},"preferences":{}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "state.json"), []byte(legacy), 0o600))
+
+	st, err := Load(dir)
+	require.NoError(t, err)
+
+	onDisk, err := os.ReadFile(filepath.Join(dir, "state.json")) //nolint:gosec // G304: the path is this test's own temp dir
+	require.NoError(t, err)
+	assert.NotContains(t, string(onDisk), "sk-legacy-secret")
+	assert.Equal(t, "uuid-legacy", st.InstanceUUID(), "the purge must not change the daemon identity")
+	require.Contains(t, st.Snapshot().LLMProviders, "p1")
+	assert.Equal(t, "m1", st.Snapshot().LLMProviders["p1"].DefaultModelKey)
+}
+
+// 没有旧 key 的 state.json 不必重写:Load 只在真有东西要清时才落盘。
+func TestLoad_GivenNoLegacyKeys_WhenLoaded_ThenStateJSONIsNotRewritten(t *testing.T) {
+	dir := setupStateTest(t)
+	_, err := Load(dir)
+	require.NoError(t, err)
+	path := filepath.Join(dir, "state.json")
+	past := time.Unix(1_600_000_000, 0)
+	require.NoError(t, os.Chtimes(path, past, past))
+
+	_, err = Load(dir)
+	require.NoError(t, err)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.True(t, info.ModTime().Equal(past), "state.json without legacy keys must not be rewritten")
+}
+
+// 账号供应商的元数据结构里根本没有 key 这一格:就算有人往里塞,state.json 里也写不出来。
+func TestLLMProviderMeta_HasNoAPIKeyField(t *testing.T) {
+	_, ok := reflect.TypeOf(LLMProviderMeta{}).FieldByName("APIKey")
+	assert.False(t, ok)
+}
+
+// 本地添加的供应商带着自己的 key 落盘、重启后还在;快照整份替换账号供应商时不碰它。
+func TestLocalLLMProviders_GivenAnUpsert_WhenReloadedAndSnapshotReplaced_ThenTheyKeepTheirKey(t *testing.T) {
+	dir := setupStateTest(t)
+	st, err := Load(dir)
+	require.NoError(t, err)
+	local := LocalLLMProvider{LLMProviderMeta: LLMProviderMeta{Name: "Ollama", Type: "openai-chat", BaseURL: "http://127.0.0.1:11434"}, APIKey: "local-key"}
+	require.NoError(t, st.UpsertLocalLLMProvider("local-1", local))
+	require.NoError(t, st.ReplaceLLMProviders(map[string]LLMProviderMeta{"p1": {Name: "Anthropic"}}))
+
+	reloaded, err := Load(dir)
+	require.NoError(t, err)
+	assert.Equal(t, local, reloaded.Snapshot().LocalLLMProviders["local-1"])
+	assert.Contains(t, reloaded.Snapshot().LLMProviders, "p1")
+
+	require.NoError(t, reloaded.DeleteLocalLLMProvider("local-1"))
+	assert.NotContains(t, reloaded.Snapshot().LocalLLMProviders, "local-1")
+	again, err := Load(dir)
+	require.NoError(t, err)
+	assert.NotContains(t, again.Snapshot().LocalLLMProviders, "local-1")
+}
+
+// 查一个供应商时本地添加的优先(它自带 key);账号供应商只有元数据,key 要另去租。
+func TestLookupProvider_GivenLocalAndAccountProviders_ThenLocalCarriesItsKeyAndAccountDoesNot(t *testing.T) {
+	st, err := Load(setupStateTest(t))
+	require.NoError(t, err)
+	require.NoError(t, st.UpsertLocalLLMProvider("local-1", LocalLLMProvider{LLMProviderMeta: LLMProviderMeta{Name: "Ollama"}, APIKey: "local-key"}))
+	require.NoError(t, st.ReplaceLLMProviders(map[string]LLMProviderMeta{"p1": {Name: "Anthropic"}}))
+	snap := st.Snapshot()
+
+	local, ok := snap.LookupProvider("local-1")
+	require.True(t, ok)
+	assert.True(t, local.Local)
+	assert.Equal(t, "local-key", local.APIKey)
+
+	account, ok := snap.LookupProvider("p1")
+	require.True(t, ok)
+	assert.False(t, account.Local)
+	assert.Empty(t, account.APIKey)
+	assert.Equal(t, "Anthropic", account.Name)
+
+	_, ok = snap.LookupProvider("absent")
+	assert.False(t, ok)
 }

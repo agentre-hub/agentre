@@ -17,7 +17,6 @@ Desktop UI for pairing and managing agentred LAN devices.
 | `device-pairing-form.tsx` | 配对表单：地址 + 6 位 code + name + Advanced TLS Trust（引导第 3 步的宿主） |
 | `tls-trust-dialog.tsx` | 4 模式 radio：default / pin-cert / ca-bundle / skip-verify |
 | `device-port-forward.tsx` | 设备行下的「端口转发」子块：把共享包 `PortForwardSection` 接到 PortForward* 绑定 |
-| `device-providers-sync.tsx` | 设备行展开时的 provider 同步子面板 |
 | `login-dialog.tsx` | 账号登录对话框（设备流：code / 倒计时 / 打开浏览器） |
 | `mention-items.ts` | 设备面板行 → `@` 菜单设备清单的投影（本机置顶、指纹为唯一身份） |
 | `agentred-version.ts` | agentred 版本比较与升级判定（semver 解析、预发布排序） |

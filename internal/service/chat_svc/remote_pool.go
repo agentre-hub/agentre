@@ -68,6 +68,8 @@ func (h remotePoolHost) NewRuntime(
 		remote.WithReconnect(remote.ReconnectFunc(func(rctx context.Context) (client.ProtobufConnection, devicefp.Carrier, error) {
 			return h.s.reconnectRemote(rctx, deviceID, entry)
 		})),
+		// 经局域网直连派发的一轮随行附带本机的供应商租约(经中继时 agentred 自己去租)。
+		remote.WithProviderLeases(desktopProviderLeases{}),
 	)
 }
 

@@ -41,10 +41,7 @@ import {
 } from "./ports-context";
 import { LoadFailureNotice } from "./llm-provider-models/load-failure";
 import { AgentBackendsEmptyState, BackendRow } from "./agent-backends-list";
-import {
-  useModelTargetCatalog,
-  type PickerProvider,
-} from "./model-target-picker";
+import { useModelTargetCatalog } from "./model-target-picker";
 import { OPENCLAW_SESSION_MODE } from "./openclaw-validation";
 import { isLoopbackHostname, openClawDraftIssue } from "./openclaw-validation";
 import {
@@ -82,10 +79,7 @@ import {
   type RouteTarget,
   type SandboxValue,
 } from "./agent-backends-shared";
-import {
-  persistedDeviceIdForSelection,
-  resolveExecutionDevice,
-} from "./device-identity";
+import { persistedDeviceIdForSelection } from "./device-identity";
 
 // BackendEditor 的实现分在 ./backend-editor/ 下：草稿整形与远端体检是纯函数，
 // 三族状态（CLI 探测 / 运行设备 / OpenClaw 字段）各自成 hook，字段组与两个弹窗是
@@ -99,12 +93,10 @@ import {
   matchingProviders,
   openClawProbeErrorMessage,
   parseRoutes,
-  referencedProviderKeys,
   safeParseEnv,
   saveBackendDraft,
   supportsCLIModel,
   type BackendDraft,
-  type PendingProviderSync,
 } from "./backend-editor/draft";
 import {
   credentialDeviceGate,
@@ -118,10 +110,6 @@ import {
 import type { EditorState } from "./backend-editor/editor-types";
 import { OpenClawSection } from "./backend-editor/openclaw-section";
 import { useBackendCredentialStatus } from "./backend-editor/use-credential-status";
-import {
-  ManualProviderSyncAlert,
-  ProviderSyncDialog,
-} from "./backend-editor/provider-sync";
 import {
   inspectRemoteDraft,
   remoteTargetIssueMessage,
@@ -785,7 +773,6 @@ function BackendEditor({
     CancelTestAgentBackend,
     GetGatewayStatus,
     RemoteDeviceListProviders,
-    RemoteDeviceSyncProvider,
     ResolveAgentBackendCLIPath,
     TestAgentBackend,
     TestOpenClawAgentBackend,
@@ -879,7 +866,6 @@ function BackendEditor({
   });
   const deviceId = deviceState.deviceId;
   const remoteExecution = deviceState.remoteExecution;
-  const canSyncProvider = deviceState.canSyncProvider;
   // CLI 探测吃的是「当前选中的运行设备」，所以必须排在设备那一族之后。
   const cli = useCliProbes({
     stateKind: state.kind,
@@ -908,12 +894,6 @@ function BackendEditor({
   const [addedIsSandbox, setAddedIsSandbox] = React.useState(false);
   const [addIsSandboxError, setAddIsSandboxError] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
-  const [pendingProviderSync, setPendingProviderSync] =
-    React.useState<PendingProviderSync | null>(null);
-  const [providerSyncError, setProviderSyncError] = React.useState<
-    string | null
-  >(null);
-  const [syncingProvider, setSyncingProvider] = React.useState(false);
   const [testing, setTesting] = React.useState(false);
   const [saveResult, setSaveResult] = React.useState<FlashState>(null);
   const [testResult, setTestResult] = React.useState<FlashState>(null);
@@ -1028,16 +1008,13 @@ function BackendEditor({
     };
   }, [GetGatewayStatus, cliBased]);
 
-  const {
-    refreshRemoteProviders,
-    remoteSupportsFixedModel,
-    remotePickerCatalog,
-  } = useRemoteProviderCatalog({
-    stateKind: state.kind,
-    remoteDeviceID: deviceState.remoteDeviceID,
-    devices: deviceState.devices,
-    listRemoteProviders: RemoteDeviceListProviders,
-  });
+  const { remoteSupportsFixedModel, remotePickerCatalog } =
+    useRemoteProviderCatalog({
+      stateKind: state.kind,
+      remoteDeviceID: deviceState.remoteDeviceID,
+      devices: deviceState.devices,
+      listRemoteProviders: RemoteDeviceListProviders,
+    });
 
   const reservedOffenders = React.useMemo(() => {
     const reserved = reservedEnvKeysFor(type);
@@ -1407,16 +1384,6 @@ function BackendEditor({
     try {
       const draft = buildDraft();
       const inspection = await inspectDraft(draft);
-      if (inspection.missingProviderKeys.length > 0) {
-        const missingKeys = inspection.missingProviderKeys;
-        setProviderSyncError(null);
-        setPendingProviderSync({
-          draft,
-          providerKeys: missingKeys,
-          saveAfterSync: true,
-        });
-        return;
-      }
       if (inspection.targetIssue) {
         setSaveResult({
           kind: "err",
@@ -1433,79 +1400,6 @@ function BackendEditor({
     } finally {
       setSubmitting(false);
     }
-  }
-
-  async function handleConfirmProviderSync() {
-    if (!pendingProviderSync || syncingProvider) return;
-    const deviceID = resolveExecutionDevice(
-      pendingProviderSync.draft.deviceId,
-      deviceState.localFingerprint,
-      deviceState.devices,
-    ).pairedDeviceId;
-    if (deviceID <= 0) return;
-    const saveAfterSync = pendingProviderSync.saveAfterSync;
-    setSyncingProvider(true);
-    setSubmitting(saveAfterSync);
-    setProviderSyncError(null);
-    try {
-      for (const key of pendingProviderSync.providerKeys) {
-        await RemoteDeviceSyncProvider(deviceID, key);
-      }
-      const draft = pendingProviderSync.draft;
-      if (saveAfterSync) {
-        const inspection = await inspectDraft(draft);
-        if (
-          inspection.missingProviderKeys.length > 0 ||
-          inspection.targetIssue
-        ) {
-          setProviderSyncError(
-            inspection.targetIssue
-              ? remoteTargetIssueMessage(inspection.targetIssue, t)
-              : t("modelTargetPicker.remoteSyncNeeded"),
-          );
-          return;
-        }
-        await saveDraft(draft);
-      } else {
-        setPendingProviderSync(null);
-        await refreshRemoteProviders();
-        toast.success(t("agentBackends.flash.providerSynced"));
-      }
-    } catch (err) {
-      setProviderSyncError(messageFromError(err, t));
-    } finally {
-      setSyncingProvider(false);
-      setSubmitting(false);
-    }
-  }
-
-  // 同步入口只做同步（复制凭证到目标设备），不改动草稿里的模型绑定：用户点它是为了
-  // 让某个供应商在目标设备上可用，不是为了改选它（改选走 Picker 的选项行）。
-  function handlePickerProviderSync(provider: PickerProvider) {
-    setProviderSyncError(null);
-    setPendingProviderSync({
-      draft: buildDraft(),
-      providerKeys: [provider.providerKey],
-      saveAfterSync: false,
-    });
-  }
-
-  function handleManualProviderSync() {
-    if (!canSyncProvider) return;
-    const draft = buildDraft();
-    const keys = referencedProviderKeys(draft);
-    if (keys.length === 0) return;
-    setProviderSyncError(null);
-    setPendingProviderSync({
-      draft,
-      providerKeys: keys,
-      saveAfterSync: false,
-    });
-  }
-
-  function closeProviderSyncDialog() {
-    setPendingProviderSync(null);
-    setProviderSyncError(null);
   }
 
   const {
@@ -1527,11 +1421,6 @@ function BackendEditor({
     t,
   });
   const submitDisabled = submitting || effectiveSaveBlockedReason !== null;
-  const manualProviderSyncKeys = canSyncProvider
-    ? referencedProviderKeys(buildDraft())
-    : [];
-  const showManualProviderSync =
-    canSyncProvider && manualProviderSyncKeys.length > 0;
 
   // 类型排在名称之前：它决定了下面出现哪些字段，也决定名称的默认值。
   const typeField =
@@ -1602,7 +1491,6 @@ function BackendEditor({
         setLlmProviderKey(providerKey);
         setLlmModelKey(modelKey);
       }}
-      onSyncProvider={canSyncProvider ? handlePickerProviderSync : undefined}
       invalid={mainTargetInvalid}
       piAgentModelMissing={piAgentModelMissing}
       editing={!!editing}
@@ -1640,13 +1528,6 @@ function BackendEditor({
           : (editing?.hasToken ?? false)
       }
       gateMessage={credentialGateNote}
-    />
-  ) : null;
-
-  const manualSyncField = showManualProviderSync ? (
-    <ManualProviderSyncAlert
-      disabled={syncingProvider}
-      onSync={handleManualProviderSync}
     />
   ) : null;
 
@@ -1827,7 +1708,6 @@ function BackendEditor({
     { key: "name", node: nameField, group: "basics" },
     { key: "device", node: deviceField, group: "basics" },
     { key: "binding", node: bindingField, group: "basics" },
-    { key: "manualSync", node: manualSyncField, group: "basics" },
     { key: "cliPath", node: cliPathField, group: "advanced" },
     { key: "hermes", node: hermesField, group: "basics" },
     { key: "permission", node: permissionField, group: "runtime" },
@@ -1843,14 +1723,13 @@ function BackendEditor({
     id,
     fields: fields.filter((field) => field.group === id),
   }));
-  const busy = submitting || syncingProvider;
+  const busy = submitting;
   const footer = (
     <BackendEditorFooter
       saveResult={saveResult}
       testResult={testResult}
       testing={testing}
       submitting={submitting}
-      syncingProvider={syncingProvider}
       piAgentModelMissing={piAgentModelMissing}
       credentialGateBlocked={credentialGateBlocked}
       actionsInHeader={presentation === "page"}
@@ -1871,7 +1750,7 @@ function BackendEditor({
           onClose={onClose}
           onSubmit={handleSubmit}
           busy={busy}
-          saveDisabled={submitDisabled || syncingProvider}
+          saveDisabled={submitDisabled}
           saving={submitting}
           groups={pageGroups}
           summary={summaryField}
@@ -1909,16 +1788,6 @@ function BackendEditor({
           <DialogShellFooter stack>{footer}</DialogShellFooter>
         </DialogShell>
       )}
-      {pendingProviderSync ? (
-        <ProviderSyncDialog
-          pending={pendingProviderSync}
-          providers={providers}
-          syncing={syncingProvider}
-          error={providerSyncError}
-          onClose={closeProviderSyncDialog}
-          onConfirm={handleConfirmProviderSync}
-        />
-      ) : null}
     </>
   );
 }

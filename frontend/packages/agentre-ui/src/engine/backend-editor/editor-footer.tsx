@@ -14,7 +14,6 @@ export function BackendEditorFooter({
   testResult,
   testing,
   submitting,
-  syncingProvider,
   piAgentModelMissing,
   // 绑定设备未选择/离线/不在账号内时，测试连接（Hermes / OpenClaw 的凭据操作
   // 之一）同样不可用，且不发请求（spec「Editor behaviour on both hosts」）。
@@ -31,7 +30,6 @@ export function BackendEditorFooter({
   testResult: FlashState;
   testing: boolean;
   submitting: boolean;
-  syncingProvider: boolean;
   piAgentModelMissing: boolean;
   credentialGateBlocked?: boolean;
   actionsInHeader?: boolean;
@@ -64,10 +62,7 @@ export function BackendEditorFooter({
             type="button"
             variant="outline"
             disabled={
-              submitting ||
-              syncingProvider ||
-              piAgentModelMissing ||
-              credentialGateBlocked
+              submitting || piAgentModelMissing || credentialGateBlocked
             }
             onClick={onTest}
             className={cn(
@@ -85,11 +80,11 @@ export function BackendEditorFooter({
               type="button"
               variant="outline"
               onClick={onClose}
-              disabled={submitting || syncingProvider}
+              disabled={submitting}
             >
               {t("common.cancel")}
             </Button>
-            <Button type="submit" disabled={submitDisabled || syncingProvider}>
+            <Button type="submit" disabled={submitDisabled}>
               {submitting ? t("common.saving") : t("common.save")}
             </Button>
           </div>

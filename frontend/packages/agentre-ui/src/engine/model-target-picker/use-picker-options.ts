@@ -18,7 +18,6 @@ import {
   buildCatalogOptions,
   buildInvalidOption,
   buildRecentChips,
-  buildSyncAnchors,
   filterFlatOptions,
   resolveTargetLabel,
 } from "./options";
@@ -44,7 +43,6 @@ export interface UsePickerOptionsArgs {
   supportsFixedModel: boolean;
   remoteCatalog: PickerProvider[] | undefined;
   specialSublabel: React.ReactNode;
-  onSyncProvider: ((provider: PickerProvider) => void) | undefined;
   openOnMount: boolean;
   hideSpecial?: boolean;
   /** 打开时是否把焦点给搜索框。触屏 sheet 不给：一聚焦键盘就升起、盖住列表。 */
@@ -63,7 +61,6 @@ export function usePickerOptions({
   supportsFixedModel,
   remoteCatalog,
   specialSublabel,
-  onSyncProvider,
   openOnMount,
   hideSpecial = false,
   focusSearchOnOpen = true,
@@ -204,16 +201,6 @@ export function usePickerOptions({
     ],
   );
 
-  const syncAnchorByProvider = React.useMemo(
-    () =>
-      buildSyncAnchors({
-        flatOptions,
-        hasSyncRoute: Boolean(onSyncProvider),
-        remoteSyncHint,
-      }),
-    [flatOptions, onSyncProvider, remoteSyncHint],
-  );
-
   const showChips = search.trim() === "" && recents.length > 0;
 
   const handleRemoveRecent = React.useCallback(
@@ -304,7 +291,6 @@ export function usePickerOptions({
     recents,
     catalogOptions,
     flatOptions,
-    syncAnchorByProvider,
     showChips,
     handleRemoveRecent,
     handlePick,

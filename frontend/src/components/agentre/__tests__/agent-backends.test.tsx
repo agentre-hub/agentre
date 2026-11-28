@@ -24,7 +24,6 @@ const appMocks = vi.hoisted(() => ({
   RemoteDeviceFingerprint: vi.fn(),
   RemoteDeviceList: vi.fn(),
   RemoteDeviceListProviders: vi.fn(),
-  RemoteDeviceSyncProvider: vi.fn(),
   ResolveAgentBackendCLIPath: vi.fn(),
   ScanAndCreateAgentBackends: vi.fn(),
   ServerListDevices: vi.fn(),
@@ -113,7 +112,6 @@ type AppMockShape = {
   RemoteDeviceFingerprint?: AnyFn;
   RemoteDeviceList?: AnyFn;
   RemoteDeviceListProviders?: AnyFn;
-  RemoteDeviceSyncProvider?: AnyFn;
   ServerListDevices?: AnyFn;
 };
 
@@ -248,7 +246,6 @@ function installAppMock(overrides: Partial<AppMockShape> = {}) {
     ),
     RemoteDeviceList: vi.fn(() => Promise.resolve([])),
     RemoteDeviceListProviders: vi.fn(() => Promise.resolve([])),
-    RemoteDeviceSyncProvider: vi.fn(() => Promise.resolve(undefined)),
     ServerListDevices: vi.fn(() => Promise.resolve([])),
   };
   const merged = { ...base, ...overrides } as Required<AppMockShape>;
@@ -1712,9 +1709,8 @@ describe("AgentBackendsPanel", () => {
     });
   });
 
-  it("保存远端 claudecode 且远端缺少 provider 时提示同步，确认后先同步再保存", async () => {
+  it("Given 远端设备上还没有这个供应商, When 在编辑器里打开模型绑定, Then 选项按「设备上还没有」禁用，不提供把 key 推过去的「同步到设备」入口", async () => {
     const user = userEvent.setup();
-    let synced = false;
     const mocks = installAppMock({
       RemoteDeviceList: vi.fn(() =>
         Promise.resolve([
@@ -1727,31 +1723,7 @@ describe("AgentBackendsPanel", () => {
           },
         ]),
       ),
-      RemoteDeviceListProviders: vi.fn(() =>
-        Promise.resolve(
-          synced
-            ? [
-                {
-                  key: "key-1",
-                  name: "Anthropic",
-                  type: "anthropic",
-                  defaultModelKey: "mk-1",
-                  models: [
-                    {
-                      key: "mk-1",
-                      modelId: "claude-sonnet-4-6",
-                      enabled: true,
-                    },
-                  ],
-                },
-              ]
-            : [],
-        ),
-      ),
-      RemoteDeviceSyncProvider: vi.fn(() => {
-        synced = true;
-        return Promise.resolve(undefined);
-      }),
+      RemoteDeviceListProviders: vi.fn(() => Promise.resolve([])),
     });
     render(<AgentBackendsPanel />);
 
@@ -1759,171 +1731,30 @@ describe("AgentBackendsPanel", () => {
     await user.click(screen.getByRole("button", { name: /New Backend/ }));
 
     const dialog = await screen.findByRole("dialog");
-    fireEvent.change(
-      within(dialog).getByPlaceholderText("Example: Local · Claude Code"),
-      { target: { value: "远端 claude" } },
-    );
     await user.click(
       within(dialog).getByRole("radio", { name: /Claude Code CLI/ }),
     );
-
     await user.click(
       within(dialog).getByRole("combobox", { name: "Runtime Device" }),
     );
     await user.click(screen.getByRole("option", { name: /linux-srv/ }));
-
     await user.click(
       within(dialog).getByRole("button", { name: "Model binding" }),
     );
-    await user.click(
-      screen.getByRole("button", {
-        name: "Sync Anthropic to this device",
-      }),
-    );
 
-    const syncDialog = await screen.findByRole("dialog", {
-      name: /Sync Remote LLM Provider/,
+    const followDefault = await screen.findByRole("option", {
+      name: /Follow this provider's default/,
     });
+    expect(followDefault).toHaveAttribute("aria-disabled", "true");
+    expect(followDefault).toHaveTextContent("Not on this device yet");
     expect(
-      within(syncDialog).getByText(
-        /API key, default model and model catalog to the remote agentred state file/,
-      ),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /Sync .* to this device/ }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Remote Provider Sync")).toBeNull();
     expect(mocks.CreateAgentBackend).not.toHaveBeenCalled();
-
-    await user.click(
-      within(syncDialog).getByRole("button", { name: "Sync to Remote" }),
-    );
-    await waitFor(() =>
-      expect(mocks.RemoteDeviceSyncProvider).toHaveBeenCalledWith(7, "key-1"),
-    );
-    await user.click(
-      within(dialog).getByRole("button", { name: "Model binding" }),
-    );
-    await user.click(
-      await screen.findByRole("option", {
-        name: /Follow this provider's default/,
-      }),
-    );
-    await user.click(within(dialog).getByRole("button", { name: "Save" }));
-
-    await waitFor(() => {
-      expect(mocks.CreateAgentBackend).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: "claudecode",
-          name: "远端 claude",
-          deviceId: "sha256:remote-daemon",
-          llmProviderKey: "key-1",
-        }),
-      );
-    });
   });
 
-  it("选择远端 provider 后在编辑弹窗里显示同步入口，手动同步成功后刷新目录并保留草稿", async () => {
-    const user = userEvent.setup();
-    const mocks = installAppMock({
-      RemoteDeviceList: vi.fn(() =>
-        Promise.resolve([{ id: 7, name: "linux-srv", online: true }]),
-      ),
-    });
-    render(<AgentBackendsPanel />);
-
-    await screen.findByRole("list", { name: "Agent backend list" });
-    await user.click(screen.getByRole("button", { name: /New Backend/ }));
-
-    const editorDialog = await screen.findByRole("dialog");
-    fireEvent.change(
-      within(editorDialog).getByPlaceholderText("Example: Local · Claude Code"),
-      { target: { value: "远端 claude" } },
-    );
-    await user.click(
-      within(editorDialog).getByRole("radio", { name: /Claude Code CLI/ }),
-    );
-    await user.click(
-      within(editorDialog).getByRole("combobox", { name: "Runtime Device" }),
-    );
-    await user.click(screen.getByRole("option", { name: /linux-srv/ }));
-    await user.click(
-      within(editorDialog).getByRole("button", { name: "Model binding" }),
-    );
-    await user.click(
-      screen.getByRole("button", {
-        name: "Sync Anthropic to this device",
-      }),
-    );
-
-    const syncDialog = await screen.findByRole("dialog", {
-      name: /Sync Remote LLM Provider/,
-    });
-    await user.click(
-      within(syncDialog).getByRole("button", { name: "Sync to Remote" }),
-    );
-
-    await waitFor(() => {
-      expect(mocks.RemoteDeviceSyncProvider).toHaveBeenCalledWith(7, "key-1");
-      expect(mocks.CreateAgentBackend).not.toHaveBeenCalled();
-      expect(sonnerMocks.toast.success).toHaveBeenCalledWith(
-        "Remote provider synced",
-      );
-      expect(editorDialog).toBeInTheDocument();
-    });
-  });
-
-  it("手动同步失败时错误显示在同步弹窗内，不刷到表格顶部", async () => {
-    const user = userEvent.setup();
-    const mocks = installAppMock({
-      RemoteDeviceList: vi.fn(() =>
-        Promise.resolve([{ id: 7, name: "linux-srv", online: true }]),
-      ),
-      RemoteDeviceSyncProvider: vi.fn(() =>
-        Promise.reject(new Error("remote sync failed")),
-      ),
-    });
-    render(<AgentBackendsPanel />);
-
-    await screen.findByRole("list", { name: "Agent backend list" });
-    await user.click(screen.getByRole("button", { name: /New Backend/ }));
-
-    const editorDialog = await screen.findByRole("dialog");
-    fireEvent.change(
-      within(editorDialog).getByPlaceholderText("Example: Local · Claude Code"),
-      { target: { value: "远端 claude" } },
-    );
-    await user.click(
-      within(editorDialog).getByRole("radio", { name: /Claude Code CLI/ }),
-    );
-    await user.click(
-      within(editorDialog).getByRole("combobox", { name: "Runtime Device" }),
-    );
-    await user.click(screen.getByRole("option", { name: /linux-srv/ }));
-    await user.click(
-      within(editorDialog).getByRole("button", { name: "Model binding" }),
-    );
-    await user.click(
-      screen.getByRole("button", {
-        name: "Sync Anthropic to this device",
-      }),
-    );
-
-    const syncDialog = await screen.findByRole("dialog", {
-      name: /Sync Remote LLM Provider/,
-    });
-    await user.click(
-      within(syncDialog).getByRole("button", { name: "Sync to Remote" }),
-    );
-
-    await waitFor(() => {
-      expect(mocks.RemoteDeviceSyncProvider).toHaveBeenCalledWith(7, "key-1");
-      expect(within(syncDialog).getByText("Sync Failed")).toBeInTheDocument();
-      expect(
-        within(syncDialog).getByText(/remote sync failed/),
-      ).toBeInTheDocument();
-      expect(screen.getAllByText(/remote sync failed/)).toHaveLength(1);
-      expect(mocks.CreateAgentBackend).not.toHaveBeenCalled();
-    });
-  });
-
-  it("Given a saved remote backend DTO, When it is edited and saved, Then its deviceId stays selected and remote Provider sync remains available", async () => {
+  it("Given a saved remote backend DTO, When it is edited and saved, Then its deviceId stays selected and no provider sync entry is offered", async () => {
     const user = userEvent.setup();
     const mocks = installAppMock({
       ListAgentBackends: vi.fn(() =>
@@ -1990,10 +1821,8 @@ describe("AgentBackendsPanel", () => {
       expect(
         within(dialog).getByRole("combobox", { name: "Runtime Device" }),
       ).toHaveTextContent("linux-srv");
-      expect(
-        within(dialog).getByText("Remote Provider Sync"),
-      ).toBeInTheDocument();
     });
+    expect(within(dialog).queryByText("Remote Provider Sync")).toBeNull();
 
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => {
@@ -2071,7 +1900,7 @@ describe("AgentBackendsPanel", () => {
     await waitFor(() =>
       expect(mocks.UpdateAgentBackend).not.toHaveBeenCalled(),
     );
-    expect(dialog).toHaveTextContent(/sync to this device first/i);
+    expect(dialog).toHaveTextContent(/not on this device yet/i);
   });
 
   it("Given an existing remote fixed-model binding targets a daemon without fixed-model capability, When Save is clicked, Then persistence fails closed", async () => {
@@ -2363,7 +2192,7 @@ describe("AgentBackendsPanel", () => {
     );
   });
 
-  it("Given a fixed remote binding, When the picker's sync entry is opened and canceled, Then the draft binding is untouched", async () => {
+  it("Given a fixed remote binding the device does not have, When the picker is opened, Then no sync entry is offered and the draft binding is untouched", async () => {
     const user = userEvent.setup();
     installAppMock({
       ListAgentBackends: vi.fn(() =>
@@ -2423,17 +2252,10 @@ describe("AgentBackendsPanel", () => {
     await user.click(
       within(dialog).getByRole("button", { name: "Model binding" }),
     );
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Sync Anthropic to this device",
-      }),
-    );
-    const syncDialog = await screen.findByRole("dialog", {
-      name: /Sync Remote LLM Provider/,
-    });
-    await user.click(
-      within(syncDialog).getByRole("button", { name: /Cancel/ }),
-    );
+    expect((await screen.findAllByRole("listbox")).length).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("button", { name: /Sync .* to this device/ }),
+    ).not.toBeInTheDocument();
 
     await waitFor(() =>
       expect(
@@ -2504,7 +2326,6 @@ describe("AgentBackendsPanel", () => {
         }),
       );
     });
-    expect(mocks.RemoteDeviceSyncProvider).not.toHaveBeenCalled();
     expect(
       screen.queryByRole("dialog", { name: /Sync Remote LLM Provider/ }),
     ).not.toBeInTheDocument();

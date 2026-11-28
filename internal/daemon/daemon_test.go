@@ -46,6 +46,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/transcript"
 	"github.com/agentre-hub/agentre/internal/pkg/transcript/turn"
 	"github.com/agentre-hub/agentre/internal/repository/transcript_repo"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
@@ -335,7 +336,7 @@ func TestDaemon_GivenLoggedInAccount_WhenRelayConnectsAndReconnects_ThenPullsEng
 		case "/v1/engine/snapshot":
 			pull := snapshotPulls.Add(1)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(w, `{"providers":[{"provider_key":"provider-%d","name":"P","type":"anthropic","base_url":"","api_key":"key-%d","default_model_key":"","models":[]}],"cli_overlays":[]}`, pull, pull)
+			_, _ = fmt.Fprintf(w, `{"providers":[{"provider_key":"provider-%d","name":"P-%d","type":"anthropic","base_url":"","default_model_key":"","models":[]}],"engine_profiles":[],"cli_paths":[]}`, pull, pull)
 		case "/v1/devices":
 			// Task 7 shares this same relay-(re)connect hook for direct-credential
 			// reconciliation; this test only cares about the engine-snapshot pull.
@@ -373,7 +374,7 @@ func TestDaemon_GivenLoggedInAccount_WhenRelayConnectsAndReconnects_ThenPullsEng
 		t.Fatal("relay did not reconnect")
 	}
 	require.Eventually(t, func() bool {
-		return snapshotPulls.Load() == 2 && d.state.Snapshot().LLMProviders["provider-2"].APIKey == "key-2"
+		return snapshotPulls.Load() == 2 && d.state.Snapshot().LLMProviders["provider-2"].Name == "P-2"
 	}, 2*time.Second, 10*time.Millisecond)
 	providers := d.state.Snapshot().LLMProviders
 	assert.Contains(t, providers, "provider-2")
@@ -440,7 +441,7 @@ func TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEng
 		case "/v1/engine/snapshot":
 			pull := snapshotPulls.Add(1)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(w, `{"providers":[{"provider_key":"provider-%d","name":"P","type":"anthropic","base_url":"","api_key":"key-%d","default_model_key":"","models":[]}],"cli_overlays":[]}`, pull, pull)
+			_, _ = fmt.Fprintf(w, `{"providers":[{"provider_key":"provider-%d","name":"P-%d","type":"anthropic","base_url":"","default_model_key":"","models":[]}],"engine_profiles":[],"cli_paths":[]}`, pull, pull)
 		case "/v1/devices":
 			// Task 7 shares this same relay-(re)connect hook for direct-credential
 			// reconciliation; this test only cares about the engine-snapshot pull.
@@ -485,6 +486,96 @@ func TestDaemon_GivenAccountSignalOnTheReservedChannel_WhenReceived_ThenPullsEng
 	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage,
 		relayEnvelope(relaytransport.SignalChannelID, accountSyncVersionFrame(t, 8))))
 	require.Eventually(t, func() bool { return snapshotPulls.Load() == 3 }, 2*time.Second, 10*time.Millisecond)
+}
+
+// leaseRevokedFrame 编一帧账号通道的租约吊销信号(account_lease_revoked)。
+func leaseRevokedFrame(t *testing.T, providerKeys ...string) []byte {
+	t.Helper()
+	payload, err := proto.Marshal(&agentrewire.WireFrame{
+		Body: &agentrewire.WireFrame_Notification{Notification: &agentrewire.Notification{
+			Payload: &agentrewire.Notification_AccountLeaseRevoked{
+				AccountLeaseRevoked: &agentrewire.AccountLeaseRevoked{ProviderKeys: providerKeys},
+			},
+		}},
+	})
+	require.NoError(t, err)
+	return payload
+}
+
+// Given agentred 内存里有一份账号供应商的租约,When 账号通道送来点名这个供应商的吊销,
+// Then 它立即被丢弃:下一次要用时重新申请,而不是把旧 key 继续用到过期;吊销不触发快照拉取。
+func TestDaemon_GivenAHeldLease_WhenTheAccountChannelRevokesIt_ThenItIsDroppedAtOnce(t *testing.T) {
+	dir := t.TempDir()
+	st, err := state.Load(dir)
+	require.NoError(t, err)
+	st.Mutate(func(s *state.State) {
+		s.AccountID = "account-1"
+		s.AccountServerURL = "pending"
+		s.Credential = state.AccountCredential{AccessToken: "device-token"}
+	})
+	require.NoError(t, st.Save())
+
+	upgrader := websocket.Upgrader{}
+	relayConn := make(chan *websocket.Conn, 1)
+	var snapshotPulls, leaseRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/relay/daemon":
+			conn, upgradeErr := upgrader.Upgrade(w, r, nil)
+			if upgradeErr != nil {
+				t.Errorf("upgrade relay: %v", upgradeErr)
+				return
+			}
+			relayConn <- conn
+			for {
+				if _, _, readErr := conn.ReadMessage(); readErr != nil {
+					return
+				}
+			}
+		case syncwire.PathEngineSnapshot:
+			snapshotPulls.Add(1)
+			_, _ = io.WriteString(w, `{"providers":[{"provider_key":"pk-1","name":"P","type":"anthropic"}]}`)
+		case syncwire.PathProviderLease:
+			n := leaseRequests.Add(1)
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": syncwire.LeaseResponse{
+				ProviderKey: "pk-1", APIKey: fmt.Sprintf("lease-%d", n), ExpiresAt: time.Now().Add(30 * time.Minute).UnixMilli(),
+			}})
+		case "/v1/devices":
+			writeDeviceListResponse(t, w, nil)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	d, err := New(Options{DataDir: dir, AccountServerURL: server.URL})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(d.db) })
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	d.startEngineSnapshotPulls(ctx)
+	go func() { _ = d.hub.Run(ctx) }()
+	go d.serveRelayChannels(ctx, d.mux)
+
+	var conn *websocket.Conn
+	select {
+	case conn = <-relayConn:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial relay connection was not established")
+	}
+	require.Eventually(t, func() bool { return snapshotPulls.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
+
+	first, err := d.leases.Get(ctx, "pk-1", syncwire.LeasePurposeTurn)
+	require.NoError(t, err)
+	require.Equal(t, "lease-1", first.APIKey)
+
+	require.NoError(t, conn.WriteMessage(websocket.BinaryMessage,
+		relayEnvelope(relaytransport.SignalChannelID, leaseRevokedFrame(t, "pk-1"))))
+	require.Eventually(t, func() bool {
+		lease, getErr := d.leases.Get(ctx, "pk-1", syncwire.LeasePurposeTurn)
+		return getErr == nil && lease.APIKey == "lease-2"
+	}, 2*time.Second, 10*time.Millisecond, "the revoked lease must be dropped and re-requested")
+	assert.Equal(t, int32(1), snapshotPulls.Load(), "a revoke is not a sync signal")
 }
 
 // TestDaemon_NewDoesNotLeakIntoGlobalDefaultDB 回归:New 绝不能调 db.SetDefault
@@ -2349,9 +2440,24 @@ func TestDaemon_GivenLoggedOutDaemon_WhenEngineRPCIsAuthenticated_ThenRejectsIt(
 	}
 }
 
-func TestDaemon_GivenLoggedInDaemon_WhenEngineRPCsAreCalled_ThenTheyUseLocalStateAndKeepSecretsPrivate(t *testing.T) {
+// Given 一台已登录的 agentred,账号供应商在 state 里只有元数据,When 控制台对它做供应商测试与
+// 模型发现,Then key 经设备凭据向账号服务器租来、只在内存里用(发现复用同一份),应答不带它,
+// 用过之后 state.json 里也没有它的任何字节。
+func TestDaemon_GivenLoggedInDaemon_WhenEngineRPCsAreCalled_ThenTheyLeaseTheKeyAndKeepItOffDisk(t *testing.T) {
+	var leasePurposes []string
+	var leaseMu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case syncwire.PathProviderLease:
+			assert.Equal(t, "Bearer device-access-token", r.Header.Get("Authorization"))
+			var request syncwire.LeaseRequest
+			assert.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+			leaseMu.Lock()
+			leasePurposes = append(leasePurposes, request.Purpose)
+			leaseMu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": syncwire.LeaseResponse{
+				ProviderKey: request.ProviderKey, APIKey: "daemon-engine-secret", ExpiresAt: time.Now().Add(30 * time.Minute).UnixMilli(),
+			}})
 		case "/chat/completions":
 			assert.Equal(t, "Bearer daemon-engine-secret", r.Header.Get("Authorization"))
 			_, err := w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
@@ -2372,14 +2478,14 @@ func TestDaemon_GivenLoggedInDaemon_WhenEngineRPCsAreCalled_ThenTheyUseLocalStat
 	st.Login("account-42", state.AccountCredential{AccessToken: "device-access-token"})
 	st.Mutate(func(s *state.State) {
 		s.LLMProviders["provider-key"] = state.LLMProviderMeta{
-			Type: "openai-chat", BaseURL: server.URL, APIKey: "daemon-engine-secret",
+			Type: "openai-chat", BaseURL: server.URL,
 			DefaultModelKey: "model-key",
 			Models:          []state.LLMModelMeta{{ModelKey: "model-key", ModelID: "gpt-daemon", Enabled: true}},
 		}
 	})
 	require.NoError(t, st.Save())
 
-	d := startEngineDaemon(t, Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0})
+	d := startEngineDaemon(t, Options{DataDir: dir, LANHost: "127.0.0.1", LANPort: 0, AccountServerURL: server.URL})
 
 	conn, _ := pairDaemonClient(t, d, "sha256:engine-claimed")
 	t.Cleanup(func() { _ = conn.Close() })
@@ -2405,6 +2511,14 @@ func TestDaemon_GivenLoggedInDaemon_WhenEngineRPCsAreCalled_ThenTheyUseLocalStat
 	assert.Len(t, scanned.GetItems(), 3)
 	assert.NotContains(t, mustJSON(t, scanned), "path")
 	assert.NotContains(t, mustJSON(t, scanned), "/")
+
+	leaseMu.Lock()
+	assert.Equal(t, []string{syncwire.LeasePurposeTest}, leasePurposes, "the test leases the key; discovery reuses the lease still held in memory")
+	leaseMu.Unlock()
+	require.NoError(t, d.state.Save())
+	onDisk, err := os.ReadFile(filepath.Join(dir, "state.json")) //nolint:gosec // G304: the path is this test's own temp dir
+	require.NoError(t, err)
+	assert.NotContains(t, string(onDisk), "daemon-engine-secret", "a leased key never reaches state.json")
 }
 
 func engineDataDir(t *testing.T) string {

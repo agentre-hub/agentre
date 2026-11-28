@@ -377,12 +377,6 @@ export function createEngineSettingsBridge(
   async function RemoteDeviceListProviders(deviceID: number) {
     return ports().listRuntimeDeviceProviders?.(deviceID) ?? [];
   }
-  async function RemoteDeviceSyncProvider(
-    deviceID: number,
-    providerKey: string,
-  ) {
-    await ports().syncRuntimeDeviceProvider?.(deviceID, providerKey);
-  }
   async function ServerListDevices() {
     return ports().listAccountDevices?.() ?? [];
   }
@@ -422,7 +416,6 @@ export function createEngineSettingsBridge(
     RemoteDeviceFingerprint,
     RemoteDeviceList,
     RemoteDeviceListProviders,
-    RemoteDeviceSyncProvider,
     ServerListDevices,
     EventsOn,
   };

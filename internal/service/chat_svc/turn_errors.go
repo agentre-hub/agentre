@@ -158,6 +158,9 @@ func (s *chatSvc) mapTurnError(ctx context.Context, sess *chat_entity.Session, b
 		return s.mapProviderSessionError(ctx, sess, src)
 	}
 	var rpcErr *rpcerror.Error
+	if errors.As(src, &rpcErr) && rpcErr.Code == rpcerror.CodeProviderLeaseUnavailable {
+		return i18n.NewError(ctx, code.ChatRemoteProviderLeaseUnavailable)
+	}
 	if errors.As(src, &rpcErr) && rpcErr.Code == rpcerror.ErrProviderMissing.Code {
 		key := ""
 		if be != nil {

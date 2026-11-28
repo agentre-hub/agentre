@@ -1,5 +1,5 @@
-// 远端执行的草稿体检：保存前先确认目标 daemon 上真有这份供应商 / 模型，
-// 缺什么就把结论交回编辑器决定是弹同步、还是直接挡住保存。
+// 远端执行的草稿体检：保存前先确认目标 daemon 上真有这份供应商 / 模型，缺了就挡住保存。
+// 不再有「同步到设备」：账号供应商经快照到 agentred,key 只经租约在内存里拿。
 import type { PickerProvider } from "../model-target-picker";
 import type { EngineSettingsBridge } from "../port-bridge";
 import type { RouteTarget, Translate } from "../agent-backends-shared";
@@ -10,7 +10,6 @@ import { referencedProviderKeys, type BackendDraft } from "./draft";
 import type { ProviderSummary } from "./editor-types";
 
 export type RemoteDraftInspection = {
-  missingProviderKeys: string[];
   targetIssue: "fixedUnsupported" | "syncNeeded" | null;
 };
 
@@ -28,19 +27,19 @@ export async function inspectRemoteDraft(args: {
     devices,
   );
   if (!resolved.remote) {
-    return { missingProviderKeys: [], targetIssue: null };
+    return { targetIssue: null };
   }
 
   const providerKeys = referencedProviderKeys(draft);
   if (providerKeys.length === 0) {
-    return { missingProviderKeys: [], targetIssue: null };
+    return { targetIssue: null };
   }
   const deviceID = resolved.pairedDeviceId;
   // 本机没有通往该设备的已配对行（典型是账号内另一台桌面端）：这台机器读不到它的
-  // 目录，也同步不过去。此时既不能断言"供应商缺失"，也不能拿一个做不到的同步挡住
-  // 保存 —— 未验证就是未验证，按无结论放行（门控仍在 Picker 侧禁用未验证目标）。
+  // 目录。此时不能断言"供应商缺失" —— 未验证就是未验证，按无结论放行（门控仍在
+  // Picker 侧禁用未验证目标）。
   if (deviceID <= 0) {
-    return { missingProviderKeys: [], targetIssue: null };
+    return { targetIssue: null };
   }
 
   const remoteRaw = (await args.listRemoteProviders(deviceID)) as
@@ -52,11 +51,8 @@ export async function inspectRemoteDraft(args: {
       .filter((provider) => provider.key)
       .map((provider) => [provider.key ?? "", provider] as const),
   );
-  const missingProviderKeys = providerKeys.filter(
-    (key) => !remoteByKey.has(key),
-  );
-  if (missingProviderKeys.length > 0) {
-    return { missingProviderKeys, targetIssue: null };
+  if (providerKeys.some((key) => !remoteByKey.has(key))) {
+    return { targetIssue: "syncNeeded" };
   }
 
   const targets: RouteTarget[] = [];
@@ -80,16 +76,13 @@ export async function inspectRemoteDraft(args: {
     const modelKey = target.modelKey.trim();
     if (modelKey) {
       if (!supportsFixedModel) {
-        return {
-          missingProviderKeys: [],
-          targetIssue: "fixedUnsupported",
-        };
+        return { targetIssue: "fixedUnsupported" };
       }
       const remoteModel = (remoteProvider.models ?? []).find(
         (model) => model.key === modelKey && model.enabled,
       );
       if (!remoteModel) {
-        return { missingProviderKeys: [], targetIssue: "syncNeeded" };
+        return { targetIssue: "syncNeeded" };
       }
       continue;
     }
@@ -105,11 +98,11 @@ export async function inspectRemoteDraft(args: {
         remoteProvider.defaultModelKey !== localDefaultModelKey ||
         !remoteDefaultModel
       ) {
-        return { missingProviderKeys: [], targetIssue: "syncNeeded" };
+        return { targetIssue: "syncNeeded" };
       }
     }
   }
-  return { missingProviderKeys: [], targetIssue: null };
+  return { targetIssue: null };
 }
 
 export function remoteTargetIssueMessage(

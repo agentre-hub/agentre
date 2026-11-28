@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/llmurl"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // ProviderLookup 抽象 llm_provider 仓储依赖，方便单测注入 mock。
@@ -225,6 +227,11 @@ func (f *Forwarder) resolveProvider(
 	w http.ResponseWriter, r *http.Request, rt TokenTarget, expected llm_provider_entity.ProviderType,
 ) (*llm_provider_entity.LLMProvider, bool) {
 	provider, err := f.lookup.FindByKey(r.Context(), rt.ProviderKey)
+	if errors.Is(err, rpcerror.ErrProviderLeaseUnavailable) {
+		// agentred 上的账号供应商只经内存租约拿 key:租约过期、账号服务器又连不上。
+		writeJSONError(w, http.StatusServiceUnavailable, rpcerror.ErrProviderLeaseUnavailable.Message)
+		return nil, false
+	}
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "lookup provider: "+err.Error())
 		return nil, false

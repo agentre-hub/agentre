@@ -81,7 +81,6 @@ const defaultDialTimeout = 15 * time.Second
 //   - Release() 幂等。
 type Lease interface {
 	Client() client.ProtobufConnection
-	LLMUpsert(context.Context, *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error)
 	// SelfUpdate 触发远程一键升级 RPC(spec「远程一键升级」)。应答只回受理结果:
 	// 受理之后 daemon 会重启,这条连接大概率立刻失效,调用方不应该在这次调用里
 	// 依赖 lease 还能继续用。
@@ -230,9 +229,6 @@ type lease struct {
 func (l *lease) Client() client.ProtobufConnection {
 	return noopCloseClient{ProtobufConnection: l.e.client}
 }
-func (l *lease) LLMUpsert(ctx context.Context, request *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
-	return wirecall.LLMUpsert(ctx, l.e.client, request)
-}
 func (l *lease) SelfUpdate(ctx context.Context, request *agentrewire.AgentredSelfUpdateRequest) (*agentrewire.AgentredSelfUpdateResponse, error) {
 	return wirecall.AgentredSelfUpdate(ctx, l.e.client, request)
 }
@@ -249,6 +245,14 @@ type noopCloseClient struct {
 }
 
 func (noopCloseClient) Close() error { return nil }
+
+// DirectRoute reports whether the pooled connection is dialed straight to the
+// agentred (LAN) rather than a channel through the account relay. It is
+// forwarded explicitly because an embedded interface hides optional methods.
+func (c noopCloseClient) DirectRoute() bool {
+	routed, ok := c.ProtobufConnection.(interface{ DirectRoute() bool })
+	return ok && routed.DirectRoute()
+}
 
 // acquire 在 p.mu 已持有时被调。同时取消 idleTimer。
 func (e *entry) acquire() {

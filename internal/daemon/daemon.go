@@ -25,6 +25,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"github.com/glebarez/sqlite"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/daemon/auth"
@@ -33,6 +34,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/identity"
 	"github.com/agentre-hub/agentre/internal/daemon/lancert"
+	"github.com/agentre-hub/agentre/internal/daemon/leases"
 	daemonmigrations "github.com/agentre-hub/agentre/internal/daemon/migrations"
 	"github.com/agentre-hub/agentre/internal/daemon/pairing"
 	"github.com/agentre-hub/agentre/internal/daemon/portforward"
@@ -117,6 +119,9 @@ type Daemon struct {
 	ratelim        *pairing.RateLimiter
 	auth           *auth.AuthHandlers
 	engineSnapshot *enginesnapshot.Manager
+	// leases 是账号供应商 key 的内存租约(向账号服务器申请的,与桌面端随一轮附带的),
+	// 从不落盘;重启即空,第一次用时重新申请。
+	leases *leases.Manager
 	// deviceFacts 是这台机器的设备情况:device.facts 读它,连上中继 / 快照变化 /
 	// 周期检查时它决定要不要报给账号 server。
 	deviceFacts *devicefacts.Reporter
@@ -961,6 +966,7 @@ func New(opts Options) (*Daemon, error) {
 		// 账号引擎可能变了:ACP 命令能否解析、服务型引擎有没有凭据要重新核对。
 		OnApplied: func() { go func() { _ = d.deviceFacts.CheckForChange(context.Background()) }() },
 	})
+	d.leases = leases.New(leases.Options{ServerURL: d.relayServerURL, AccessToken: d.currentAccessToken})
 	d.deviceFacts = d.newDeviceFactsReporter()
 	d.catchup = handlers.NewSessionCatchupHandlers(handlers.SessionCatchupDeps{
 		Sessions:          d.sessionStore,
@@ -991,7 +997,7 @@ func New(opts Options) (*Daemon, error) {
 		Transcript:        transcriptPurger{db: gormDB, backlog: backlog},
 		LoggedInAccountID: d.loggedInAccountID,
 	})
-	d.gateway = httpgateway.New("127.0.0.1", 0, NewProviderLookup(st))
+	d.gateway = httpgateway.New("127.0.0.1", 0, NewProviderLookup(st, d.leases))
 	// 内置工具 MCP(org/subagent/group/workflow)隧道:daemon 上 CLI 子进程把请求打到
 	// 本机 gateway 的 /mcp/*(URL 已由 runtime.Run 改写成 daemon base),这里捕获后反向
 	// 请求回 desktop 执行(真 handler 在 desktop)。仅一条 catch-all,serveMCP 最长前缀
@@ -1822,11 +1828,31 @@ func (d *Daemon) serveAccountSignal(ctx context.Context, channel relaytransport.
 		if len(payload) == 0 {
 			return
 		}
+		if providerKeys, revoked := decodeLeaseRevoked(payload); revoked {
+			// 设备被移除、供应商被删或改了 key:内存里的租约立即作废,下次要用时重新申请。
+			d.leases.Revoke(providerKeys...)
+			continue
+		}
 		if _, known, err := localsync.DecodeAccountChannelFrame(payload); err != nil || !known {
 			continue
 		}
 		d.engineSnapshot.PullAsync(ctx, "account_signal")
 	}
+}
+
+// decodeLeaseRevoked recognizes the account channel's lease-revoked signal
+// (syncwire.AccountSignalLeaseRevoked, carried as Notification.account_lease_revoked)
+// and returns the providers it names; none means every lease.
+func decodeLeaseRevoked(payload []byte) ([]string, bool) {
+	var envelope agentrewire.WireFrame
+	if err := proto.Unmarshal(payload, &envelope); err != nil {
+		return nil, false
+	}
+	revoked := envelope.GetNotification().GetAccountLeaseRevoked()
+	if revoked == nil {
+		return nil, false
+	}
+	return revoked.GetProviderKeys(), true
 }
 
 // bindProtobufConn is called once per LAN or relay connection.
@@ -1856,14 +1882,16 @@ func (d *Daemon) newRuntimeHandlers() *handlers.RuntimeHandlers {
 		// 「这个 handler 从没拥有过这条会话」(见 idempotentSubmitResult)。
 		SessionQuery:       d.sessionStore,
 		Gateway:            d.gateway,
-		Lookup:             NewProviderLookup(d.state),
+		Lookup:             NewProviderLookup(d.state, d.leases),
 		LoggedInAccountID:  d.loggedInAccountID,
 		GenerationRegistry: d.generations,
 		Ctl:                d.ctl,
-		CLIPathForBackend:  d.engineSnapshot.ResolveCLIPath,
-		// 账号级后端配置与每设备 CLI 覆盖是两条路:前者整份替换独占设置(浏览器/云派发
-		// 只带 {type, sync_id}),后者只改可执行文件路径。
-		BackendConfigForSyncID: d.engineSnapshot.ResolveBackendConfig,
+		CLIPathForRuntime:  d.engineSnapshot.ResolveCLIPath,
+		// 账号级引擎配置与这台设备按运行时的 CLI 覆盖是两条路:前者整份替换独占设置
+		// (账号侧派发只点名引擎配置),后者只改可执行文件路径。
+		EngineProfileForSyncID: d.engineSnapshot.ResolveEngineProfile,
+		// 桌面端经直连随一轮附带的租约,只在这一轮里有效。
+		RunLeases: d.leases,
 	})
 }
 

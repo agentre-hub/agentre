@@ -6,15 +6,20 @@ import "sync"
 
 // State is the on-disk shape persisted to <AppDataDir>/state.json.
 type State struct {
-	SchemaVersion      int                        `json:"schemaVersion"`
-	DaemonInstanceUUID string                     `json:"daemonInstanceUUID"`
-	AccountServerURL   string                     `json:"accountServerURL,omitempty"`
-	Listen             ListenPrefs                `json:"listen"`
-	PairedPeers        map[string]PairedPeer      `json:"pairedPeers"`
-	LLMProviders       map[string]LLMProviderMeta `json:"llmProviders"`
-	Preferences        Preferences                `json:"preferences"`
-	AccountID          string                     `json:"accountId,omitempty"`
-	Credential         AccountCredential          `json:"credential,omitempty"`
+	SchemaVersion      int                   `json:"schemaVersion"`
+	DaemonInstanceUUID string                `json:"daemonInstanceUUID"`
+	AccountServerURL   string                `json:"accountServerURL,omitempty"`
+	Listen             ListenPrefs           `json:"listen"`
+	PairedPeers        map[string]PairedPeer `json:"pairedPeers"`
+	// LLMProviders 是从账号引擎快照拉下来的供应商**元数据**,每次快照整份替换。它没有
+	// key 这一格:账号供应商的 key 只经租约在内存里拿(见 internal/daemon/leases)。
+	LLMProviders map[string]LLMProviderMeta `json:"llmProviders"`
+	// LocalLLMProviders 是在这台机器上用 `agentred llm add` 添加的供应商,带着自己的 key。
+	// 那是用户在这台机器上的明确操作:快照拉取不覆盖它,logout 也不清它。
+	LocalLLMProviders map[string]LocalLLMProvider `json:"localLlmProviders,omitempty"`
+	Preferences       Preferences                 `json:"preferences"`
+	AccountID         string                      `json:"accountId,omitempty"`
+	Credential        AccountCredential           `json:"credential,omitempty"`
 	// DirectCredentials are the local direct credentials this daemon issued,
 	// keyed by the desktop fingerprint the account server named at issuance.
 	// Account-bound: Logout drops them with the claim (D11).
@@ -67,11 +72,12 @@ type LLMModelMeta struct {
 	MaxOutput     *int64 `json:"maxOutput,omitempty"`
 }
 
+// LLMProviderMeta 是一个供应商的非敏感元数据。它**没有** key 字段 —— 结构上就写不进
+// state.json(规格「agentred：按需租用」)。
 type LLMProviderMeta struct {
 	Name        string            `json:"name"`
 	Type        string            `json:"type"`
 	BaseURL     string            `json:"baseURL"`
-	APIKey      string            `json:"apiKey"`
 	Model       string            `json:"model"`
 	ModelRoutes map[string]string `json:"modelRoutes"`
 	// DefaultModelKey 是该 Provider 当前默认模型的稳定 key（task 6 多模型）。
@@ -80,6 +86,20 @@ type LLMProviderMeta struct {
 	DefaultModelKey string         `json:"defaultModelKey,omitempty"`
 	Models          []LLMModelMeta `json:"models,omitempty"`
 	UpdatedAt       int64          `json:"updatedAt"`
+}
+
+// LocalLLMProvider 是本机添加的供应商:元数据加上它自己的 key。
+type LocalLLMProvider struct {
+	LLMProviderMeta
+	APIKey string `json:"apiKey"`
+}
+
+// ProviderEntry 是查一个供应商的结果。Local 为 true 时 APIKey 是本机添加时给的 key;
+// 账号供应商(Local 为 false)只有元数据,APIKey 恒空,key 要另去租。
+type ProviderEntry struct {
+	LLMProviderMeta
+	APIKey string
+	Local  bool
 }
 
 // AccountCredential is the daemon's refreshable account credential. It

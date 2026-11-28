@@ -5,7 +5,6 @@ import {
   RemoteDeviceFingerprint,
   RemoteDeviceList,
   RemoteDeviceListProviders,
-  RemoteDeviceSyncProvider,
   SetChatSessionModelTarget,
 } from "../../../../wailsjs/go/app/App";
 import { llm_provider_svc } from "../../../../wailsjs/go/models";
@@ -175,11 +174,6 @@ export interface UseProviderPillReturn {
   supportsFixedModel: boolean;
   /** 目标执行设备上是否缺少当前选中的 Provider（远端场景提示）。 */
   remoteMissing: boolean;
-  /** 把本机 Provider（含 API Key）显式同步到目标设备，并刷新远端目录。 */
-  syncProvider: (providerKey: string) => Promise<void>;
-  /** 本机是否真有一条通往目标设备的同步通道（已配对的 agentred 行）。为 false 时
-   *  目标设备只能被门控、不能被同步——此时不得提供同步入口（否则点了什么都不会发生）。 */
-  canSyncProvider: boolean;
   /** 目标执行位置（透传自选项，供 ProviderPill 传给共享 Picker）。 */
   executionLocation: string;
   /** 远端执行时 CLI 段弹层顶部的设备说明；本机或供应商模式为 undefined。 */
@@ -630,15 +624,6 @@ export function useProviderPill({
     return !remoteCatalog.some((p) => p.providerKey === key);
   }, [executionDevice.remote, remoteCatalog, providerKey, boundProviderKey]);
 
-  const syncProvider = React.useCallback(
-    async (key: string) => {
-      if (remoteDeviceID <= 0) return;
-      await RemoteDeviceSyncProvider(remoteDeviceID, key);
-      await fetchRemote();
-    },
-    [fetchRemote, remoteDeviceID],
-  );
-
   // 挂起中的切换同时交给弹层：标出本轮在用的那行，并在底部说清何时换上新模型。
   const cliModels = React.useMemo<CliModelPickerState | undefined>(
     () =>
@@ -692,7 +677,5 @@ export function useProviderPill({
     remoteCatalog,
     supportsFixedModel,
     remoteMissing,
-    syncProvider,
-    canSyncProvider: remoteDeviceID > 0,
   };
 }

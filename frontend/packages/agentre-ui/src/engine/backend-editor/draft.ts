@@ -55,12 +55,6 @@ export type BackendDraft = {
   hermesUserId: string;
 };
 
-export type PendingProviderSync = {
-  draft: BackendDraft;
-  providerKeys: string[];
-  saveAfterSync: boolean;
-};
-
 // 编辑器可绑的供应商与 Picker 的兼容目录是同一条判据，只在 providerCompatibleForBackend 判。
 export function matchingProviders(t: BackendType, providers: Provider[]) {
   return providers.filter((p) => providerCompatibleForBackend(t, p.type));

@@ -1154,6 +1154,19 @@ func TestMapTurnError_RemoteProviderMissing(t *testing.T) {
 	assert.Contains(t, err.Error(), "provider-key-1")
 }
 
+// Given 远端 agentred 拿不到这一轮要用的供应商的凭据租约,When 这一轮失败,
+// Then 用户看到「凭据租约过期，账号服务器连不上」,而不是「远端未配置该供应商」。
+func TestMapTurnError_RemoteProviderLeaseUnavailable(t *testing.T) {
+	svc := &chatSvc{}
+	err := svc.mapTurnError(context.Background(), nil, &agent_backend_entity.AgentBackend{LLMProviderKey: "provider-key-1"},
+		&rpcerror.Error{Code: rpcerror.CodeProviderLeaseUnavailable, Message: rpcerror.ErrProviderLeaseUnavailable.Message})
+
+	var httpErr *httputils.Error
+	require.ErrorAs(t, err, &httpErr)
+	assert.Equal(t, code.ChatRemoteProviderLeaseUnavailable, httpErr.Code)
+	assert.Contains(t, err.Error(), "凭据租约过期，账号服务器连不上")
+}
+
 // TestSelectRunner_LocalReturnsRegistry verifies local backend → agentruntime.For.
 func TestSelectRunner_LocalReturnsRegistry(t *testing.T) {
 	svc := &chatSvc{}

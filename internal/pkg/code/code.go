@@ -127,6 +127,11 @@ const (
 	DispatchDeviceReasonLine                       // 「无处可跑」报错里一台设备的一行：设备名 + 原因码
 )
 
+// 凭据租约 12090~(同一份 spec「凭据 › agentred：按需租用」)。
+const (
+	ChatRemoteProviderLeaseUnavailable = iota + 12090 // 远端 agentred 拿不到供应商的凭据租约(过期且连不上账号服务器)
+)
+
 // App 设置 15000~15999
 const (
 	AppSettingNotFound      = iota + 15000 // 设置项不存在

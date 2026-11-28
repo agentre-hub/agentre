@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_model_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/llmurl"
+	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
 
 // fakeLookup 测试用 provider+model lookup，返回构造时 inject 的 map，同时实现
@@ -568,3 +570,26 @@ func TestExtractBearerOrAPIKey(t *testing.T) {
 
 // ensure url package import isn't dropped if test set shrinks
 var _ = url.Parse
+
+// leaseUnavailableLookup 是一个账号供应商此刻拿不到凭据租约的 lookup(agentred 上 server
+// 连不上、租约又过期了)。
+type leaseUnavailableLookup struct{}
+
+func (leaseUnavailableLookup) FindByKey(_ context.Context, key string) (*llm_provider_entity.LLMProvider, error) {
+	return nil, fmt.Errorf("provider %q: %w", key, rpcerror.ErrProviderLeaseUnavailable)
+}
+
+// Given 一轮还在跑,网关转发时供应商的凭据租约拿不到,When CLI 发来请求,Then 网关不转发、
+// 回 503 并说清是「凭据租约过期，账号服务器连不上」—— 不是笼统的 500「lookup provider」。
+func TestForwarder_GivenNoLease_WhenForwarding_ThenAnswers503NamingTheLease(t *testing.T) {
+	upstream, rec := newRecordingUpstream(t, `{"ok":true}`)
+	_ = upstream
+	tokens := NewTokenRegistry()
+	f := NewForwarder(tokens, leaseUnavailableLookup{})
+	be := &agent_backend_entity.AgentBackend{ID: 9, Type: string(agent_backend_entity.TypeClaudeCode), LLMProviderKey: "pk-1"}
+
+	resp := issueAndRequest(t, f.AnthropicHandler(), tokens, be, "/v1/messages", `{"model":"x"}`)
+	assert.Equal(t, http.StatusServiceUnavailable, resp.Code)
+	assert.Contains(t, resp.Body.String(), rpcerror.ErrProviderLeaseUnavailable.Message)
+	assert.Empty(t, rec.Path, "nothing reaches the upstream without a key")
+}

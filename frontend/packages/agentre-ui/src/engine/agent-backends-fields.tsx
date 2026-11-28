@@ -228,7 +228,6 @@ export function ModelBindingSection({
   value,
   modelKey,
   onTargetChange,
-  onSyncProvider,
   invalid,
   piAgentModelMissing,
   editing,
@@ -255,7 +254,6 @@ export function ModelBindingSection({
   value: string;
   modelKey: string;
   onTargetChange: (target: RouteTarget) => void;
-  onSyncProvider?: (provider: PickerProvider) => void;
   invalid: boolean;
   piAgentModelMissing: boolean;
   editing: boolean;
@@ -319,7 +317,6 @@ export function ModelBindingSection({
         value={value}
         modelKey={modelKey}
         onTargetChange={onTargetChange}
-        onSyncProvider={onSyncProvider}
         invalid={invalid}
         piAgentModelMissing={piAgentModelMissing}
         editing={editing}
@@ -360,7 +357,6 @@ function ModelTargetField({
   value,
   modelKey,
   onTargetChange,
-  onSyncProvider,
   invalid,
   piAgentModelMissing,
   editing,
@@ -381,7 +377,6 @@ function ModelTargetField({
   value: string;
   modelKey: string;
   onTargetChange: (t: { providerKey: string; modelKey: string }) => void;
-  onSyncProvider?: (provider: PickerProvider) => void;
   invalid: boolean;
   piAgentModelMissing: boolean;
   editing: boolean;
@@ -475,7 +470,6 @@ function ModelTargetField({
               modelKey: target.modelKey,
             })
           }
-          onSyncProvider={onSyncProvider}
           catalog={catalog}
           loading={catalogLoading}
           error={catalogError}

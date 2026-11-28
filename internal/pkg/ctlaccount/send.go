@@ -385,12 +385,11 @@ func (a *Client) startSession(ctx context.Context, in SendInput) (Reply, error) 
 	if title == "" {
 		title = deriveTitle(in.Text)
 	}
-	// 运行时类型与账号配置暂时仍走旧的 backend 字段（协议切换前 agentred 据 {type, sync_id} 从快照
-	// 补全这一轮的供应商 / 模型 / 力度；引擎配置的同步标识沿用其组内最小那条后端的 sync_id），
-	// 引擎配置另由 EngineProfileSyncId 指明。
+	// 运行时类型暂时仍走旧的 backend 字段(协议切换前);这一轮跑哪份引擎配置由
+	// EngineProfileSyncId 指明,执行端据它从自己的账号快照补全供应商 / 模型 / 力度。
 	req := &agentrewire.RuntimeRunRequest{
 		ConversationId: id, Title: title, AgentSyncId: agent.GetSyncId(), ProjectSyncId: projectSync,
-		Cwd: choice.Cwd, Backend: &agentrewire.AgentBackend{Type: choice.Runtime, SyncId: choice.EngineSyncID}, EngineProfileSyncId: choice.EngineSyncID,
+		Cwd: choice.Cwd, Backend: &agentrewire.AgentBackend{Type: choice.Runtime}, EngineProfileSyncId: choice.EngineSyncID,
 	}
 	a.fillTurn(req, conn, in, model)
 	if choice.Kind == "agentred" && choice.Runtime == "piagent" {

@@ -29,10 +29,9 @@ func TestState_JSONRoundTrip(t *testing.T) {
 			},
 		},
 		LLMProviders: map[string]LLMProviderMeta{
-			"42": { //nolint:gosec // credential-shaped API key is a test fixture.
+			"42": {
 				Name: "anthropic-main", Type: "anthropic",
 				BaseURL:     "https://api.anthropic.com",
-				APIKey:      "sk-ant-real-key",
 				Model:       "claude-sonnet-4-6",
 				ModelRoutes: map[string]string{"OPUS": "claude-opus-4"},
 				UpdatedAt:   1716000500,
@@ -93,17 +92,15 @@ func TestState_AccountLoginRoundTripStoresOnlyOpaqueAccountData(t *testing.T) {
 }
 
 // TestState_LLMModelCatalogRoundTrip 钉死 task 6 多模型目录的持久化：Provider 名下
-// 保存 DefaultModelKey + Models（稳定 key + 实际 model id + 启用态），APIKey 仍只存
-// Provider 级、不进模型行。
+// 保存 DefaultModelKey + Models（稳定 key + 实际 model id + 启用态），不带任何 key。
 func TestState_LLMModelCatalogRoundTrip(t *testing.T) {
 	in := &State{
 		SchemaVersion:      1,
 		DaemonInstanceUUID: "daemon-uuid",
 		LLMProviders: map[string]LLMProviderMeta{
-			"prov-1": { //nolint:gosec // credential-shaped API key is a test fixture.
+			"prov-1": {
 				Name:            "Anthropic Prod",
 				Type:            "anthropic",
-				APIKey:          "sk-ant-secret",
 				Model:           "claude-sonnet-4-6",
 				DefaultModelKey: "model-1",
 				Models: []LLMModelMeta{

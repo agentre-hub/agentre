@@ -94,17 +94,20 @@ func TestHealth_Ping_AdvertisesModelTargetCapabilityAndCatalog(t *testing.T) {
 	Convey("Ping 公布能力位 + 非敏感目录", t, func() {
 		st := state.NewDefault("test-instance")
 		st.Mutate(func(s *state.State) {
-			s.LLMProviders["prov-1"] = state.LLMProviderMeta{ //nolint:gosec // credential-shaped API key is a test fixture.
-				Name:            "Anthropic Prod",
-				Type:            "anthropic",
-				APIKey:          "sk-ant-secret",
-				BaseURL:         "https://api.anthropic.com",
-				DefaultModelKey: "model-1",
-				Models: []state.LLMModelMeta{
-					{ModelKey: "model-1", ModelID: "claude-sonnet-4-6", Enabled: true},
-					{ModelKey: "model-2", ModelID: "claude-opus-4-5", Enabled: false},
+			// 本机添加的供应商带着 key:目录里同样不能露出它。
+			s.LocalLLMProviders = map[string]state.LocalLLMProvider{"prov-1": { //nolint:gosec // credential-shaped API key is a test fixture.
+				LLMProviderMeta: state.LLMProviderMeta{
+					Name:            "Anthropic Prod",
+					Type:            "anthropic",
+					BaseURL:         "https://api.anthropic.com",
+					DefaultModelKey: "model-1",
+					Models: []state.LLMModelMeta{
+						{ModelKey: "model-1", ModelID: "claude-sonnet-4-6", Enabled: true},
+						{ModelKey: "model-2", ModelID: "claude-opus-4-5", Enabled: false},
+					},
 				},
-			}
+				APIKey: "sk-ant-secret",
+			}}
 		})
 		h := handlers.NewHealthHandlers("test-instance", st, nil)
 		res, err := h.Ping(context.Background())

@@ -10,7 +10,7 @@ import { useUiTranslation as useTranslation } from "../../i18n";
 
 import { PickerOptionRow } from "./option-row";
 import type { Option } from "./options";
-import type { ModelTarget, PickerProvider, PickerScenario } from "./types";
+import type { ModelTarget, PickerScenario } from "./types";
 import { sameTarget } from "./types";
 import type { LucideIcon } from "lucide-react";
 
@@ -23,12 +23,8 @@ export interface PickerOptionListProps {
   selected: ModelTarget | null;
   scenario: PickerScenario;
   SpecialIcon: LucideIcon;
-  /** 该行是不是所属供应商第一条待同步的行（只在那一行挂同步入口）。 */
-  syncAnchorByProvider: Map<string, string>;
-  compatible: PickerProvider[];
   /** 远端场景下该供应商在目标设备上是否已存在；本机恒 false。 */
   isProviderOnDevice: (providerKey: string) => boolean;
-  onSyncProvider?: (provider: PickerProvider) => void;
   onActivate: (index: number) => void;
   onSelect: (target: ModelTarget) => void;
 }
@@ -42,10 +38,7 @@ export function PickerOptionList({
   selected,
   scenario,
   SpecialIcon,
-  syncAnchorByProvider,
-  compatible,
   isProviderOnDevice,
-  onSyncProvider,
   onActivate,
   onSelect,
 }: PickerOptionListProps) {
@@ -73,11 +66,6 @@ export function PickerOptionList({
             : opt.disabled
               ? opt.disabledHint
               : undefined;
-        // 行内同步入口：只挂在该供应商第一条待同步的行上。
-        const syncProvider =
-          syncAnchorByProvider.get(opt.target.providerKey) === opt.key
-            ? compatible.find((p) => p.providerKey === opt.target.providerKey)
-            : undefined;
         return (
           <PickerOptionRow
             key={opt.key}
@@ -93,8 +81,6 @@ export function PickerOptionList({
             inlineHint={inlineHint}
             scenario={scenario}
             SpecialIcon={SpecialIcon}
-            syncProvider={syncProvider}
-            onSyncProvider={onSyncProvider}
             onActivate={onActivate}
             onSelect={onSelect}
           />

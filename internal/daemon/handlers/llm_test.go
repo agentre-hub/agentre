@@ -34,7 +34,7 @@ func TestLLMUpsert(t *testing.T) {
 	convey.Convey("llm.upsert", t, func() {
 		ctx, st, h := setupLLMTest(t)
 
-		convey.Convey("writes provider meta and API key to state", func() {
+		convey.Convey("writes a local provider with its API key, never into the account section", func() {
 			res, err := h.Upsert(ctx, handlers.LLMUpsertParams{ //nolint:gosec // credential-shaped API key is a test fixture.
 				ProviderKey: testProviderKey,
 				Name:        "anthropic-main",
@@ -48,11 +48,13 @@ func TestLLMUpsert(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, handlers.OK{OK: true}, res)
 
-			meta, ok := st.LLMProviders[testProviderKey]
+			meta, ok := st.Snapshot().LocalLLMProviders[testProviderKey]
 			require.True(t, ok)
 			assert.Equal(t, "anthropic-main", meta.Name)
 			assert.Equal(t, "claude-sonnet-4-6", meta.Model)
 			assert.Equal(t, "sk-ant-secret", meta.APIKey)
+			assert.NotContains(t, st.Snapshot().LLMProviders, testProviderKey,
+				"account provider metadata is the snapshot's; a local add never lands there")
 		})
 
 		convey.Convey("masks short keys gracefully", func() {
@@ -77,38 +79,47 @@ func TestLLMUpsert(t *testing.T) {
 	})
 }
 
+// llm.delete 删的是本机添加的供应商;账号供应商归快照管,删不掉、也不受影响。
 func TestLLMDelete(t *testing.T) {
 	ctx, st, h := setupLLMTest(t)
-	st.Mutate(func(s *state.State) {
-		s.LLMProviders[testProviderKey] = state.LLMProviderMeta{Name: "x"}
-	})
+	_, err := h.Upsert(ctx, handlers.LLMUpsertParams{ProviderKey: testProviderKey, Name: "x", APIKey: "k"})
+	require.NoError(t, err)
+	require.NoError(t, st.ReplaceLLMProviders(map[string]state.LLMProviderMeta{"account-1": {Name: "acct"}}))
 
 	res, err := h.Delete(ctx, handlers.LLMDeleteParams{ProviderKey: testProviderKey})
 	require.NoError(t, err)
 	assert.Equal(t, handlers.OK{OK: true}, res)
-	_, exists := st.LLMProviders[testProviderKey]
-	assert.False(t, exists)
+	assert.NotContains(t, st.Snapshot().LocalLLMProviders, testProviderKey)
+
+	_, err = h.Delete(ctx, handlers.LLMDeleteParams{ProviderKey: "account-1"})
+	require.NoError(t, err)
+	assert.Contains(t, st.Snapshot().LLMProviders, "account-1")
 }
 
+// llm.list 列出这台 agentred 能用的全部供应商:本机添加的带 key 尾巴,账号的只有元数据
+// (key 不在这台机器的盘上,尾巴为空)。
 func TestLLMList(t *testing.T) {
 	ctx, st, h := setupLLMTest(t)
-	st.Mutate(func(s *state.State) {
-		s.LLMProviders[testProviderKey] = state.LLMProviderMeta{Name: "a", BaseURL: "u", APIKey: "fixture-test-key", Model: "claude-sonnet-4-6", UpdatedAt: 100}
-		s.LLMProviders["another-uuid-key"] = state.LLMProviderMeta{Name: "b", UpdatedAt: 200}
-	})
+	_, err := h.Upsert(ctx, handlers.LLMUpsertParams{ProviderKey: testProviderKey, Name: "a", BaseURL: "u", APIKey: "fixture-test-key", Model: "claude-sonnet-4-6", UpdatedAt: 100})
+	require.NoError(t, err)
+	require.NoError(t, st.ReplaceLLMProviders(map[string]state.LLMProviderMeta{"another-uuid-key": {Name: "b", UpdatedAt: 200}}))
 	res, err := h.List(ctx)
 	require.NoError(t, err)
 	assert.Len(t, res.Providers, 2)
 	for _, p := range res.Providers {
-		if p.ProviderKey == testProviderKey {
+		switch p.ProviderKey {
+		case testProviderKey:
 			assert.Equal(t, "claude-sonnet-4-6", p.Model)
 			assert.Equal(t, "...-key", p.MaskedTail)
+		case "another-uuid-key":
+			assert.Equal(t, "b", p.Name)
+			assert.Empty(t, p.MaskedTail)
 		}
 	}
 }
 
-// TestLLMUpsert_PersistsModelCatalog 钉死 task 6 多模型同步：llm.upsert 把 Provider
-// 的 DefaultModelKey + 非敏感模型目录连同凭证一并落 state。
+// TestLLMUpsert_PersistsModelCatalog 钉死本机添加的供应商把 DefaultModelKey + 非敏感
+// 模型目录连同凭证一并落 state。
 func TestLLMUpsert_PersistsModelCatalog(t *testing.T) {
 	ctx, st, h := setupLLMTest(t)
 
@@ -127,7 +138,7 @@ func TestLLMUpsert_PersistsModelCatalog(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	meta, ok := st.LLMProviders[testProviderKey]
+	meta, ok := st.Snapshot().LocalLLMProviders[testProviderKey]
 	require.True(t, ok)
 	assert.Equal(t, "model-1", meta.DefaultModelKey)
 	require.Len(t, meta.Models, 2)

@@ -1218,10 +1218,9 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
     );
   });
 
-  it("模型在 daemon 上不存在 → fixed-model、最近使用都禁用，并提供重新同步入口", async () => {
+  it("模型在 daemon 上不存在 → fixed-model、最近使用都禁用，不提供「同步到设备」入口", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    const onSyncProvider = vi.fn();
     recordRecentTarget("backend", "7", {
       providerKey: "k-anthropic",
       modelKey: "mk-opus",
@@ -1233,7 +1232,6 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
         backendType="claudecode"
         selected={null}
         onChange={onChange}
-        onSyncProvider={onSyncProvider}
         catalog={catalog()}
         executionLocation="7"
         supportsFixedModel
@@ -1249,9 +1247,7 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
     // 当前默认模型在 daemon 上存在，可固定；mk-opus 缺失，需先同步。
     expect(options[2]).not.toHaveAttribute("aria-disabled", "true");
     expect(options[3]).toHaveAttribute("aria-disabled", "true");
-    expect(options[3]).toHaveTextContent(
-      "Local only — sync to this device first",
-    );
+    expect(options[3]).toHaveTextContent("Not on this device yet");
 
     // 最近使用不能绕过同一远端门控。
     const recent = screen.getByRole("button", { name: "Opus" });
@@ -1259,17 +1255,13 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
     await user.click(recent);
     expect(onChange).not.toHaveBeenCalled();
 
-    // Provider 已存在但目录过期时仍需提供整包重新同步入口。
-    const sync = screen.getByRole("button", {
-      name: "Sync Anthropic to this device",
-    });
-    await user.click(sync);
-    expect(onSyncProvider).toHaveBeenCalledWith(
-      expect.objectContaining({ providerKey: "k-anthropic" }),
-    );
+    // 「同步到设备」取消了:key 只经租约到 agentred,没有把供应商推过去的按钮。
+    expect(
+      screen.queryByRole("button", { name: /Sync .* to this device/ }),
+    ).not.toBeInTheDocument();
   });
 
-  it("daemon 的默认模型与本机不一致时，provider-default 禁用并要求同步", async () => {
+  it("daemon 的默认模型与本机不一致时，provider-default 禁用", async () => {
     const user = userEvent.setup();
     const localCatalog = catalog();
     localCatalog[0] = {
@@ -1283,7 +1275,6 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
         backendType="claudecode"
         selected={null}
         onChange={vi.fn()}
-        onSyncProvider={vi.fn()}
         catalog={localCatalog}
         executionLocation="7"
         supportsFixedModel
@@ -1297,12 +1288,10 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
       name: /Follow this provider's default/i,
     });
     expect(providerDefault).toHaveAttribute("aria-disabled", "true");
-    expect(providerDefault).toHaveTextContent(
-      "Local only — sync to this device first",
-    );
+    expect(providerDefault).toHaveTextContent("Not on this device yet");
     expect(
-      screen.getByRole("button", { name: "Sync Anthropic to this device" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: /Sync .* to this device/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("远端场景顶部说明以目标设备的配置为准，设备上已有的供应商组带标记；未传设备名时不渲染说明", async () => {
@@ -1364,46 +1353,7 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("「同步过去」落在需要同步的那一行内，而不是列表底部聚合", async () => {
-    const user = userEvent.setup();
-    const onSyncProvider = vi.fn();
-    render(
-      <ModelTargetPicker
-        scenario="backend"
-        aria-label="LLM Provider"
-        backendType="piagent"
-        selected={null}
-        onChange={vi.fn()}
-        onSyncProvider={onSyncProvider}
-        catalog={catalog()}
-        executionLocation="7"
-        supportsFixedModel
-        remoteCatalog={remoteCatalogWith()}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: "LLM Provider" }));
-    const list = await screen.findByRole("listbox", { name: "LLM Provider" });
-    // 按钮在列表里、与它会修复的那一行同处一个 li；每个供应商只出现一次。
-    const syncs = within(list).getAllByRole("button", {
-      name: "Sync OpenAI to this device",
-    });
-    expect(syncs).toHaveLength(1);
-    const row = syncs[0].closest("li") as HTMLElement;
-    expect(within(row).getByRole("option")).toHaveTextContent(
-      "Follow this provider's default",
-    );
-    expect(within(row).getByRole("option")).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
-    await user.click(syncs[0]);
-    expect(onSyncProvider).toHaveBeenCalledWith(
-      expect.objectContaining({ providerKey: "k-openai" }),
-    );
-  });
-
-  it("没有真实同步入口（未传 onSyncProvider）时不渲染任何同步按钮", async () => {
+  it("设备上缺的供应商也不渲染任何同步按钮", async () => {
     const user = userEvent.setup();
     render(
       <ModelTargetPicker
@@ -1450,34 +1400,8 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
     });
   });
 
-  it("远端底部只留「同步会复制 API Key」一句，不再总述灰色项原因；无同步入口时整块不渲染", async () => {
+  it("远端底部没有「同步会复制 API Key」的说明，也不总述灰色项原因", async () => {
     const user = userEvent.setup();
-    const { unmount } = render(
-      <ModelTargetPicker
-        scenario="backend"
-        aria-label="LLM Provider"
-        backendType="piagent"
-        selected={null}
-        onChange={vi.fn()}
-        onSyncProvider={vi.fn()}
-        catalog={catalog()}
-        executionLocation="7"
-        supportsFixedModel
-        remoteCatalog={remoteCatalogWith()}
-      />,
-    );
-    await user.click(screen.getByRole("button", { name: "LLM Provider" }));
-    await screen.findByRole("listbox", { name: "LLM Provider" });
-    expect(
-      screen.getByText(/Syncing copies the API key to that device/),
-    ).toBeInTheDocument();
-    // 行内每条已写自己的原因，底部不再总述一遍。
-    expect(screen.queryByText(/Disabled items need sync/)).toBeNull();
-    expect(
-      screen.getByRole("button", { name: "Sync OpenAI to this device" }),
-    ).toHaveClass("cursor-pointer");
-    unmount();
-
     render(
       <ModelTargetPicker
         scenario="backend"
@@ -1494,6 +1418,7 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
     await user.click(screen.getByRole("button", { name: "LLM Provider" }));
     await screen.findByRole("listbox", { name: "LLM Provider" });
     expect(screen.queryByText(/Syncing copies the API key/)).toBeNull();
+    expect(screen.queryByText(/Disabled items need sync/)).toBeNull();
   });
 
   it("禁用项收敛成两行：行内原因取代模型标识副行，不在 modelId 之下再叠第三行", async () => {
@@ -1517,9 +1442,7 @@ describe("ModelTargetPicker remote gating (task 6)", () => {
     const options = within(list).getAllByRole("option");
     // mockup 的停用行是「模型名 / 原因」两行 —— 原因取代 modelId 副行。
     expect(options[3]).toHaveTextContent("Opus");
-    expect(options[3]).toHaveTextContent(
-      "Local only — sync to this device first",
-    );
+    expect(options[3]).toHaveTextContent("Not on this device yet");
     expect(
       within(options[3] as HTMLElement).queryByText("claude-opus-4-8"),
     ).not.toBeInTheDocument();

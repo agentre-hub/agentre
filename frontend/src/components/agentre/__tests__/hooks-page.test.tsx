@@ -9,8 +9,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hoist mocks so the module factory can reference them (vi.mock is hoisted
-// above imports); follows the shape established by
-// remote-devices/device-providers-sync.test.tsx.
+// above imports).
 const appMocks = vi.hoisted(() => ({
   LoadHooks: vi.fn(),
   CreateHook: vi.fn(),

@@ -3,10 +3,13 @@ package daemon
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/cago-frame/cago/configs"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/agentre-hub/agentre/internal/buildinfo"
@@ -169,7 +172,7 @@ func TestProtobufRegistryRequiresAuthAndListsMaskedProviders(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { closeDB(daemon.db) })
 	daemon.state.Mutate(func(value *statepkg.State) {
-		value.LLMProviders["provider-1"] = statepkg.LLMProviderMeta{Name: "Provider", Type: "openai", APIKey: "secret-value", UpdatedAt: 7}
+		value.LocalLLMProviders = map[string]statepkg.LocalLLMProvider{"provider-1": {LLMProviderMeta: statepkg.LLMProviderMeta{Name: "Provider", Type: "openai", UpdatedAt: 7}, APIKey: "secret-value"}}
 	})
 	clientTransport, serverTransport := protobufTestPipePair()
 	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
@@ -193,6 +196,34 @@ func TestProtobufRegistryRequiresAuthAndListsMaskedProviders(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, response.Providers, 1)
 	require.Equal(t, "...alue", response.Providers[0].MaskedTail)
+}
+
+// Given 一个已配对的桌面端,When 它还按旧的「同步到设备」调 llm.upsert 推一个带 key 的供应商,
+// Then agentred 拒绝,盘上什么都不落 —— 账号供应商的 key 只经租约在内存里拿。
+func TestProtobufRegistry_GivenAProviderPushedOverLLMUpsert_ThenItIsRefusedAndNothingIsWritten(t *testing.T) {
+	daemon, err := New(Options{DataDir: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDB(daemon.db) })
+	clientTransport, serverTransport := protobufTestPipePair()
+	client := protorpc.NewConn(clientTransport, protorpc.NewRegistry())
+	server := protorpc.NewConn(serverTransport, daemon.protobufRegistry.Clone())
+	server.SetAuth(protorpc.AuthState{Authenticated: true, DeviceFingerprint: "device-1"})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go client.Serve(ctx)
+	go server.Serve(ctx)
+
+	_, err = protorpc.CallMethod(ctx, client, uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT),
+		&agentrewire.LLMUpsertRequest{ProviderKey: "provider-1", Name: "P", Type: "anthropic", ApiKey: "pushed-secret"},
+		func() *agentrewire.LLMUpsertResponse { return &agentrewire.LLMUpsertResponse{} })
+	var rpcErr *protorpc.Error
+	require.ErrorAs(t, err, &rpcErr)
+	snap := daemon.state.Snapshot()
+	assert.Empty(t, snap.LocalLLMProviders)
+	assert.Empty(t, snap.LLMProviders)
+	onDisk, readErr := os.ReadFile(filepath.Join(daemon.state.Dir(), "state.json"))
+	require.NoError(t, readErr)
+	assert.NotContains(t, string(onDisk), "pushed-secret")
 }
 
 func TestProtobufConnectionRegistersPerConnectionRuntimeMethods(t *testing.T) {

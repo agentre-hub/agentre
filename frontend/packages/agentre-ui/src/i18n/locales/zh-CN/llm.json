@@ -379,15 +379,12 @@
     "invalidHint": "该目标已失效（供应商或模型缺失/停用），请重新选择。",
     "invalidCurrent": "当前选择 · 已失效",
     "invalidChip": "失效",
-    "remoteMissing": "目标设备缺少该供应商，请在远端同步后再选择。",
+    "remoteMissing": "目标设备上还没有这个供应商。",
     "noDefaultModel": "未设置默认模型",
-    "remoteSyncNeeded": "本机独有，同步到该设备后可用",
+    "remoteSyncNeeded": "这台设备上还没有这个供应商",
     "fixedModelUnsupported": "该设备不支持固定模型，请升级 agentred",
     "remoteDeviceHeader": "在 {{device}} 上执行 —— 以该设备的配置为准",
-    "providerOnDevice": "设备上已有",
-    "syncInline": "同步过去",
-    "syncFootnote": "同步会把 API Key 复制到该设备，需要你明确确认",
-    "syncProviderNamed": "同步 {{provider}} 到该设备"
+    "providerOnDevice": "设备上已有"
   },
   "agentBackends": {
     "actions": {
@@ -561,7 +558,6 @@
       "deleteFailed": "没有删除成功",
       "deleted": "已删除",
       "loadFailed": "Agent 后端没有加载出来",
-      "providerSynced": "已同步远端 Provider",
       "saveFailed": "没有保存成功",
       "saved": "已保存",
       "scanFailed": "扫描没有完成",
@@ -665,19 +661,6 @@
       "staleDescription": "请从下方重新挑选一个启用中的供应商{{optionalClause}}。",
       "staleOptionalClause": "，或清除关联走 CLI 自身登录",
       "staleTitle": "原 LLM 供应商已停用或与当前类型不匹配"
-    },
-    "providerSync": {
-      "descriptionOnly": "同步会把该 Provider 的 BaseURL、协议、API Key、默认模型与模型目录复制到远端 agentred 状态文件；不会保存表单其它改动。",
-      "descriptionSave": "所选远端 agentred 尚未配置这些 Provider。同步会把 BaseURL、协议、API Key、默认模型与模型目录复制到远端 agentred 状态文件，然后继续保存 Agent 后端。",
-      "failedTitle": "同步失败",
-      "inlineDescription": "当前后端会在远端 agentred 运行；可先把所选 LLM Provider 同步到远端状态文件。",
-      "inlineTitle": "远端 Provider 同步",
-      "requiredDescription": "远端运行时只能读取它自己状态文件中的 Provider；未同步时会触发 provider not configured。",
-      "requiredTitle": "需要先同步 Provider",
-      "syncAndSave": "同步并保存",
-      "syncRemote": "同步到远端",
-      "syncing": "同步中...",
-      "title": "同步远端 LLM Provider"
     },
     "proxy": {
       "notRunning": "本地 HTTP 代理未启动",

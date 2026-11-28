@@ -364,3 +364,12 @@ func TestAuthAccount_GivenTheResponseCarriesNoDelivery_ThenAccountDirectDelivery
 	_, _, _, ok := client.AccountDirectDelivery()
 	assert.False(t, ok)
 }
+
+// ProtobufClient 是桌面端直接拨到 agentred 监听口的那条 WebSocket(局域网直连),不是账号
+// 中继上的一条虚拟通道 —— 直连派发的一轮据此附带供应商租约。
+func TestProtobufClient_IsADirectRoute(t *testing.T) {
+	var c ProtobufConnection = &ProtobufClient{}
+	routed, ok := c.(interface{ DirectRoute() bool })
+	require.True(t, ok)
+	assert.True(t, routed.DirectRoute())
+}

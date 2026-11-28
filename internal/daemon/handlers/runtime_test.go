@@ -725,13 +725,13 @@ func setupRuntimeTestWithCLIOverlay(t *testing.T, rt agentruntime.Runtime,
 	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
 		RuntimeFor:        func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
-		CLIPathForBackend: resolve,
+		CLIPathForRuntime: resolve,
 	})
 	return context.Background(), notif, h
 }
 
 func setupRuntimeTestWithBackendConfig(t *testing.T, rt agentruntime.Runtime,
-	resolve func(string) (enginesnapshot.Backend, bool),
+	resolve func(string) (enginesnapshot.Profile, bool),
 ) (context.Context, *recordingOutbound, *handlers.RuntimeHandlers) {
 	t.Helper()
 	notif := newRecordingOutbound()
@@ -739,7 +739,7 @@ func setupRuntimeTestWithBackendConfig(t *testing.T, rt agentruntime.Runtime,
 	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
 		RuntimeFor:             func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
-		BackendConfigForSyncID: resolve,
+		EngineProfileForSyncID: resolve,
 	})
 	return context.Background(), notif, h
 }
@@ -782,8 +782,8 @@ func backendProto(_ *testing.T, be agent_backend_entity.AgentBackend) *agentrewi
 
 func TestRuntime_Run_GivenAccountCLIOverlay_WhenExecuting_ThenUsesOverlayWithoutPersistingItInBackendIdentity(t *testing.T) {
 	rt := &fullRT{}
-	ctx, notif, h := setupRuntimeTestWithCLIOverlay(t, rt, func(syncID string) (string, bool) {
-		assert.Equal(t, "backend-sync-1", syncID)
+	ctx, notif, h := setupRuntimeTestWithCLIOverlay(t, rt, func(runtimeType string) (string, bool) {
+		assert.Equal(t, "claudecode", runtimeType, "the device's CLI path override is per runtime type")
 		return "/private/bin/claude", true
 	})
 	be := agent_backend_entity.AgentBackend{
@@ -854,9 +854,9 @@ func TestRuntime_Run_GivenEngineProfile_WhenExecuting_ThenBuildsTheTurnFromIt(t 
 
 func TestRuntime_Run_GivenBrowserDispatchBySyncID_WhenSnapshotHasACPConfig_ThenAppliesConfigBeforeRuntimeStarts(t *testing.T) {
 	rt := &fullRT{}
-	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(syncID string) (enginesnapshot.Backend, bool) {
+	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(syncID string) (enginesnapshot.Profile, bool) {
 		assert.Equal(t, "be-acp", syncID)
-		return enginesnapshot.Backend{AgentBackendConfig: syncwire.AgentBackendConfig{
+		return enginesnapshot.Profile{AgentBackendConfig: syncwire.AgentBackendConfig{
 			ACPCommand: "npx",
 			ACPArgs:    []string{"-y", "@agentclientprotocol/codex-acp"},
 		}}, true
@@ -882,8 +882,8 @@ func TestRuntime_Run_GivenBrowserDispatchBySyncID_WhenSnapshotHasACPConfig_ThenA
 // 直接桌面调用残留在本轮副本上的旧值会把账号配置盖回去。
 func TestRuntime_Run_GivenSnapshotConfig_WhenApplying_ThenReplacesWholeConfigNotOneField(t *testing.T) {
 	rt := &fullRT{}
-	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(string) (enginesnapshot.Backend, bool) {
-		return enginesnapshot.Backend{AgentBackendConfig: syncwire.AgentBackendConfig{Sandbox: "read-only"}}, true
+	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(string) (enginesnapshot.Profile, bool) {
+		return enginesnapshot.Profile{AgentBackendConfig: syncwire.AgentBackendConfig{Sandbox: "read-only"}}, true
 	})
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeCodex), Approval: "never"}
 	be.SyncID = "be-codex"
@@ -902,8 +902,8 @@ func TestRuntime_Run_GivenSnapshotConfig_WhenApplying_ThenReplacesWholeConfigNot
 
 func TestRuntime_Run_GivenNoSnapshotEntry_WhenRequestAlreadyHasBackendConfig_ThenLeavesItUnchanged(t *testing.T) {
 	rt := &fullRT{}
-	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(string) (enginesnapshot.Backend, bool) {
-		return enginesnapshot.Backend{}, false
+	ctx, notif, h := setupRuntimeTestWithBackendConfig(t, rt, func(string) (enginesnapshot.Profile, bool) {
+		return enginesnapshot.Profile{}, false
 	})
 	be := agent_backend_entity.AgentBackend{
 		Type: string(agent_backend_entity.TypeACP), ACPCommand: "desktop-agent", ACPArgs: []string{"--desktop"},
@@ -925,8 +925,8 @@ func TestRuntime_Run_GivenNoSnapshotEntry_WhenRequestAlreadyHasBackendConfig_The
 // TestRuntime_Run_GivenNoSnapshotEntryAndNoCommand_WhenDispatchingACP_ThenReturnsReadableMissingCommandError
 // 空快照条目不是崩溃条件:空壳请求交给真实 ACP runtime,得到的是既有的可读错误。
 func TestRuntime_Run_GivenNoSnapshotEntryAndNoCommand_WhenDispatchingACP_ThenReturnsReadableMissingCommandError(t *testing.T) {
-	ctx, _, h := setupRuntimeTestWithBackendConfig(t, acp.New(), func(string) (enginesnapshot.Backend, bool) {
-		return enginesnapshot.Backend{}, false
+	ctx, _, h := setupRuntimeTestWithBackendConfig(t, acp.New(), func(string) (enginesnapshot.Profile, bool) {
+		return enginesnapshot.Profile{}, false
 	})
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeACP)}
 	be.SyncID = "be-acp"
@@ -943,10 +943,10 @@ func TestRuntime_Run_GivenBackendConfigAndCLIPathOverlay_WhenExecuting_ThenKeeps
 	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess,
 		RuntimeFor: func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
-		BackendConfigForSyncID: func(string) (enginesnapshot.Backend, bool) {
-			return enginesnapshot.Backend{AgentBackendConfig: syncwire.AgentBackendConfig{DefaultPermissionMode: "plan"}}, true
+		EngineProfileForSyncID: func(string) (enginesnapshot.Profile, bool) {
+			return enginesnapshot.Profile{AgentBackendConfig: syncwire.AgentBackendConfig{DefaultPermissionMode: "plan"}}, true
 		},
-		CLIPathForBackend: func(string) (string, bool) { return "/private/bin/claude", true },
+		CLIPathForRuntime: func(string) (string, bool) { return "/private/bin/claude", true },
 	})
 	ctx := context.Background()
 	be := agent_backend_entity.AgentBackend{Type: string(agent_backend_entity.TypeClaudeCode), CLIPath: "/desktop/bin/claude"}
@@ -3984,7 +3984,7 @@ func TestRuntime_Run_PinnedProviderDefault_NotDraggedByBackendFixedModel(t *test
 }
 
 // setupRuntimeTestWithAccountBackend 同 setupRuntimeTest，再接上账号快照的后端条目。
-func setupRuntimeTestWithAccountBackend(t *testing.T, rt agentruntime.Runtime, account enginesnapshot.Backend) (
+func setupRuntimeTestWithAccountBackend(t *testing.T, rt agentruntime.Runtime, account enginesnapshot.Profile) (
 	context.Context, *mock_handlers.MockGatewayPort, *mock_handlers.MockLLMProviderLookupPort, *handlers.RuntimeHandlers,
 ) {
 	t.Helper()
@@ -3997,7 +3997,7 @@ func setupRuntimeTestWithAccountBackend(t *testing.T, rt agentruntime.Runtime, a
 	h := handlers.NewRuntimeHandlers(handlers.RuntimeDeps{
 		NotifyFor: notif.notifierFor, Sessions: sess, SessionQuery: sess, Gateway: gw, Lookup: lookup,
 		RuntimeFor:             func(agent_backend_entity.BackendType) agentruntime.Runtime { return rt },
-		BackendConfigForSyncID: func(string) (enginesnapshot.Backend, bool) { return account, true },
+		EngineProfileForSyncID: func(string) (enginesnapshot.Profile, bool) { return account, true },
 	})
 	return context.Background(), gw, lookup, h
 }
@@ -4012,7 +4012,7 @@ func TestRuntime_Run_GivenAccountDispatchWithoutModelTarget_WhenSnapshotBindsAFi
 		close(ch)
 		return ch, &agentruntime.RunResult{}, nil
 	}
-	ctx, gw, lookup, h := setupRuntimeTestWithAccountBackend(t, rt, enginesnapshot.Backend{ProviderKey: "pk", ModelKey: "model-fixed"})
+	ctx, gw, lookup, h := setupRuntimeTestWithAccountBackend(t, rt, enginesnapshot.Profile{ProviderKey: "pk", ModelKey: "model-fixed"})
 	lookup.EXPECT().FindByKey(ctx, "pk").Return(&llm_provider_entity.LLMProvider{
 		ProviderKey: "pk", Type: string(llm_provider_entity.TypeAnthropic),
 		DefaultModelKey: "model-default", Status: consts.ACTIVE,
@@ -4037,7 +4037,7 @@ func TestRuntime_Run_GivenAccountDispatchWithoutModelTarget_WhenSnapshotBindsAFi
 // 透传环境变量 When Run Then 没有会话级覆盖时这一轮按后端自己的力度与环境跑；会话级力度（run
 // 参数）仍胜过它；桌面端交来的整份后端带了自己的值就不动。
 func TestRuntime_Run_GivenAccountDispatch_WhenSnapshotCarriesEffortAndEnv_ThenTheBackendGovernsUnlessOverridden(t *testing.T) {
-	account := enginesnapshot.Backend{ReasoningEffort: "high", EnvJSON: `{"HTTPS_PROXY":"http://127.0.0.1:7890"}`}
+	account := enginesnapshot.Profile{ReasoningEffort: "high", EnvJSON: `{"HTTPS_PROXY":"http://127.0.0.1:7890"}`}
 	cases := []struct {
 		name                string
 		payload             agent_backend_entity.AgentBackend
@@ -4081,7 +4081,7 @@ func TestRuntime_Run_GivenSnapshotFixedModel_WhenSessionPinsProviderDefault_Then
 		close(ch)
 		return ch, &agentruntime.RunResult{}, nil
 	}
-	ctx, gw, lookup, h := setupRuntimeTestWithAccountBackend(t, rt, enginesnapshot.Backend{ProviderKey: "pk", ModelKey: "model-fixed"})
+	ctx, gw, lookup, h := setupRuntimeTestWithAccountBackend(t, rt, enginesnapshot.Profile{ProviderKey: "pk", ModelKey: "model-fixed"})
 	lookup.EXPECT().FindByKey(ctx, "pk").Return(&llm_provider_entity.LLMProvider{
 		ProviderKey: "pk", Type: string(llm_provider_entity.TypeAnthropic),
 		DefaultModelKey: "model-default", Status: consts.ACTIVE,

@@ -16,12 +16,6 @@
   "modelTargetPicker": {
     "special": {
       "chat": "跟随 Agent 绑定"
-    },
-    "syncDialog": {
-      "title": "同步供应商到设备",
-      "description": "将 {{provider}} 及其模型目录同步到目标设备。",
-      "confirmation": "此操作会把供应商 API Key 复制到目标设备，请确认后继续。",
-      "confirm": "确认同步"
     }
   },
   "providerPill": {

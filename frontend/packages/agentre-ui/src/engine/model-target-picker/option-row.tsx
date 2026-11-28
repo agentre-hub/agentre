@@ -3,13 +3,7 @@
 //
 // 全部视觉分歧（动态跟随 vs 固定模型、选中 vs hover vs 键盘活动、停用行的
 // 「名字 / 原因」两行）都在这里定案；调用方只把已算好的布尔与文案传进来。
-import {
-  AlertTriangle,
-  Check,
-  RefreshCw,
-  Upload,
-  type LucideIcon,
-} from "lucide-react";
+import { AlertTriangle, Check, RefreshCw, type LucideIcon } from "lucide-react";
 
 import { useUiTranslation as useTranslation } from "../../i18n";
 import { cn } from "../../lib/utils";
@@ -17,7 +11,7 @@ import { cn } from "../../lib/utils";
 import { LlmProviderLogo } from "../ai-brand-logo";
 import { formatTokens } from "../../lib/format-tokens";
 import type { Option } from "./options";
-import type { ModelTarget, PickerProvider, PickerScenario } from "./types";
+import type { ModelTarget, PickerScenario } from "./types";
 import { Button } from "../../ui/button";
 import type { ReactNode } from "react";
 
@@ -87,8 +81,6 @@ export function PickerOptionRow({
   inlineHint,
   scenario,
   SpecialIcon,
-  syncProvider,
-  onSyncProvider,
   onActivate,
   onSelect,
 }: {
@@ -103,9 +95,6 @@ export function PickerOptionRow({
   inlineHint?: string;
   scenario: PickerScenario;
   SpecialIcon: LucideIcon;
-  // syncProvider 仅在本行是该供应商的同步落点时有值。
-  syncProvider?: PickerProvider;
-  onSyncProvider?: (provider: PickerProvider) => void;
   onActivate: (index: number) => void;
   onSelect: (target: ModelTarget) => void;
 }) {
@@ -288,20 +277,6 @@ export function PickerOptionRow({
             />
           ) : null}
         </button>
-        {/* 同步入口就放在它会修复的那一行内（消费方负责确认与凭证复制）。 */}
-        {syncProvider && onSyncProvider ? (
-          <button
-            type="button"
-            className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md bg-button-fill px-1.5 py-1 text-2xs text-primary-text transition-colors hover:bg-accent focus-visible:focus-outline"
-            aria-label={t("modelTargetPicker.syncProviderNamed", {
-              provider: syncProvider.name,
-            })}
-            onClick={() => onSyncProvider(syncProvider)}
-          >
-            <Upload className="size-3" aria-hidden="true" />
-            {t("modelTargetPicker.syncInline")}
-          </button>
-        ) : null}
       </div>
     </li>
   );

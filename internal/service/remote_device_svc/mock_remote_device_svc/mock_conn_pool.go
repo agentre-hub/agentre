@@ -161,21 +161,6 @@ func (mr *MockLeaseMockRecorder) Closed() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Closed", reflect.TypeOf((*MockLease)(nil).Closed))
 }
 
-// LLMUpsert mocks base method.
-func (m *MockLease) LLMUpsert(arg0 context.Context, arg1 *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LLMUpsert", arg0, arg1)
-	ret0, _ := ret[0].(*agentrewire.LLMUpsertResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// LLMUpsert indicates an expected call of LLMUpsert.
-func (mr *MockLeaseMockRecorder) LLMUpsert(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LLMUpsert", reflect.TypeOf((*MockLease)(nil).LLMUpsert), arg0, arg1)
-}
-
 // Release mocks base method.
 func (m *MockLease) Release() {
 	m.ctrl.T.Helper()

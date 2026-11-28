@@ -962,12 +962,21 @@ public nonisolated struct Agentre_Wire_Notification: Sendable {
     set {payload = .accountDevicePresence(newValue)}
   }
 
+  public var accountLeaseRevoked: Agentre_Wire_AccountLeaseRevoked {
+    get {
+      if case .accountLeaseRevoked(let v)? = payload {return v}
+      return Agentre_Wire_AccountLeaseRevoked()
+    }
+    set {payload = .accountLeaseRevoked(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Payload: Equatable, Sendable {
     case accountSyncVersion(Agentre_Wire_AccountSyncVersion)
     case accountMirrorChanged(Agentre_Wire_AccountMirrorChanged)
     case accountDevicePresence(Agentre_Wire_AccountDevicePresence)
+    case accountLeaseRevoked(Agentre_Wire_AccountLeaseRevoked)
 
   }
 
@@ -1000,6 +1009,22 @@ public nonisolated struct Agentre_Wire_AccountDevicePresence: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// AccountLeaseRevoked tells an agentred to drop the provider credential leases it
+/// holds in memory right away: the device was removed, or a provider was deleted
+/// or got a new key. provider_keys names the providers; empty means every lease
+/// this device holds. The agentred re-requests a lease the next time it needs one.
+public nonisolated struct Agentre_Wire_AccountLeaseRevoked: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var providerKeys: [String] = []
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3569,11 +3594,54 @@ public nonisolated struct Agentre_Wire_RuntimeRunRequest: @unchecked Sendable {
     set {_uniqueStorage()._engineProfileSyncID = newValue}
   }
 
+  /// provider_leases are the provider credential leases a desktop attaches to a
+  /// turn it sends over a direct (LAN) connection, one per provider the turn may
+  /// route to. The executing agentred keeps them in memory only, prefers them over
+  /// a lease it would request from the account server itself, and drops them when
+  /// this run ends. Secrets — never log or persist them. Empty = the caller attached
+  /// none (relay dispatch, console, agrctl); the agentred leases on its own.
+  public var providerLeases: [Agentre_Wire_ProviderLease] {
+    get {_storage._providerLeases}
+    set {_uniqueStorage()._providerLeases = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+/// ProviderLease is one provider's credential for a bounded time: the key, the
+/// endpoint and the expiry (Unix milliseconds) — the account server's lease
+/// response (pkg/syncwire.LeaseResponse). A desktop-attached lease also carries the
+/// provider's non-secret metadata (type, name, default model, model catalog): an
+/// agentred paired without logging in has no account snapshot to read it from.
+/// The executor prefers its own snapshot's metadata when it has one.
+public nonisolated struct Agentre_Wire_ProviderLease: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var providerKey: String = String()
+
+  public var apiKey: String = String()
+
+  public var baseURL: String = String()
+
+  public var expiresAt: Int64 = 0
+
+  public var type: String = String()
+
+  public var name: String = String()
+
+  public var defaultModelKey: String = String()
+
+  public var models: [Agentre_Wire_LLMModel] = []
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 public nonisolated struct Agentre_Wire_RuntimeRunResponse: Sendable {
@@ -8306,7 +8374,7 @@ nonisolated extension Agentre_Wire_Cancel: SwiftProtobuf.Message, SwiftProtobuf.
 
 nonisolated extension Agentre_Wire_Notification: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Notification"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}account_sync_version\0\u{3}account_mirror_changed\0\u{3}account_device_presence\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}account_sync_version\0\u{3}account_mirror_changed\0\u{3}account_device_presence\0\u{3}account_lease_revoked\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -8353,6 +8421,19 @@ nonisolated extension Agentre_Wire_Notification: SwiftProtobuf.Message, SwiftPro
           self.payload = .accountDevicePresence(v)
         }
       }()
+      case 4: try {
+        var v: Agentre_Wire_AccountLeaseRevoked?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .accountLeaseRevoked(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .accountLeaseRevoked(v)
+        }
+      }()
       default: break
       }
     }
@@ -8375,6 +8456,10 @@ nonisolated extension Agentre_Wire_Notification: SwiftProtobuf.Message, SwiftPro
     case .accountDevicePresence?: try {
       guard case .accountDevicePresence(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+    }()
+    case .accountLeaseRevoked?: try {
+      guard case .accountLeaseRevoked(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
     }()
     case nil: break
     }
@@ -8451,6 +8536,36 @@ nonisolated extension Agentre_Wire_AccountDevicePresence: SwiftProtobuf.Message,
   }
 
   public static func ==(lhs: Agentre_Wire_AccountDevicePresence, rhs: Agentre_Wire_AccountDevicePresence) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_AccountLeaseRevoked: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".AccountLeaseRevoked"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}provider_keys\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedStringField(value: &self.providerKeys) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.providerKeys.isEmpty {
+      try visitor.visitRepeatedStringField(value: self.providerKeys, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_AccountLeaseRevoked, rhs: Agentre_Wire_AccountLeaseRevoked) -> Bool {
+    if lhs.providerKeys != rhs.providerKeys {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -13095,7 +13210,7 @@ nonisolated extension Agentre_Wire_MCPServer: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RuntimeRunRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}backend\0\u{3}agent_id\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}cwd\0\u{1}title\0\u{3}agent_sync_id\0\u{3}system_prompt\0\u{3}provider_session_id\0\u{3}fresh_session\0\u{3}user_text\0\u{3}user_blocks\0\u{1}history\0\u{1}compact\0\u{3}fork_anchor\0\u{3}permission_mode\0\u{3}collaboration_mode\0\u{3}mcp_servers\0\u{3}enabled_plugins\0\u{3}llm_provider_key\0\u{3}llm_model_key\0\u{3}source_device\0\u{3}source_device_name\0\u{3}project_sync_id\0\u{3}reasoning_effort\0\u{3}desktop_ctl_token\0\u{3}desktop_session_id\0\u{3}cli_model_mode\0\u{3}cli_model\0\u{3}engine_profile\0\u{3}cli_path\0\u{3}engine_profile_sync_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}backend\0\u{3}agent_id\0\u{3}conversation_id\0\u{3}peer_fingerprint\0\u{1}cwd\0\u{1}title\0\u{3}agent_sync_id\0\u{3}system_prompt\0\u{3}provider_session_id\0\u{3}fresh_session\0\u{3}user_text\0\u{3}user_blocks\0\u{1}history\0\u{1}compact\0\u{3}fork_anchor\0\u{3}permission_mode\0\u{3}collaboration_mode\0\u{3}mcp_servers\0\u{3}enabled_plugins\0\u{3}llm_provider_key\0\u{3}llm_model_key\0\u{3}source_device\0\u{3}source_device_name\0\u{3}project_sync_id\0\u{3}reasoning_effort\0\u{3}desktop_ctl_token\0\u{3}desktop_session_id\0\u{3}cli_model_mode\0\u{3}cli_model\0\u{3}engine_profile\0\u{3}cli_path\0\u{3}engine_profile_sync_id\0\u{3}provider_leases\0")
 
   fileprivate class _StorageClass {
     var _backend: Agentre_Wire_AgentBackend? = nil
@@ -13130,6 +13245,7 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
     var _engineProfile: Agentre_Wire_EngineProfile? = nil
     var _cliPath: String = String()
     var _engineProfileSyncID: String = String()
+    var _providerLeases: [Agentre_Wire_ProviderLease] = []
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -13172,6 +13288,7 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
       _engineProfile = source._engineProfile
       _cliPath = source._cliPath
       _engineProfileSyncID = source._engineProfileSyncID
+      _providerLeases = source._providerLeases
     }
   }
 
@@ -13222,6 +13339,7 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
         case 30: try { try decoder.decodeSingularMessageField(value: &_storage._engineProfile) }()
         case 31: try { try decoder.decodeSingularStringField(value: &_storage._cliPath) }()
         case 32: try { try decoder.decodeSingularStringField(value: &_storage._engineProfileSyncID) }()
+        case 33: try { try decoder.decodeRepeatedMessageField(value: &_storage._providerLeases) }()
         default: break
         }
       }
@@ -13330,6 +13448,9 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
       if !_storage._engineProfileSyncID.isEmpty {
         try visitor.visitSingularStringField(value: _storage._engineProfileSyncID, fieldNumber: 32)
       }
+      if !_storage._providerLeases.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._providerLeases, fieldNumber: 33)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -13371,10 +13492,76 @@ nonisolated extension Agentre_Wire_RuntimeRunRequest: SwiftProtobuf.Message, Swi
         if _storage._engineProfile != rhs_storage._engineProfile {return false}
         if _storage._cliPath != rhs_storage._cliPath {return false}
         if _storage._engineProfileSyncID != rhs_storage._engineProfileSyncID {return false}
+        if _storage._providerLeases != rhs_storage._providerLeases {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentre_Wire_ProviderLease: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ProviderLease"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}provider_key\0\u{3}api_key\0\u{3}base_url\0\u{3}expires_at\0\u{1}type\0\u{1}name\0\u{3}default_model_key\0\u{1}models\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.providerKey) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.apiKey) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.baseURL) }()
+      case 4: try { try decoder.decodeSingularInt64Field(value: &self.expiresAt) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.type) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.name) }()
+      case 7: try { try decoder.decodeSingularStringField(value: &self.defaultModelKey) }()
+      case 8: try { try decoder.decodeRepeatedMessageField(value: &self.models) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.providerKey.isEmpty {
+      try visitor.visitSingularStringField(value: self.providerKey, fieldNumber: 1)
+    }
+    if !self.apiKey.isEmpty {
+      try visitor.visitSingularStringField(value: self.apiKey, fieldNumber: 2)
+    }
+    if !self.baseURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.baseURL, fieldNumber: 3)
+    }
+    if self.expiresAt != 0 {
+      try visitor.visitSingularInt64Field(value: self.expiresAt, fieldNumber: 4)
+    }
+    if !self.type.isEmpty {
+      try visitor.visitSingularStringField(value: self.type, fieldNumber: 5)
+    }
+    if !self.name.isEmpty {
+      try visitor.visitSingularStringField(value: self.name, fieldNumber: 6)
+    }
+    if !self.defaultModelKey.isEmpty {
+      try visitor.visitSingularStringField(value: self.defaultModelKey, fieldNumber: 7)
+    }
+    if !self.models.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.models, fieldNumber: 8)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentre_Wire_ProviderLease, rhs: Agentre_Wire_ProviderLease) -> Bool {
+    if lhs.providerKey != rhs.providerKey {return false}
+    if lhs.apiKey != rhs.apiKey {return false}
+    if lhs.baseURL != rhs.baseURL {return false}
+    if lhs.expiresAt != rhs.expiresAt {return false}
+    if lhs.type != rhs.type {return false}
+    if lhs.name != rhs.name {return false}
+    if lhs.defaultModelKey != rhs.defaultModelKey {return false}
+    if lhs.models != rhs.models {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

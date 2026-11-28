@@ -28,7 +28,6 @@ import {
   upgradeOwnsFeedback,
 } from "./device-row-upgrade";
 import { DevicePortForward } from "./device-port-forward";
-import { DeviceProvidersSync } from "./device-providers-sync";
 import { friendlyLastError } from "./format";
 import { useDeviceUpgrade } from "./use-device-upgrade";
 import type { DevicePath, DeviceRowModel } from "./use-remote-devices";
@@ -158,7 +157,6 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
   const lan = device.lan;
   const friendlyErr = friendlyLastError(lan?.lastError ?? "", t);
   const isTofu = lan?.lastError === "tofu_mismatch";
-  const [showProviders, setShowProviders] = useState(false);
   const [showPortForward, setShowPortForward] = useState(false);
   // 版本与短 commit 来自 watcher 最近一次 health.ping(进程内缓存,不落库)。
   const versionState = agentredVersionState({
@@ -264,7 +262,6 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
             onRename={actions.onRename}
             onEditTLS={actions.onEditTLS}
             onRemove={actions.onRemove}
-            onToggleProviders={() => setShowProviders((s) => !s)}
             onTogglePortForward={() => setShowPortForward((s) => !s)}
             upgrade={upgradeItem}
           />
@@ -285,7 +282,6 @@ export function DeviceRow({ device, now, actions, latestVersion }: Props) {
       {upgrade.phase.kind === "active-turns" ? (
         <ActiveTurnsConfirm phase={upgrade.phase} upgrade={upgrade} t={t} />
       ) : null}
-      {showProviders && lan ? <DeviceProvidersSync deviceId={lan.id} /> : null}
       {showPortForward && lan ? (
         <DevicePortForward
           deviceId={lan.id}

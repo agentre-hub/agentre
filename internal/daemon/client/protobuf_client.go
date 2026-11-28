@@ -184,6 +184,10 @@ type ProtobufClient struct {
 	accountDirectCredential string
 }
 
+// DirectRoute 报告这条连接是直接拨到 agentred 监听口的(局域网直连),而不是账号中继上的
+// 一条虚拟通道。桌面端只在直连时随一轮附带供应商租约。
+func (c *ProtobufClient) DirectRoute() bool { return true }
+
 // SelfFingerprint 交出本端在这条连接上出示过的设备指纹。
 func (c *ProtobufClient) SelfFingerprint() string { return c.selfFP }
 

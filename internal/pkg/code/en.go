@@ -80,6 +80,8 @@ var enUS = map[int]string{
 	DispatchManualDeviceUnavailable: "The chosen device cannot run this member right now; pick another or let it choose automatically",
 	DispatchDeviceReasonLine:        "%s: %s",
 
+	ChatRemoteProviderLeaseUnavailable: "The credential lease has expired and the account server cannot be reached",
+
 	AppSettingNotFound:      "App setting not found",
 	AppSettingInvalidPort:   "Port must be an integer between 0 and 65535",
 	AppSettingInvalidHost:   "Listen host is not a valid IP",

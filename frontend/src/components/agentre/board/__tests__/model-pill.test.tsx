@@ -9,7 +9,6 @@ const appMocks = vi.hoisted(() => ({
   RemoteDeviceFingerprint: vi.fn(),
   RemoteDeviceList: vi.fn(),
   RemoteDeviceListProviders: vi.fn(),
-  RemoteDeviceSyncProvider: vi.fn(),
 }));
 vi.mock("../../../../../wailsjs/go/app/App", () => appMocks);
 

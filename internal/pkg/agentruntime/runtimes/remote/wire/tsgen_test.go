@@ -317,7 +317,7 @@ func tsRPCErrorDecls() []tsRPCErrorDecl {
 		// ── 会话进程(-32080)──
 		{"ErrCodeSessionProcessNotOwned", "CodeSessionProcessNotOwned", rpcerror.CodeSessionProcessNotOwned},
 
-		// ── daemon 会话/鉴权(-32001..-32007)与 JSON-RPC 标准码 ──
+		// ── daemon 会话/鉴权/凭据租约(-32001..-32008)与 JSON-RPC 标准码 ──
 		//
 		// 这一批在 Go 侧是 int32 有类型常量(住在 error.go),上面几族是无类型的。
 		// 差别到 TS 就消失了 —— number 只有一种,tsLiteral 两种都渲染成同一个十进制
@@ -330,6 +330,7 @@ func tsRPCErrorDecls() []tsRPCErrorDecl {
 		{"ErrCodeScopeDenied", "CodeScopeDenied", rpcerror.CodeScopeDenied},
 		{"ErrCodeProtocolVersion", "CodeProtocolVersion", rpcerror.CodeProtocolVersion},
 		{"ErrCodeAccountServerUnreachable", "CodeAccountServerUnreachable", rpcerror.CodeAccountServerUnreachable},
+		{"ErrCodeProviderLeaseUnavailable", "CodeProviderLeaseUnavailable", rpcerror.CodeProviderLeaseUnavailable},
 		{"ErrCodeMethodNotFound", "CodeMethodNotFound", rpcerror.CodeMethodNotFound},
 		{"ErrCodeInvalidParams", "CodeInvalidParams", rpcerror.CodeInvalidParams},
 		{"ErrCodeInternal", "CodeInternal", rpcerror.CodeInternal},

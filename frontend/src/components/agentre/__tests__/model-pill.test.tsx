@@ -28,7 +28,6 @@ const appMocks = vi.hoisted(() => ({
   RemoteDeviceFingerprint: vi.fn().mockResolvedValue("sha256:local-desktop"),
   RemoteDeviceList: vi.fn().mockResolvedValue([]),
   RemoteDeviceListProviders: vi.fn().mockResolvedValue([]),
-  RemoteDeviceSyncProvider: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../../../wailsjs/go/app/App", () => appMocks);
@@ -50,7 +49,6 @@ beforeEach(() => {
   appMocks.RemoteDeviceFingerprint.mockResolvedValue("sha256:local-desktop");
   appMocks.RemoteDeviceList.mockResolvedValue([]);
   appMocks.RemoteDeviceListProviders.mockResolvedValue([]);
-  appMocks.RemoteDeviceSyncProvider.mockResolvedValue(undefined);
 });
 
 function Harness(props: UseProviderPillOptions) {
@@ -1119,78 +1117,21 @@ describe("ProviderPill · 远端执行（gap 1：chat Picker 接收 daemon 能�
     expect(opusOptions.length).toBeGreaterThan(0);
     for (const opus of opusOptions) {
       expect(opus).toHaveAttribute("aria-disabled", "true");
-      expect(opus).toHaveAttribute(
-        "title",
-        "Local only — sync to this device first",
-      );
+      expect(opus).toHaveAttribute("title", "Not on this device yet");
     }
     // desktop 独有的 Provider（Acme Chat）→ provider-default 需同步禁用。
     const chatDefault = providerDefaultOption(listbox, 1);
     expect(chatDefault).toHaveAttribute("aria-disabled", "true");
-    expect(chatDefault).toHaveAttribute(
-      "title",
-      "Local only — sync to this device first",
-    );
-    // 灰掉的原因每一行自己已经写了（上面的 title + 行内提示），底部不再总述一遍；
-    // 留在底部的只有「同步会把 API Key 复制过去」这条后果承诺。
+    expect(chatDefault).toHaveAttribute("title", "Not on this device yet");
+    // 灰掉的原因每一行自己已经写了（上面的 title + 行内提示）。「同步到设备」取消了:
+    // 没有把 key 推过去的按钮，底部也没有复制 API Key 的承诺。
     expect(
-      within(listbox).getAllByText("Local only — sync to this device first")
-        .length,
+      within(listbox).getAllByText("Not on this device yet").length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getByRole("button", { name: "Sync Acme Chat to this device" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Syncing copies the API key to that device and needs your explicit confirmation",
-      ),
-    ).toBeInTheDocument();
-  });
-
-  it("远端缺少供应商时提供显式同步入口，确认后复制凭证并刷新目录", async () => {
-    appMocks.ListLLMProviders.mockResolvedValue({ items: [CHAT_PROVIDER] });
-    appMocks.RemoteDeviceList.mockResolvedValue([device({ id: 7 })]);
-    appMocks.RemoteDeviceListProviders.mockResolvedValueOnce(
-      [],
-    ).mockResolvedValueOnce([
-      remoteProvider({
-        key: "acme-chat",
-        name: "Acme Chat",
-        type: "openai-chat",
-        models: [],
-      }),
-    ]);
-    render(<Harness backendType="builtin" executionLocation="7" />);
-
-    const pill = await waitFor(() => screen.getByTestId("provider-pill"));
-    await waitFor(() => expect(pill).not.toBeDisabled());
-
-    const user = userEvent.setup();
-    await user.click(pill);
-    const listbox = screen.getByRole("listbox");
-    const chatDefault = providerDefaultOption(listbox);
-    expect(chatDefault).toBeDisabled();
-
-    await user.click(
-      screen.getByRole("button", { name: "Sync Acme Chat to this device" }),
-    );
-    const dialog = await screen.findByRole("dialog", {
-      name: "Sync provider to device",
-    });
-    expect(dialog).toHaveTextContent(/API key/i);
-    await user.click(
-      within(dialog).getByRole("button", { name: "Confirm sync" }),
-    );
-
-    await waitFor(() =>
-      expect(appMocks.RemoteDeviceSyncProvider).toHaveBeenCalledWith(
-        7,
-        "acme-chat",
-      ),
-    );
-    await waitFor(() =>
-      expect(appMocks.RemoteDeviceListProviders).toHaveBeenCalledTimes(2),
-    );
+      screen.queryByRole("button", { name: /Sync .* to this device/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Syncing copies the API key/)).toBeNull();
   });
 
   it("Given a remote target with no paired row on this machine, When the picker opens, Then no sync entry is offered for it", async () => {
@@ -1349,9 +1290,7 @@ describe("ProviderPill · 远端执行（gap 1：chat Picker 接收 daemon 能�
     // The current device (8) does not publish acme-chat, so the missing-provider
     // notice must survive the late answer from device 7.
     expect(
-      screen.getByText(
-        "Target device is missing this provider. Sync it first.",
-      ),
+      screen.getByText("The target device does not have this provider yet."),
     ).toBeInTheDocument();
   });
 
@@ -1419,9 +1358,7 @@ describe("ProviderPill · 远端执行（gap 1：chat Picker 接收 daemon 能�
     await user.click(pill);
 
     expect(
-      screen.getByText(
-        "Target device is missing this provider. Sync it first.",
-      ),
+      screen.getByText("The target device does not have this provider yet."),
     ).toBeInTheDocument();
   });
 

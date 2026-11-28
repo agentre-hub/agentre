@@ -86,15 +86,6 @@ func (a *App) RemoteDeviceListProviders(id int64) []remote_device_svc.ProviderSu
 	return nil
 }
 
-// RemoteDeviceSyncProvider copies one local LLM provider, including its API key,
-// to the selected remote agentred daemon after the user confirms the operation.
-func (a *App) RemoteDeviceSyncProvider(id int64, providerKey string) error {
-	if svc := remote_device_svc.Default(); svc != nil {
-		return svc.SyncProvider(a.ctx, id, providerKey)
-	}
-	return errRemoteDeviceServiceUnavailable
-}
-
 // RemoteDeviceUpgrade 触发远程一键升级 RPC(spec「远程一键升级」)。渠道不再由
 // 前端传入——桌面端发送自己的构建渠道,Dev 在 service 层借连接之前就会拒绝
 // (决策 9/10);force 越过活跃轮次闸门,必须由前端在拿到 UpgradeRejectActiveTurns

@@ -385,20 +385,6 @@ func (mr *MockRemoteDeviceSvcMockRecorder) SupportsLLMModelTarget(deviceID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupportsLLMModelTarget", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).SupportsLLMModelTarget), deviceID)
 }
 
-// SyncProvider mocks base method.
-func (m *MockRemoteDeviceSvc) SyncProvider(ctx context.Context, deviceID int64, providerKey string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SyncProvider", ctx, deviceID, providerKey)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SyncProvider indicates an expected call of SyncProvider.
-func (mr *MockRemoteDeviceSvcMockRecorder) SyncProvider(ctx, deviceID, providerKey any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SyncProvider", reflect.TypeOf((*MockRemoteDeviceSvc)(nil).SyncProvider), ctx, deviceID, providerKey)
-}
-
 // UpdateTLS mocks base method.
 func (m *MockRemoteDeviceSvc) UpdateTLS(ctx context.Context, id int64, mode, pem string) (*remote_device_svc.DeviceView, error) {
 	m.ctrl.T.Helper()

@@ -45,9 +45,9 @@ func NewHealthHandlers(instanceUUID string, st *state.State, dbStat DBStatPort) 
 // 顺带返回 daemon 已配置的 LLM provider 目录（含每 Provider 的非敏感模型摘要与
 // llm-model-target-v1 能力位），让 desktop watcher 渲染远端可选项与同步状态，无需单独 RPC。
 func (h *HealthHandlers) Ping(_ context.Context) (HealthPingResult, error) {
-	snap := h.state.Snapshot()
-	providers := make([]wire.ProviderSummary, 0, len(snap.LLMProviders))
-	for k, v := range snap.LLMProviders {
+	catalog := h.state.Snapshot().ProviderCatalog()
+	providers := make([]wire.ProviderSummary, 0, len(catalog))
+	for k, v := range catalog {
 		var models []wire.ModelSummary //nolint:prealloc // 保持无模型时 nil，避免空目录序列化成 []
 		for _, m := range v.Models {
 			models = append(models, wire.ModelSummary{

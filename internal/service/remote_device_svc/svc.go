@@ -136,9 +136,6 @@ type RemoteDeviceSvc interface {
 	// DeviceBuild returns the cached build identity for deviceID.
 	// 未探过 → 两个空串（界面据此什么都不说,而不是编一个版本）。
 	DeviceBuild(deviceID int64) (version, commit string)
-	// SyncProvider copies one local LLM provider to the remote daemon state.
-	// The raw API key is sent only for this explicit sync operation.
-	SyncProvider(ctx context.Context, deviceID int64, providerKey string) error
 	// Upgrade triggers the remote one-click upgrade RPC on deviceID(spec「远程
 	// 一键升级」)。渠道不再由调用方传入,而是取桌面端自己的构建渠道
 	// (paths.CurrentChannel,决策 10:设置删除后这是唯一的渠道来源):正式版 /

@@ -47,7 +47,18 @@ func TestDomainCodes_GivenReleasedPeers_WhenTheyBranchOnTheNumber_ThenTheValuesN
 		{"CodeProjectPathNotFound", rpcerror.CodeProjectPathNotFound, -32052},
 
 		{"CodeSessionProcessNotOwned", rpcerror.CodeSessionProcessNotOwned, -32080},
+
+		{"CodeProviderLeaseUnavailable", rpcerror.CodeProviderLeaseUnavailable, -32008},
 	} {
 		require.Equalf(t, c.want, c.got, "%s 是过线的稳定值,改它就是协议破坏", c.name)
 	}
+}
+
+// TestProviderLeaseUnavailable_IsItsOwnCodeDistinctFromProviderMissing 钉住「拿不到凭据租约」
+// 与「供应商没配」是两件事:前者是账号服务器连不上 / 租约过期,稍后重试即可;后者要去配供应商。
+func TestProviderLeaseUnavailable_IsItsOwnCodeDistinctFromProviderMissing(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, rpcerror.CodeProviderLeaseUnavailable, rpcerror.ErrProviderLeaseUnavailable.Code)
+	require.NotEqual(t, rpcerror.CodeProviderMissing, rpcerror.ErrProviderLeaseUnavailable.Code)
+	require.NotEmpty(t, rpcerror.ErrProviderLeaseUnavailable.Message)
 }

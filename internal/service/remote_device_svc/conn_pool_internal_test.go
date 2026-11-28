@@ -8,10 +8,13 @@ import (
 	"time"
 
 	"github.com/cago-frame/cago/pkg/logger"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 
+	"github.com/agentre-hub/agentre/internal/daemon/client"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -207,3 +210,24 @@ func TestPool_WatchClient_RemoteDropWarns(t *testing.T) {
 
 // SelfFingerprint 满足 client.ProtobufConnection:本端在这条连接上出示的设备指纹。
 func (c *fakeClient) SelfFingerprint() string { return "sha256:test-self" }
+
+// directRouteConn / relayRouteConn 是两条借给会话的连接:一条直连 agentred,一条经账号中继。
+type directRouteConn struct{ client.ProtobufConnection }
+
+func (directRouteConn) DirectRoute() bool { return true }
+
+type relayRouteConn struct{ client.ProtobufConnection }
+
+// 池借出去的连接包了一层(防止持有者把池里的连接关掉);它要原样说出底下那条是不是直连 ——
+// 桌面端只在直连时随这一轮附带供应商租约。
+func TestNoopCloseClient_ReportsWhetherTheUnderlyingConnectionIsDirect(t *testing.T) {
+	type routed interface{ DirectRoute() bool }
+
+	direct, ok := client.ProtobufConnection(noopCloseClient{ProtobufConnection: directRouteConn{}}).(routed)
+	require.True(t, ok)
+	assert.True(t, direct.DirectRoute())
+
+	relayed, ok := client.ProtobufConnection(noopCloseClient{ProtobufConnection: relayRouteConn{}}).(routed)
+	require.True(t, ok)
+	assert.False(t, relayed.DirectRoute())
+}

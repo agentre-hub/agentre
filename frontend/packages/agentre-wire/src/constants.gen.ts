@@ -447,6 +447,16 @@ export const ErrCodeProtocolVersion = -32006;
  */
 export const ErrCodeAccountServerUnreachable = -32007;
 
+/**
+ * CodeProviderLeaseUnavailable is returned by an agentred that needs a
+ * provider's key (a turn, a provider test or a model discovery) but holds
+ * no valid lease for it and could not obtain one: the lease expired and the
+ * account server is unreachable (or does not issue leases yet), and the
+ * caller attached none. Distinct from CodeProviderMissing — the provider is
+ * configured; retrying once the account server is reachable succeeds.
+ */
+export const ErrCodeProviderLeaseUnavailable = -32008;
+
 export const ErrCodeMethodNotFound = -32601;
 
 export const ErrCodeInvalidParams = -32602;

@@ -65,7 +65,7 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountState(t *testing.T) {
 		case "/v1/engine/snapshot":
 			assert.Equal(t, http.MethodGet, r.Method)
 			assert.Equal(t, "Bearer "+issued, r.Header.Get("Authorization"))
-			_, _ = io.WriteString(w, `{"providers":[{"provider_key":"provider-login","name":"Login Provider","type":"anthropic","base_url":"https://api.example","api_key":"login-key","default_model_key":"model-login","models":[{"model_key":"model-login","model_id":"claude-login","name":"Claude Login","enabled":true}]}],"cli_overlays":[{"backend_sync_id":"backend-login","cli_path":"/private/bin/claude"}]}`)
+			_, _ = io.WriteString(w, `{"providers":[{"provider_key":"provider-login","name":"Login Provider","type":"anthropic","base_url":"https://api.example","default_model_key":"model-login","models":[{"model_key":"model-login","model_id":"claude-login","name":"Claude Login","enabled":true}]}],"cli_paths":[{"runtime":"claudecode","cli_path":"/private/bin/claude"}]}`)
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -108,7 +108,7 @@ func TestLoginCompletesDeviceFlowAndPersistsOpaqueAccountState(t *testing.T) {
 	assert.Equal(t, server.URL, got.AccountServerURL, "successful login must persist the server used by service startup")
 	provider, ok := got.LLMProviders["provider-login"]
 	require.True(t, ok, "successful login must immediately pull the account engine snapshot")
-	assert.Equal(t, "login-key", provider.APIKey)
+	assert.Equal(t, "Login Provider", provider.Name)
 	assert.Equal(t, "model-login", provider.DefaultModelKey)
 	onDisk, readErr := os.ReadFile(filepath.Join(dir, "state.json")) //nolint:gosec // G304: dir is this test's t.TempDir, not untrusted input.
 	require.NoError(t, readErr)
@@ -120,7 +120,7 @@ func TestLogin_GivenEngineSnapshotFailure_WhenLoginSucceeds_ThenKeepsPreviousPro
 	st, err := state.Load(dir)
 	require.NoError(t, err)
 	st.Mutate(func(s *state.State) {
-		s.LLMProviders["provider-old"] = state.LLMProviderMeta{Name: "Old", APIKey: "old-key"}
+		s.LLMProviders["provider-old"] = state.LLMProviderMeta{Name: "Old"}
 	})
 	require.NoError(t, st.Save())
 	issued := "opaque-device-access-token"

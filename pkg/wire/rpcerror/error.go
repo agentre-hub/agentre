@@ -30,6 +30,13 @@ const (
 	// for the same reason as CodeAccountServerUnreachable: the credential was
 	// accepted, so refreshing it and retrying can never succeed.
 	CodeScopeDenied int32 = -32005
+	// CodeProviderLeaseUnavailable is returned by an agentred that needs a
+	// provider's key (a turn, a provider test or a model discovery) but holds
+	// no valid lease for it and could not obtain one: the lease expired and the
+	// account server is unreachable (or does not issue leases yet), and the
+	// caller attached none. Distinct from CodeProviderMissing — the provider is
+	// configured; retrying once the account server is reachable succeeds.
+	CodeProviderLeaseUnavailable int32 = -32008
 )
 
 // Error is the stable failure shape shared by binary Protobuf RPC adapters.
@@ -51,6 +58,7 @@ var (
 	ErrProviderMissing          = &Error{Code: CodeProviderMissing, Message: "LLM provider not configured"}
 	ErrPairing                  = &Error{Code: CodePairing, Message: "Pairing code invalid / expired / rate-limited"}
 	ErrAccountServerUnreachable = &Error{Code: CodeAccountServerUnreachable, Message: "Account server unreachable"}
+	ErrProviderLeaseUnavailable = &Error{Code: CodeProviderLeaseUnavailable, Message: "provider credential lease expired and the account server is unreachable"}
 )
 
 // ErrScopeDenied refuses a call for the scope it needs, naming that scope.

@@ -191,6 +191,7 @@ message Notification {
     AccountSyncVersion account_sync_version = 1;
     AccountMirrorChanged account_mirror_changed = 2;
     AccountDevicePresence account_device_presence = 3;
+    AccountLeaseRevoked account_lease_revoked = 4;
   }
 }
 
@@ -201,6 +202,14 @@ message AccountSyncVersion {
 message AccountMirrorChanged {}
 
 message AccountDevicePresence {}
+
+// AccountLeaseRevoked tells an agentred to drop the provider credential leases it
+// holds in memory right away: the device was removed, or a provider was deleted
+// or got a new key. provider_keys names the providers; empty means every lease
+// this device holds. The agentred re-requests a lease the next time it needs one.
+message AccountLeaseRevoked {
+  repeated string provider_keys = 1;
+}
 
 message AuthAccountRequest {
   string credential = 1;
@@ -1080,6 +1089,30 @@ message RuntimeRunRequest {
   // member + this profile + project and then runs exactly that profile pinned to
   // itself; it never re-picks. Empty = the member's effective profile.
   string engine_profile_sync_id = 32;
+  // provider_leases are the provider credential leases a desktop attaches to a
+  // turn it sends over a direct (LAN) connection, one per provider the turn may
+  // route to. The executing agentred keeps them in memory only, prefers them over
+  // a lease it would request from the account server itself, and drops them when
+  // this run ends. Secrets — never log or persist them. Empty = the caller attached
+  // none (relay dispatch, console, agrctl); the agentred leases on its own.
+  repeated ProviderLease provider_leases = 33;
+}
+
+// ProviderLease is one provider's credential for a bounded time: the key, the
+// endpoint and the expiry (Unix milliseconds) — the account server's lease
+// response (pkg/syncwire.LeaseResponse). A desktop-attached lease also carries the
+// provider's non-secret metadata (type, name, default model, model catalog): an
+// agentred paired without logging in has no account snapshot to read it from.
+// The executor prefers its own snapshot's metadata when it has one.
+message ProviderLease {
+  string provider_key = 1;
+  string api_key = 2;
+  string base_url = 3;
+  int64 expires_at = 4;
+  string type = 5;
+  string name = 6;
+  string default_model_key = 7;
+  repeated LLMModel models = 8;
 }
 message RuntimeRunResponse {
   string conversation_id = 1;

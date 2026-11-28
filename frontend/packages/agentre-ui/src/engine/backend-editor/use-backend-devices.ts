@@ -115,9 +115,6 @@ export function useBackendDevices(args: {
   );
   const remoteDeviceID = executionDevice.pairedDeviceId;
   const remoteExecution = executionDevice.remote;
-  // 只有存在已配对的 agentred 行时，本机才真能把供应商同步过去；本机自身指纹与
-  // 账号内其它桌面端都没有这条通道，不提供做不到的同步入口。
-  const canSyncProvider = remoteDeviceID > 0;
   // 有本机的宿主（桌面端）通过配对认识别的机器，选项就是那些配对行；没有本机的宿主
   // 只能通过账号认识它们，选项就是账号里的执行端设备。这两条路互斥，因为它们本来
   // 就是同一件事的两种知识来源。
@@ -180,7 +177,6 @@ export function useBackendDevices(args: {
     accountDeviceNames,
     remoteDeviceID,
     remoteExecution,
-    canSyncProvider,
     deviceOptions,
     localSelectValue,
     selectedDeviceValue,

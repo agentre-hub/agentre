@@ -5,7 +5,6 @@ import {
   Edit3,
   Settings2,
   Trash2,
-  Activity,
   ArrowUpCircle,
   Copy,
   Network,
@@ -45,7 +44,6 @@ type Props = {
   /** 同上:没有直连端点就没有可配置的 TLS 信任。 */
   onEditTLS?: () => void;
   onRemove: () => void;
-  onToggleProviders?: () => void;
   /** 同上:够不着那台设备就没有映射可列,不传即这一行不出这一项。 */
   onTogglePortForward?: () => void;
   /** 不传 = 这一行没有可升级的判据(账号独有行没有 LAN 配对,够不着 RPC)。 */
@@ -101,12 +99,6 @@ export function DeviceActionMenu(props: Props) {
           <DropdownMenuItem onSelect={props.onEditTLS}>
             <Settings2 className="mr-2 h-4 w-4" />
             {t("remoteDevices.actions.editTls")}
-          </DropdownMenuItem>
-        ) : null}
-        {props.onToggleProviders ? (
-          <DropdownMenuItem onSelect={props.onToggleProviders}>
-            <Activity className="mr-2 h-4 w-4" />
-            {t("remoteDevices.providers.title")}
           </DropdownMenuItem>
         ) : null}
         {props.onTogglePortForward ? (

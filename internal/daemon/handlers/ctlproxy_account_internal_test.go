@@ -190,6 +190,8 @@ func TestCtlProxy_GivenConsoleOwnedSend_WhenTheAgentRunsOnAnotherDevice_ThenThis
 	assert.Equal(t, "审一下 PR 42", runs[0].GetUserText())
 	assert.Equal(t, "EN-9", runs[0].GetEngineProfileSyncId())
 	assert.Equal(t, "codex", runs[0].GetBackend().GetType())
+	assert.Empty(t, runs[0].GetBackend().GetSyncId(),
+		"the engine profile is named by engine_profile_sync_id; agentred resolves it from its snapshot")
 	assert.Equal(t, []string{"fp:" + accountTestToken}, who, "the child is filed under this agentred's own account identity")
 	assert.Equal(t, []string{accountTestToken}, w.relay.Credentials(), "the relay and auth.account carry this agentred's device token")
 	assert.Equal(t, []map[string]string{{

@@ -365,9 +365,5 @@ export interface EngineSettingsPorts {
   listAccountDevices?(): Promise<AccountDeviceView[]>;
   listRuntimeDevices?(): Promise<RuntimeDeviceView[]>;
   listRuntimeDeviceProviders?(deviceID: number): Promise<unknown[]>;
-  syncRuntimeDeviceProvider?(
-    deviceID: number,
-    providerKey: string,
-  ): Promise<void>;
   onRuntimeDeviceState?(listener: (payload: unknown) => void): () => void;
 }

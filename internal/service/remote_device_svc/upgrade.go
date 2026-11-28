@@ -95,7 +95,7 @@ func (s *service) Upgrade(ctx context.Context, deviceID int64, force bool) (*Upg
 	}
 	lease, err := s.pool.Borrow(ctx, deviceID)
 	if err != nil {
-		return nil, mapSyncBorrowError(ctx, err)
+		return nil, mapBorrowError(ctx, err)
 	}
 	defer lease.Release()
 
@@ -118,4 +118,18 @@ func (s *service) Upgrade(ctx context.Context, deviceID int64, force bool) (*Upg
 		ActiveTurns:   resp.GetActiveTurns(),
 		TargetVersion: resp.GetTargetVersion(),
 	}, nil
+}
+
+// mapBorrowError 把借连接失败翻成面向用户的设备错误码。
+func mapBorrowError(ctx context.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrDeviceNotFound):
+		return i18n.NewError(ctx, code.RemoteDeviceNotFound)
+	case errors.Is(err, ErrDeviceUnauthorized):
+		return i18n.NewError(ctx, code.RemoteDeviceUnauthorized)
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return i18n.NewError(ctx, code.RemoteDeviceTimeout)
+	default:
+		return i18n.NewError(ctx, code.RemoteDeviceDialFailed)
+	}
 }

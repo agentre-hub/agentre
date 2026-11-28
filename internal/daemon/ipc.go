@@ -80,7 +80,7 @@ func (d *Daemon) ipcStatus(w http.ResponseWriter, r *http.Request) {
 		"relayConnected":        d.hub != nil && d.hub.Connected(),
 		"clientConnectionCount": d.conns.connectionCount(),
 		"activeSessions":        d.activeSessionCount(r.Context()),
-		"llmProviderCount":      len(snap.LLMProviders),
+		"llmProviderCount":      len(snap.ProviderCatalog()),
 		"dbPath":                dbStat.Path,
 		"dbSizeBytes":           dbStat.SizeBytes,
 	}))

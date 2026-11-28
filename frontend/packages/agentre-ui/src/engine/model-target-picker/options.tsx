@@ -190,7 +190,7 @@ export function buildCatalogOptions(args: {
   const out: Option[] = [];
   for (const p of compatible) {
     const groupLabel = p.name;
-    // 远端门控：daemon 上没有该 Provider → 本机独有，需同步后才能选。
+    // 远端门控：daemon 上没有该 Provider → 这台设备上还没有，不能选。
     const remoteProvider =
       remoteByKey && executionLocation
         ? remoteByKey.get(p.providerKey)
@@ -198,7 +198,7 @@ export function buildCatalogOptions(args: {
     const providerSyncNeeded =
       remoteByKey != null && executionLocation !== "" && !remoteProvider;
     // provider-default 的运行语义由 Provider 当前 defaultModelKey 决定；远端目录里的
-    // 默认 key 不一致时，即使同名 Provider 已存在也必须重新同步后才能保存。
+    // 默认 key 不一致时，即使同名 Provider 已存在也不能选。
     const defaultModel = p.defaultModel;
     const defaultSyncNeeded =
       remoteByKey != null &&
@@ -230,7 +230,7 @@ export function buildCatalogOptions(args: {
     for (const m of p.models) {
       // 当前默认模型仍需作为 fixed-model 候选保留：provider-default 表达动态跟随，
       // 而选择这里的同一 ModelKey 表达锁定当前模型、以后不随 Provider 默认变化。
-      // 远端门控：模型在 daemon 上不存在 / 停用 → 需同步；daemon 不支持
+      // 远端门控：模型在 daemon 上不存在 / 停用 → 不能选；daemon 不支持
       // fixed-model（旧协议）→ 一律禁用，绝不静默降级。
       const remoteModelOk =
         !remoteProvider ||
@@ -328,21 +328,4 @@ export function filterFlatOptions(args: {
   if (q === "") return base;
   const match = (o: Option) => o.searchText.toLowerCase().includes(q);
   return base.filter(match);
-}
-
-// 同步入口落点：每个「本机独有 / 目录过期」的供应商，只在它第一条待修复的行内挂一个
-// 「同步过去」，而不是在列表底部聚合。没有真实同步路由（未传 onSyncProvider）时一个都不挂。
-export function buildSyncAnchors(args: {
-  flatOptions: Option[];
-  hasSyncRoute: boolean;
-  remoteSyncHint: string;
-}): Map<string, string> {
-  const anchors = new Map<string, string>();
-  if (!args.hasSyncRoute) return anchors;
-  for (const o of args.flatOptions) {
-    if (o.disabledHint !== args.remoteSyncHint) continue;
-    if (anchors.has(o.target.providerKey)) continue;
-    anchors.set(o.target.providerKey, o.key);
-  }
-  return anchors;
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime/capability"
 	"github.com/agentre-hub/agentre/internal/pkg/ctlaccount"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 )
 
@@ -34,30 +35,28 @@ const (
 	modelProviderKey = "01M8CD7TF7KFF4FR3708SQ5SZ8"
 	sonnetModelKey   = "1eb9b868-5d2c-4c43-9d8e-0f3e6b1a2c11"
 	opusModelKey     = "7a10c2f4-9b1e-4d7a-8c3f-2e5d6f7a8b90"
-	ccVerifySyncID   = "01M8CDBACKENDCCVERIFY00000"
+	ccVerifySyncID   = "01M8CDENGINECCVERIFY000000"
 	verifierSyncID   = "01M8CDAGENTVERIFIER0000000"
 	verifyBoxFP      = "sha256:verify-box"
 )
 
-// serverSnapshot is the /v1/engine/snapshot response data exactly as agentre-server
-// serves it over HTTP — it mirrors agentre-server internal/api/engine.SnapshotResponse
-// (SnapshotProvider / SnapshotCLIOverlay / SnapshotBackend), written as a literal because
-// agentre cannot import the server type — for backend cc-verify (claudecode, --provider
-// relay-anthropic, --model claude-sonnet-5-5, --reasoning-effort low). SnapshotBackend
-// leaves empty provider/model/effort/env out (omitempty) and always carries config.
+// serverSnapshot is the /v1/engine/snapshot response data in the shared contract's
+// shape (pkg/syncwire.EngineSnapshot) — for engine profile cc-verify (claudecode,
+// --provider relay-anthropic, --model claude-sonnet-5-5, --reasoning-effort low).
+// Providers carry metadata only; the key comes from /v1/engine/leases.
 const serverSnapshot = `{
   "providers": [{
     "provider_key": "` + modelProviderKey + `", "name": "relay-anthropic", "type": "anthropic",
-    "base_url": "https://relay.example/v1", "api_key": "sk-relay", "default_model_key": "` + opusModelKey + `",
+    "base_url": "https://relay.example/v1", "default_model_key": "` + opusModelKey + `",
     "models": [
       {"model_key": "` + opusModelKey + `", "model_id": "claude-opus-5-5", "name": "Opus", "enabled": true},
       {"model_key": "` + sonnetModelKey + `", "model_id": "claude-sonnet-5-5", "name": "Sonnet", "enabled": true}
     ]
   }],
-  "cli_overlays": [],
-  "backends": [{
-    "backend_sync_id": "` + ccVerifySyncID + `", "provider_key": "` + modelProviderKey + `",
-    "model_key": "` + sonnetModelKey + `", "reasoning_effort": "low", "config": {}
+  "cli_paths": [],
+  "engine_profiles": [{
+    "sync_id": "` + ccVerifySyncID + `", "type": "claudecode", "name": "cc-verify", "provider_key": "` + modelProviderKey + `",
+    "model_key": "` + sonnetModelKey + `", "reasoning_effort": "low", "env_json": "", "config": {}
   }]
 }`
 
@@ -222,8 +221,14 @@ func newModelRig(t *testing.T) *modelRig {
 	t.Cleanup(func() { closeDB(d.db) })
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/v1/engine/snapshot" {
+		if r.URL.Path == syncwire.PathEngineSnapshot {
 			_, _ = w.Write(envelope(serverSnapshot))
+			return
+		}
+		if r.URL.Path == syncwire.PathProviderLease {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "msg": "ok", "data": syncwire.LeaseResponse{
+				ProviderKey: modelProviderKey, APIKey: "sk-relay", ExpiresAt: time.Now().Add(30 * time.Minute).UnixMilli(),
+			}})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "msg": "ok", "data": cliIntrospection()})

@@ -22,6 +22,7 @@ import (
 	"hash/fnv"
 	"log"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +33,8 @@ import (
 
 	"github.com/agentre-hub/agentre/internal/daemon/connection"
 	"github.com/agentre-hub/agentre/internal/daemon/enginesnapshot"
+	"github.com/agentre-hub/agentre/internal/daemon/leases"
+	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/agentruntime"
@@ -71,20 +74,23 @@ type RuntimeDeps struct {
 	Gateway      GatewayPort
 	Lookup       LLMProviderLookupPort
 	RuntimeFor   func(agent_backend_entity.BackendType) agentruntime.Runtime
-	// CLIPathForBackend resolves the claimed daemon's in-memory per-device
-	// overlay by account backend SyncID. false preserves paired-desktop behavior
+	// CLIPathForRuntime resolves the claimed daemon's in-memory CLI path override
+	// for a runtime type on this device. false preserves paired-desktop behavior
 	// before any account snapshot exists; true with an empty path means PATH.
-	CLIPathForBackend func(backendSyncID string) (cliPath string, authoritative bool)
-	// BackendConfigForSyncID resolves the account-level backend config from the
-	// latest engine snapshot by backend SyncID. The boolean is true only when the
+	CLIPathForRuntime func(runtimeType string) (cliPath string, authoritative bool)
+	// EngineProfileForSyncID resolves the account-level engine profile from the
+	// latest engine snapshot by its sync ID. The boolean is true only when the
 	// snapshot carries an entry for that sync ID; an absent entry (or an absent
 	// sync ID) preserves the config already present on the wire, so a directly
-	// requested paired-desktop backend is never cleared by a snapshot that
-	// happens not to mention it. When true the whole config replaces the
-	// exclusive settings as one unit — this is what lets a browser/cloud
-	// dispatch send only {type, sync_id} without receiving ACPArgs (arbitrary
-	// argv, potentially credentials) over a browser API.
-	BackendConfigForSyncID func(backendSyncID string) (backend enginesnapshot.Backend, authoritative bool)
+	// requested paired-desktop turn is never cleared by a snapshot that happens
+	// not to mention it. When true the whole config replaces the exclusive
+	// settings as one unit — this is what lets a browser/cloud dispatch name only
+	// the profile without receiving ACPArgs (arbitrary argv, potentially
+	// credentials) over a browser API.
+	EngineProfileForSyncID func(syncID string) (profile enginesnapshot.Profile, authoritative bool)
+	// RunLeases holds the provider leases a desktop attached to a run for exactly
+	// that run (in memory only). nil = attached leases are ignored.
+	RunLeases RunLeasePort
 	// LoggedInAccountID returns the daemon account authorized to target a
 	// non-caller origin peer in control requests.
 	LoggedInAccountID func() string
@@ -116,8 +122,18 @@ type RuntimeGenerationRegistry interface {
 // state, a channel, the generation registry, notifier delivery, or an external
 // runtime Close/Abort call. Snapshots and state claims happen under h.mu; all
 // potentially blocking work happens after it is released.
+// RunLeasePort keeps the provider leases a desktop attached to one run (holder
+// names it) usable until the returned release is called (*leases.Manager).
+type RunLeasePort interface {
+	Attach(holder string, leases []leases.Lease) (release func())
+}
+
 type RuntimeHandlers struct {
 	deps RuntimeDeps
+
+	// runLeases 是交给在跑那一轮的租约 release,按会话键;fanout 收尾时取走调用。
+	runLeasesMu sync.Mutex
+	runLeases   map[int64]func()
 
 	mu sync.RWMutex
 	// sessions 的键是**按对端隔离过的 backend 会话键**(runtimeSessionID),不是客户端
@@ -458,6 +474,65 @@ func (h *RuntimeHandlers) cleanupConnectionPiGenerations() error {
 	return cleanupErr
 }
 
+// ── Run-scoped leases ───────────────────────────────────────────────────────
+
+// attachRunLeases hands the leases a desktop attached to this run to the lease
+// cache and returns their release (nil when nothing was attached).
+func (h *RuntimeHandlers) attachRunLeases(rid int64, attached []*agentrewire.ProviderLease) func() {
+	if h.deps.RunLeases == nil || len(attached) == 0 {
+		return nil
+	}
+	converted := make([]leases.Lease, 0, len(attached))
+	for _, lease := range attached {
+		converted = append(converted, leases.Lease{
+			ProviderKey: lease.GetProviderKey(), APIKey: lease.GetApiKey(), BaseURL: lease.GetBaseUrl(),
+			ExpiresAt: time.UnixMilli(lease.GetExpiresAt()), Provider: attachedProviderMeta(lease),
+		})
+	}
+	return h.deps.RunLeases.Attach(strconv.FormatInt(rid, 10), converted)
+}
+
+// attachedProviderMeta is the provider metadata a desktop attached with a lease
+// (nil when it attached none), for an agentred that has no account snapshot.
+func attachedProviderMeta(lease *agentrewire.ProviderLease) *state.LLMProviderMeta {
+	if strings.TrimSpace(lease.GetType()) == "" {
+		return nil
+	}
+	models := make([]state.LLMModelMeta, 0, len(lease.GetModels()))
+	for _, model := range lease.GetModels() {
+		models = append(models, state.LLMModelMeta{
+			ModelKey: model.GetModelKey(), ModelID: model.GetModelId(), Name: model.GetName(), Enabled: model.GetEnabled(),
+			ContextWindow: model.ContextWindow, MaxOutput: model.MaxOutput,
+		})
+	}
+	return &state.LLMProviderMeta{
+		Name: lease.GetName(), Type: lease.GetType(), BaseURL: lease.GetBaseUrl(),
+		DefaultModelKey: lease.GetDefaultModelKey(), Models: models,
+	}
+}
+
+// holdRunLeases keeps a run's lease release until its fanout ends. A release
+// already held for the session (an earlier call of a Pi generation) is
+// superseded: the newer attach under the same holder replaced its leases.
+func (h *RuntimeHandlers) holdRunLeases(rid int64, release func()) {
+	h.runLeasesMu.Lock()
+	defer h.runLeasesMu.Unlock()
+	if h.runLeases == nil {
+		h.runLeases = map[int64]func(){}
+	}
+	h.runLeases[rid] = release
+}
+
+func (h *RuntimeHandlers) releaseRunLeases(rid int64) {
+	h.runLeasesMu.Lock()
+	release := h.runLeases[rid]
+	delete(h.runLeases, rid)
+	h.runLeasesMu.Unlock()
+	if release != nil {
+		release()
+	}
+}
+
 // ── Capabilities ────────────────────────────────────────────────────────────
 
 func (h *RuntimeHandlers) Capabilities(_ context.Context, req *agentrewire.RuntimeCapabilitiesRequest) (*agentrewire.RuntimeCapabilitiesResponse, error) {
@@ -470,7 +545,7 @@ func (h *RuntimeHandlers) Capabilities(_ context.Context, req *agentrewire.Runti
 
 // ── Run ─────────────────────────────────────────────────────────────────────
 
-func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeRunRequest) (*agentrewire.RuntimeRunResponse, error) {
+func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeRunRequest) (_ *agentrewire.RuntimeRunResponse, err error) {
 	// 身份键收缩到 conversation_id 之后,daemon_sessions 的主键就是它:线上给来的
 	// 空串是一个人人都写得进的合法主键,每个这么发的对端都会落在同一行上,转录
 	// 也共用同一串帧编号。与另外八个按对话寻址的处理器一样,在边界上拒掉。
@@ -503,21 +578,28 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 	if effort := strings.TrimSpace(request.GetReasoningEffort()); effort != "" {
 		be.ReasoningEffort = effort
 	}
-	// 账号级后端配置:快照里有这个 sync ID 的条目时,它才是权威账号配置,整份替换
-	// 独占设置。浏览器/云派发只带 {type, sync_id} —— ACPArgs 是任意 argv(可能含
-	// 凭据),绝不能经浏览器 API 下发,由 daemon 侧从设备凭据快照补全。没有被点名的
-	// sync ID(直接桌面调用、尚未同步的后端)保持线上原值,不因快照缺项被清空。
-	if h.deps.BackendConfigForSyncID != nil {
-		if account, authoritative := h.deps.BackendConfigForSyncID(be.SyncID); authoritative {
+	// 账号级引擎配置:快照里有这份配置的条目时,它才是权威账号配置,整份替换独占设置。
+	// 账号侧派发(控制台 / agrctl)只点名引擎配置(engine_profile_sync_id),backend 那格只有
+	// 类型;浏览器派发带 {type, sync_id}。ACPArgs 是任意 argv(可能含凭据),绝不能经浏览器
+	// API 下发,由 daemon 侧从设备凭据快照补全。没有被点名的配置(直接桌面调用、尚未同步的
+	// 配置)保持线上原值,不因快照缺项被清空。
+	profileSyncID := strings.TrimSpace(request.GetEngineProfileSyncId())
+	if profileSyncID == "" {
+		profileSyncID = be.SyncID
+	}
+	if h.deps.EngineProfileForSyncID != nil {
+		if account, authoritative := h.deps.EngineProfileForSyncID(profileSyncID); authoritative {
 			be.SetConfig(account.AgentBackendConfig)
-			// 绑定的供应商与固定模型同属账号配置:账号侧派发只带 {type, sync_id},
-			// 「跟随后端配置」的一轮要跑的供应商 / 模型只能从这里来(见 resolveTarget)。
-			// 桌面端交来的是它自己的整份后端(同一份同步数据),带了绑定就不动 —— 还没
-			// 下发这两个键的旧 server 也就清不掉它。
+			if be.SyncID == "" {
+				be.SyncID = profileSyncID
+			}
+			// 绑定的供应商与固定模型同属账号配置:账号侧派发不带它们,「跟随配置」的一轮
+			// 要跑的供应商 / 模型只能从这里来(见 resolveTarget)。桌面端交来的是它自己的
+			// 整份配置(同一份同步数据),带了绑定就不动。
 			if be.LLMProviderKey == "" && be.LLMModelKey == "" {
 				be.LLMProviderKey, be.LLMModelKey = account.ProviderKey, account.ModelKey
 			}
-			// 后端自己的思考力度与透传环境变量同理:空壳派发没有它们,这一轮跟随后端配置。
+			// 配置自己的思考力度与透传环境变量同理:空壳派发没有它们,这一轮跟随配置。
 			// 会话级力度(上面的 run 参数)已落在 be 上,非空就不被这里盖掉。
 			if be.ReasoningEffort == "" {
 				be.ReasoningEffort = account.ReasoningEffort
@@ -527,10 +609,10 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 			}
 		}
 	}
-	if h.deps.CLIPathForBackend != nil {
-		if cliPath, authoritative := h.deps.CLIPathForBackend(be.SyncID); authoritative {
-			// Account snapshots own the execution-side per-device overlay. An
-			// absent overlay authoritatively means PATH, so it also clears a
+	if h.deps.CLIPathForRuntime != nil {
+		if cliPath, authoritative := h.deps.CLIPathForRuntime(be.Type); authoritative {
+			// Account snapshots own this device's per-runtime CLI path override. An
+			// absent override authoritatively means PATH, so it also clears a
 			// desktop machine's absolute path from the wire payload.
 			be.CLIPath = cliPath
 		}
@@ -569,6 +651,18 @@ func (h *RuntimeHandlers) Run(ctx context.Context, request *agentrewire.RuntimeR
 	h.deps.Ctl.bind(em.rid, em.peer, em.conversationID, DesktopCtlSession{
 		DesktopSessionID: request.GetDesktopSessionId(), Token: request.GetDesktopCtlToken(),
 	}, request.GetDesktopCtlToken() != "")
+
+	// 直连派发时桌面端随这一轮附带的租约:只放内存,在解析供应商之前交给租约缓存,这一轮
+	// 开起来就留到它收尾(fanout 结束),没开起来就当场丢掉。放在「会话正在跑」的拒绝之后:
+	// 被拒的那次不能顶掉在跑那一轮的租约。先登记再起 fanout,收尾才一定拿得到它。
+	if releaseLeases := h.attachRunLeases(em.rid, request.GetProviderLeases()); releaseLeases != nil {
+		h.holdRunLeases(em.rid, releaseLeases)
+		defer func() {
+			if err != nil {
+				releaseLeases()
+			}
+		}()
+	}
 
 	var (
 		piPreparer piagentrt.RunPreparer
@@ -1037,6 +1131,8 @@ func userSourceFor(request *agentrewire.RuntimeRunRequest) transcript.UserSource
 // origin 是开这一轮的 runtime 与请求,收尾时据它续跑残留插话(openSteerReplay);
 // nil = 这一轮不由 agentred 续跑(Pi 的 generation 由客户端逐步驱动)。
 func (h *RuntimeHandlers) fanout(em *sessionEmitter, owner *runtimeSession, ch <-chan agentruntime.Event, result *agentruntime.RunResult, scribe *turnTranscript, origin *turnOrigin) {
+	// 这一轮(连同它续出来的残留插话轮)收尾:桌面端附带的租约随之丢掉。
+	defer h.releaseRunLeases(em.rid)
 	startedAt := time.Now()
 	cid, rid := em.conversationID, em.rid
 	count := 0
@@ -2126,6 +2222,10 @@ func (h *RuntimeHandlers) resolveTarget(
 		return nil, nil, "", nil
 	}
 	pv, err := h.deps.Lookup.FindByKey(ctx, effectiveKey)
+	if errors.Is(err, rpcerror.ErrProviderLeaseUnavailable) {
+		// 供应商在,只是拿不到它的 key:不降级、不回退到别的供应商,原样报给发起方。
+		return nil, nil, "", rpcerror.ErrProviderLeaseUnavailable
+	}
 	if err == nil && pv != nil && pv.IsActive() {
 		eff, merr := h.resolveEffectiveModel(ctx, pv, modelKey)
 		if merr != nil {
@@ -2144,6 +2244,9 @@ func (h *RuntimeHandlers) resolveTarget(
 	providerFallbackKey := effectiveKey
 	if be != nil && be.LLMProviderKey != "" && effectiveKey != be.LLMProviderKey {
 		bpv, berr := h.deps.Lookup.FindByKey(ctx, be.LLMProviderKey)
+		if errors.Is(berr, rpcerror.ErrProviderLeaseUnavailable) {
+			return nil, nil, "", rpcerror.ErrProviderLeaseUnavailable
+		}
 		if berr != nil {
 			return nil, nil, "", &rpcerror.Error{
 				Code:    rpcerror.ErrProviderMissing.Code,

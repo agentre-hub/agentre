@@ -223,12 +223,13 @@ func TestIntegration_FullFlow(t *testing.T) {
 	assert.NotEmpty(t, pairResp.GetDeviceToken())
 	assert.NotEmpty(t, pairResp.GetDaemonFingerprint())
 
-	// 5. llm.upsert + llm.list round trip.
+	// 5. llm.upsert no longer pushes a provider (with its key) onto the daemon;
+	// llm.list therefore stays empty.
 	_, err = protorpc.CallMethod(ctx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT), &agentrewire.LLMUpsertRequest{ProviderKey: "4f8c1d2e-3b5a-4c6d-8e9f-1a2b3c4d5e6f", Name: "anth", Type: "anthropic", BaseUrl: "https://api.anthropic.com", ApiKey: "sk-test", UpdatedAt: time.Now().UnixMilli()}, func() *agentrewire.LLMUpsertResponse { return &agentrewire.LLMUpsertResponse{} })
-	require.NoError(t, err)
+	require.Error(t, err)
 	listResp, err := protorpc.CallMethod(ctx, c.Conn(), uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_LIST), &agentrewire.LLMListRequest{}, func() *agentrewire.LLMListResponse { return &agentrewire.LLMListResponse{} })
 	require.NoError(t, err)
-	assert.Len(t, listResp.GetProviders(), 1)
+	assert.Empty(t, listResp.GetProviders())
 
 	// 6. Register runtime.event + runtime.runResultDone handlers BEFORE
 	// runtime.run so we don't lose frames.

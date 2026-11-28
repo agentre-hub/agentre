@@ -96,8 +96,6 @@ export type ModelTargetPickerProps = {
   // 模型」）；节点只参与渲染，特殊项的搜索始终只按 specialLabel 匹配（见 Option.searchText）。
   specialSublabel?: React.ReactNode;
   specialIcon?: React.ReactNode;
-  // 远端目录缺少本机 Provider 时的显式同步入口；消费方负责确认与执行凭证复制。
-  onSyncProvider?: (provider: PickerProvider) => void;
   // footer：弹层底部常显说明（chat 场景的「自下一轮生效」等），随弹层一起出现。
   footer?: React.ReactNode;
   // compact：表单内嵌（claude tier 路由）用小号触发按钮。
@@ -144,7 +142,6 @@ export function ModelTargetPicker({
   deviceLabel,
   specialSublabel,
   specialIcon,
-  onSyncProvider,
   footer,
   compact = false,
   align = "start",
@@ -174,7 +171,6 @@ export function ModelTargetPicker({
     supportsFixedModel,
     remoteCatalog,
     specialSublabel,
-    onSyncProvider,
     openOnMount,
     focusSearchOnOpen: presentation !== "sheet",
     t,
@@ -330,14 +326,11 @@ export function ModelTargetPicker({
             selected={selected}
             scenario={scenario}
             SpecialIcon={picker.SpecialIcon}
-            syncAnchorByProvider={picker.syncAnchorByProvider}
-            compatible={compatible}
             // `remoteGated` 为真即蕴含 remoteByKey 非空；写成可选链只是因为
             // 别名收窄跨不进这个闭包。
             isProviderOnDevice={(providerKey) =>
               remoteGated && !!remoteByKey?.has(providerKey)
             }
-            onSyncProvider={onSyncProvider}
             onActivate={picker.setActiveIndex}
             onSelect={picker.handlePick}
           />
@@ -353,13 +346,6 @@ export function ModelTargetPicker({
         </div>
       ) : null}
 
-      {/* 灰色项的原因每一行自己已经写了，底部不再总述一遍；这里只承诺同步的后果
-          （mockup 远端弹层的 foot 也只有这一句）。 */}
-      {remoteGated &&
-      onSyncProvider &&
-      picker.catalogOptions.some((o) => o.disabledHint) ? (
-        <PickerNote>{t("modelTargetPicker.syncFootnote")}</PickerNote>
-      ) : null}
       {remoteMissing ? (
         <PickerNote>{t("modelTargetPicker.remoteMissing")}</PickerNote>
       ) : null}

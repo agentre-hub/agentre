@@ -80,6 +80,8 @@ var zhCN = map[int]string{
 	DispatchManualDeviceUnavailable: "指定的设备现在不能跑这名成员，换一台或交给自动选择",
 	DispatchDeviceReasonLine:        "%s：%s",
 
+	ChatRemoteProviderLeaseUnavailable: "凭据租约过期，账号服务器连不上",
+
 	AppSettingNotFound:      "设置项不存在",
 	AppSettingInvalidPort:   "端口必须是 0~65535 之间的整数",
 	AppSettingInvalidHost:   "监听地址不是合法的 IP",

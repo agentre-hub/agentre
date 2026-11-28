@@ -191,20 +191,6 @@
       "open": "Open",
       "title": "Port forwarding"
     },
-    "providers": {
-      "copyAria": "Copy fix command {{key}}",
-      "copyCommand": "Copy Command",
-      "copyDescription": "Paste it into the terminal running remote agentred",
-      "copyDone": "Fix command copied",
-      "copyFailed": "Failed to copy fix command",
-      "empty": "No local Agent Backend providers are linked to this device.",
-      "loadFailed": "Could not load the provider sync status for this device",
-      "loading": "Loading Provider sync status...",
-      "missing": "Missing",
-      "synced": "Synced",
-      "title": "Provider Sync Status",
-      "unsynced": "Not synced"
-    },
     "removed": {
       "restore": "Restore",
       "restoreFailed": "Couldn't restore this machine. Try again.",

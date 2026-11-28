@@ -191,20 +191,6 @@
       "open": "打开",
       "title": "端口转发"
     },
-    "providers": {
-      "copyAria": "复制修复命令 {{key}}",
-      "copyCommand": "复制命令",
-      "copyDescription": "粘贴到远端 agentred 所在终端执行",
-      "copyDone": "已复制修复命令",
-      "copyFailed": "复制修复命令失败",
-      "empty": "该设备上没有关联任何本地 Agent 后端 Provider。",
-      "loadFailed": "没能读取这台设备的 Provider 同步状态",
-      "loading": "正在加载 Provider 同步状态…",
-      "missing": "缺失",
-      "synced": "已同步",
-      "title": "Provider 同步状态",
-      "unsynced": "未同步"
-    },
     "removed": {
       "restore": "恢复",
       "restoreFailed": "没有恢复成功，请重试",

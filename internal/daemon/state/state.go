@@ -69,7 +69,32 @@ func Load(dir string) (*State, error) {
 	}
 	st.dir = dir
 	st.mu = &sync.RWMutex{}
+	// 升级前的快照与「同步到设备」把账号供应商连同 key 写在 llmProviders 里。新结构没有
+	// 那一格,解出来就已经不带 key;只有盘上真有旧 key 时才重写一次把它们清掉。
+	if legacyProviderKeysOnDisk(b) {
+		if err := st.Save(); err != nil {
+			return nil, fmt.Errorf("purge legacy provider keys from state.json: %w", err)
+		}
+	}
 	return &st, nil
+}
+
+// legacyProviderKeysOnDisk 报告 state.json 的 llmProviders 里是否还有非空的 apiKey。
+func legacyProviderKeysOnDisk(raw []byte) bool {
+	var legacy struct {
+		LLMProviders map[string]struct {
+			APIKey string `json:"apiKey"`
+		} `json:"llmProviders"`
+	}
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return false
+	}
+	for _, provider := range legacy.LLMProviders {
+		if provider.APIKey != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Mutate calls fn while holding the write lock. fn must not panic (panics leave
@@ -128,6 +153,8 @@ func (s *State) Logout() {
 			Listen:             st.Listen,
 			PairedPeers:        st.PairedPeers,
 			Preferences:        st.Preferences,
+			// 本机添加的供应商不来自账号:用户在这台机器上的明确操作,离开账号也留着。
+			LocalLLMProviders: st.LocalLLMProviders,
 			// 两个未导出字段是这份 State 与磁盘、与自己那把锁的绑定，不属于状态本身。
 			// 锁必须是同一个指针：Mutate 正持着它，换掉就解不开了。
 			mu:  st.mu,
@@ -216,6 +243,7 @@ func (s *State) Snapshot() State {
 		out.PairedPeers[k] = v
 	}
 	out.LLMProviders = cloneLLMProviders(s.LLMProviders)
+	out.LocalLLMProviders = cloneLocalLLMProviders(s.LocalLLMProviders)
 	out.DirectCredentials = maps.Clone(s.DirectCredentials)
 	out.BackendCredentials = maps.Clone(s.BackendCredentials)
 	out.HermesIdentities = maps.Clone(s.HermesIdentities)
@@ -372,6 +400,69 @@ func cloneLLMProviders(in map[string]LLMProviderMeta) map[string]LLMProviderMeta
 	return out
 }
 
+func cloneLocalLLMProviders(in map[string]LocalLLMProvider) map[string]LocalLLMProvider {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]LocalLLMProvider, len(in))
+	for key, provider := range in {
+		provider.Models = append([]LLMModelMeta(nil), provider.Models...)
+		provider.ModelRoutes = cloneStrings(provider.ModelRoutes)
+		out[key] = provider
+	}
+	return out
+}
+
+// LookupProvider 按 provider key 查供应商:本机添加的优先(它自带 key),其次是账号快照里
+// 的元数据(不带 key)。只读快照上调用。
+func (s State) LookupProvider(key string) (ProviderEntry, bool) {
+	if local, ok := s.LocalLLMProviders[key]; ok {
+		return ProviderEntry{LLMProviderMeta: local.LLMProviderMeta, APIKey: local.APIKey, Local: true}, true
+	}
+	if meta, ok := s.LLMProviders[key]; ok {
+		return ProviderEntry{LLMProviderMeta: meta}, true
+	}
+	return ProviderEntry{}, false
+}
+
+// ProviderCatalog 是这台 agentred 知道的全部供应商元数据(本机添加的与账号快照里的,
+// 同 key 时本机的优先)。不带任何 key。只读快照上调用。
+func (s State) ProviderCatalog() map[string]LLMProviderMeta {
+	out := make(map[string]LLMProviderMeta, len(s.LLMProviders)+len(s.LocalLLMProviders))
+	for key, meta := range s.LLMProviders {
+		out[key] = meta
+	}
+	for key, local := range s.LocalLLMProviders {
+		out[key] = local.LLMProviderMeta
+	}
+	return out
+}
+
+// UpsertLocalLLMProvider 记下一个本机添加的供应商并落盘;写不下来时内存不变。
+func (s *State) UpsertLocalLLMProvider(key string, provider LocalLLMProvider) error {
+	return s.persistChange(func(next *State) {
+		next.LocalLLMProviders = cloneLocalLLMProviders(next.LocalLLMProviders)
+		if next.LocalLLMProviders == nil {
+			next.LocalLLMProviders = map[string]LocalLLMProvider{}
+		}
+		next.LocalLLMProviders[key] = provider
+	})
+}
+
+// DeleteLocalLLMProvider 删掉一个本机添加的供应商并落盘;不存在时什么都不写。
+func (s *State) DeleteLocalLLMProvider(key string) error {
+	s.mu.RLock()
+	_, ok := s.LocalLLMProviders[key]
+	s.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	return s.persistChange(func(next *State) {
+		next.LocalLLMProviders = cloneLocalLLMProviders(next.LocalLLMProviders)
+		delete(next.LocalLLMProviders, key)
+	})
+}
+
 func cloneStrings(in map[string]string) map[string]string {
 	if in == nil {
 		return nil
@@ -383,8 +474,8 @@ func cloneStrings(in map[string]string) map[string]string {
 	return out
 }
 
-// ReplaceLLMProviders atomically replaces the complete provider snapshot in
-// memory and on disk. If persistence fails, the live map is left untouched.
+// ReplaceLLMProviders atomically replaces the complete account provider
+// metadata in memory and on disk; LocalLLMProviders are never touched. If persistence fails, the live map is left untouched.
 func (s *State) ReplaceLLMProviders(providers map[string]LLMProviderMeta) error {
 	if s.dir == "" {
 		return errors.New("state: dir not bound; load via Load(dir) first")

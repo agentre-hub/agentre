@@ -185,6 +185,9 @@ type Runtime struct {
 	// 见 conversation.go。
 	conversations ConversationIDResolver
 
+	// leaseSource 给经直连派发的一轮附带供应商租约(见 provider_lease.go);nil = 不附带。
+	leaseSource ProviderLeaseSource
+
 	stopOnce sync.Once
 	stopped  chan struct{}
 }
@@ -331,7 +334,7 @@ func (r *Runtime) Prefetch(ctx context.Context, bt agent_backend_entity.BackendT
 }
 
 func (r *Runtime) callRun(ctx context.Context, params wire.RunParams) (wire.RunAck, error) {
-	request, err := protowire.RunRequestToProto(params)
+	request, err := r.buildRunRequest(ctx, params)
 	if err != nil {
 		return wire.RunAck{}, err
 	}

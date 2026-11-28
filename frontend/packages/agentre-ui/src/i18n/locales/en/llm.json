@@ -379,15 +379,12 @@
     "invalidHint": "This target is no longer valid (provider or model missing/disabled). Choose again.",
     "invalidCurrent": "Current selection · no longer valid",
     "invalidChip": "Invalid",
-    "remoteMissing": "Target device is missing this provider. Sync it first.",
+    "remoteMissing": "The target device does not have this provider yet.",
     "noDefaultModel": "No default model set",
-    "remoteSyncNeeded": "Local only — sync to this device first",
+    "remoteSyncNeeded": "Not on this device yet",
     "fixedModelUnsupported": "This device does not support fixed models — upgrade agentred",
     "remoteDeviceHeader": "Runs on {{device}} — that device's own configuration applies",
-    "providerOnDevice": "Already on this device",
-    "syncInline": "Sync over",
-    "syncFootnote": "Syncing copies the API key to that device and needs your explicit confirmation",
-    "syncProviderNamed": "Sync {{provider}} to this device"
+    "providerOnDevice": "Already on this device"
   },
   "agentBackends": {
     "actions": {
@@ -561,7 +558,6 @@
       "deleteFailed": "Not deleted",
       "deleted": "Deleted",
       "loadFailed": "Agent backends didn't load",
-      "providerSynced": "Remote provider synced",
       "saveFailed": "Not saved",
       "saved": "Saved",
       "scanFailed": "The scan didn't finish",
@@ -665,19 +661,6 @@
       "staleDescription": "Choose an enabled provider below{{optionalClause}}.",
       "staleOptionalClause": ", or clear the link to use CLI login",
       "staleTitle": "The original LLM provider is disabled or does not match this type"
-    },
-    "providerSync": {
-      "descriptionOnly": "Sync copies the provider's BaseURL, protocol, API key, default model and model catalog to the remote agentred state file. Other form changes are not saved.",
-      "descriptionSave": "The selected remote agentred does not have these providers configured. Sync copies the provider's BaseURL, protocol, API key, default model and model catalog to the remote agentred state file, then continues saving the agent backend.",
-      "failedTitle": "Sync Failed",
-      "inlineDescription": "This backend will run on remote agentred. You can sync the selected LLM provider to the remote state file first.",
-      "inlineTitle": "Remote Provider Sync",
-      "requiredDescription": "The remote runtime can only read providers from its own state file. Unsynced providers trigger provider not configured.",
-      "requiredTitle": "Provider Sync Required",
-      "syncAndSave": "Sync and Save",
-      "syncRemote": "Sync to Remote",
-      "syncing": "Syncing...",
-      "title": "Sync Remote LLM Provider"
     },
     "proxy": {
       "notRunning": "Local HTTP proxy is not running",

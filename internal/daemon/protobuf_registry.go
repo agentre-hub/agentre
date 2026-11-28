@@ -13,17 +13,24 @@ import (
 	"github.com/agentre-hub/agentre/internal/daemon/handlers"
 	"github.com/agentre-hub/agentre/internal/daemon/notifier"
 	"github.com/agentre-hub/agentre/internal/daemon/remotefs"
-	"github.com/agentre-hub/agentre/internal/daemon/state"
 	"github.com/agentre-hub/agentre/internal/daemon/transcriptimport"
 	"github.com/agentre-hub/agentre/internal/daemon/workspacefs"
 	"github.com/agentre-hub/agentre/internal/pkg/ccoauth"
 	"github.com/agentre-hub/agentre/internal/pkg/wireinbound"
 	"github.com/agentre-hub/agentre/internal/pkg/wireversion"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/agentrewire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 	"github.com/agentre-hub/agentre/pkg/wire/protorpc"
 	"github.com/agentre-hub/agentre/pkg/wire/rpcerror"
 )
+
+// errLLMUpsertRemoved answers the retired llm.upsert: provider keys no longer
+// reach agentred's disk from a desktop.
+var errLLMUpsertRemoved = &rpcerror.Error{
+	Code:    rpcerror.CodeInvalidParams,
+	Message: "llm.upsert no longer accepts providers: account keys are leased on demand; add a local provider with `agentred llm add`",
+}
 
 func protobufError(err error) error {
 	if err == nil {
@@ -177,21 +184,16 @@ func (d *Daemon) registerProtobufMethods() {
 		})
 
 	llmHandlers := handlers.NewLLMHandlers(d.state)
+	// llm.upsert 曾把桌面端的供应商连同 key 推进这台 agentred 的盘(「同步到设备」)。那条路
+	// 取消了:账号供应商的 key 只经租约在内存里拿,本机供应商走 `agentred llm add`(本地
+	// IPC)。方法本身留着直到协议切换,任何请求一律拒绝,不再落任何东西。
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_UPSERT),
 		func() *agentrewire.LLMUpsertRequest { return &agentrewire.LLMUpsertRequest{} },
-		func(ctx context.Context, request *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
+		func(ctx context.Context, _ *agentrewire.LLMUpsertRequest) (*agentrewire.LLMUpsertResponse, error) {
 			if err := requireProtobufAuth(ctx); err != nil {
 				return nil, err
 			}
-			models := make([]state.LLMModelMeta, 0, len(request.Models))
-			for _, model := range request.Models {
-				models = append(models, state.LLMModelMeta{ModelKey: model.ModelKey, ModelID: model.ModelId, Name: model.Name, Enabled: model.Enabled, ContextWindow: model.ContextWindow, MaxOutput: model.MaxOutput})
-			}
-			result, err := llmHandlers.Upsert(ctx, handlers.LLMUpsertParams{ProviderKey: request.ProviderKey, Name: request.Name, Type: request.Type, BaseURL: request.BaseUrl, Model: request.Model, DefaultModelKey: request.DefaultModelKey, Models: models, APIKey: request.ApiKey, ModelRoutes: request.ModelRoutes, UpdatedAt: request.UpdatedAt})
-			if err != nil {
-				return nil, protobufError(err)
-			}
-			return &agentrewire.LLMUpsertResponse{Ok: result.OK}, nil
+			return nil, protobufError(errLLMUpsertRemoved)
 		})
 	protorpc.RegisterMethod(d.protobufRegistry, uint32(agentrewire.RpcMethod_RPC_METHOD_LLM_DELETE),
 		func() *agentrewire.LLMDeleteRequest { return &agentrewire.LLMDeleteRequest{} },
@@ -226,8 +228,8 @@ func (d *Daemon) registerProtobufMethods() {
 			return response, nil
 		})
 
-	engineHandlers := handlers.NewEngineHandlers(handlers.EngineDeps{State: d.state})
-	cliHandlers := handlers.NewCLIHandlers(d.gateway, NewProviderLookup(d.state))
+	engineHandlers := handlers.NewEngineHandlers(handlers.EngineDeps{State: d.state, Credentials: leaseCredentials{leases: d.leases}})
+	cliHandlers := handlers.NewCLIHandlers(d.gateway, NewProviderLookup(d.state, d.leases).ForPurpose(syncwire.LeasePurposeTest))
 	// 引擎探测一族走共用注册面(wireinbound):方法号↔类型的配对因此只有一处,
 	// 两种执行端不会再一边有、一边没有 —— 这正是控制台对桌面机器空转过的那一族。
 	//
