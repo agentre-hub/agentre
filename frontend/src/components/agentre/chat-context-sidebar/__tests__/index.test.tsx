@@ -254,7 +254,7 @@ describe("ChatContextToolWindows", () => {
     expect(edgeClasses(aside)).toEqual([]);
   });
 
-  it("switches to the session changes list when the Changes icon is clicked", async () => {
+  it("opens the Changes window on its icon; without a working directory it explains why nothing is listed", async () => {
     render(
       <ChatContextToolWindows
         sessionId={1}
@@ -265,7 +265,9 @@ describe("ChatContextToolWindows", () => {
     );
     await userEvent.click(stripButton("Changes"));
     expect(
-      screen.getByText(/No files have been changed by tools in this session/),
+      screen.getByText(
+        "This folder isn't a git repository, so changes can't be listed",
+      ),
     ).toBeInTheDocument();
     expect(isToolWindowShown("changes")).toBe(true);
   });
@@ -440,7 +442,7 @@ describe("ChatContextToolWindows · three tool windows", () => {
     ).toHaveTextContent(/^Outline$/);
   });
 
-  it("counts the message-derived rows for the Changes icon without calling the backend; no badge at 0", async () => {
+  it("counts the uncommitted files for the Changes icon even while only the outline is open; no badge at 0", async () => {
     render(
       <ChatContextToolWindows
         sessionId={1}
@@ -451,11 +453,13 @@ describe("ChatContextToolWindows · three tool windows", () => {
       />,
     );
 
-    // 默认档是「本次会话」：数量来自消息派生，只开着大纲时不打后端。
+    // 角标是 git 未提交的文件数：变更窗收着也要取数，0 个时不显角标。
+    await waitFor(() =>
+      expect(gitChangesMock).toHaveBeenCalledWith(1, "uncommitted", ""),
+    );
     expect(
       within(stripButton("Changes")).queryByTestId("tool-window-badge"),
     ).toBeNull();
-    expect(gitChangesMock).not.toHaveBeenCalled();
 
     await userEvent.click(stripButton("Changes"));
     expect(changesHeading()).toHaveTextContent(/^Changes0$/);
@@ -493,7 +497,7 @@ describe("ChatContextToolWindows · three tool windows", () => {
     expect(screen.queryAllByRole("tablist")).toHaveLength(0);
   });
 
-  it("gives the changes window one chrome row under its title: the scope pill group", async () => {
+  it("gives the changes window no chrome row under its title: there is only one list", async () => {
     showOnly("changes");
     render(
       <ChatContextToolWindows
@@ -505,16 +509,11 @@ describe("ChatContextToolWindows · three tool windows", () => {
       />,
     );
 
-    expect(screen.getAllByRole("tablist")).toHaveLength(1);
-    const scopeBar = screen.getByRole("tablist", { name: /change scope/i });
     expect(
-      within(scopeBar).getByRole("tab", { name: "This session" }),
+      await screen.findByText(/the working tree is clean/i),
     ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(
-        within(scopeBar).getByRole("tab", { name: "Uncommitted" }),
-      ).toBeInTheDocument(),
-    );
+    expect(screen.queryAllByRole("tablist")).toHaveLength(0);
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
   });
 
   it("gives the directory window one chrome row under its title as well", async () => {

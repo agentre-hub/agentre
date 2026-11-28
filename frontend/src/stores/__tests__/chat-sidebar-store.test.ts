@@ -1,14 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { useChatSidebarStore, type ChangesScope } from "../chat-sidebar-store";
+import { useChatSidebarStore } from "../chat-sidebar-store";
 
 describe("chat-sidebar-store", () => {
   beforeEach(() => {
     localStorage.clear();
-    useChatSidebarStore.setState({
-      changesScope: "session",
-      showIgnored: false,
-    });
+    useChatSidebarStore.setState({ showIgnored: false });
   });
 
   it("no longer carries the sidebar open flag or top-level tab (moved to the tool-window layout)", async () => {
@@ -25,20 +22,6 @@ describe("chat-sidebar-store", () => {
     expect(state.activeTab).toBeUndefined();
   });
 
-  it("defaults the changes scope to this session and persists a switch", () => {
-    expect(useChatSidebarStore.getState().changesScope).toBe("session");
-    useChatSidebarStore.getState().setChangesScope("uncommitted");
-    expect(useChatSidebarStore.getState().changesScope).toBe("uncommitted");
-    expect(localStorage.getItem("chat-sidebar-state")).toContain(
-      '"changesScope":"uncommitted"',
-    );
-  });
-
-  it("rejects unknown changes scope values at runtime by no-op", () => {
-    useChatSidebarStore.getState().setChangesScope("bogus" as ChangesScope);
-    expect(useChatSidebarStore.getState().changesScope).toBe("session");
-  });
-
   it("defaults showIgnored to false and persists a toggle", () => {
     expect(useChatSidebarStore.getState().showIgnored).toBe(false);
     useChatSidebarStore.getState().setShowIgnored(true);
@@ -48,16 +31,26 @@ describe("chat-sidebar-store", () => {
     );
   });
 
-  it("falls back to this session when the persisted changes scope is invalid", async () => {
+  it("drops a persisted changes scope: the Changes window no longer has tiers", async () => {
+    // 「本次会话 / 未提交」两档已去掉，只剩未提交一份清单：旧版本存下的档位读回来无处
+    // 安放，也不会被再写回 localStorage。
     localStorage.setItem(
       "chat-sidebar-state",
       JSON.stringify({
-        state: { open: true, activeTab: "changes", changesScope: "bogus" },
+        state: { changesScope: "uncommitted", showIgnored: true },
         version: 0,
       }),
     );
     await useChatSidebarStore.persist.rehydrate();
-    expect(useChatSidebarStore.getState().changesScope).toBe("session");
+
+    const state = useChatSidebarStore.getState() as Record<string, unknown>;
+    expect(state.changesScope).toBeUndefined();
+    expect(state.setChangesScope).toBeUndefined();
+    expect(useChatSidebarStore.getState().showIgnored).toBe(true);
+    useChatSidebarStore.getState().setShowIgnored(false);
+    expect(localStorage.getItem("chat-sidebar-state")).not.toContain(
+      "changesScope",
+    );
   });
 
   it("drops the removed filesMode and gitBaselineBySession values instead of restoring them", async () => {
@@ -79,10 +72,9 @@ describe("chat-sidebar-store", () => {
     const state = useChatSidebarStore.getState() as Record<string, unknown>;
     expect(state.filesMode).toBeUndefined();
     expect(state.gitBaselineBySession).toBeUndefined();
-    expect(useChatSidebarStore.getState().changesScope).toBe("session");
   });
 
-  it("falls back to this session when the persisted state has no changes scope", async () => {
+  it("falls back to hiding ignored entries when the persisted state has no flag", async () => {
     localStorage.setItem(
       "chat-sidebar-state",
       JSON.stringify({
@@ -91,7 +83,6 @@ describe("chat-sidebar-store", () => {
       }),
     );
     await useChatSidebarStore.persist.rehydrate();
-    expect(useChatSidebarStore.getState().changesScope).toBe("session");
     expect(useChatSidebarStore.getState().showIgnored).toBe(false);
   });
 

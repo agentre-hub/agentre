@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Eye,
   FolderOpen,
-  List,
 } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -21,9 +20,8 @@ import {
 /**
  * 一行菜单的全部输入。文件行与目录行共用这一个模型：`kind` 决定项集合，三个
  * 「能不能做」的判定则全部编码成 null —— 不可预览的文件 previewPath 为 null
- * （预览两项整项不渲染），远端会话 absPath 为 null（本机三项整项不渲染），
- * 非「变动」模式 onJumpToTurn 为 null（跳轮次整项不渲染）。整项不渲染而非置灰
- * 是 spec「右键菜单」的明确取舍。
+ * （预览两项整项不渲染），远端会话 absPath 为 null（本机三项整项不渲染）。
+ * 整项不渲染而非置灰是 spec「右键菜单」的明确取舍。
  */
 export type RowMenuModel = {
   kind: "file" | "dir";
@@ -40,7 +38,6 @@ export type RowMenuModel = {
   onToggle: () => void;
   onPreview: () => void;
   onPreviewInNewTab: () => void;
-  onJumpToTurn: (() => void) | null;
   onOpenWith: () => void;
   onReveal: () => void;
   onCopy: (text: string) => void;
@@ -84,9 +81,9 @@ export function RowMenu({
 }) {
   const { t } = useTranslation();
   const { Item, Separator } = parts;
-  // 拆出 absPath / onJumpToTurn 的局部 const：null 判定要在回调闭包里仍然收窄，
-  // 读 model.xxx 会在闭包里丢掉收窄、只能靠断言。
-  const { absPath, onJumpToTurn } = model;
+  // 拆出 absPath 的局部 const：null 判定要在回调闭包里仍然收窄，读 model.absPath
+  // 会在闭包里丢掉收窄、只能靠断言。
+  const { absPath } = model;
   const copyAbsPath =
     absPath === null
       ? []
@@ -138,14 +135,6 @@ export function RowMenu({
                 >
                   <Columns2 />
                   <span>{t("chatContext.row.previewInNewTab")}</span>
-                </Item>,
-              ],
-          onJumpToTurn === null
-            ? []
-            : [
-                <Item key="jump" onSelect={() => onJumpToTurn()}>
-                  <List />
-                  <span>{t("chatContext.row.jumpToTurn")}</span>
                 </Item>,
               ],
           absPath === null

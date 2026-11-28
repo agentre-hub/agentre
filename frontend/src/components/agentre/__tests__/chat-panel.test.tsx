@@ -88,6 +88,13 @@ const appMocks = vi.hoisted(() => ({
     notARepo: true,
     commonDir: "",
   }),
+  // 「变更」的角标是未提交文件数，对话页在就取数（变更窗收着也一样）。
+  WorkspaceFsGitChanges: vi.fn().mockResolvedValue({
+    notARepo: true,
+    baseRef: "",
+    truncated: false,
+    changes: [],
+  }),
   // 需要 ProjectListTree 供 use-project-tree，但我们 mock 掉整个 hook
   ProjectListTree: vi.fn().mockResolvedValue([]),
 }));

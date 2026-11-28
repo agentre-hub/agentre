@@ -23,9 +23,8 @@ import {
 } from "@/stores/file-settings-store";
 import { useSessionRootStore } from "@/stores/session-root-store";
 
-import { SessionChangesView } from "../views/session-changes-view";
-
-import type { ChangeRow } from "../derive";
+import { GitView } from "../views/git-view";
+import type { GitChangesState } from "../views/use-git-changes";
 
 const CWD = "/Users/me/proj";
 const WT = "/Users/me/proj-wt";
@@ -59,15 +58,25 @@ beforeEach(() => {
   useFileSettingsStore.setState({ settings: { ...DEFAULT_FILE_SETTINGS } });
 });
 
-const row: ChangeRow = {
-  path: "src/a.ts",
-  name: "a.ts",
-  dir: "src",
-  status: "modified",
-  plus: 1,
-  minus: 0,
-  lastTurn: 1,
-};
+/** 「变更」页一行 src/a.ts 的已加载快照。 */
+const loaded = {
+  status: "loaded",
+  view: {
+    notARepo: false,
+    baseRef: "",
+    truncated: false,
+    changes: [
+      {
+        path: "src/a.ts",
+        oldPath: "",
+        status: "modified",
+        added: 1,
+        deleted: 0,
+        binary: false,
+      },
+    ],
+  },
+} as unknown as GitChangesState;
 
 describe("sidebar row · 预览标签绑定打开时的工作根", () => {
   // Given 会话当前工作根是非主根（worktree）, When 点一行的文件,
@@ -75,12 +84,12 @@ describe("sidebar row · 预览标签绑定打开时的工作根", () => {
   it("opens the tab under the session's current non-primary root", async () => {
     seedRoots(WT);
     render(
-      <SessionChangesView
+      <GitView
         sessionId={1}
-        rows={[row]}
         cwd={WT}
         remote={false}
-        onJumpToTurn={() => {}}
+        state={loaded}
+        onRetry={() => {}}
       />,
     );
     const el = screen
@@ -102,14 +111,14 @@ describe("sidebar row · 预览标签绑定打开时的工作根", () => {
     seedRoots();
     useFilePreviewTabsStore
       .getState()
-      .openPreview(1, { root: "", path: "src/a.ts" }, "session");
+      .openPreview(1, { root: "", path: "src/a.ts" }, "git");
     render(
-      <SessionChangesView
+      <GitView
         sessionId={1}
-        rows={[row]}
         cwd={CWD}
         remote={false}
-        onJumpToTurn={() => {}}
+        state={loaded}
+        onRetry={() => {}}
       />,
     );
     const el = screen

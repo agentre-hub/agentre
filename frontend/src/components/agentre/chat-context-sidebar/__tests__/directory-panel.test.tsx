@@ -115,10 +115,7 @@ function rowOf(el: HTMLElement): HTMLElement {
 
 beforeEach(() => {
   localStorage.clear();
-  useChatSidebarStore.setState({
-    changesScope: "session",
-    showIgnored: false,
-  });
+  useChatSidebarStore.setState({ showIgnored: false });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   openPathMock.mockReset();

@@ -20,7 +20,6 @@ import {
   type WorkRoot,
 } from "@/stores/session-root-store";
 
-import { WorkRootChangeCountsContext } from "../chat-context-sidebar/context-windows";
 import { useGitState } from "../chat-context-sidebar/views/use-git-state";
 
 type CapsuleProps = {
@@ -38,8 +37,7 @@ type CapsuleProps = {
  * - 主仓库：中性色，根名 + 分支；不是 git 仓库时只有目录名；
  * - worktree：醒目色（品牌色的柔和底），分支名 + 「worktree」；
  * - 只有一个根时不可点；两个及以上时点开下拉：每个根的名称、主仓库 / worktree、
- *   路径与「本次会话」变更数，当前根打勾，AI 所在的根标「AI 在这里」，底部是
- *   「跟随 AI 切换」开关。
+ *   路径，当前根打勾，AI 所在的根标「AI 在这里」，底部是「跟随 AI 切换」开关。
  */
 export function WorkRootCapsule({ sessionId, cwd, ref }: CapsuleProps) {
   const { t } = useTranslation();
@@ -124,11 +122,10 @@ export function WorkRootCapsule({ sessionId, cwd, ref }: CapsuleProps) {
   );
 }
 
-/** 下拉内容：只在打开时挂载，变更数也只在这时读。 */
+/** 下拉内容：只在打开时挂载。 */
 function WorkRootMenu({ sessionId }: { sessionId: number }) {
   const { t } = useTranslation();
   const sessionRoot = useSessionRoot(sessionId);
-  const counts = React.useContext(WorkRootChangeCountsContext);
 
   return (
     <DropdownMenuContent align="start" className="w-80 max-w-[90vw]">
@@ -181,13 +178,6 @@ function WorkRootMenu({ sessionId }: { sessionId: number }) {
                 {t("chatContext.workRoots.aiHere")}
               </span>
             ) : null}
-            <span
-              data-testid="work-root-count"
-              title={t("chatContext.changes.scope.session")}
-              className="mt-0.5 w-4 shrink-0 text-right font-mono text-3xs text-muted-foreground"
-            >
-              {counts.get(root.path) ?? 0}
-            </span>
           </DropdownMenuItem>
         );
       })}

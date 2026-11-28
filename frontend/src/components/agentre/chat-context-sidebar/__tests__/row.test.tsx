@@ -48,50 +48,36 @@ import {
 
 import { DirectoryView } from "../views/directory-view";
 import { GitView } from "../views/git-view";
-import { SessionChangesView } from "../views/session-changes-view";
 
-import type { ChangeRow } from "../derive";
 import type { GitChangesState } from "../views/use-git-changes";
 
 const CWD = "/Users/me/proj";
 
-function sessionRow(path: string, extra: Partial<ChangeRow> = {}): ChangeRow {
-  const cut = path.lastIndexOf("/");
-  return {
-    path,
-    name: cut < 0 ? path : path.slice(cut + 1),
-    dir: cut < 0 ? "" : path.slice(0, cut),
-    status: "modified",
-    plus: 0,
-    minus: 0,
-    lastTurn: 1,
-    ...extra,
-  };
-}
+/** 「变更」页的四行：一个带行数的代码文件、一个 Markdown、一张图、一个压缩包。 */
+const changes = [
+  { path: "internal/service/chat.go", added: 5, deleted: 2 },
+  { path: "README.md", added: 0, deleted: 0 },
+  { path: "assets/logo.png", added: 0, deleted: 0 },
+  { path: "archive.zip", added: 0, deleted: 0 },
+].map((c) => ({ ...c, oldPath: "", status: "modified", binary: false }));
 
-const rows: ChangeRow[] = [
-  sessionRow("internal/service/chat.go", { plus: 5, minus: 2, lastTurn: 3 }),
-  sessionRow("README.md"),
-  sessionRow("assets/logo.png"),
-  sessionRow("archive.zip", { lastTurn: 2 }),
-];
-
-// Radix 的菜单在 happy-dom 里要关掉 pointerEvents 检查。
 function setupUser() {
   return userEvent.setup({ pointerEventsCheck: 0 });
 }
 
-function renderChanges(
-  props: Partial<React.ComponentProps<typeof SessionChangesView>>,
-) {
+function renderChanges(props: { remote?: boolean }) {
   return render(
-    <SessionChangesView
+    <GitView
       sessionId={1}
-      rows={rows}
       cwd={CWD}
-      remote={false}
-      onJumpToTurn={() => {}}
-      {...props}
+      remote={props.remote ?? false}
+      state={
+        {
+          status: "loaded",
+          view: { notARepo: false, baseRef: "", truncated: false, changes },
+        } as unknown as GitChangesState
+      }
+      onRetry={() => {}}
     />,
   );
 }
@@ -172,22 +158,6 @@ function setOpenActionExternal() {
 }
 
 describe("行的统一点击语义", () => {
-  it("本次会话档：单击可预览文件行开出临时标签，不再跳到对应轮次", async () => {
-    const onJump = vi.fn();
-    renderChanges({ onJumpToTurn: onJump });
-
-    await setupUser().click(screen.getByRole("button", { name: /chat\.go/ }));
-
-    expect(
-      selectActivePreviewTab(useFilePreviewTabsStore.getState(), 1),
-    ).toMatchObject({
-      path: "internal/service/chat.go",
-      sourceMode: "session",
-      isPreview: true,
-    });
-    expect(onJump).not.toHaveBeenCalled();
-  });
-
   it("未提交档：单击行开预览，不再用系统默认应用打开", async () => {
     renderGit({});
 
@@ -358,7 +328,6 @@ describe("不可预览的行", () => {
     const menu = await openRowMenu("archive.zip");
 
     expect(menuItemNames(menu)).toEqual([
-      "Jump to turn",
       "Open with default app",
       "Show in file manager",
       "Copy relative path",
@@ -521,7 +490,7 @@ describe("⋯ 槽位", () => {
 });
 
 describe("行的右键菜单", () => {
-  it("本次会话档的文件行：预览两项 / 跳到对应轮次 / 打开两项 / 复制三项，按序分组", async () => {
+  it("文件行：预览两项 / 打开两项 / 复制三项，按序分组", async () => {
     const menu = await (async () => {
       renderChanges({});
       return openRowMenu("chat.go");
@@ -530,14 +499,13 @@ describe("行的右键菜单", () => {
     expect(menuItemNames(menu)).toEqual([
       "Preview",
       "Preview in a new tab",
-      "Jump to turn",
       "Open with default app",
       "Show in file manager",
       "Copy relative path",
       "Copy absolute path",
       "Copy file name",
     ]);
-    expect(within(menu).getAllByRole("separator")).toHaveLength(3);
+    expect(within(menu).getAllByRole("separator")).toHaveLength(2);
   });
 
   it("右键整行打开的菜单与 ⋯ 打开的完全相同", async () => {
@@ -548,31 +516,6 @@ describe("行的右键菜单", () => {
     });
 
     const menu = await screen.findByRole("menu");
-    expect(menuItemNames(menu)).toEqual([
-      "Preview",
-      "Preview in a new tab",
-      "Jump to turn",
-      "Open with default app",
-      "Show in file manager",
-      "Copy relative path",
-      "Copy absolute path",
-      "Copy file name",
-    ]);
-  });
-
-  it("「跳到对应轮次」只在「本次会话」档出现，且触发跳转回调", async () => {
-    const onJump = vi.fn();
-    renderChanges({ onJumpToTurn: onJump });
-    const menu = await openRowMenu("chat.go");
-    await setupUser().click(
-      within(menu).getByRole("menuitem", { name: "Jump to turn" }),
-    );
-    expect(onJump).toHaveBeenCalledWith(3);
-  });
-
-  it("未提交档的文件行没有「跳到对应轮次」", async () => {
-    renderGit({});
-    const menu = await openRowMenu("chat.go");
     expect(menuItemNames(menu)).toEqual([
       "Preview",
       "Preview in a new tab",
@@ -647,7 +590,6 @@ describe("行的右键菜单", () => {
     expect(menuItemNames(menu)).toEqual([
       "Preview",
       "Preview in a new tab",
-      "Jump to turn",
       "Copy relative path",
       "Copy file name",
     ]);

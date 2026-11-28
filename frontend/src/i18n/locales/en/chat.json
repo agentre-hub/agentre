@@ -108,25 +108,12 @@
     },
     "changes": {
       "label": "Changes",
-      "scope": {
-        "label": "Change scope",
-        "session": "This session",
-        "uncommitted": "Uncommitted"
-      },
-      "empty": "No files have been changed by tools in this session",
-      "listAria": "Files changed in this session",
-      "status": {
-        "created": "Created",
-        "modified": "Modified",
-        "deleted": "Deleted",
-        "written": "Written"
-      }
+      "notARepo": "This folder isn't a git repository, so changes can't be listed"
     },
     "row": {
       "menu": "More actions",
       "preview": "Preview",
       "previewInNewTab": "Preview in a new tab",
-      "jumpToTurn": "Jump to turn",
       "openWith": "Open with default app",
       "reveal": "Show in file manager",
       "revealFailed": "Failed to show in file manager",
@@ -145,8 +132,7 @@
       "followed": "Followed the agent to worktree {{name}}",
       "followedRepo": "Followed the agent to the main repo {{name}}",
       "stay": "Stay in {{name}}",
-      "removed": "Worktree {{name}} was removed; back to {{main}}",
-      "removedGroup": "{{name}} (removed)"
+      "removed": "Worktree {{name}} was removed; back to {{main}}"
     },
     "gitStatus": {
       "ahead": "{{count}} commit ahead of upstream",

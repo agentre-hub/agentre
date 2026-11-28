@@ -80,10 +80,7 @@ function renderSidebar(remote = false) {
 beforeEach(() => {
   localStorage.clear();
   showOnly("directory");
-  useChatSidebarStore.setState({
-    changesScope: "session",
-    showIgnored: false,
-  });
+  useChatSidebarStore.setState({ showIgnored: false });
   useFilePreviewTabsStore.setState({ previewTabsBySession: {} });
   useSessionStatusStore.getState().__reset();
   listDirMock.mockReset();
@@ -192,7 +189,8 @@ describe("目录页第二行的 git 状态条", () => {
     showOnly("changes");
     renderSidebar();
 
-    await screen.findByRole("tablist", { name: "Change scope" });
+    await screen.findByRole("region", { name: "Changes" });
+    await waitFor(() => expect(gitChangesMock).toHaveBeenCalled());
     expect(screen.queryByTestId("git-status-bar")).toBeNull();
   });
 });

@@ -219,14 +219,6 @@ vi.mock("../task-progress/derive", async (importOriginal) => {
     await importOriginal<typeof import("../task-progress/derive")>();
   return { ...actual, deriveTaskProgress: vi.fn(actual.deriveTaskProgress) };
 });
-vi.mock("../chat-context-sidebar/derive", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../chat-context-sidebar/derive")>();
-  return {
-    ...actual,
-    deriveSessionChanges: vi.fn(actual.deriveSessionChanges),
-  };
-});
 
 // ── import after mocks ─────────────────────────────────────────────────────
 
@@ -239,7 +231,6 @@ import { useToolWindowLayout } from "@/stores/tool-window-layout-store";
 
 import { deriveBackgroundTasks } from "../background-tasks/derive";
 import { ChatPanel } from "../chat-panel";
-import { deriveSessionChanges } from "../chat-context-sidebar/derive";
 import { desktopLocalCommandsAccess } from "../local-commands-access-desktop";
 import { deriveTaskProgress } from "../task-progress/derive";
 import { desktopTerminalTransport } from "../terminal/terminal-transport-desktop";
@@ -258,7 +249,6 @@ type Counts = {
   composer: number;
   backgroundTasks: number;
   taskProgress: number;
-  sessionChanges: number;
 };
 
 function counts(): Counts {
@@ -266,7 +256,6 @@ function counts(): Counts {
     composer: probes.composerRenders,
     backgroundTasks: vi.mocked(deriveBackgroundTasks).mock.calls.length,
     taskProgress: vi.mocked(deriveTaskProgress).mock.calls.length,
-    sessionChanges: vi.mocked(deriveSessionChanges).mock.calls.length,
   };
 }
 
@@ -297,7 +286,6 @@ describe("ChatPanel 流式输出期间的渲染隔离", () => {
     probes.lastLiveByMessageId = null;
     vi.mocked(deriveBackgroundTasks).mockClear();
     vi.mocked(deriveTaskProgress).mockClear();
-    vi.mocked(deriveSessionChanges).mockClear();
     useChatStreamsStore.setState({ streams: new Map() });
     // 每个 delta 各自落一次 store —— 最坏情况，正好放大每次通知的重渲染。
     useChatStreamsStore.getState().__setDeltaFlushMs(0);
@@ -319,7 +307,6 @@ describe("ChatPanel 流式输出期间的渲染隔离", () => {
     await settle();
     const before = counts();
     expect(before.composer).toBeGreaterThan(0);
-    expect(before.sessionChanges).toBeGreaterThan(0);
 
     for (const piece of ["a", "b", "c", "d", "e"]) {
       act(() => {
@@ -334,12 +321,11 @@ describe("ChatPanel 流式输出期间的渲染隔离", () => {
     return { before };
   }
 
-  it("Given 正在流式输出的会话 When 连续到达 5 个文字 delta Then 会话级派生（变更含逐根计数 / 后台任务 / 任务进度）不重算", async () => {
+  it("Given 正在流式输出的会话 When 连续到达 5 个文字 delta Then 会话级派生（后台任务 / 任务进度）不重算", async () => {
     const { before } = await streamFiveDeltas();
     const after = counts();
     expect(after.backgroundTasks).toBe(before.backgroundTasks);
     expect(after.taskProgress).toBe(before.taskProgress);
-    expect(after.sessionChanges).toBe(before.sessionChanges);
   });
 
   it("Given 正在流式输出的会话 When 连续到达 5 个文字 delta Then composer 不重渲染", async () => {
@@ -366,7 +352,6 @@ describe("ChatPanel 流式输出期间的渲染隔离", () => {
       const after = counts();
       expect(after.backgroundTasks).toBeGreaterThan(before.backgroundTasks);
       expect(after.taskProgress).toBeGreaterThan(before.taskProgress);
-      expect(after.sessionChanges).toBeGreaterThan(before.sessionChanges);
     });
   });
 });

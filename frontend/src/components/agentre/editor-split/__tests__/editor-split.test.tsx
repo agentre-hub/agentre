@@ -57,8 +57,8 @@ import {
 } from "@/stores/file-settings-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
-import { SessionChangesView } from "../../chat-context-sidebar/views/session-changes-view";
-import type { ChangeRow } from "../../chat-context-sidebar/derive";
+import { GitView } from "../../chat-context-sidebar/views/git-view";
+import type { GitChangesState } from "../../chat-context-sidebar/views/use-git-changes";
 import { FilePreviewPanel } from "../../file-preview/file-preview-panel";
 import { ShortcutsProvider } from "../../shortcuts/shortcuts-provider";
 import { desktopTranscriptPorts } from "../../transcript-ports-desktop";
@@ -157,22 +157,33 @@ describe("EditorSplit · 分屏", () => {
   });
 
   it("When a row in the changes window is clicked, Then the editor splits chat | file", async () => {
-    const row: ChangeRow = {
-      path: "src/a.ts",
-      name: "a.ts",
-      dir: "src",
-      status: "modified",
-      plus: 1,
-      minus: 0,
-      lastTurn: 1,
-    };
+    const state = {
+      status: "loaded",
+      view: {
+        notARepo: false,
+        baseRef: "",
+        truncated: false,
+        changes: [
+          {
+            path: "src/a.ts",
+            oldPath: "",
+            status: "modified",
+            added: 1,
+            deleted: 0,
+            binary: false,
+          },
+        ],
+      },
+    } as unknown as GitChangesState;
+    // 变更行开的是 git 来源的预览：它的取数挂着不回，本例只看分屏。
+    appMocks.gitFileContent.mockReturnValue(new Promise(() => {}));
     render(
-      <SessionChangesView
+      <GitView
         sessionId={1}
-        rows={[row]}
         cwd={CWD}
         remote={false}
-        onJumpToTurn={() => {}}
+        state={state}
+        onRetry={() => {}}
       />,
     );
     renderEditor();
