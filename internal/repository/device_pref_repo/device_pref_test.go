@@ -44,6 +44,15 @@ func TestDevicePrefRepo(t *testing.T) {
 			assert.NoError(t, mock.ExpectationsWereMet())
 		})
 
+		convey.Convey("When removed Then the pref row is soft deleted (tombstone landing)", func() {
+			mock.ExpectBegin()
+			mock.ExpectExec("UPDATE `device_prefs` SET `status`=\\?,`updatetime`=\\? WHERE id = \\?").
+				WithArgs(consts.DELETE, sqlmock.AnyArg(), int64(2)).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectCommit()
+			require.NoError(t, repo.Delete(ctx, 2))
+		})
+
 		convey.Convey("Given a new pref When created Then it is stamped and gets a sync identity", func() {
 			p := &device_pref_entity.DevicePref{DeviceFingerprint: "sha256:a"}
 			mock.ExpectBegin()

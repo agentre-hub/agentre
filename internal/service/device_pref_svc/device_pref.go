@@ -23,6 +23,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/app_setting_repo"
 	"github.com/agentre-hub/agentre/internal/repository/device_pref_repo"
 	"github.com/agentre-hub/agentre/internal/service/remote_device_svc"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
@@ -250,30 +252,57 @@ func (s *devicePrefSvc) Reorder(ctx context.Context, order []devicefp.Carrier) e
 			final = append(final, it.Fingerprint)
 		}
 	}
-	return s.tx.RunInTx(ctx, func(ctx context.Context) error {
+	// 同步通知等整笔事务提交之后再发：回滚的写入不该上行。只发位置真的变了的行与新建的行。
+	var changes []sync_svc.LocalChange
+	err = s.tx.RunInTx(ctx, func(ctx context.Context) error {
+		changes = changes[:0]
 		for i, fp := range final {
-			if err := s.place(ctx, fp, i, rows[fp]); err != nil {
+			ch, err := s.place(ctx, fp, i, rows[fp])
+			if err != nil {
 				return err
+			}
+			if ch != nil {
+				changes = append(changes, *ch)
 			}
 		}
 		return nil
 	})
-}
-
-// place 把一台设备放到 position：没有偏好行就建一行。
-func (s *devicePrefSvc) place(ctx context.Context, fp devicefp.Carrier, position int, row *device_pref_entity.DevicePref) error {
-	if row == nil {
-		return s.createRow(ctx, fp, position, "")
-	}
-	return device_pref_repo.DevicePref().SetSortOrder(ctx, fp, position)
-}
-
-func (s *devicePrefSvc) createRow(ctx context.Context, fp devicefp.Carrier, position int, labelsJSON string) error {
-	p := &device_pref_entity.DevicePref{DeviceFingerprint: fp, SortOrder: position, Status: consts.ACTIVE, LabelsJSON: labelsJSON}
-	if err := p.Check(ctx); err != nil {
+	if err != nil {
 		return err
 	}
-	return device_pref_repo.DevicePref().Create(ctx, p)
+	for _, ch := range changes {
+		sync_svc.Notify(ctx, ch)
+	}
+	return nil
+}
+
+// place 把一台设备放到 position：没有偏好行就建一行。返回要上行的改动（位置没变时为 nil）。
+func (s *devicePrefSvc) place(ctx context.Context, fp devicefp.Carrier, position int, row *device_pref_entity.DevicePref) (*sync_svc.LocalChange, error) {
+	if row == nil {
+		p, err := s.createRow(ctx, fp, position, "")
+		if err != nil {
+			return nil, err
+		}
+		return &sync_svc.LocalChange{Kind: syncwire.KindDevicePref, LocalID: p.ID, Op: sync_svc.OpCreate, Meta: p.SyncMeta}, nil
+	}
+	if err := device_pref_repo.DevicePref().SetSortOrder(ctx, fp, position); err != nil {
+		return nil, err
+	}
+	if row.SortOrder == position {
+		return nil, nil
+	}
+	return &sync_svc.LocalChange{Kind: syncwire.KindDevicePref, LocalID: row.ID, Op: sync_svc.OpUpdate, Meta: row.SyncMeta}, nil
+}
+
+func (s *devicePrefSvc) createRow(ctx context.Context, fp devicefp.Carrier, position int, labelsJSON string) (*device_pref_entity.DevicePref, error) {
+	p := &device_pref_entity.DevicePref{DeviceFingerprint: fp, SortOrder: position, Status: consts.ACTIVE, LabelsJSON: labelsJSON}
+	if err := p.Check(ctx); err != nil {
+		return nil, err
+	}
+	if err := device_pref_repo.DevicePref().Create(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 func (s *devicePrefSvc) UpdateLabels(ctx context.Context, fingerprint devicefp.Carrier, labels []string) error {
@@ -288,9 +317,18 @@ func (s *devicePrefSvc) UpdateLabels(ctx context.Context, fingerprint devicefp.C
 	p := &device_pref_entity.DevicePref{}
 	p.SetLabels(labels)
 	if rows[fingerprint] == nil {
-		return s.createRow(ctx, fingerprint, position, p.LabelsJSON)
+		created, err := s.createRow(ctx, fingerprint, position, p.LabelsJSON)
+		if err != nil {
+			return err
+		}
+		sync_svc.NotifyCreate(ctx, syncwire.KindDevicePref, created.ID, created.SyncMeta)
+		return nil
 	}
-	return device_pref_repo.DevicePref().SetLabels(ctx, fingerprint, p.LabelsJSON)
+	if err := device_pref_repo.DevicePref().SetLabels(ctx, fingerprint, p.LabelsJSON); err != nil {
+		return err
+	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindDevicePref, rows[fingerprint].ID, rows[fingerprint].SyncMeta)
+	return nil
 }
 
 func (s *devicePrefSvc) GetLocalFirst(ctx context.Context) (bool, error) {
@@ -360,12 +398,25 @@ func (s *devicePrefSvc) SetCLIPath(ctx context.Context, runtimeType string, devi
 	case row == nil && path == "":
 		return nil
 	case row == nil:
-		return device_pref_repo.CLIPath().Create(ctx, &device_pref_entity.CLIPathOverride{
+		created := &device_pref_entity.CLIPathOverride{
 			RuntimeType: runtimeType, DeviceFingerprint: fp, CLIPath: path, Status: consts.ACTIVE,
-		})
+		}
+		if err := device_pref_repo.CLIPath().Create(ctx, created); err != nil {
+			return err
+		}
+		sync_svc.NotifyCreate(ctx, syncwire.KindDeviceCLIPath, created.ID, created.SyncMeta)
+		return nil
 	case path == "":
-		return device_pref_repo.CLIPath().Delete(ctx, row.ID)
+		if err := device_pref_repo.CLIPath().Delete(ctx, row.ID); err != nil {
+			return err
+		}
+		sync_svc.NotifyDelete(ctx, syncwire.KindDeviceCLIPath, row.ID, row.SyncMeta)
+		return nil
 	default:
-		return device_pref_repo.CLIPath().UpdatePath(ctx, row.ID, path)
+		if err := device_pref_repo.CLIPath().UpdatePath(ctx, row.ID, path); err != nil {
+			return err
+		}
+		sync_svc.NotifyUpdate(ctx, syncwire.KindDeviceCLIPath, row.ID, row.SyncMeta)
+		return nil
 	}
 }

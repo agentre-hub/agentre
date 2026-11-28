@@ -164,6 +164,12 @@ func tableOf(kind string) (string, error) {
 		return "issue_labels", nil
 	case syncwire.KindMemory:
 		return "memories", nil
+	case syncwire.KindEngineProfile:
+		return "engine_profiles", nil
+	case syncwire.KindDevicePref:
+		return "device_prefs", nil
+	case syncwire.KindDeviceCLIPath:
+		return "device_cli_paths", nil
 	}
 	return "", fmt.Errorf("%w: %s", ErrUnknownKind, kind)
 }

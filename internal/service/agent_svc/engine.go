@@ -10,6 +10,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/service/department_svc"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 	"github.com/agentre-hub/agentre/pkg/wire/devicefp"
 )
 
@@ -113,6 +115,8 @@ func (s *agentSvc) saveEngineSettings(ctx context.Context, a *agent_entity.Agent
 	if err := agent_repo.Agent().UpdateEngineSettings(ctx, a); err != nil {
 		return nil, err
 	}
+	// 引擎引用 / 约束 / 技能授权都走这一条窄写口：落库成功后统一排进上行。
+	sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, a.ID, a.SyncMeta)
 	return s.memberEngineView(ctx, a)
 }
 

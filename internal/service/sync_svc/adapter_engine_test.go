@@ -553,3 +553,18 @@ func TestAgentAdapter_ApplyNewRowWritesEngineSettingsAfterCreate(t *testing.T) {
 		Payload: []byte(`{"name":"Nova","engine":{"engine_profile_sync_id":"ep-1","exec_constraint":{"mode":"any"}}}`),
 	}, map[string]int64{"engine_profile:ep-1": 3}))
 }
+
+func TestDevicePrefAdapter_RemoveSoftDeletesTheRow(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	state := mock_syncstate_repo.NewMockSyncStateRepo(ctrl)
+	stateFinds(state, syncwire.KindDevicePref, "dp-1", func(dest any) {
+		*dest.(*device_pref_entity.DevicePref) = device_pref_entity.DevicePref{ID: 9, DeviceFingerprint: "sha256:dev-a"}
+	})
+	syncstate_repo.RegisterSyncState(state)
+	prefs := mock_device_pref_repo.NewMockDevicePrefRepo(ctrl)
+	prefs.EXPECT().Delete(gomock.Any(), int64(9)).Return(nil)
+	device_pref_repo.RegisterDevicePref(prefs)
+
+	require.NoError(t, devicePrefAdapter{}.remove(context.Background(), &inbound{
+		Kind: syncwire.KindDevicePref, SyncID: "dp-1", DeletedAt: 1}))
+}

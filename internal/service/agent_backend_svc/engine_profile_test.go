@@ -220,6 +220,7 @@ func TestEngineProfileSvc_SetAccountDefault(t *testing.T) {
 
 		convey.Convey("Given an active profile When made the account default Then the repository moves the mark to it", func() {
 			m.profiles.EXPECT().Find(gomock.Any(), int64(4)).Return(activeProfile(4, "codex", false), nil)
+			m.profiles.EXPECT().FindAccountDefault(gomock.Any()).Return(activeProfile(1, "claudecode", true), nil)
 			m.profiles.EXPECT().SetAccountDefault(gomock.Any(), int64(4)).Return(nil)
 
 			resp, err := svc.SetAccountDefault(ctx, &SetAccountDefaultEngineProfileRequest{ID: 4})

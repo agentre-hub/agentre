@@ -13,12 +13,16 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/agentre-hub/agentre/internal/model/entity/agent_backend_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/agent_entity"
+	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
 	"github.com/agentre-hub/agentre/internal/model/entity/llm_provider_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/agent_backend_repo"
 	"github.com/agentre-hub/agentre/internal/repository/agent_repo"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
 	"github.com/agentre-hub/agentre/internal/repository/llm_provider_repo"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // EngineProfileSvc 引擎配置应用服务（spec 2026-11-25 决策 2）。
@@ -160,6 +164,7 @@ func (s *engineProfileSvc) Create(ctx context.Context, req *CreateEngineProfileR
 	if err := agent_backend_repo.EngineProfile().Create(ctx, p); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyCreate(ctx, syncwire.KindEngineProfile, p.ID, p.SyncMeta)
 	return &CreateEngineProfileResponse{Item: s.item(ctx, p)}, nil
 }
 
@@ -195,6 +200,7 @@ func (s *engineProfileSvc) Update(ctx context.Context, req *UpdateEngineProfileR
 	if err := agent_backend_repo.EngineProfile().Update(ctx, p); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindEngineProfile, p.ID, p.SyncMeta)
 	return &UpdateEngineProfileResponse{Item: s.item(ctx, p)}, nil
 }
 
@@ -219,10 +225,11 @@ func (s *engineProfileSvc) Delete(ctx context.Context, req *DeleteEngineProfileR
 	if p.IsAccountDefault {
 		return nil, i18n.NewError(ctx, code.EngineProfileAccountDefaultUndeletable)
 	}
-	refs, err := s.references(ctx, p.ID)
+	agents, depts, err := s.referencingRows(ctx, p.ID)
 	if err != nil {
 		return nil, err
 	}
+	refs := toEngineProfileReferences(agents, depts)
 	// 引用与配置同生共死：只删了配置、引用还指着它，成员就会停在一份选不中的配置上。
 	// 钉在它上面的会话不动——它们按这份配置最后的设置继续（FindAnyStatus 读得到）。
 	err = s.tx.RunInTx(ctx, func(ctx context.Context) error {
@@ -236,6 +243,14 @@ func (s *engineProfileSvc) Delete(ctx context.Context, req *DeleteEngineProfileR
 	})
 	if err != nil {
 		return nil, err
+	}
+	// 墓碑之外，回落了的成员与部门各自的引擎引用也变了，它们的新值要一起上行。
+	sync_svc.NotifyDelete(ctx, syncwire.KindEngineProfile, p.ID, p.SyncMeta)
+	for _, a := range agents {
+		sync_svc.NotifyUpdate(ctx, syncwire.KindAgent, a.ID, a.SyncMeta)
+	}
+	for _, d := range depts {
+		sync_svc.NotifyUpdate(ctx, syncwire.KindDepartment, d.ID, d.SyncMeta)
 	}
 	return &DeleteEngineProfileResponse{References: *refs}, nil
 }
@@ -251,22 +266,43 @@ func (s *engineProfileSvc) SetAccountDefault(ctx context.Context, req *SetAccoun
 	if p == nil {
 		return nil, i18n.NewError(ctx, code.EngineProfileNotFound)
 	}
+	// 标记从上一份默认挪到这一份：两行的 is_account_default 都变了，都要上行。
+	previous, err := agent_backend_repo.EngineProfile().FindAccountDefault(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if err := agent_backend_repo.EngineProfile().SetAccountDefault(ctx, p.ID); err != nil {
 		return nil, err
 	}
 	p.IsAccountDefault = true
+	sync_svc.NotifyUpdate(ctx, syncwire.KindEngineProfile, p.ID, p.SyncMeta)
+	if previous != nil && previous.ID != p.ID {
+		sync_svc.NotifyUpdate(ctx, syncwire.KindEngineProfile, previous.ID, previous.SyncMeta)
+	}
 	return &SetAccountDefaultEngineProfileResponse{Item: s.item(ctx, p)}, nil
 }
 
 func (s *engineProfileSvc) references(ctx context.Context, id int64) (*EngineProfileReferences, error) {
-	agents, err := agent_repo.Agent().ListByEngineProfile(ctx, id)
+	agents, depts, err := s.referencingRows(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	return toEngineProfileReferences(agents, depts), nil
+}
+
+func (s *engineProfileSvc) referencingRows(ctx context.Context, id int64) ([]*agent_entity.Agent, []*department_entity.Department, error) {
+	agents, err := agent_repo.Agent().ListByEngineProfile(ctx, id)
+	if err != nil {
+		return nil, nil, err
 	}
 	depts, err := department_repo.Department().ListByDefaultEngineProfile(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	return agents, depts, nil
+}
+
+func toEngineProfileReferences(agents []*agent_entity.Agent, depts []*department_entity.Department) *EngineProfileReferences {
 	out := &EngineProfileReferences{Agents: []EngineProfileRef{}, Departments: []EngineProfileRef{}}
 	for _, a := range agents {
 		out.Agents = append(out.Agents, EngineProfileRef{ID: a.ID, Name: a.Name})
@@ -274,7 +310,7 @@ func (s *engineProfileSvc) references(ctx context.Context, id int64) (*EnginePro
 	for _, d := range depts {
 		out.Departments = append(out.Departments, EngineProfileRef{ID: d.ID, Name: d.Name})
 	}
-	return out, nil
+	return out
 }
 
 // validate 走与后端同一套保存规则：地址规范化、实体校验、供应商 / 固定模型 / 分级路由。

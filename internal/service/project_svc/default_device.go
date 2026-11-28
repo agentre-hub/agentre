@@ -22,8 +22,8 @@ func selfDeviceFingerprint() (devicefp.Carrier, error) {
 	return remote_device_svc.Default().DeviceFingerprint()
 }
 
-// SetDefaultDevice 见 ProjectSvc 接口注释。默认设备不参与跨端同步载荷（本任务不改同步契约），
-// 只刷新这台桌面端项目树要展示的字段。
+// SetDefaultDevice 见 ProjectSvc 接口注释。默认设备是项目同步载荷的一部分：保存成功后
+// 项目那一行排进上行。
 func (s *projectSvc) SetDefaultDevice(ctx context.Context, id int64, fingerprint devicefp.Carrier) error {
 	project, err := project_repo.Project().Find(ctx, id)
 	if err != nil {
@@ -45,6 +45,7 @@ func (s *projectSvc) SetDefaultDevice(ctx context.Context, id int64, fingerprint
 	if err := project_repo.Project().SetDefaultDevice(ctx, id, fingerprint); err != nil {
 		return err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindProject, project.ID, project.SyncMeta)
 	sync_svc.NotifyConfigChanged(syncwire.KindProject)
 	return nil
 }

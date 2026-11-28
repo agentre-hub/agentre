@@ -9,6 +9,8 @@ import (
 	"github.com/agentre-hub/agentre/internal/model/entity/department_entity"
 	"github.com/agentre-hub/agentre/internal/pkg/code"
 	"github.com/agentre-hub/agentre/internal/repository/department_repo"
+	"github.com/agentre-hub/agentre/internal/service/sync_svc"
+	"github.com/agentre-hub/agentre/pkg/syncwire"
 )
 
 // 生效引擎配置的来源（spec 2026-11-25 决策 3：成员 › 所在部门 › 上级部门 › 账号默认）。
@@ -96,6 +98,7 @@ func (s *departmentSvc) SetDepartmentEngine(ctx context.Context, req *SetDepartm
 		return nil, err
 	}
 	d.DefaultEngineProfileID = req.EngineProfileID
+	sync_svc.NotifyUpdate(ctx, syncwire.KindDepartment, d.ID, d.SyncMeta)
 	return s.engineView(ctx, d)
 }
 

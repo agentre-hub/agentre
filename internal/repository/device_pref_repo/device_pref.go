@@ -27,6 +27,8 @@ type DevicePrefRepo interface {
 	SetSortOrder(ctx context.Context, fingerprint devicefp.Carrier, sortOrder int) error
 	// SetLabels 只写标签（已归一的 JSON 数组）。
 	SetLabels(ctx context.Context, fingerprint devicefp.Carrier, labelsJSON string) error
+	// Delete 软删：一条入站墓碑的落地口。
+	Delete(ctx context.Context, id int64) error
 }
 
 var defaultDevicePref DevicePrefRepo
@@ -74,6 +76,11 @@ func (r *devicePrefRepo) SetLabels(ctx context.Context, fingerprint devicefp.Car
 	return db.Ctx(ctx).Model(&device_pref_entity.DevicePref{}).
 		Where("device_fingerprint = ?", fingerprint).
 		Updates(map[string]any{"labels_json": labelsJSON, "updatetime": time.Now().UnixMilli()}).Error
+}
+
+func (r *devicePrefRepo) Delete(ctx context.Context, id int64) error {
+	return db.Ctx(ctx).Model(&device_pref_entity.DevicePref{}).Where("id = ?", id).
+		Updates(map[string]any{"status": consts.DELETE, "updatetime": time.Now().UnixMilli()}).Error
 }
 
 // CLIPathRepo 按（运行时类型, 设备）存的 CLI 路径覆盖仓储。

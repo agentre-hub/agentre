@@ -528,3 +528,46 @@ func TestListUnsyncedTombstones_GivenMemories_ReturnsNothing(t *testing.T) {
 	assert.Empty(t, rows)
 	assert.NoError(t, mock.ExpectationsWereMet())
 }
+
+// 引擎配置、设备偏好、CLI 路径覆盖三张表都是软删表、有自增 id：每个同步入口都要认得它们，
+// 否则新类型的推拉第一步就以 ErrUnknownKind 打断整轮同步。
+func TestClaimForAccount_GivenEngineDeviceKinds_ResolvesEveryTable(t *testing.T) {
+	for _, tc := range []struct{ kind, table string }{
+		{syncwire.KindEngineProfile, "engine_profiles"},
+		{syncwire.KindDevicePref, "device_prefs"},
+		{syncwire.KindDeviceCLIPath, "device_cli_paths"},
+	} {
+		ctx, _, mock := testutils.Database(t)
+		mock.ExpectQuery("SELECT id,sync_id,sync_version,sync_account_id FROM `"+tc.table+
+			"` WHERE \\(\\(sync_account_id = 0 OR sync_account_id <> \\?\\) AND sync_deleted_at = 0\\) AND status = \\?").
+			WithArgs(int64(7), consts.ACTIVE).
+			WillReturnRows(sqlmock.NewRows([]string{"id", "sync_id", "sync_version", "sync_account_id"}))
+
+		rows, err := NewSyncState().ClaimForAccount(ctx, tc.kind, 7)
+		require.NoError(t, err, tc.kind)
+		assert.Empty(t, rows)
+		assert.NoError(t, mock.ExpectationsWereMet(), tc.kind)
+	}
+}
+
+func TestFindLocalIDAndSaveMeta_GivenEngineDeviceKinds_ResolveTable(t *testing.T) {
+	for _, tc := range []struct{ kind, table string }{
+		{syncwire.KindEngineProfile, "engine_profiles"},
+		{syncwire.KindDevicePref, "device_prefs"},
+		{syncwire.KindDeviceCLIPath, "device_cli_paths"},
+	} {
+		ctx, _, mock := testutils.Database(t)
+		mock.ExpectQuery("SELECT id FROM `" + tc.table + "` WHERE sync_id = \\? AND sync_id != ''$").
+			WithArgs("x-1").
+			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(3)))
+		id, err := NewSyncState().FindLocalID(ctx, tc.kind, "x-1")
+		require.NoError(t, err, tc.kind)
+		assert.Equal(t, int64(3), id)
+
+		mock.ExpectBegin()
+		mock.ExpectExec("UPDATE `" + tc.table + "` SET").WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectCommit()
+		require.NoError(t, NewSyncState().SaveMeta(ctx, tc.kind, "x-1", syncmeta_entity.SyncMeta{SyncVersion: 2}), tc.kind)
+		assert.NoError(t, mock.ExpectationsWereMet(), tc.kind)
+	}
+}

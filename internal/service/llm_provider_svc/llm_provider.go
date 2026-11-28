@@ -950,6 +950,7 @@ func (s *llmProviderSvc) SetProviderReach(ctx context.Context, req *SetProviderR
 	if err := llm_provider_repo.LLMProvider().UpdateReach(ctx, p.ID, p.ReachMode, p.ReachDevicesJSON); err != nil {
 		return nil, err
 	}
+	sync_svc.NotifyUpdate(ctx, syncwire.KindLLMProvider, p.ID, p.SyncMeta)
 	sync_svc.NotifyConfigChanged(syncwire.KindLLMProvider)
 	return reachResponse(p), nil
 }

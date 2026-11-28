@@ -56,6 +56,20 @@ func (mr *MockDevicePrefRepoMockRecorder) Create(ctx, p any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockDevicePrefRepo)(nil).Create), ctx, p)
 }
 
+// Delete mocks base method.
+func (m *MockDevicePrefRepo) Delete(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Delete", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Delete indicates an expected call of Delete.
+func (mr *MockDevicePrefRepoMockRecorder) Delete(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockDevicePrefRepo)(nil).Delete), ctx, id)
+}
+
 // List mocks base method.
 func (m *MockDevicePrefRepo) List(ctx context.Context) ([]*device_pref_entity.DevicePref, error) {
 	m.ctrl.T.Helper()

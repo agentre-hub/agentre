@@ -91,15 +91,14 @@ func heldDevicePref(ctx context.Context, in *inbound) (*device_pref_entity.Devic
 	return byKey, nil
 }
 
-// remove：偏好没有删除口（设备页只有「改」），一条墓碑的含义是「这台设备不再有偏好」，
-// 落成清空标签——位次本来就只是顺序提示，不构成偏好内容。
+// remove：一条墓碑的含义是「这台设备不再有偏好」，落成软删。
 func (devicePrefAdapter) remove(ctx context.Context, in *inbound) error {
 	row := &device_pref_entity.DevicePref{}
 	found, err := syncstate_repo.SyncState().FindRow(ctx, syncwire.KindDevicePref, in.SyncID, row)
 	if err != nil || !found {
 		return err
 	}
-	return device_pref_repo.DevicePref().SetLabels(ctx, row.DeviceFingerprint, "[]")
+	return device_pref_repo.DevicePref().Delete(ctx, row.ID)
 }
 
 // deviceCLIPathAdapter 同步按（运行时类型, 设备）存的 CLI 路径覆盖：运行时类型在
